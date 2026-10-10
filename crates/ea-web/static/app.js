@@ -168,15 +168,32 @@ function filasPropuestas(ps) {
   return ps.map(p => {
     const k = 'p' + p.id;
     const pend = p.estado === 'pendiente';
-    const glifo = pend ? '◇' : p.estado === 'aceptada' ? '✓' : '✕';
-    const acc = pend
-      ? btn('decidir', '✓', 'aceptar', { id: p.id, v: 'aceptar' }) + btn('decidir', '✕', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot')
-      : '';
-    const row = `<i class="${pend ? 'hot' : 'm'}" title="${p.estado}">${glifo}</i><span class="n">#${p.id}</span>` +
-      `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(p.rutina ?? '')}</span><span class="m">${hace(p.creada)}</span><span>${acc}</span>`;
-    const det = `<p class="tx">${esc(p.descripcion)}</p>` +
-      `<p class="m">${esc(p.rutina ?? '')} · ejecución #${p.ejecucion}${p.decidida ? ' · ' + hora(p.decidida) : ''}</p>`;
-    return fila(k, 'p', row, `${p.descripcion} ${p.rutina ?? ''} ${p.estado}`, det, pend ? '' : ' fin');
+    const ac = p.accion;
+    const irrev = ac && ac.riesgo === 'irreversible';
+    const falla = p.ejecutada && p.ejecutada.estado === 'fallida';
+    const glifo = pend ? '◇' : falla ? '!' : p.estado === 'aceptada' ? '✓' : '✕';
+    // Aceptar una propuesta con acción la ejecuta: pide confirmar (segundo
+    // clic). Una irreversible no se confirma desde aquí, solo en terminal.
+    const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
+    let acc = '';
+    if (pend) {
+      if (irrev) acc += `<i class="m" title="irreversible: solo desde la terminal (ea propuestas decidir ${p.id})">⌨</i>`;
+      else if (ac) acc += btn('decidir', armada ? '✓?' : '✓', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'hot' : '');
+      else acc += btn('decidir', '✓', 'aceptar', { id: p.id, v: 'aceptar' });
+      acc += btn('decidir', '✕', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
+    }
+    const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : (p.rutina ?? '');
+    const row = `<i class="${pend || falla ? 'hot' : 'm'}" title="${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${glifo}</i><span class="n">#${p.id}</span>` +
+      `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${hace(p.creada)}</span><span>${acc}</span>`;
+    let det = `<p class="tx">${esc(p.descripcion)}</p>`;
+    if (ac) {
+      det += `<p class="m">${esc(ac.herramienta)} · riesgo ${esc(ac.riesgo)} · propuesta por ${esc(p.proponente ?? '?')}</p>` +
+        `<p class="m">${esc(JSON.stringify(ac.argumentos))}</p><p class="tx">Simulación: ${esc(ac.simulacion)}</p>`;
+      if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>.</p>`;
+    }
+    if (p.ejecutada) det += `<p class="${falla ? 'hot' : 'tx'}">Ejecución ${esc(p.ejecutada.estado)}: ${esc(p.ejecutada.detalle ?? '')}</p>`;
+    det += `<p class="m">${esc(p.rutina ?? '')}${p.ejecucion ? ' · ejecución #' + p.ejecucion : ''}${p.decidida ? ' · ' + hora(p.decidida) : ''}</p>`;
+    return fila(k, 'p', row, `${p.descripcion} ${quien} ${p.estado}`, det, pend ? '' : ' fin');
   });
 }
 
@@ -358,7 +375,16 @@ async function accion(b) {
       const res = $('.res', b.closest('.f'))?.value.trim();
       await post(`/api/tareas/${id}/estado`, { estado: v, resultado: res || null });
     } else if (a === 'decidir') {
-      await post(`/api/propuestas/${id}/decidir`, { decision: v });
+      const k = 'p' + id;
+      if (v === 'aceptar' && b.dataset.ac && !(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
+        st.armado = { n: k, hasta: Date.now() + 4000 };
+        pintar();
+        setTimeout(pintar, 4100);
+        return;
+      }
+      st.armado = null;
+      const p = await post(`/api/propuestas/${id}/decidir`, { decision: v });
+      if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
     } else if (a === 'encolar') {
       const t = await post(`/api/rutinas/${encodeURIComponent(slug)}/encolar`);
       avisa('▶ #' + t.id, true);

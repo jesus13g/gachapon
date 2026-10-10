@@ -135,3 +135,41 @@ async fn elegir_rama_contra_llama_server_real() {
     .expect("elegir rama");
     assert!(opciones.contains(&rama), "rama fuera del conjunto cerrado: {rama}");
 }
+
+/// El modelo local puede pedir un cambio de estado, pero solo consigue una
+/// propuesta pendiente: la tarea no cambia hasta que el usuario acepte.
+#[tokio::test]
+#[ignore]
+async fn el_modelo_local_solo_propone_un_cambio_de_estado() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("ecosistema-test.db");
+    let mut propio = Store::open_at(&db_path).expect("abrir store de prueba");
+    let tarea = propio
+        .create_task(ea_store::NewTask {
+            created_by: "usuario".into(),
+            assigned_to: "claude-code".into(),
+            origin: ea_store::TaskOrigin::Manual,
+            parent_task_id: None,
+            title: "Revisar informe".into(),
+            request: "x".into(),
+        })
+        .expect("crear tarea");
+
+    let mcp_url = start_ea_mcp(db_path.clone()).await;
+    let mcp = McpClient::connect(&mcp_url).await.expect("conectar a ea-mcp efímero");
+    let llama = LlamaClient::new("http://127.0.0.1:8080".to_string());
+    let store = Mutex::new(Store::open_at(&db_path).expect("abrir store de prueba"));
+    let profile = Config::default().perfiles["rapido"].clone();
+
+    let peticion = [ChatMessage::user(format!("Marca la tarea {} como completada", tarea.id))];
+    let decision = decide::decidir(&llama, &mcp, &store, &peticion, &profile)
+        .await
+        .expect("decidir sobre cambio de estado");
+    assert_eq!(decision.herramienta_usada.as_deref(), Some("ea_cambiar_estado_tarea"));
+
+    assert_eq!(propio.get_task(tarea.id).unwrap().status, ea_store::TaskStatus::Pendiente);
+    let propuestas = propio.list_propuestas(&Default::default()).unwrap();
+    assert_eq!(propuestas.len(), 1);
+    assert_eq!(propuestas[0].proponente.as_deref(), Some("modelo-local"));
+    assert_eq!(propuestas[0].estado, ea_store::EstadoPropuesta::Pendiente);
+}

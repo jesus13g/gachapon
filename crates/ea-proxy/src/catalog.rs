@@ -1,5 +1,6 @@
 //! Catálogo reducido de herramientas proyectado hacia el modelo local:
-//! solo lectura, descripciones cortas e imperativas, argumentos fuertemente
+//! lecturas más una única herramienta mutante, `ea_cambiar_estado_tarea`, que
+//! en ea-mcp solo propone (el usuario confirma); descripciones cortas e imperativas, argumentos fuertemente
 //! tipados (§7.1 de la especificación) — declarado a mano, no derivado en
 //! caliente del catálogo flexible que `ea-mcp` expone a Claude Code (ver
 //! razonamiento en el plan de esta fase). Cada entrada aquí corresponde a
@@ -73,6 +74,22 @@ fn schema_ea_listar_diario() -> Value {
     })
 }
 
+fn schema_ea_cambiar_estado_tarea() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "integer" },
+            "estado": {
+                "type": "string",
+                "enum": ["pendiente", "en_progreso", "completada", "fallida", "cancelada"],
+            },
+            "resultado": { "type": ["string", "null"] },
+        },
+        "required": ["id", "estado", "resultado"],
+        "additionalProperties": false,
+    })
+}
+
 pub const CATALOGO: &[CatalogTool] = &[
     CatalogTool {
         name: "ea_status",
@@ -100,6 +117,14 @@ pub const CATALOGO: &[CatalogTool] = &[
         args_schema: schema_ea_listar_diario,
         args_help: "tarea: id numérico o null. actor: nombre del actor o null. desde/hasta: \
             fecha AAAA-MM-DD o null. limite: máximo de resultados o null.",
+    },
+    CatalogTool {
+        name: "ea_cambiar_estado_tarea",
+        description: "Pide cambiar el estado de una tarea. Solo propone: el usuario lo confirma.",
+        args_schema: schema_ea_cambiar_estado_tarea,
+        args_help: "id: identificador numérico de la tarea. estado: el estado nuevo \
+            (pendiente/en_progreso/completada/fallida/cancelada). resultado: texto breve \
+            del resultado, o null.",
     },
 ];
 

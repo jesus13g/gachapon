@@ -5,14 +5,27 @@
 use ea_proxy::catalog;
 
 #[test]
-fn el_catalogo_es_solo_lectura_de_las_cuatro_herramientas_esperadas() {
-    let nombres = catalog::tool_names();
-    assert_eq!(
-        nombres,
-        vec!["ea_status", "ea_listar_tareas", "ea_ver_tarea", "ea_listar_diario"],
-        "el catálogo reducido debe ser exactamente estas cuatro herramientas de solo \
-         lectura (ea_crear_tarea queda fuera a propósito en esta fase)"
-    );
+fn el_catalogo_local_es_la_proyeccion_reducida_del_catalogo_unico() {
+    // Un catálogo, dos proyecciones (decisión 11): lo que ve el modelo local
+    // es exactamente lo que `ea-acciones` marca como local...
+    let mut esperado: Vec<&str> = ea_acciones::catalogo::proyeccion_local().map(|h| h.nombre).collect();
+    let mut nombres = catalog::tool_names();
+    esperado.sort();
+    nombres.sort();
+    assert_eq!(nombres, esperado);
+    // ...que son las lecturas y, como mucho, proponer un cambio de estado
+    // (reversible): nada irreversible, y ninguna herramienta que ejecute.
+    for n in &nombres {
+        let h = ea_acciones::buscar(n).unwrap();
+        assert!(h.riesgo != ea_acciones::Riesgo::Irreversible, "{n}");
+        assert!(
+            h.riesgo == ea_acciones::Riesgo::Lectura || h.ejecucion == ea_acciones::Ejecucion::Supervisada,
+            "{n}: una mutante del modelo local debe ser solo-propone"
+        );
+        // Y el servidor se la permite al modelo local.
+        assert!(ea_acciones::autorizar_mcp("modelo-local", h).is_ok(), "{n}");
+    }
+    assert!(nombres.contains(&"ea_cambiar_estado_tarea"));
 }
 
 #[test]

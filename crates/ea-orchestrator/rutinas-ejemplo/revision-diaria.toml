@@ -38,6 +38,12 @@ ramas = { hay_errores = "proponer_revision", sin_errores = "fin" }
 id = "proponer_revision"
 tipo = "propuesta"
 descripcion = "Se detectaron eventos con error en el diario desde {ultima_ejecucion}. Revisar con 'ea diario listar'."
+# Una propuesta puede llevar además una acción estructurada. La rutina NUNCA
+# la ejecuta (es de solo lectura): se encola con su simulación y la ejecuta el
+# usuario al aceptarla (`ea propuestas decidir`, o el panel web si es
+# reversible). La herramienta y sus argumentos se validan al cargar la
+# rutina contra el catálogo; p. ej.:
+# accion = { herramienta = "ea_reiniciar_servicio", argumentos = { servicio = "ea-orchestrator" } }
 
 [[pasos]]
 id = "fin"

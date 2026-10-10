@@ -17,15 +17,20 @@ los modelos descargados: el propio orquestador escucha, transcribe, pregunta
 al modelo local y habla la respuesta, con activación manual (`ea voz hablar`)
 o, si el usuario la activa en `voz.toml`, con palabra de activación
 («hola asistente» por defecto; desactivada por defecto porque implica el
-micrófono abierto de forma continua). Ambas recorren el mismo turno. Sin
-mutaciones todavía. Un panel web (`ea-web`) para ver y gestionar todo desde
-el escritorio.
+micrófono abierto de forma continua). Ambas recorren el mismo turno.
+Mutaciones supervisadas (fase 6): las herramientas que cambian el sistema
+solo simulan o encolan una propuesta con acción estructurada, y la ejecuta el
+usuario al aceptarla (ver «Mutaciones supervisadas»). Un panel web (`ea-web`)
+para ver y gestionar todo desde el escritorio.
 
 ## Estructura
 
 - `crates/ea-store`: capa de datos compartida (SQLite embebido). Único punto
   de acceso a la base de datos; el resto de crates la reutilizan sin
   reimplementar esquema.
+- `crates/ea-acciones`: capa interna de herramientas. Catálogo único con
+  nivel de riesgo, simulación, revalidación, ejecución y el flujo propuesta →
+  aceptación → ejecución. Aquí vive la lógica de sistema operativo.
 - `crates/ea-cli`: binario `ea`, interfaz de terminal.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor de herramientas MCP (HTTP,
   `127.0.0.1`) consumido por Claude Code y por `ea-proxy`/`ea-orchestrator`.
@@ -52,7 +57,9 @@ ea diario ver <id>
 ea rutinas listar
 ea rutinas ver <slug>
 ea propuestas listar [--estado pendiente]
-ea propuestas decidir <id> --aceptar|--rechazar
+ea propuestas ver <id>                       # acción, riesgo, simulación, ejecución
+ea propuestas decidir <id> --aceptar|--rechazar   # aceptar una con acción la ejecuta
+ea acciones listar|simular|ejecutar          # catálogo de herramientas y ejecución directa
 ea voz hablar                                # activación manual (ver más abajo)
 ea voz estado                                # motor de voz y palabra de activación
 ea tui                                       # interfaz interactiva
@@ -68,12 +75,24 @@ La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
 # puerto configurable con $EA_MCP_PORT
 ```
 
-Herramientas expuestas: `ea_status`, `ea_listar_tareas`, `ea_ver_tarea`,
-`ea_listar_diario` (consulta) y `ea_crear_tarea` (con `simular: true` para
-previsualizar sin escribir). Toda invocación queda registrada en el diario,
-atribuida al cliente que la hizo: `claude-code` por defecto, `modelo-local`
-si el cliente se identifica como `ea-proxy`, `orquestador` si se identifica
-como `ea-orchestrator`.
+Herramientas expuestas (un solo catálogo, `ea-acciones`), con su nivel de
+riesgo (§7.3):
+
+| Herramienta | Riesgo | Desde un agente | Modelo local |
+|---|---|---|---|
+| `ea_status`, `ea_listar_tareas`, `ea_ver_tarea`, `ea_listar_diario` | lectura | se ejecuta | sí |
+| `ea_crear_tarea` (con `simular: true`) | mutación reversible | se ejecuta (excepción razonada: es la primitiva de comunicación entre actores, §9.1; solo escribe una fila) | no |
+| `ea_cambiar_estado_tarea` | mutación reversible | solo simula o propone | sí (solo propone) |
+| `ea_encolar_rutina` | mutación reversible | solo simula o propone | no |
+| `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-proxy`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone | no |
+| `ea_eliminar_rutina` (borra el fichero de la rutina) | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal | no |
+
+Toda invocación queda registrada en el diario, atribuida al cliente que la
+hizo: `claude-code` por defecto, `modelo-local` si el cliente se identifica
+como `ea-proxy`, `orquestador` si se identifica como `ea-orchestrator`.
+La autorización es del servidor, no del prompt: el `orquestador` (lo
+desatendido) solo puede leer, sin excepciones; el `modelo-local` solo ve su
+proyección reducida y nunca una irreversible.
 
 Instalación como servicio de sesión (`systemd --user`):
 
@@ -91,6 +110,56 @@ directorio):
 ```bash
 claude mcp add --transport http --scope user ea-ecosistema http://127.0.0.1:8765/mcp
 ```
+
+### Mutaciones supervisadas (fase 6)
+
+**La confirmación la da siempre el usuario, nunca un agente.** Una herramienta
+mutante invocada por un agente (Claude Code por MCP, el modelo local, una
+rutina) devuelve la **simulación** (`simular: true`: describe lo que haría sin
+hacerlo) o, sin simular, **encola una propuesta con acción estructurada**
+(herramienta, argumentos, riesgo, texto de la simulación y la precondición del
+mundo en ese momento). No existe ninguna herramienta, argumento ni token con el
+que un agente se confirme a sí mismo, y el código de `ea-mcp` y del orquestador
+solo recibe una capa de *consulta* (`SoloConsulta`), que ni siquiera implementa
+las operaciones que mutan el sistema.
+
+Flujo propuesta → aceptación → ejecución:
+
+1. Un agente propone (`ea_cambiar_estado_tarea` …) o una rutina lo hace en un
+   paso `propuesta` con `accion = { herramienta = "...", argumentos = {...} }`,
+   validada al cargar la rutina contra el catálogo (una herramienta de lectura,
+   una inexistente o unos argumentos fuera de dominio hacen fallar la carga).
+   Una propuesta idéntica pendiente no se duplica y hay un tope de 30 con acción.
+2. El usuario la ve en `ea propuestas ver <id>`, en la TUI o en la sección ◇ de
+   `ea-web`, con la simulación.
+3. **Aceptar la ejecuta**: `ea propuestas decidir <id> --aceptar` (pide una
+   terminal interactiva, muestra la simulación y exige confirmación; una
+   irreversible exige escribir `confirmo <id>`) o el ✓ de `ea-web` (segundo clic
+   para confirmar). Se reclama de forma atómica (aceptar dos veces no ejecuta
+   dos veces), se **revalida** el estado contra la precondición (si cambió desde
+   la simulación falla con un mensaje claro y no hace otra cosa) y se ejecuta
+   por la capa interna. El resultado queda en la propuesta (`ejecutada` /
+   `fallida`, con detalle) y en el diario (`propuesta_decidida` y
+   `accion_ejecutada` / `accion_fallida`, con argumentos, resultado, proponente
+   y canal).
+4. Las propuestas antiguas de solo texto siguen funcionando: aceptar = constancia.
+
+Política por canal (§11.1): lectura, automática; reversible, la confirma el
+usuario en la terminal o en `ea-web`; irreversible, **solo desde la terminal**
+(`ea-web` responde 403 y la propuesta sigue pendiente; MCP y voz no tienen
+camino de confirmación). La terminal exige TTY real en stdin y stdout: un
+agente que lance `ea` como subproceso sin terminal no puede confirmar. Los
+botones de `ea-web` (estado de tareas, reiniciar servicios, encolar rutinas) y
+`ea tareas actualizar` pasan por la misma capa y dejan el mismo
+`accion_ejecutada` en el diario. `ea acciones listar|simular|ejecutar` es la
+vía directa del usuario en terminal.
+
+Límite honesto: el modelo de seguridad delega en el sistema operativo la
+frontera de *quién escribe en la terminal*; un proceso con la misma cuenta de
+usuario y capacidad de simular un TTY o de hablar con `127.0.0.1:8092` podría
+saltarse la confirmación reversible. La defensa es no darle a los agentes
+ningún camino por las herramientas, los permisos de su propio entorno y que lo
+irreversible exija escribir una frase en una terminal real.
 
 ### Proxy de inferencia local (`ea-proxy`)
 
@@ -133,11 +202,12 @@ periódico en el diario (`actor=orquestador, action=heartbeat` — es lo que
 Una **rutina** es un fichero TOML de usuario en
 `~/.config/ecosistema-asistente/rutinas/<slug>.toml` (ruta configurable en
 `orchestrator.toml`). Grafo de pasos lineal con ramificación, sin bucles
-(el ejecutor los detecta y aborta si aparecen): `accion` (invoca una de las
-cuatro herramientas de solo lectura), `decision` (el modelo local elige una
+(el ejecutor los detecta y aborta si aparecen): `accion` (invoca una
+herramienta de solo lectura del catálogo), `decision` (el modelo local elige una
 rama de un conjunto cerrado, vía `ea-proxy`), `propuesta` (encola una
 propuesta en vez de actuar — el único mecanismo desatendido para "esto
-necesita al usuario"), `fin`. Presupuestos duros por ejecución
+necesita al usuario"; puede llevar una `accion` estructurada, ver «Mutaciones
+supervisadas»), `fin`. Presupuestos duros por ejecución
 (`max_duracion_s`, `max_pasos`, `max_llamadas_modelo`) hacen el bucle
 infinito imposible, no improbable. Ver
 `crates/ea-orchestrator/rutinas-ejemplo/revision-diaria.toml` para un
@@ -339,15 +409,18 @@ Respeta el invariante de §12.2 de la especificación: lee del diario y de las
 tareas, y actúa creando tareas o decidiendo propuestas; nunca llama a Claude
 Code ni al modelo local. La voz se reenvía al orquestador, dueño del audio. Es
 una desviación consciente de §12.1 y §12.4 ("sin interfaz web", "no se levanta
-al arrancar"). Aceptar una propuesta solo deja constancia de la decisión, como
-`ea propuestas decidir`: aún no existen herramientas mutantes que la ejecuten.
+al arrancar"). Aceptar una propuesta con acción la ejecuta por la capa interna
+(`ea-acciones`), igual que `ea propuestas decidir`; las irreversibles no se
+confirman desde aquí (403): solo desde la terminal. El panel muestra la
+simulación, el riesgo, quién propuso y el resultado de la ejecución, y aceptar
+una propuesta con acción pide un segundo clic.
 
 | Símbolo | Sección | Tecla |
 |---|---|---|
 | ▤ | Tareas: crear, iniciar, completar, fallar, cancelar | `1` |
 | ≡ | Diario (♡/♥ muestra u oculta los latidos) | `2` |
 | ↻ | Rutinas: pasos, ejecuciones, encolar | `3` |
-| ◇ | Propuestas: aceptar ✓ o rechazar ✕ | `4` |
+| ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `4` |
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `5` |
 
 `n` tarea nueva, `/` filtra, `j`/`k` mueve, `Enter` abre o cierra el detalle,
@@ -379,7 +452,7 @@ monotónico e ignora latidos del orquestador fechados en el futuro.
 ## Verificación
 
 ```bash
-cargo test          # incluye ea-store, ea-mcp, ea-proxy, ea-orchestrator, ea-web
+cargo test          # incluye ea-store, ea-acciones, ea-mcp, ea-proxy, ea-orchestrator, ea-web
 cargo test -- --ignored   # además, los tests de extremo a extremo contra
                            # el llama-server real (requiere el servicio arriba)
 

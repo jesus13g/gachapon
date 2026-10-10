@@ -855,6 +855,7 @@ dependencies = [
  "anyhow",
  "axum",
  "directories",
+ "ea-acciones",
  "ea-mcp",
  "ea-store",
  "reqwest 0.12.28",
