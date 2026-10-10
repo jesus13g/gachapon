@@ -578,7 +578,7 @@ una propuesta con acción pide un segundo clic.
 
 | Símbolo | Sección | Tecla |
 |---|---|---|
-| ⌂ | Inicio: propuestas por decidir, problemas del sistema, tareas en curso, rutinas y lo último que terminó | `1` |
+| ⌂ | Inicio: cuadro para pedir tareas, qué hace cada actor ahora, tablero de tareas (en cola → ejecutándose → terminadas), propuestas por decidir y rutinas | `1` |
 | ▤ | Tareas: crear, iniciar, completar, fallar, cancelar, repetir ↺ | `2` |
 | ≡ | Diario (♡/♥ muestra u oculta los latidos) | `3` |
 | ↻ | Rutinas: pasos, ejecuciones, encolar | `4` |
@@ -602,7 +602,19 @@ pueden simular, pero el panel solo enseña el comando de terminal. Las
 herramientas no supervisadas se listan a título informativo.
 
 `n` tarea nueva, `/` filtra, `j`/`k` mueve, `Enter` abre o cierra el detalle,
-`Esc` cierra. `◉` pide al orquestador que escuche.
+`Esc` cierra, `?` abre la ayuda (también se abre sola la primera vez). «◉ voz»
+pide al orquestador que escuche. Cada sección lleva su título, una línea que
+dice para qué sirve y el nombre de sus columnas; los botones dicen lo que hacen.
+
+**Quién ejecuta una tarea.** Las de `modelo-local` las ejecuta el orquestador:
+su sondeo recoge las pendientes (de la más antigua a la más nueva), pasa la
+petición a `ea-proxy` —el mismo camino que una orden de voz— y anota la
+respuesta como resultado, o el error si falla (`crates/ea-orchestrator/src/tareas.rs`).
+Da igual quién las creó: el panel, `ea tareas crear` o un agente con
+`ea_crear_tarea`. Las de `claude-code` no las ejecuta nadie: esperan a que
+una sesión de Claude Code las recoja por MCP, o a que el usuario las lleve a
+mano con los botones de su ficha. El panel sigue sin hablar con ningún agente
+(§12.2): solo crea la tarea.
 
 Instalación como servicio de sesión:
 

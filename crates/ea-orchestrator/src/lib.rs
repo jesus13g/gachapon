@@ -3,7 +3,8 @@
 //! disparador `systemd --user timer` encoló, ejecuta el grafo de pasos
 //! declarativo de la rutina correspondiente contra `ea-proxy` (decisiones)
 //! y `ea-mcp` (acciones de solo lectura), y encola una propuesta por cada
-//! punto donde la rutina "querría" mutar en vez de ejecutar nada.
+//! punto donde la rutina "querría" mutar en vez de ejecutar nada. El mismo
+//! sondeo ejecuta las tareas dirigidas al modelo local (`tareas.rs`).
 
 pub mod activacion;
 pub mod config;
@@ -13,5 +14,6 @@ pub mod mcp_client;
 pub mod plantilla;
 pub mod proxy_client;
 pub mod rutina;
+pub mod tareas;
 pub mod turno;
 pub mod voz;

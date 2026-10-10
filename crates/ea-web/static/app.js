@@ -8,11 +8,31 @@ const SECCIONES = ['inicio', 'tareas', 'diario', 'rutinas', 'propuestas', 'accio
 const DETALLE = { inicio: 'tr', tareas: 't', rutinas: 'r', boveda: 'b' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
 const SIM = { pendiente: '○', en_progreso: '◐', completada: '●', fallida: '✕', cancelada: '⊘' };
-const ORIGEN = { manual: '✎', boton: '▪', voz: '◉', programado: '↻', agente: '◈' };
 const PASO = { accion: '▸', decision: '¿', propuesta: '◇', fin: '■' };
 const ACCIONES = {
-  pendiente: [['en_progreso', '▶', 'iniciar'], ['cancelada', '⊘', 'cancelar']],
-  en_progreso: [['completada', '✓', 'completar'], ['fallida', '✕', 'fallar'], ['cancelada', '⊘', 'cancelar']],
+  pendiente: [['en_progreso', '▶ iniciar', 'marcarla como en curso (la llevas tú)'], ['cancelada', '⊘ cancelar', 'cancelarla']],
+  en_progreso: [['completada', '✓ completar', 'darla por hecha, con el resultado escrito al lado'], ['fallida', '✕ fallar', 'darla por fallida'], ['cancelada', '⊘ cancelar', 'cancelarla']],
+};
+const ESTADO_TXT = { pendiente: 'en cola', en_progreso: 'en curso', completada: 'hecha', fallida: 'fallida', cancelada: 'cancelada' };
+const NOMBRE = { 'modelo-local': 'modelo local', 'claude-code': 'Claude Code', orquestador: 'orquestador', usuario: 'tú' };
+// Las tareas de estos dos las ejecuta el orquestador solo: no se llevan a mano.
+const AUTO = ['modelo-local', 'orquestador'];
+const TITULOS = {
+  inicio: ['Inicio', 'Qué se está ejecutando ahora, qué espera en cola y qué acaba de terminar. Pide algo en el cuadro de abajo.'],
+  tareas: ['Tareas', 'Todo lo que se ha pedido. Pulsa una tarea para ver su resultado y su historia.'],
+  diario: ['Diario', 'El registro de todo lo que ocurre en el ecosistema, lo más reciente arriba.'],
+  rutinas: ['Rutinas', 'Trabajos programados. Se pueden ejecutar ahora sin esperar a su hora.'],
+  propuestas: ['Propuestas', 'Cambios que un agente o una rutina quiere hacer y que necesitan tu visto bueno.'],
+  acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
+  sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
+  boveda: ['Bóveda', 'Las notas de los agentes y las compartidas. El buscador busca dentro de su contenido.'],
+};
+const VACIO = {
+  tareas: 'No hay tareas. Pulsa «+ tarea» (o la tecla n) para pedir algo.',
+  diario: 'El diario está vacío.',
+  rutinas: 'No hay rutinas dadas de alta.',
+  propuestas: 'Nada espera tu decisión.',
+  boveda: 'No hay notas.',
 };
 
 const st = {
@@ -51,6 +71,16 @@ function unidades(s) {
 }
 const hace = t => (t == null ? '' : unidades(Math.max(0, Math.floor((Date.now() - ms(t)) / 1000))));
 const en = t => (t == null ? '' : '→ ' + unidades(Math.max(0, Math.floor((ms(t) - Date.now()) / 1000))));
+
+// Un tiempo transcurrido que se actualiza solo (ver relojes()): va vacío en
+// el HTML para que el paso de los segundos no obligue a repintar la lista.
+const reloj = t => (t == null ? '' : `<time data-t="${ms(t)}"></time>`);
+function relojes() {
+  $$('time[data-t]').forEach(e => {
+    const txt = unidades(Math.max(0, Math.floor((Date.now() - Number(e.dataset.t)) / 1000)));
+    if (e.textContent !== txt) e.textContent = txt;
+  });
+}
 
 function hora(t) {
   const d = new Date(ms(t));
@@ -123,33 +153,52 @@ const FINAL = ['completada', 'fallida', 'cancelada'];
 function duracionTarea(t, d) {
   if (t.estado === 'pendiente') return '';
   const ini = d?.eventos.find(e => e.accion === 'tarea_iniciada')?.ts ?? t.creada;
-  const fin = FINAL.includes(t.estado) ? ms(t.actualizada) : Date.now();
-  return dur(Math.max(0, fin - ms(ini)));
+  if (!FINAL.includes(t.estado)) return reloj(ini);
+  return dur(Math.max(0, ms(t.actualizada) - ms(ini)));
+}
+
+const estado = t => `<span class="est ${t.estado}"><i>${SIM[t.estado]}</i>${ESTADO_TXT[t.estado]}</span>`;
+
+// Qué le va a pasar a una tarea que aún no ha terminado, y quién se ocupa.
+function notaEstado(t) {
+  if (FINAL.includes(t.estado)) return '';
+  if (t.asignado_a === 'claude-code') {
+    return t.estado === 'pendiente'
+      ? 'En cola hasta que una sesión de Claude Code la recoja. También puedes llevarla a mano con los botones.'
+      : 'Claude Code (o tú) la tiene en curso.';
+  }
+  if (AUTO.includes(t.asignado_a)) {
+    return t.estado === 'pendiente' ? 'El orquestador la recoge en unos segundos.' : 'Ejecutándose ahora.';
+  }
+  return 'Nadie la ejecuta sola: llévala a mano con los botones.';
 }
 
 function filasTareas(tareas) {
   return tareas.map(t => {
     const k = 't' + t.id;
-    const row = `<i class="e ${t.estado}" title="${t.estado}">${SIM[t.estado]}</i>` +
-      `<i class="m" title="${t.origen}">${ORIGEN[t.origen] ?? ''}</i><span class="n">#${t.id}</span>` +
-      `<span class="x">${esc(t.titulo)}</span><span class="m w">${esc(t.asignado_a)}</span><span class="m">${hace(t.actualizada)}</span>`;
+    const row = estado(t) + `<span class="n">#${t.id}</span>` +
+      `<span class="x">${esc(t.titulo)}</span><span class="m w">${esc(NOMBRE[t.asignado_a] ?? t.asignado_a)}</span><span class="m">${reloj(t.actualizada)}</span>`;
     const d = st.detalle[k];
-    const acc = (ACCIONES[t.estado] || []).map(([v, g, tt]) => btn('estado', g, tt, { id: t.id, v }, v === 'fallida' ? 'hot' : '')).join('');
+    const auto = AUTO.includes(t.asignado_a);
+    const acc = (ACCIONES[t.estado] || []).filter(([v]) => !auto || v === 'cancelada')
+      .map(([v, g, tt]) => btn('estado', g, tt, { id: t.id, v }, v === 'fallida' ? 'hot' : '')).join('');
     const fin = FINAL.includes(t.estado);
     const tiempo = duracionTarea(t, d);
     const x = d?.ejecucion;
-    const det = `<p class="m">${esc(t.creado_por)} → ${esc(t.asignado_a)} · ${hora(t.creada)}${tiempo ? ' · ◷ ' + tiempo : ''}</p>` +
-      `<p class="tx">» ${esc(t.peticion)}</p>` +
-      (t.resultado ? `<pre class="tx${t.estado === 'fallida' ? ' hot' : ''}">« ${esc(pretty(t.resultado))}</pre>` : '') +
-      (x ? `<p class="m" title="pasos · llamadas al modelo">${btn('ir-rutina', '↻ ' + x.rutina, 'ver rutina', { slug: x.rutina }, 'l')} · ▸ ${x.pasos} · ¿ ${x.llamadas_modelo}${x.detalle ? ' · ' + esc(x.detalle) : ''}</p>` : '') +
-      (d?.propuestas ?? []).map(p => `<p>◇ ${btn('ir-prop', '#' + p.id, 'ver propuesta', { id: p.id }, 'l')} <span class="m">${esc(p.descripcion)} · ${p.estado}</span></p>`).join('') +
-      (t.padre ? `<p>↳ ${btn('ir-tarea', '#' + t.padre, 'tarea de origen', { id: t.padre }, 'l')}</p>` : '') +
-      (d?.hijas ?? []).map(h => `<p>↺ ${btn('ir-tarea', '#' + h.id, 'repetición', { id: h.id }, 'l')} <span class="m">${h.estado}</span></p>`).join('') +
-      `<div class="evs">${d ? eventos(d.eventos) : ''}</div>` +
-      `<div class="acc">${t.estado === 'en_progreso' ? '<input class="res" placeholder="«" aria-label="Resultado">' : ''}${acc}` +
-      (fin ? btn('repetir', '↺', t.estado === 'completada' ? 'repetir' : 'reintentar', { id: t.id }) : '') +
-      btn('plantilla', '✎', 'tarea nueva a partir de esta', { id: t.id }) + `</div>`;
-    return fila(k, 't', row, `#${t.id} ${t.titulo} ${t.asignado_a} ${t.estado} ${t.origen}`, det,
+    const nota = notaEstado(t);
+    const det = `<p class="m">${esc(NOMBRE[t.creado_por] ?? t.creado_por)} → ${esc(NOMBRE[t.asignado_a] ?? t.asignado_a)} · origen ${esc(t.origen)} · ${hora(t.creada)}${tiempo ? ` · ${fin ? 'tardó' : 'lleva'} ${tiempo}` : ''}</p>` +
+      (nota ? `<p class="m">${nota}</p>` : '') +
+      `<p class="et">petición</p><p class="tx">${esc(t.peticion)}</p>` +
+      (t.resultado ? `<p class="et">${t.estado === 'fallida' ? 'error' : 'resultado'}</p><pre class="tx${t.estado === 'fallida' ? ' hot' : ''}">${esc(pretty(t.resultado))}</pre>` : '') +
+      (x ? `<p class="m" title="pasos · llamadas al modelo">${btn('ir-rutina', '↻ ' + x.rutina, 'ver rutina', { slug: x.rutina }, 'l')} · ${x.pasos} pasos · ${x.llamadas_modelo} consultas al modelo${x.detalle ? ' · ' + esc(x.detalle) : ''}</p>` : '') +
+      (d?.propuestas ?? []).map(p => `<p>◇ propuso ${btn('ir-prop', '#' + p.id, 'ver propuesta', { id: p.id }, 'l')} <span class="m">${esc(p.descripcion)} · ${p.estado}</span></p>`).join('') +
+      (t.padre ? `<p>↳ repetición de ${btn('ir-tarea', '#' + t.padre, 'tarea de origen', { id: t.padre }, 'l')}</p>` : '') +
+      (d?.hijas ?? []).map(h => `<p>↺ repetida en ${btn('ir-tarea', '#' + h.id, 'repetición', { id: h.id }, 'l')} <span class="m">${ESTADO_TXT[h.estado] ?? h.estado}</span></p>`).join('') +
+      (d ? `<p class="et">historia</p><div class="evs">${eventos(d.eventos)}</div>` : '') +
+      `<div class="acc">${t.estado === 'en_progreso' && !auto ? '<input class="res" placeholder="resultado (opcional)" aria-label="Resultado">' : ''}${acc}` +
+      (fin ? btn('repetir', t.estado === 'completada' ? '↺ repetir' : '↺ reintentar', 'lanzarla otra vez como tarea nueva', { id: t.id }) : '') +
+      (t.asignado_a === 'orquestador' ? '' : btn('plantilla', '✎ copiar en nueva', 'abre el cuadro de tarea nueva con esta petición', { id: t.id })) + `</div>`;
+    return fila(k, 't', row, `#${t.id} ${t.titulo} ${t.asignado_a} ${t.estado} ${ESTADO_TXT[t.estado]} ${t.origen}`, det,
       t.estado === 'completada' || t.estado === 'cancelada' ? ' fin' : '');
   });
 }
@@ -177,10 +226,11 @@ function filasRutinas(rs) {
   return rs.map(r => {
     const k = 'r' + r.slug;
     const u = r.ultima;
-    const ultima = u ? `<i class="${u.resultado === 'fallida' ? 'hot' : ''}">${u.resultado === 'ok' ? '●' : u.resultado === 'fallida' ? '✕' : '◐'}</i> ${hace(u.inicio)}` : '—';
+    const ultima = u ? `<i class="${u.resultado === 'fallida' ? 'hot' : ''}">${u.resultado === 'ok' ? '●' : u.resultado === 'fallida' ? '✕' : '◐'}</i> hace ${reloj(u.inicio)}` : 'nunca';
     const row = `<i>↻</i><span class="x">${esc(r.slug)}</span>` +
       `<span class="m ${r.error ? 'hot' : ''}">${esc(r.descripcion ?? r.error ?? '')}</span>` +
-      `<span class="m">${ultima}</span><span class="m">${r.proxima ? en(r.proxima) : ''}</span>`;
+      `<span class="m">${ultima}</span><span class="m">${r.proxima ? en(r.proxima) : ''}</span>` +
+      (r.error ? '<span></span>' : btn('encolar', '▶ ejecutar ahora', 'encola una ejecución; el orquestador la recoge en segundos', { slug: r.slug }));
     const d = st.detalle[k];
     let det = '';
     if (d) {
@@ -197,7 +247,6 @@ function filasRutinas(rs) {
           `<div class="ev"><span>${hora(x.inicio)}</span><i class="${x.resultado === 'fallida' ? 'hot' : ''}">${x.resultado === 'ok' ? '✓' : x.resultado === 'fallida' ? '✕' : '◐'}</i>` +
           `<span>▸ ${x.pasos} · ¿ ${x.llamadas_modelo}</span><span>${esc(x.detalle ?? '')}</span><span></span></div>`).join('') : '');
     }
-    det += `<div class="acc">${btn('encolar', '▶', 'encolar', { slug: r.slug })}</div>`;
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
 }
@@ -215,14 +264,14 @@ function filasPropuestas(ps) {
     const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
     let acc = '';
     if (pend) {
-      if (irrev) acc += `<i class="m" title="irreversible: solo desde la terminal (ea propuestas decidir ${p.id})">⌨</i>`;
-      else if (ac) acc += btn('decidir', armada ? '✓?' : '✓', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'hot' : '');
-      else acc += btn('decidir', '✓', 'aceptar', { id: p.id, v: 'aceptar' });
-      acc += btn('decidir', '✕', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
+      if (irrev) acc += `<span class="m" title="irreversible: solo desde la terminal (ea propuestas decidir ${p.id})">⌨ terminal</span>`;
+      else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'hot' : '');
+      else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' });
+      acc += btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
     }
     const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : (p.rutina ?? '');
     const row = `<i class="${pend || falla ? 'hot' : 'm'}" title="${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${glifo}</i><span class="n">#${p.id}</span>` +
-      `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${hace(p.creada)}</span><span>${acc}</span>`;
+      `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${reloj(p.creada)}</span><span class="bs">${acc}</span>`;
     let det = `<p class="tx">${esc(p.descripcion)}</p>`;
     if (ac) {
       det += `<p class="m">${esc(ac.herramienta)} · riesgo ${esc(ac.riesgo)} · propuesta por ${esc(p.proponente ?? '?')}</p>` +
@@ -241,7 +290,7 @@ function filasBoveda(d) {
     const promovida = n.promocion === 'promovida';
     const row = `<i class="m" title="${esc(n.region)}">${n.region === 'compartida' ? '◆' : '◇'}</i>` +
       `<span class="x">${esc(n.titulo)}</span><span class="m w">${esc(n.ruta)}</span>` +
-      `<span class="m">${esc(n.autor ?? '')}</span><span class="m">${n.actualizada ? hace(n.actualizada) : ''}</span>`;
+      `<span class="m">${esc(n.autor ?? '')}</span><span class="m">${reloj(n.actualizada)}</span>`;
     const x = st.detalle[k];
     let det = '';
     if (x) {
@@ -254,7 +303,7 @@ function filasBoveda(d) {
     // Promover es decisión del usuario: segundo clic para confirmar.
     if (n.region !== 'compartida') {
       const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
-      det += `<div class="acc">${btn('promover', armada ? '⇧?' : '⇧', armada ? 'confirmar: copia a la región compartida' : 'promover a la región compartida', { ruta: n.ruta }, armada ? 'hot' : '')}</div>`;
+      det += `<div class="acc">${btn('promover', armada ? '⇧ confirmar' : '⇧ promover a compartida', armada ? 'confirmar: copia a la región compartida' : 'promover a la región compartida', { ruta: n.ruta }, armada ? 'hot' : '')}</div>`;
     }
     return fila(k, 'b', row, `${n.titulo} ${n.ruta}`, det, '');
   });
@@ -269,15 +318,15 @@ function filasSistema(e, plano = false) {
     const row = `<i class="${s.activo === 'failed' ? 'hot' : activo ? 'm' : 'n'}" title="${esc(s.activo)}">${g}</i>` +
       `<span class="x">${s.nombre}</span><span class="${s.activo === 'failed' ? 'hot' : 'm'}">${activo ? '' : esc(s.activo)}</span>` +
       `<span class="m">${s.activo_s != null ? unidades(s.activo_s) : ''}</span>` +
-      btn('reiniciar', armado ? '↻?' : '↻', armado ? 'confirmar reinicio' : 'reiniciar', { n: s.nombre }, armado ? 'hot' : '');
+      btn('reiniciar', armado ? '↻ confirmar' : '↻ reiniciar', armado ? 'confirmar reinicio' : 'reiniciar (pide confirmar)', { n: s.nombre }, armado ? 'hot' : '');
     out.push(fila('s' + s.nombre, 's', row, s.nombre + ' ' + s.activo));
   });
   const o = e.orquestador;
-  out.push(fila('sorq', 's', `<i class="${o.vivo ? 'm' : 'hot'}">♥</i><span class="x">orquestador</span><span class="m"></span><span class="m">${hace(o.ultimo_latido)}</span><span></span>`, 'orquestador latido', '', plano ? '' : ' g'));
+  out.push(fila('sorq', 's', `<i class="${o.vivo ? 'm' : 'hot'}">♥</i><span class="x">orquestador</span><span class="${o.vivo ? 'm' : 'hot'}">${o.vivo ? 'con latido' : 'sin latido: no se ejecutará nada'}</span><span class="m">${reloj(o.ultimo_latido)}</span><span></span>`, 'orquestador latido', '', plano ? '' : ' g'));
   e.agentes.forEach((a, i) => {
-    const tarea = a.tarea ? `<span class="x" title="${esc(a.tarea.titulo)}">#${a.tarea.id} ${esc(a.tarea.titulo)}</span>` : '<span class="m">—</span>';
-    const row = `<i class="${a.tarea ? '' : 'n'}">◈</i><span class="x">${a.nombre}</span>${tarea}` +
-      `<span class="m" title="${esc(a.ultimo?.accion ?? '')}">${a.ultimo ? hace(a.ultimo.ts) : ''}</span><span></span>`;
+    const tarea = a.tarea ? `<span class="x" title="${esc(a.tarea.titulo)}">ejecutando #${a.tarea.id} ${esc(a.tarea.titulo)}</span>` : '<span class="m">libre</span>';
+    const row = `<i class="${a.tarea ? '' : 'n'}">◈</i><span class="x">${esc(NOMBRE[a.nombre] ?? a.nombre)}</span>${tarea}` +
+      `<span class="m" title="${esc(a.ultimo?.accion ?? '')}">${reloj(a.ultimo?.ts)}</span><span></span>`;
     out.push(fila('s' + a.nombre, 's', row, a.nombre + ' ' + (a.tarea?.titulo ?? ''), '', i === 0 && !plano ? ' g' : ''));
   });
   return out;
@@ -318,41 +367,103 @@ function filasAcciones(hs) {
   });
 }
 
-const suelto = html => ({ k: null, txt: '', html });
-const grupo = (glifo, titulo, n) => suelto(`<h2 class="gr"><i>${glifo}</i>${titulo}${n ? `<b>${n}</b>` : ''}</h2>`);
+const suelto = (html, fijo = false) => ({ k: null, txt: '', html, fijo });
+const grupo = (glifo, titulo, n, ayuda = '') =>
+  suelto(`<h2 class="gr"><i>${glifo}</i>${titulo}${n ? `<b>${n}</b>` : ''}${ayuda ? `<span>${ayuda}</span>` : ''}</h2>`);
+// Los nombres de las columnas de una lista.
+const columnas = (cls, ...nombres) =>
+  suelto(`<div class="r hd ${cls}">${nombres.map(n => `<span>${n}</span>`).join('')}</div>`, true);
 
-// La portada: lo que espera una decisión, lo que no va bien, lo que está en
-// marcha, las rutinas y lo último que terminó.
+const barraViva = '<div class="bar" role="progressbar" aria-label="en marcha"><i></i></div>';
+
+// Una tarea en el tablero. Pulsarla abre su ficha debajo.
+function tarjeta(t) {
+  const k = 't' + t.id;
+  const run = t.estado === 'en_progreso';
+  const fin = FINAL.includes(t.estado);
+  const espera = t.estado !== 'pendiente' ? ''
+    : t.asignado_a === 'claude-code' ? 'espera a una sesión de Claude Code'
+      : AUTO.includes(t.asignado_a) ? 'el orquestador la recoge en segundos' : 'nadie la ejecuta sola';
+  return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" title="pulsa para ver la ficha">` +
+    `<header>${estado(t)}<span class="n">#${t.id}</span></header>` +
+    `<p class="tit">${esc(t.titulo)}</p>` +
+    (run ? barraViva : '') +
+    (fin && t.resultado ? `<p class="res${t.estado === 'fallida' ? ' hot' : ''}">${esc(t.resultado.slice(0, 160))}</p>` : '') +
+    (espera ? `<p class="res">${espera}</p>` : '') +
+    `<footer><span>${esc(NOMBRE[t.asignado_a] ?? t.asignado_a)}</span><span>${run ? 'lleva' : 'hace'} ${reloj(t.actualizada)}</span></footer></article>`;
+}
+
+// El recorrido de una tarea, de izquierda a derecha.
+function tablero(d) {
+  const cola = d.activas.filter(t => t.estado === 'pendiente').reverse(); // la siguiente, arriba
+  const curso = d.activas.filter(t => t.estado === 'en_progreso');
+  const col = (cls, titulo, ayuda, ts, vacio) =>
+    `<section class="col ${cls}"><h3>${titulo}<b>${ts.length || ''}</b></h3><p class="ay">${ayuda}</p>` +
+    (ts.length ? ts.map(tarjeta).join('') : `<p class="nada">${vacio}</p>`) + '</section>';
+  return suelto('<div class="tablero">' +
+    col('cola', '○ En cola', 'esperan a que alguien las recoja', cola, 'nada espera') +
+    col('curso', '◐ Ejecutándose', 'en marcha ahora mismo', curso, 'nada en marcha') +
+    col('fin', '● Terminadas', 'las últimas; pulsa una para ver el resultado', d.recientes, 'todavía nada') +
+    '</div>');
+}
+
+// Quién trabaja en el ecosistema y qué hace cada uno ahora mismo.
+function actores(d) {
+  const e = st.estado;
+  const quienes = [
+    ['orquestador', 'Orquestador', 'ejecuta las rutinas y pasa al modelo local sus tareas'],
+    ['modelo-local', 'Modelo local', 'responde en el momento; puede consultar tareas, diario y notas'],
+    ['claude-code', 'Claude Code', 'recoge sus tareas cuando hay una sesión suya abierta'],
+  ];
+  return suelto('<div class="actores">' + quienes.map(([id, nombre, rol]) => {
+    const suyas = d.activas.filter(t => t.asignado_a === id);
+    const run = suyas.find(t => t.estado === 'en_progreso');
+    const cola = suyas.filter(t => t.estado === 'pendiente').length;
+    const orq = id === 'orquestador';
+    const caido = orq && e && !e.orquestador.vivo;
+    const ult = orq ? e?.orquestador.ultimo_latido : e?.agentes.find(a => a.nombre === id)?.ultimo?.ts;
+    const que = caido ? 'sin latido: no ejecutará nada'
+      : run ? `ejecutando #${run.id} · lleva ${reloj(run.actualizada)}` : 'libre';
+    return `<div class="actor${run ? ' run' : ''}${caido ? ' mal' : ''}"${run ? ` data-k="t${run.id}" title="pulsa para ver la ficha"` : ''}>` +
+      `<h3><i class="luz"></i>${nombre}</h3><p class="rol">${rol}</p><p class="que">${que}</p>` +
+      (run ? `<p class="tit">${esc(run.titulo)}</p>${barraViva}` : '') +
+      `<p class="pie">${cola ? cola + ' en cola · ' : ''}${ult ? (orq ? 'latido hace ' : 'última actividad hace ') + reloj(ult) : 'sin actividad todavía'}</p></div>`;
+  }).join('') + '</div>');
+}
+
+// La portada: quién hace qué, lo que espera una decisión, lo que no va bien,
+// el tablero de tareas (con la ficha de las abiertas debajo) y las rutinas.
 function filasInicio(d) {
-  const out = [];
-  if (d.propuestas.length) out.push(grupo('◇', 'esperan tu decisión', d.propuestas.length), ...filasPropuestas(d.propuestas));
+  const out = [actores(d)];
+  if (d.propuestas.length) {
+    out.push(grupo('◇', 'Esperan tu decisión', d.propuestas.length, 'acepta o rechaza; aceptar ejecuta la acción'), ...filasPropuestas(d.propuestas));
+  }
 
   const e = st.estado;
   if (e) {
     const mal = new Set(e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => 's' + s.nombre));
-    if (!e.orquestador.vivo) mal.add('sorq');
-    if (mal.size) out.push(grupo('▦', 'sistema'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
+    if (mal.size) out.push(grupo('▦', 'Servicios parados'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
   }
 
-  out.push(grupo('◐', 'en curso', d.activas.length));
-  out.push(...(d.activas.length ? filasTareas(d.activas) : [suelto('<p class="nada">nada en curso</p>')]));
-  if (d.rutinas.length) out.push(grupo('↻', 'rutinas'), ...filasRutinas(d.rutinas));
-  out.push(grupo('●', 'recientes'));
-  out.push(...(d.recientes.length ? filasTareas(d.recientes) : [suelto('<p class="nada">sin actividad todavía</p>')]));
+  out.push(grupo('▤', 'Tareas', 0, 'pasan de izquierda a derecha'), tablero(d));
+  const abiertas = [...d.activas, ...d.recientes].filter(t => st.abiertos.has('t' + t.id));
+  if (abiertas.length) out.push(grupo('▸', 'Ficha', 0, 'pulsa la fila para cerrarla'), ...filasTareas(abiertas));
+  if (d.rutinas.length) out.push(grupo('↻', 'Rutinas', 0, 'trabajos programados; se pueden ejecutar ahora'), ...filasRutinas(d.rutinas));
   return out;
 }
 
 function construir() {
   const d = st.datos;
+  const con = (cab, filas) => (filas.length ? [cab, ...filas] : []);
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
-    case 'acciones': return d ? filasAcciones(d) : [];
-    case 'tareas': return d ? filasTareas(d) : [];
-    case 'diario': return d ? filasDiario(d) : [];
-    case 'rutinas': return d ? filasRutinas(d) : [];
-    case 'propuestas': return d ? filasPropuestas(d) : [];
-    case 'boveda': return d ? filasBoveda(d) : [];
-    default: return st.estado ? filasSistema(st.estado) : [];
+    case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
+    case 'tareas': return d ? con(columnas('t', 'estado', 'nº', 'tarea', 'para', 'hace'), filasTareas(d)) : [];
+    case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'tarea', 'duró'), filasDiario(d)) : [];
+    case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'qué hace', 'última vez', 'próxima', ''), filasRutinas(d)) : [];
+    case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
+    case 'boveda': return d ? con(columnas('b', '', 'nota', 'ruta', 'autor', 'hace'), filasBoveda(d)) : [];
+    default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
   }
 }
 
@@ -364,12 +475,12 @@ function barra() {
   if (st.sec === 'tareas' && st.estado) {
     h = Object.keys(SIM).map(e =>
       `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${e}" aria-label="${e}">` +
-      `<i class="e ${e}">${SIM[e]}</i>${st.estado.tareas[e] || ''}</button>`).join('');
+      `<i class="e ${e}">${SIM[e]}</i>${ESTADO_TXT[e]} ${st.estado.tareas[e] || 0}</button>`).join('');
   } else if (st.sec === 'diario') {
-    h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="latidos" aria-label="Latidos">${st.latidos ? '♥' : '♡'}</button>`;
+    h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="latidos" aria-label="Latidos">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
   } else if (st.sec === 'propuestas') {
-    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="pendientes" aria-label="Pendientes">◇</button>` +
-        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="todas" aria-label="Todas">∗</button>`;
+    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-label="Pendientes">◇ pendientes</button>` +
+        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-label="Todas">∗ todas</button>`;
   }
   if (fb.dataset.h !== h) { fb.dataset.h = h; fb.innerHTML = h; }
 }
@@ -382,6 +493,12 @@ function cabecera() {
     const g = s.activo === 'desconocido' ? '◌' : s.activo === 'inactive' ? '○' : '●';
     return `<i class="dot ${cls}" title="${s.nombre} · ${s.activo}">${g}</i>`;
   }).join('');
+  const caidos = e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => s.nombre);
+  const salud = $('#salud');
+  salud.textContent = caidos.length ? 'parado: ' + caidos.join(', ')
+    : !e.orquestador.vivo ? 'orquestador sin latido'
+      : e.servicios.every(s => s.activo === 'active') ? 'todo en marcha' : '';
+  salud.className = caidos.length || !e.orquestador.vivo ? 'hot' : '';
   const o = $('#orq');
   o.className = e.orquestador.vivo ? '' : 'hot';
   o.title = e.orquestador.ultimo_latido ? 'latido hace ' + hace(e.orquestador.ultimo_latido) : 'sin latido';
@@ -397,7 +514,7 @@ function cabecera() {
 function pintar() {
   // No pisar lo que se está escribiendo dentro de un detalle.
   const foco = document.activeElement;
-  if (foco && foco.matches('input, select') && foco.closest('#lista')) return;
+  if (foco && foco.matches('input, select') && foco.closest('#lista')) return relojes();
 
   if (!st.datos && st.sec !== 'sistema') {
     st.vis = [];
@@ -410,11 +527,13 @@ function pintar() {
   const q = st.q.trim().toLowerCase();
   const todas = construir();
   // En la bóveda el filtro es una búsqueda de texto completo en el servidor.
-  const vis = q && st.sec !== 'boveda' ? todas.filter(f => f.txt.includes(q)) : todas;
+  const vis = q && st.sec !== 'boveda' ? todas.filter(f => f.fijo || f.txt.includes(q)) : todas;
   st.vis = vis.map(f => f.k).filter(Boolean);
   if (st.sel && !st.vis.includes(st.sel)) st.sel = null;
 
-  const html = vis.length ? vis.map(f => f.html).join('') : '<p class="vacio">∅</p>';
+  const vacio = q ? `Nada coincide con «${esc(st.q.trim())}».`
+    : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
+  const html = st.vis.length || st.sec === 'inicio' ? vis.map(f => f.html).join('') : `<p class="vacio">${vacio}</p>`;
   if (html !== st.html) {
     const lista = $('#lista');
     const y = lista.scrollTop;
@@ -422,6 +541,7 @@ function pintar() {
     lista.innerHTML = html;
     lista.scrollTop = y;
   }
+  relojes();
   barra();
 }
 
@@ -468,6 +588,17 @@ async function tick() {
 
 // ------------------------------------------------------------------ acciones
 
+// Lo que cambia con la sección fuera de la lista: título, guía y cuadros.
+function marco() {
+  const [nombre, guia] = TITULOS[st.sec];
+  $('#titulo h1').textContent = nombre;
+  $('#titulo p').textContent = guia;
+  $('#q').placeholder = st.sec === 'boveda' ? 'buscar en las notas ( / )' : 'filtrar ( / )';
+  $$('#rail button').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
+  $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
+  formulario(false);
+}
+
 function ir(sec) {
   st.sec = sec;
   st.datos = null;
@@ -476,7 +607,7 @@ function ir(sec) {
   st.q = '';
   $('#q').value = '';
   location.hash = sec;
-  $$('#rail button').forEach(b => b.classList.toggle('on', b.dataset.s === sec));
+  marco();
   $('#lista').scrollTop = 0;
   pintar();
   tick();
@@ -486,6 +617,8 @@ async function alterna(k) {
   if (st.abiertos.has(k)) st.abiertos.delete(k);
   else { st.abiertos.add(k); await cargaDetalle(k); }
   pintar();
+  // Desde una tarjeta del tablero la ficha se abre más abajo: que se vea.
+  if (st.abiertos.has(k)) $(`.f[data-k="${CSS.escape(k)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 function mover(d) {
@@ -551,7 +684,7 @@ async function accion(b) {
       avisa(r.texto, true);
     } else if (a === 'encolar') {
       const t = await post(`/api/rutinas/${encodeURIComponent(slug)}/encolar`);
-      avisa('▶ #' + t.id, true);
+      avisa(`Rutina encolada como tarea #${t.id}`, true);
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;
@@ -576,16 +709,16 @@ async function accion(b) {
       return;
     } else if (a === 'repetir') {
       const t = await post(`/api/tareas/${id}/repetir`);
-      avisa('↺ #' + t.id, true);
+      avisa(`Repetida como tarea #${t.id}`, true);
       st.abiertos.add('t' + t.id);
       st.sel = 't' + t.id;
     } else if (a === 'plantilla') {
       const t = st.detalle['t' + id]?.tarea;
       if (!t) throw new Error('la tarea aún no se ha cargado');
       const f = $('#form').elements;
-      f.titulo.value = t.titulo;
-      f.asignado_a.value = t.asignado_a;
       f.solicita.value = t.peticion;
+      if ([...f.asignado_a.options].some(o => o.value === t.asignado_a)) f.asignado_a.value = t.asignado_a;
+      pista();
       formulario(true);
       return;
     } else if (a === 'simular' || a === 'ejecutar') {
@@ -638,10 +771,25 @@ async function voz() {
   }
 }
 
+// El cuadro de tarea nueva: siempre a la vista en la portada; en el resto de
+// secciones se abre con «+ tarea» o la tecla n.
 function formulario(mostrar) {
   const f = $('#form');
-  f.hidden = !mostrar;
-  if (mostrar) f.elements.titulo.focus();
+  f.hidden = !(mostrar || st.sec === 'inicio');
+  if (mostrar) f.elements.solicita.focus();
+}
+
+const PISTAS = {
+  'modelo-local': 'El orquestador se la pasa al modelo local en unos segundos. La verás moverse de «En cola» a «Ejecutándose» y a «Terminadas».',
+  'claude-code': 'Queda en cola hasta que una sesión de Claude Code la recoja: él consulta sus tareas, nadie se la envía.',
+};
+function pista() {
+  $('#pista').textContent = PISTAS[$('#form').elements.asignado_a.value] ?? '';
+}
+
+function ayuda(mostrar) {
+  $('#ayuda').hidden = !mostrar;
+  try { localStorage.setItem('ea-ayuda-vista', '1'); } catch { /* sin almacenamiento */ }
 }
 
 // -------------------------------------------------------------------- eventos
@@ -651,7 +799,9 @@ document.addEventListener('click', ev => {
   const rail = t.closest('#rail button');
   if (rail) return ir(rail.dataset.s);
   if (t.closest('#voz')) return voz();
-  if (t.closest('#nueva')) return formulario($('#form').hidden);
+  if (t.closest('#nueva')) return formulario($('#form').hidden || st.sec === 'inicio');
+  if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
+  if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }
   const f = t.closest('button[data-f]');
   if (f) {
     st.filtroEstado = st.filtroEstado === f.dataset.f ? null : f.dataset.f;
@@ -661,19 +811,24 @@ document.addEventListener('click', ev => {
   const b = t.closest('button[data-a]');
   if (b) return accion(b);
   if (t.closest('input, select')) return;
-  const fila = t.closest('#lista .f');
+  const fila = t.closest('#lista [data-k]');
   if (fila) { st.sel = fila.dataset.k; alterna(fila.dataset.k); }
 });
+
+$('#form').elements.asignado_a.addEventListener('change', pista);
 
 $('#form').addEventListener('submit', async ev => {
   ev.preventDefault();
   const f = ev.target.elements;
   try {
-    const t = await post('/api/tareas', { titulo: f.titulo.value, asignado_a: f.asignado_a.value, solicita: f.solicita.value });
-    f.titulo.value = '';
+    // El título es la primera línea de la petición, recortada.
+    const peticion = f.solicita.value.trim();
+    const linea = peticion.split('\n')[0];
+    const titulo = linea.length > 80 ? linea.slice(0, 79) + '…' : linea;
+    const t = await post('/api/tareas', { titulo, asignado_a: f.asignado_a.value, solicita: peticion });
     f.solicita.value = '';
     formulario(false);
-    avisa('+ #' + t.id, true);
+    avisa(`Tarea #${t.id} creada para ${NOMBRE[t.asignado_a] ?? t.asignado_a}`, true);
     st.filtroEstado = null;
     if (st.sec !== 'tareas' && st.sec !== 'inicio') ir('tareas'); else { st.html = ''; tick(); }
     st.sel = 't' + t.id;
@@ -705,6 +860,7 @@ $('#q').addEventListener('input', ev => {
 document.addEventListener('keydown', ev => {
   const t = ev.target;
   const enCampo = t.matches('input, textarea, select');
+  if (ev.key === 'Escape' && !$('#ayuda').hidden) return ayuda(false);
   if (ev.key === 'Escape') {
     if (t.id === 'q') { t.value = ''; st.q = ''; }
     if (enCampo) { t.blur(); if (t.closest('#form')) formulario(false); }
@@ -721,7 +877,8 @@ document.addEventListener('keydown', ev => {
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   const n = Number(ev.key);
   if (n >= 1 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
-  if (ev.key === 'n') { ev.preventDefault(); formulario(true); }
+  if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
+  else if (ev.key === 'n') { ev.preventDefault(); formulario(true); }
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);
@@ -739,7 +896,11 @@ addEventListener('hashchange', () => {
 {
   const h = location.hash.slice(1);
   if (SECCIONES.includes(h)) st.sec = h;
-  $$('#rail button').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
+  marco();
+  pista();
+  // La primera vez, la guía abierta.
+  try { if (!localStorage.getItem('ea-ayuda-vista')) ayuda(true); } catch { /* sin almacenamiento */ }
   tick();
   setInterval(tick, 3000);
+  setInterval(relojes, 1000);
 }

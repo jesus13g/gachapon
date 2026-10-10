@@ -151,6 +151,10 @@ async fn ciclo_sondeo(rutinas_dir: &Path, mcp: &McpClient, proxy: &ProxyClient) 
     for tarea in pendientes {
         procesar_tarea(&mut store, rutinas_dir, &tarea, mcp, proxy).await;
     }
+
+    ea_orchestrator::tareas::ejecutar_pendientes(&mut store, proxy)
+        .await
+        .context("no se pudieron ejecutar las tareas del modelo local")?;
     Ok(())
 }
 

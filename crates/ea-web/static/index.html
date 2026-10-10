@@ -9,37 +9,94 @@
 </head>
 <body>
 <nav id="rail" aria-label="Secciones">
-  <button data-s="inicio" title="Inicio (1)" aria-label="Inicio"><i>⌂</i></button>
-  <button data-s="tareas" title="Tareas (2)" aria-label="Tareas"><i>▤</i><b></b></button>
-  <button data-s="diario" title="Diario (3)" aria-label="Diario"><i>≡</i></button>
-  <button data-s="rutinas" title="Rutinas (4)" aria-label="Rutinas"><i>↻</i></button>
-  <button data-s="propuestas" title="Propuestas (5)" aria-label="Propuestas"><i>◇</i><b></b></button>
-  <button data-s="acciones" title="Acciones (6)" aria-label="Acciones"><i>▶</i></button>
-  <button data-s="sistema" title="Sistema (7)" aria-label="Sistema"><i>▦</i></button>
-  <button data-s="boveda" title="Bóveda (8)" aria-label="Bóveda"><i>▥</i></button>
+  <button data-s="inicio" title="Inicio (tecla 1)"><i>⌂</i><span>Inicio</span></button>
+  <button data-s="tareas" title="Tareas (tecla 2)"><i>▤</i><span>Tareas</span><b></b></button>
+  <button data-s="diario" title="Diario (tecla 3)"><i>≡</i><span>Diario</span></button>
+  <button data-s="rutinas" title="Rutinas (tecla 4)"><i>↻</i><span>Rutinas</span></button>
+  <button data-s="propuestas" title="Propuestas (tecla 5)"><i>◇</i><span>Propuestas</span><b></b></button>
+  <button data-s="acciones" title="Acciones (tecla 6)"><i>▶</i><span>Acciones</span></button>
+  <button data-s="sistema" title="Sistema (tecla 7)"><i>▦</i><span>Sistema</span></button>
+  <button data-s="boveda" title="Bóveda (tecla 8)"><i>▥</i><span>Bóveda</span></button>
 </nav>
 <main>
   <header>
     <i class="logo">◆</i>
     <div id="servicios" role="status"></div>
     <i id="orq" title="">♥</i>
-    <i id="off" class="hot" title="sin conexión" hidden>✕</i>
+    <span id="salud"></span>
+    <i id="off" class="hot" title="sin conexión con el panel" hidden>✕ sin conexión</i>
     <span class="grow"></span>
-    <button id="voz" title="Voz" aria-label="Voz">◉</button>
-    <button id="nueva" title="Tarea nueva (n)" aria-label="Tarea nueva">+</button>
+    <button id="voz" title="Pide al orquestador que escuche por el micrófono">◉ voz</button>
+    <button id="nueva" title="Tarea nueva (tecla n)">+ tarea</button>
+    <button id="bayuda" title="Cómo funciona esto (tecla ?)">? ayuda</button>
   </header>
+  <div id="titulo"><h1></h1><p></p></div>
   <form id="form" hidden autocomplete="off">
-    <input name="titulo" placeholder="título" maxlength="200" required aria-label="Título">
-    <input name="asignado_a" list="dest" value="claude-code" maxlength="64" size="14" aria-label="Asignada a">
-    <datalist id="dest"><option value="claude-code"><option value="modelo-local"></datalist>
-    <input name="solicita" placeholder="petición" class="grow" required aria-label="Petición">
-    <button title="Crear (Enter)" aria-label="Crear">↵</button>
+    <input name="solicita" placeholder="¿Qué quieres que se haga? Escribe la petición…" class="grow" maxlength="10000" required aria-label="Petición">
+    <select name="asignado_a" aria-label="Quién la ejecuta" title="Quién la ejecuta">
+      <option value="modelo-local">modelo local · se ejecuta ahora</option>
+      <option value="claude-code">Claude Code · queda en cola</option>
+    </select>
+    <button class="pri" title="Crear la tarea (Enter)">▶ ejecutar</button>
+    <p id="pista"></p>
   </form>
   <div id="eco" hidden></div>
-  <div id="barra"><span id="fb"></span><input id="q" placeholder="/" aria-label="Filtrar" spellcheck="false"></div>
+  <div id="barra"><span id="fb"></span><input id="q" placeholder="filtrar ( / )" aria-label="Filtrar" spellcheck="false"></div>
   <section id="lista"></section>
 </main>
 <div id="aviso" role="alert"></div>
+
+<aside id="ayuda" hidden role="dialog" aria-label="Ayuda">
+  <div class="hoja">
+    <button data-cerrar title="Cerrar (Esc)">✕ cerrar</button>
+    <h2>Cómo funciona</h2>
+    <ol>
+      <li><b>Pides algo.</b> En Inicio escribes la petición, eliges quién la ejecuta y pulsas «▶ ejecutar». Eso crea una <i>tarea</i>.</li>
+      <li><b>Alguien la ejecuta.</b> La tarea aparece en «En cola», pasa a «Ejecutándose» y acaba en «Terminadas».</li>
+      <li><b>Compruebas el resultado.</b> Pulsa la tarea para abrir su ficha: petición, resultado o error, y su historia paso a paso.</li>
+    </ol>
+
+    <h2>Quién ejecuta qué</h2>
+    <dl>
+      <dt>Modelo local</dt><dd>Se ejecuta solo, en unos segundos. Responde preguntas y puede consultar tareas, diario y notas.</dd>
+      <dt>Claude Code</dt><dd>La tarea espera en cola hasta que una sesión de Claude Code la recoja. Nadie se la envía.</dd>
+      <dt>Rutinas</dt><dd>Trabajos programados que ejecuta el orquestador. «▶ ejecutar ahora» las lanza sin esperar a su hora.</dd>
+      <dt>Propuestas</dt><dd>Lo que cambia el sistema nunca se hace solo: un agente o una rutina lo propone y tú lo aceptas o lo rechazas.</dd>
+    </dl>
+
+    <h2>Estados de una tarea</h2>
+    <dl class="leyenda">
+      <dt>○ en cola</dt><dd>creada, nadie ha empezado</dd>
+      <dt>◐ en curso</dt><dd>ejecutándose ahora</dd>
+      <dt>● hecha</dt><dd>terminó bien; tiene resultado</dd>
+      <dt class="hot">✕ fallida</dt><dd>terminó con error; el motivo está en su ficha</dd>
+      <dt>⊘ cancelada</dt><dd>se descartó antes de terminar</dd>
+    </dl>
+
+    <h2>Secciones</h2>
+    <dl class="leyenda">
+      <dt>⌂ Inicio</dt><dd>lo que pasa ahora y el cuadro para pedir tareas</dd>
+      <dt>▤ Tareas</dt><dd>todas las tareas, con filtros por estado</dd>
+      <dt>≡ Diario</dt><dd>el registro de cada cosa que ocurre</dd>
+      <dt>↻ Rutinas</dt><dd>los trabajos programados y sus ejecuciones</dd>
+      <dt>◇ Propuestas</dt><dd>cambios que esperan tu visto bueno</dd>
+      <dt>▶ Acciones</dt><dd>herramientas: simular y ejecutar a mano</dd>
+      <dt>▦ Sistema</dt><dd>servicios y agentes; reiniciar un servicio</dd>
+      <dt>▥ Bóveda</dt><dd>las notas, con buscador</dd>
+    </dl>
+
+    <h2>Teclado</h2>
+    <dl class="leyenda">
+      <dt>1 – 8</dt><dd>cambiar de sección</dd>
+      <dt>n</dt><dd>tarea nueva</dd>
+      <dt>/</dt><dd>filtrar o buscar</dd>
+      <dt>j / k</dt><dd>bajar y subir por la lista</dd>
+      <dt>Enter</dt><dd>abrir o cerrar la fila seleccionada</dd>
+      <dt>Esc</dt><dd>cerrar lo abierto</dd>
+      <dt>?</dt><dd>esta ayuda</dd>
+    </dl>
+  </div>
+</aside>
 <script src="/app.js"></script>
 </body>
 </html>
