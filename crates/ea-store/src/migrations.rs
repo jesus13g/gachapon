@@ -8,6 +8,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0001_initial.sql")),
         M::up(include_str!("../migrations/0002_routine_runs.sql")),
         M::up(include_str!("../migrations/0003_propuestas_acciones.sql")),
+        M::up(include_str!("../migrations/0004_boveda_indice.sql")),
     ])
 }
 

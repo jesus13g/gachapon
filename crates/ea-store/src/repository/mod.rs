@@ -1,3 +1,4 @@
+pub mod boveda;
 pub mod events;
 pub mod propuestas;
 pub mod routine_runs;

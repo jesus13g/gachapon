@@ -3,8 +3,10 @@ use std::path::Path;
 use crate::connection;
 use crate::error::StoreResult;
 use crate::models::{
+    EntradaIndice, ResultadoBusqueda, RutaIndexada,
     EstadoEjecucion, EstadoPropuesta, Event, NewEvent, NewTask, NuevaPropuesta, Propuesta, RoutineRun, RunOutcome, Task, TaskStatus,
 };
+use crate::repository::boveda;
 use crate::repository::events::{self, EventFilter};
 use crate::repository::propuestas::{self, PropuestaFilter};
 use crate::repository::routine_runs;
@@ -147,5 +149,38 @@ impl Store {
 
     pub fn decidir_propuesta(&self, id: i64, estado: EstadoPropuesta) -> StoreResult<Propuesta> {
         propuestas::decidir_propuesta(&self.conn, id, estado)
+    }
+
+    // --- Índice de búsqueda de la bóveda (caché derivada de los ficheros) ---
+
+    pub fn boveda_indexar(&mut self, entrada: &EntradaIndice, cuerpo: &str) -> StoreResult<()> {
+        boveda::indexar(&mut self.conn, entrada, cuerpo)
+    }
+
+    pub fn boveda_olvidar(&mut self, ruta: &str) -> StoreResult<()> {
+        boveda::olvidar(&mut self.conn, ruta)
+    }
+
+    pub fn boveda_rutas_indexadas(&self) -> StoreResult<Vec<RutaIndexada>> {
+        boveda::rutas_indexadas(&self.conn)
+    }
+
+    /// `consulta_fts` debe venir saneada (ver `ea_boveda::consulta_fts`).
+    pub fn boveda_buscar(
+        &self,
+        consulta_fts: &str,
+        region: Option<&str>,
+        limite: i64,
+        max_fragmento: i64,
+    ) -> StoreResult<Vec<ResultadoBusqueda>> {
+        boveda::buscar(&self.conn, consulta_fts, region, limite, max_fragmento)
+    }
+
+    pub fn boveda_recientes(&self, region: Option<&str>, limite: i64) -> StoreResult<Vec<ResultadoBusqueda>> {
+        boveda::recientes(&self.conn, region, limite)
+    }
+
+    pub fn boveda_contar_por_region(&self) -> StoreResult<Vec<(String, i64)>> {
+        boveda::contar_por_region(&self.conn)
     }
 }

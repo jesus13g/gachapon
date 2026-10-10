@@ -320,3 +320,42 @@ pub struct NuevaPropuesta {
     pub descripcion: String,
     pub accion: Option<AccionPropuesta>,
 }
+
+/// Fila del índice de la bóveda: los metadatos de cabecera de una nota que
+/// interesa filtrar y mostrar sin abrir el fichero.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntradaIndice {
+    /// Relativa a la raíz de la bóveda, con `/`.
+    pub ruta: String,
+    pub region: String,
+    pub autor: Option<String>,
+    pub titulo: String,
+    pub origen: Option<String>,
+    pub promocion: Option<String>,
+    pub creada: Option<String>,
+    pub actualizada: Option<String>,
+    /// Etiquetas separadas por espacios, solo para la búsqueda.
+    pub tags: String,
+    pub mtime_ns: i64,
+    pub bytes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RutaIndexada {
+    pub ruta: String,
+    pub mtime_ns: i64,
+    pub bytes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResultadoBusqueda {
+    pub ruta: String,
+    pub region: String,
+    pub autor: Option<String>,
+    pub titulo: String,
+    pub actualizada: Option<String>,
+    pub promocion: Option<String>,
+    /// Trozo del cuerpo con los términos marcados entre «»; vacío si no hubo
+    /// consulta.
+    pub fragmento: String,
+}
