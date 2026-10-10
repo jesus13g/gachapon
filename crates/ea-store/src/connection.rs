@@ -35,6 +35,27 @@ pub fn open() -> StoreResult<Connection> {
 /// Igual que [`open`] pero sobre una ruta explícita. Útil para tests
 /// (`:memory:`) y para herramientas de diagnóstico.
 pub fn open_at(path: &std::path::Path) -> StoreResult<Connection> {
+    const INTENTOS: u32 = 5;
+    let mut intento = 1;
+    loop {
+        match abrir_una_vez(path) {
+            Ok(conn) => return Ok(conn),
+            Err(_) if intento < INTENTOS => {
+                std::thread::sleep(std::time::Duration::from_millis(100 * u64::from(intento)));
+                intento += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Un intento de apertura. Puede fallar de forma pasajera cuando varios
+/// procesos abren a la vez una base recién creada (los servicios al iniciar
+/// sesión): el cambio a WAL no espera al otro proceso ("database is
+/// locked"), y dos procesos que leen la misma versión de esquema intentan la
+/// misma migración ("table ... already exists"). En ambos casos el otro ya
+/// ha terminado para cuando se reintenta.
+fn abrir_una_vez(path: &std::path::Path) -> StoreResult<Connection> {
     let mut conn = Connection::open(path)?;
     apply_pragmas(&conn)?;
     run_migrations(&mut conn)?;
@@ -42,13 +63,13 @@ pub fn open_at(path: &std::path::Path) -> StoreResult<Connection> {
 }
 
 fn apply_pragmas(conn: &Connection) -> StoreResult<()> {
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "foreign_keys", true)?;
     // Varios procesos (CLI, ea-mcp, ea-proxy, ea-orchestrator) abren esta
     // misma base de datos de forma concurrente; sin esto, dos aperturas
     // simultáneas durante una migración (p. ej. el sondeo y el heartbeat
     // de ea-orchestrator arrancando a la vez) fallan con "database is
     // locked" en vez de esperar el instante que hace falta.
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "foreign_keys", true)?;
     Ok(())
 }

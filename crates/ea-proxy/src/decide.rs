@@ -63,12 +63,26 @@ pub fn mensajes_redaccion(
          '{herramienta}', que devolvió este resultado:\n{recortado}{aviso}\n\n\
          Contesta a la petición usando solo esos datos, con sus cifras concretas y \
          sin inventar nada. Si el resultado está vacío, dilo. Si trae varios \
-         elementos, di cuántos son y nombra como mucho tres por su título, sin \
-         leer identificadores, fechas ni mensajes de error completos. \
-         {ESTILO_RESPUESTA}"
+         elementos, di cuántos son y nombra como mucho tres dentro de la misma \
+         frase, separados por comas, sin numerarlos y sin leer identificadores, \
+         fechas ni mensajes de error completos. {ESTILO_RESPUESTA}"
     ))];
     mensajes.extend_from_slice(conversacion);
     mensajes
+}
+
+/// Instrucción del paso de extracción. Sin la fecha de hoy y sin la orden
+/// explícita de dejar a null lo que no se pide, el modelo rellena todos los
+/// filtros con valores plausibles (fechas de su entrenamiento, un actor
+/// cualquiera) y la consulta vuelve vacía.
+pub fn instruccion_extraccion(tool: &catalog::CatalogTool, hoy: &str) -> String {
+    format!(
+        "Extrae los argumentos para invocar '{}' a partir de la última petición del \
+         usuario.\n\n{}\n\nHoy es {hoy}. Pon null en todo argumento que la petición \
+         no mencione de forma expresa: no inventes filtros, nombres ni fechas. \
+         \"Últimamente\" o \"reciente\" no son una fecha: déjalas a null.",
+        tool.name, tool.args_help
+    )
 }
 
 fn catalog_prompt() -> String {
@@ -185,10 +199,9 @@ pub async fn decidir(
         json!({})
     } else {
         let started = Instant::now();
-        let mut mensajes = vec![ChatMessage::system(format!(
-            "Extrae los argumentos para invocar '{}' a partir de la última petición \
-             del usuario.\n\n{}",
-            tool.name, tool.args_help
+        let mut mensajes = vec![ChatMessage::system(instruccion_extraccion(
+            tool,
+            &time::OffsetDateTime::now_utc().date().to_string(),
         ))];
         mensajes.extend_from_slice(conversacion);
         let extraidos = llama

@@ -1,7 +1,8 @@
 //! El paso de redacción: lo que se le pide al modelo para que cuente el
 //! resultado de una herramienta en vez de devolverlo crudo.
 
-use ea_proxy::decide::{mensajes_redaccion, recortar};
+use ea_proxy::catalog;
+use ea_proxy::decide::{instruccion_extraccion, mensajes_redaccion, recortar};
 use ea_proxy::llama_client::ChatMessage;
 use serde_json::json;
 
@@ -32,4 +33,14 @@ fn un_resultado_enorme_se_recorta_y_se_avisa() {
 fn recortar_no_parte_caracteres_multibyte() {
     assert_eq!(recortar("añoñ", 2), ("añ", true));
     assert_eq!(recortar("año", 3), ("año", false));
+}
+
+#[test]
+fn la_extraccion_lleva_la_fecha_de_hoy_y_prohibe_inventar() {
+    let tool = catalog::find("ea_listar_diario").expect("herramienta del catálogo");
+    let instruccion = instruccion_extraccion(tool, "2026-10-10");
+
+    assert!(instruccion.contains("Hoy es 2026-10-10"));
+    assert!(instruccion.contains("null"));
+    assert!(instruccion.contains(tool.args_help));
 }

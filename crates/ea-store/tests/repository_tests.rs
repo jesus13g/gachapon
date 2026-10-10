@@ -353,3 +353,27 @@ fn una_propuesta_de_texto_no_se_puede_reclamar_y_decidir_dos_veces_falla() {
         Err(StoreError::PropuestaYaDecidida(_))
     ));
 }
+
+/// Varios procesos arrancando a la vez sobre una base recién creada (los
+/// servicios al iniciar sesión): todos deben abrirla, no solo el primero.
+#[test]
+fn aperturas_simultaneas_de_una_base_nueva_no_fallan() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let ruta = dir.path().join("nueva.db");
+    let barrera = std::sync::Arc::new(std::sync::Barrier::new(8));
+
+    let hilos: Vec<_> = (0..8)
+        .map(|_| {
+            let ruta = ruta.clone();
+            let barrera = barrera.clone();
+            std::thread::spawn(move || {
+                barrera.wait();
+                Store::open_at(&ruta).map(|_| ())
+            })
+        })
+        .collect();
+
+    for hilo in hilos {
+        hilo.join().expect("hilo").expect("abrir la base nueva");
+    }
+}
