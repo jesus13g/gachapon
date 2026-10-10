@@ -436,7 +436,7 @@ async fn tarea_estado(
         args["resultado"] = json!(r);
     }
     let sis = sistema(&s);
-    let mut store = s.store.lock().await;
+    let mut store = s.acciones.lock().await;
     store.get_task(id)?; // 404 si no existe
     ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_cambiar_estado_tarea", &args)
         .await?;
@@ -590,7 +590,7 @@ async fn rutina_encolar(
     rutina::cargar(&s.config.rutinas_dir, &slug)?;
 
     let sis = sistema(&s);
-    let mut store = s.store.lock().await;
+    let mut store = s.acciones.lock().await;
     let r = ea_acciones::ejecutar_directo(
         &mut store, &sis, ACTOR, Canal::Web, "ea_encolar_rutina", &json!({ "slug": slug }),
     )
@@ -646,7 +646,7 @@ async fn propuesta_decidir(
     };
 
     let sis = sistema(&s);
-    let mut store = s.store.lock().await;
+    let mut store = s.acciones.lock().await;
     let p = if aceptar {
         ea_acciones::aceptar_propuesta(&mut store, &sis, id, ACTOR, Canal::Web).await?
     } else {
@@ -736,7 +736,7 @@ async fn boveda_promover(State(s): Estado, Json(b): Json<PromoverBody>) -> ApiRe
     if let Some(d) = b.destino.filter(|d| !d.trim().is_empty()) {
         args["destino"] = json!(d);
     }
-    let mut store = s.store.lock().await;
+    let mut store = s.acciones.lock().await;
     let r = ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_promover_nota", &args).await?;
     Ok(Json(json!({ "texto": r.texto, "datos": r.datos })))
 }
@@ -777,7 +777,7 @@ async fn servicio_reiniciar(State(s): Estado, Path(nombre): Path<String>) -> Api
     }
 
     let sis = sistema(&s);
-    let mut store = s.store.lock().await;
+    let mut store = s.acciones.lock().await;
     ea_acciones::ejecutar_directo(
         &mut store, &sis, ACTOR, Canal::Web, "ea_reiniciar_servicio", &json!({ "servicio": nombre }),
     )

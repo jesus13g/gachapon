@@ -19,7 +19,8 @@ async fn main() -> anyhow::Result<()> {
     let store = Store::open().context("no se pudo abrir la base de datos")?;
 
     let bind_addr = format!("127.0.0.1:{}", config.puerto);
-    let router = api::router(Arc::new(AppState::new(store, config)));
+    let estado = AppState::new(store, config).context("no se pudo abrir la conexión de acciones")?;
+    let router = api::router(Arc::new(estado));
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;

@@ -35,7 +35,7 @@ fn montar() -> Fixture {
         boveda: ea_boveda::Boveda::en(dir.path().join("boveda")),
         systemctl: false,
     };
-    let state = Arc::new(AppState::new(store, config));
+    let state = Arc::new(AppState::new(store, config).expect("estado"));
     Fixture { app: api::router(state.clone()), state, _dir: dir }
 }
 
@@ -450,4 +450,19 @@ async fn aceptar_en_la_web_la_propuesta_de_promocion_de_un_agente_la_ejecuta() {
     assert_eq!(s, StatusCode::OK);
     assert_eq!(p["ejecutada"]["estado"], "ejecutada", "{p}");
     assert!(f.state.boveda.raiz().join("compartida/hallazgo.md").exists());
+}
+
+/// Una acción lenta (un reinicio espera a `systemctl` hasta 30 s) no deja la
+/// página sin datos: las lecturas van por otra conexión.
+#[tokio::test]
+async fn una_accion_en_curso_no_bloquea_las_lecturas() {
+    let f = montar();
+    let _en_curso = f.state.acciones.lock().await;
+
+    for ruta in ["/api/estado", "/api/tareas", "/api/diario", "/api/propuestas"] {
+        let (s, _) = tokio::time::timeout(std::time::Duration::from_secs(5), get(&f, ruta))
+            .await
+            .unwrap_or_else(|_| panic!("{ruta} se quedó esperando a la acción en curso"));
+        assert_eq!(s, StatusCode::OK, "{ruta}");
+    }
 }

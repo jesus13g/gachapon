@@ -36,6 +36,16 @@ impl Store {
         })
     }
 
+    /// Otra conexión a la misma base. Sirve para que un trabajo largo no
+    /// retenga la conexión con la que el mismo proceso atiende lecturas. No
+    /// vale para una base en memoria: cada conexión sería una base distinta.
+    pub fn duplicar(&self) -> StoreResult<Self> {
+        match self.conn.path() {
+            Some(ruta) if !ruta.is_empty() => Self::open_at(Path::new(ruta)),
+            _ => Err(rusqlite::Error::InvalidPath("base en memoria".into()).into()),
+        }
+    }
+
     pub fn create_task(&mut self, new_task: NewTask) -> StoreResult<Task> {
         tasks::create_task(&mut self.conn, new_task)
     }

@@ -59,14 +59,20 @@ impl WebConfig {
 
 pub struct AppState {
     pub store: Mutex<Store>,
+    /// Conexión aparte para las acciones supervisadas. Una acción puede
+    /// esperar hasta 30 s a `systemctl` con su candado cogido; con una sola
+    /// conexión, la página entera se quedaba sin refrescar mientras tanto.
+    /// Las acciones siguen serializadas entre sí.
+    pub acciones: Mutex<Store>,
     pub boveda: ea_boveda::Boveda,
     pub config: WebConfig,
     pub http: reqwest::Client,
 }
 
 impl AppState {
-    pub fn new(store: Store, config: WebConfig) -> Self {
-        Self {
+    pub fn new(store: Store, config: WebConfig) -> ea_store::StoreResult<Self> {
+        Ok(Self {
+            acciones: Mutex::new(store.duplicar()?),
             store: Mutex::new(store),
             boveda: config.boveda.clone(),
             config,
@@ -76,6 +82,6 @@ impl AppState {
                 .timeout(Duration::from_secs(60))
                 .build()
                 .expect("cliente HTTP"),
-        }
+        })
     }
 }
