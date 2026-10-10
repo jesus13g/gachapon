@@ -369,3 +369,85 @@ async fn la_web_no_confirma_irreversibles() {
     assert_eq!((s, p["estado"].as_str()), (StatusCode::OK, Some("rechazada")));
     assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
 }
+
+// ------------------------------------------------------------------ bóveda
+
+fn nota(f: &Fixture, autor: &str, titulo: &str, cuerpo: &str) -> String {
+    let mut s = Store::open_at(&f.state.config.rutinas_dir.parent().unwrap().join("test.db")).unwrap();
+    f.state
+        .boveda
+        .escribir_nota(
+            &mut s,
+            autor,
+            &ea_boveda::NuevaNota { titulo, cuerpo, ruta: None, tags: &[], origen: "manual", sobrescribir: false },
+            &ea_boveda::Limites::AMPLIOS,
+        )
+        .unwrap()
+        .ruta
+}
+
+#[tokio::test]
+async fn la_boveda_se_lista_busca_lee_y_promueve_desde_la_web() {
+    let f = montar();
+    let ruta = nota(&f, "modelo-local", "Receta de lentejas", "Lentejas con chorizo y pimentón.");
+    nota(&f, "claude-code", "Otra cosa", "Nada que ver.");
+
+    let (s, v) = get(&f, "/api/boveda").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["notas"].as_array().unwrap().len(), 2);
+    let (_, v) = get(&f, "/api/boveda?q=lentejas&region=modelo-local").await;
+    assert_eq!(v["notas"].as_array().unwrap().len(), 1);
+    assert!(v["notas"][0]["fragmento"].as_str().unwrap().contains("«"));
+    // Una consulta a medio escribir (solo signos) no es un error.
+    let (s, v) = get(&f, "/api/boveda?q=%22%20(").await;
+    assert_eq!((s, v["notas"].as_array().unwrap().len()), (StatusCode::OK, 0));
+    let (s, _) = get(&f, "/api/boveda?region=inventada").await;
+    assert_ne!(s, StatusCode::OK);
+
+    let (s, v) = get(&f, &format!("/api/boveda/nota?ruta={ruta}")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["cabecera"]["autor"], "modelo-local");
+    assert!(v["contenido"].as_str().unwrap().contains("chorizo"));
+    // Fuera de la bóveda, no.
+    for mala in ["../etc/passwd", "/etc/passwd", "modelo-local/../../x.md"] {
+        let (s, _) = get(&f, &format!("/api/boveda/nota?ruta={mala}")).await;
+        assert_ne!(s, StatusCode::OK, "{mala}");
+    }
+
+    // Promoción del usuario desde la web: copia y deja el evento.
+    let (s, v) = post(&f, "/api/boveda/promover", json!({ "ruta": ruta })).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, v) = get(&f, "/api/boveda?region=compartida").await;
+    assert_eq!(v["notas"].as_array().unwrap().len(), 1);
+    let (_, d) = get(&f, "/api/diario?limite=50").await;
+    let acciones: Vec<_> = d.as_array().unwrap().iter().map(|e| e["accion"].as_str().unwrap().to_string()).collect();
+    assert!(acciones.contains(&"boveda_promocion".to_string()) && acciones.contains(&"accion_ejecutada".to_string()));
+    // Ya está: no se promueve dos veces; y lo que no es de un agente, tampoco.
+    let (s, _) = post(&f, "/api/boveda/promover", json!({ "ruta": ruta })).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let (s, _) = post(&f, "/api/boveda/promover", json!({ "ruta": "compartida/receta-de-lentejas.md" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn aceptar_en_la_web_la_propuesta_de_promocion_de_un_agente_la_ejecuta() {
+    let f = montar();
+    let ruta = nota(&f, "claude-code", "Hallazgo", "Texto del hallazgo.");
+    {
+        let store = f.state.store.lock().await;
+        let c = ea_acciones::SoloConsulta {
+            rutinas_dir: f.state.config.rutinas_dir.clone(),
+            boveda: f.state.boveda.clone(),
+        };
+        let args = json!({ "ruta": ruta });
+        ea_acciones::proponer(&store, &c, &Default::default(), "claude-code", None, None, "ea_promover_nota", &args)
+            .unwrap();
+    }
+    assert!(!f.state.boveda.raiz().join("compartida").exists());
+    let (_, ps) = get(&f, "/api/propuestas?estado=pendiente").await;
+    let id = ps[0]["id"].as_i64().unwrap();
+    let (s, p) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "aceptar" })).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(p["ejecutada"]["estado"], "ejecutada", "{p}");
+    assert!(f.state.boveda.raiz().join("compartida/hallazgo.md").exists());
+}

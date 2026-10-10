@@ -104,6 +104,7 @@ input:focus { background: var(--sel); }
 .r.u { grid-template-columns: 18px minmax(120px, 200px) 1fr 120px 100px; }
 .r.p { grid-template-columns: 18px 48px 1fr 150px 56px 64px; }
 .r.s { grid-template-columns: 18px 190px 1fr 90px 36px; }
+.r.b { grid-template-columns: 18px 1fr minmax(120px, 280px) 100px 48px; }
 .x, .m, .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .x { color: var(--fg-hi); }
 .m, .n { color: var(--fg-lo); }
@@ -142,6 +143,7 @@ input:focus { background: var(--sel); }
   .r.t { grid-template-columns: 18px 18px 56px 1fr 40px; }
   .r.d { grid-template-columns: 96px 18px 1fr 56px 56px; }
   .r.p { grid-template-columns: 18px 48px 1fr 56px 64px; }
+  .r.b { grid-template-columns: 18px 1fr 100px 48px; }
   .det { padding-left: 38px; }
   #form { flex-wrap: wrap; }
 }

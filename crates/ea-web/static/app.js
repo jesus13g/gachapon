@@ -3,7 +3,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const SECCIONES = ['tareas', 'diario', 'rutinas', 'propuestas', 'sistema'];
+const SECCIONES = ['tareas', 'diario', 'rutinas', 'propuestas', 'sistema', 'boveda'];
 const SIM = { pendiente: '○', en_progreso: '◐', completada: '●', fallida: '✕', cancelada: '⊘' };
 const ORIGEN = { manual: '✎', boton: '▪', voz: '◉', programado: '↻', agente: '◈' };
 const PASO = { accion: '▸', decision: '¿', propuesta: '◇', fin: '■' };
@@ -197,6 +197,31 @@ function filasPropuestas(ps) {
   });
 }
 
+function filasBoveda(d) {
+  return d.notas.map(n => {
+    const k = 'b' + n.ruta;
+    const promovida = n.promocion === 'promovida';
+    const row = `<i class="m" title="${esc(n.region)}">${n.region === 'compartida' ? '◆' : '◇'}</i>` +
+      `<span class="x">${esc(n.titulo)}</span><span class="m w">${esc(n.ruta)}</span>` +
+      `<span class="m">${esc(n.autor ?? '')}</span><span class="m">${n.actualizada ? hace(n.actualizada) : ''}</span>`;
+    const x = st.detalle[k];
+    let det = '';
+    if (x) {
+      const c = x.cabecera;
+      det = (c ? `<p class="m">${esc(c.autor)} · ${esc(c.origen)} · ${promovida ? 'promovida' : 'sin promover'}` +
+        `${c.tags.length ? ' · ' + esc(c.tags.join(', ')) : ''}${c.promovida_de ? ' · de ' + esc(c.promovida_de) : ''}` +
+        `${c.promovida_a ? ' · a ' + esc(c.promovida_a) : ''}</p>` : `<p class="m">${esc(x.aviso_cabecera ?? '')}</p>`) +
+        `<pre>${esc(x.contenido)}${x.truncado ? '\n…' : ''}</pre>`;
+    }
+    // Promover es decisión del usuario: segundo clic para confirmar.
+    if (n.region !== 'compartida') {
+      const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
+      det += `<div class="acc">${btn('promover', armada ? '⇧?' : '⇧', armada ? 'confirmar: copia a la región compartida' : 'promover a la región compartida', { ruta: n.ruta }, armada ? 'hot' : '')}</div>`;
+    }
+    return fila(k, 'b', row, `${n.titulo} ${n.ruta}`, det, '');
+  });
+}
+
 function filasSistema(e) {
   const out = [];
   e.servicios.forEach(s => {
@@ -227,6 +252,7 @@ function construir() {
     case 'diario': return d ? filasDiario(d) : [];
     case 'rutinas': return d ? filasRutinas(d) : [];
     case 'propuestas': return d ? filasPropuestas(d) : [];
+    case 'boveda': return d ? filasBoveda(d) : [];
     default: return st.estado ? filasSistema(st.estado) : [];
   }
 }
@@ -284,7 +310,8 @@ function pintar() {
 
   const q = st.q.trim().toLowerCase();
   const todas = construir();
-  const vis = q ? todas.filter(f => f.txt.includes(q)) : todas;
+  // En la bóveda el filtro es una búsqueda de texto completo en el servidor.
+  const vis = q && st.sec !== 'boveda' ? todas.filter(f => f.txt.includes(q)) : todas;
   st.vis = vis.map(f => f.k);
   if (st.sel && !st.vis.includes(st.sel)) st.sel = null;
 
@@ -302,9 +329,9 @@ function pintar() {
 // ---------------------------------------------------------------------- datos
 
 async function cargaDetalle(k) {
-  const prefijo = { tareas: 't', rutinas: 'r' }[st.sec];
+  const prefijo = { tareas: 't', rutinas: 'r', boveda: 'b' }[st.sec];
   if (!prefijo || k[0] !== prefijo) return;
-  const ruta = prefijo === 't' ? '/api/tareas/' : '/api/rutinas/';
+  const ruta = { t: '/api/tareas/', r: '/api/rutinas/', b: '/api/boveda/nota?ruta=' }[prefijo];
   try { st.detalle[k] = await api(ruta + encodeURIComponent(k.slice(1))); } catch { delete st.detalle[k]; }
 }
 
@@ -315,6 +342,7 @@ async function cargaSeccion() {
   else if (sec === 'diario') datos = await api('/api/diario?limite=300' + (st.latidos ? '&latidos=1' : ''));
   else if (sec === 'rutinas') datos = await api('/api/rutinas');
   else if (sec === 'propuestas') datos = await api('/api/propuestas' + (st.propTodas ? '' : '?estado=pendiente'));
+  else if (sec === 'boveda') datos = await api('/api/boveda?q=' + encodeURIComponent(st.q.trim()));
   await Promise.all([...st.abiertos].map(cargaDetalle));
   if (sec !== st.sec) return false; // el usuario cambió de sección mientras tanto
   st.datos = datos;
@@ -369,7 +397,7 @@ function mover(d) {
 }
 
 async function accion(b) {
-  const { a, id, v, slug, n } = b.dataset;
+  const { a, id, v, slug, n, ruta } = b.dataset;
   try {
     if (a === 'estado') {
       const res = $('.res', b.closest('.f'))?.value.trim();
@@ -385,6 +413,17 @@ async function accion(b) {
       st.armado = null;
       const p = await post(`/api/propuestas/${id}/decidir`, { decision: v });
       if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
+    } else if (a === 'promover') {
+      const k = 'b' + ruta;
+      if (!(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
+        st.armado = { n: k, hasta: Date.now() + 4000 };
+        pintar();
+        setTimeout(pintar, 4100);
+        return;
+      }
+      st.armado = null;
+      const r = await post('/api/boveda/promover', { ruta });
+      avisa(r.texto, true);
     } else if (a === 'encolar') {
       const t = await post(`/api/rutinas/${encodeURIComponent(slug)}/encolar`);
       avisa('▶ #' + t.id, true);
@@ -485,7 +524,13 @@ $('#form').addEventListener('submit', async ev => {
   }
 });
 
-$('#q').addEventListener('input', ev => { st.q = ev.target.value; st.html = ''; pintar(); });
+let busqueda;
+$('#q').addEventListener('input', ev => {
+  st.q = ev.target.value;
+  st.html = '';
+  pintar();
+  if (st.sec === 'boveda') { clearTimeout(busqueda); busqueda = setTimeout(tick, 250); }
+});
 
 document.addEventListener('keydown', ev => {
   const t = ev.target;

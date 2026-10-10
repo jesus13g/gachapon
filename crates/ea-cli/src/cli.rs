@@ -37,6 +37,11 @@ pub enum Command {
         #[command(subcommand)]
         accion: AccionesAccion,
     },
+    /// Bóveda de notas: ver, buscar, leer y promover a la región compartida
+    Boveda {
+        #[command(subcommand)]
+        accion: BovedaAccion,
+    },
     /// Voz (activación manual y palabra de activación)
     Voz {
         #[command(subcommand)]
@@ -136,6 +141,45 @@ pub enum AccionesAccion {
         #[arg(long, default_value = "{}")]
         args: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum BovedaAccion {
+    /// Raíz de la bóveda y número de notas por región
+    Estado,
+    /// Lista las notas más recientes
+    Listar {
+        /// modelo-local, claude-code o compartida
+        #[arg(long)]
+        region: Option<String>,
+        #[arg(long, default_value_t = 20)]
+        limite: usize,
+    },
+    /// Busca notas por palabras (todas deben aparecer)
+    Buscar {
+        consulta: String,
+        #[arg(long)]
+        region: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        limite: usize,
+    },
+    /// Lee una nota por su ruta (p. ej. compartida/servicios/mcp.md)
+    Leer {
+        ruta: String,
+        /// Carácter del cuerpo desde el que leer
+        #[arg(long, default_value_t = 0)]
+        desde: usize,
+    },
+    /// Promueve una nota de la región de un agente a la compartida: copia la
+    /// nota tras mostrar la simulación y pedir confirmación en la terminal
+    Promover {
+        ruta: String,
+        /// Ruta de destino dentro de «compartida» (por defecto, la misma)
+        #[arg(long)]
+        destino: Option<String>,
+    },
+    /// Reconstruye el índice de búsqueda desde los ficheros
+    Reindexar,
 }
 
 #[derive(Subcommand)]

@@ -377,3 +377,58 @@ fn aperturas_simultaneas_de_una_base_nueva_no_fallan() {
         hilo.join().expect("hilo").expect("abrir la base nueva");
     }
 }
+
+#[test]
+fn la_migracion_0004_añade_el_indice_sin_tocar_lo_anterior_y_fts5_funciona() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v3.db");
+    {
+        // Una base tal como la dejó la fase 6 (migraciones 1 a 3).
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        for m in [
+            include_str!("../migrations/0001_initial.sql"),
+            include_str!("../migrations/0002_routine_runs.sql"),
+            include_str!("../migrations/0003_propuestas_acciones.sql"),
+        ] {
+            conn.execute_batch(m).unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO events (ts, actor, action) VALUES ('2026-01-01T00:00:00Z', 'a', 'previo');
+             PRAGMA user_version = 3;",
+        )
+        .unwrap();
+    }
+    let mut store = Store::open_at(&path).expect("migrar de 3 a 4");
+    assert_eq!(store.list_events(&Default::default()).unwrap().len(), 1);
+
+    let e = |ruta: &str, titulo: &str| ea_store::EntradaIndice {
+        ruta: ruta.into(),
+        region: "compartida".into(),
+        autor: None,
+        titulo: titulo.into(),
+        origen: None,
+        promocion: None,
+        creada: None,
+        actualizada: None,
+        tags: "".into(),
+        mtime_ns: 1,
+        bytes: 10,
+    };
+    store.boveda_indexar(&e("compartida/a.md", "Café"), "Una reunión muy larga").unwrap();
+    store.boveda_indexar(&e("compartida/b.md", "Otra"), "nada").unwrap();
+    // Sin acentos ni mayúsculas, con fragmento marcado.
+    let r = store.boveda_buscar("\"CAFE\" \"reunion\"", None, 10, 8).unwrap();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].ruta, "compartida/a.md");
+    assert!(r[0].fragmento.contains('«'));
+    // Reindexar reemplaza, no duplica; olvidar quita también el texto.
+    store.boveda_indexar(&e("compartida/a.md", "Té"), "otra cosa").unwrap();
+    assert!(store.boveda_buscar("\"cafe\"", None, 10, 8).unwrap().is_empty());
+    assert_eq!(store.boveda_buscar("\"te\"", None, 10, 8).unwrap().len(), 1);
+    store.boveda_olvidar("compartida/a.md").unwrap();
+    assert!(store.boveda_buscar("\"te\"", None, 10, 8).unwrap().is_empty());
+    assert_eq!(store.boveda_contar_por_region().unwrap(), vec![("compartida".to_string(), 1)]);
+    // El diario sigue siendo append-only tras migrar.
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert!(conn.execute("DELETE FROM events", []).is_err());
+}

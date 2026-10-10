@@ -138,6 +138,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/rutinas/{slug}/encolar", post(rutina_encolar))
         .route("/api/propuestas", get(propuestas_listar))
         .route("/api/propuestas/{id}/decidir", post(propuesta_decidir))
+        .route("/api/boveda", get(boveda_listar))
+        .route("/api/boveda/nota", get(boveda_leer))
+        .route("/api/boveda/promover", post(boveda_promover))
         .route("/api/voz/hablar", post(voz_hablar))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
         .layer(middleware::from_fn(guardia))
@@ -650,6 +653,92 @@ async fn propuesta_decidir(
         ea_acciones::rechazar_propuesta(&store, id, ACTOR, Canal::Web)?
     };
     Ok(Json(propuesta_json(&p, rutina_de(&store, &p))))
+}
+
+// ------------------------------------------------------------------ bóveda
+
+/// Cotas de la interfaz del usuario: más holgadas que las de los agentes,
+/// pero acotadas (la página no pinta cientos de notas).
+const LIMITES_WEB: ea_boveda::Limites = ea_boveda::Limites { max_resultados: 50, ..ea_boveda::Limites::AMPLIOS };
+
+impl From<ea_boveda::ErrorBoveda> for ApiError {
+    fn from(e: ea_boveda::ErrorBoveda) -> Self {
+        ApiError::from(ErrorAccion::from(e))
+    }
+}
+
+#[derive(Deserialize)]
+struct BovedaQuery {
+    q: Option<String>,
+    region: Option<String>,
+    limite: Option<usize>,
+}
+
+fn nota_resumen_json(r: &ea_store::ResultadoBusqueda) -> Value {
+    json!({
+        "ruta": r.ruta, "region": r.region, "autor": r.autor, "titulo": r.titulo,
+        "actualizada": r.actualizada, "promocion": r.promocion, "fragmento": r.fragmento,
+    })
+}
+
+/// Con `q`, búsqueda de texto completo; sin ella, las notas más recientes.
+async fn boveda_listar(State(s): Estado, Query(q): Query<BovedaQuery>) -> ApiResult<Json<Value>> {
+    let mut store = s.store.lock().await;
+    let region = q.region.as_deref().filter(|r| !r.is_empty());
+    let filas = match q.q.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        // Una consulta sin términos buscables (solo signos) no es un error aquí:
+        // se escribe letra a letra en el cuadro de filtro.
+        Some(texto) => match s.boveda.buscar(&mut store, texto, region, q.limite, &LIMITES_WEB) {
+            Err(ea_boveda::ErrorBoveda::Argumentos(_)) => Vec::new(),
+            otro => otro?,
+        },
+        None => s.boveda.listar(&mut store, region, q.limite, &LIMITES_WEB)?,
+    };
+    Ok(Json(json!({
+        "raiz": s.boveda.raiz().display().to_string(),
+        "notas": filas.iter().map(nota_resumen_json).collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct NotaQuery {
+    ruta: String,
+    desde: Option<usize>,
+}
+
+async fn boveda_leer(State(s): Estado, Query(q): Query<NotaQuery>) -> ApiResult<Json<Value>> {
+    let n = s.boveda.leer(&q.ruta, q.desde.unwrap_or(0), &LIMITES_WEB)?;
+    Ok(Json(json!({
+        "ruta": n.ruta, "region": n.region,
+        "cabecera": n.cabecera.as_ref().map(|c| json!({
+            "titulo": c.titulo, "autor": c.autor, "creada": c.creada, "actualizada": c.actualizada,
+            "origen": c.origen, "promocion": c.promocion, "tags": c.tags,
+            "promovida_de": c.promovida_de, "promovida_a": c.promovida_a,
+        })),
+        "aviso_cabecera": n.aviso_cabecera,
+        "contenido": n.contenido, "total_caracteres": n.total_caracteres,
+        "truncado": n.truncado, "siguiente_desde": n.siguiente_desde,
+    })))
+}
+
+#[derive(Deserialize)]
+struct PromoverBody {
+    ruta: String,
+    destino: Option<String>,
+}
+
+/// Promoción directa del usuario desde la página (el gesto es la
+/// confirmación; la web la pide con un segundo clic). Misma herramienta, mismo
+/// flujo y mismo rastro en el diario que aceptar la propuesta de un agente.
+async fn boveda_promover(State(s): Estado, Json(b): Json<PromoverBody>) -> ApiResult<Json<Value>> {
+    let sis = sistema(&s);
+    let mut args = json!({ "ruta": b.ruta });
+    if let Some(d) = b.destino.filter(|d| !d.trim().is_empty()) {
+        args["destino"] = json!(d);
+    }
+    let mut store = s.store.lock().await;
+    let r = ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_promover_nota", &args).await?;
+    Ok(Json(json!({ "texto": r.texto, "datos": r.datos })))
 }
 
 // --------------------------------------------------------------------- voz

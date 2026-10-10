@@ -1,4 +1,5 @@
 mod agentes_view;
+mod boveda_view;
 mod diario_view;
 mod propuestas_view;
 mod rutinas_view;
@@ -12,7 +13,7 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, Key
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ea_orchestrator::rutina;
-use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, Store, Task, TaskFilter};
+use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, ResultadoBusqueda, Store, Task, TaskFilter};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
@@ -46,16 +47,18 @@ enum Tab {
     Agentes,
     Rutinas,
     Propuestas,
+    Boveda,
 }
 
 impl Tab {
-    const ALL: [Tab; 6] = [
+    const ALL: [Tab; 7] = [
         Tab::Tareas,
         Tab::Diario,
         Tab::Servicios,
         Tab::Agentes,
         Tab::Rutinas,
         Tab::Propuestas,
+        Tab::Boveda,
     ];
 
     fn title(self) -> &'static str {
@@ -66,6 +69,7 @@ impl Tab {
             Tab::Agentes => "Agentes",
             Tab::Rutinas => "Rutinas",
             Tab::Propuestas => "Propuestas",
+            Tab::Boveda => "Bóveda",
         }
     }
 
@@ -82,12 +86,19 @@ struct AppData {
     servicios: Vec<ServicioResumen>,
     orquestador: String,
     agentes: Vec<ResumenAgente>,
+    boveda_raiz: String,
+    boveda: Vec<ResultadoBusqueda>,
 }
 
 /// Lanza la interfaz de terminal interactiva. Es una fotografía de los datos
 /// al arrancar (§13.1: las interfaces de terminal no son servicios, son
 /// clientes bajo demanda) — para ver cambios se vuelve a lanzar `ea tui`.
-pub fn run(store: &Store) -> Result<()> {
+pub fn run(store: &mut Store) -> Result<()> {
+    let boveda = ea_acciones::Boveda::configurada();
+    let notas = boveda
+        .listar(store, None, Some(50), &ea_boveda::Limites { max_resultados: 50, ..ea_boveda::Limites::AMPLIOS })
+        .unwrap_or_default();
+    let store: &Store = store;
     let rutinas_dir = ea_orchestrator::config::load().rutinas_dir;
     let mut rutinas = Vec::new();
     for slug in rutina::listar_slugs(&rutinas_dir).unwrap_or_default() {
@@ -121,6 +132,8 @@ pub fn run(store: &Store) -> Result<()> {
             ..Default::default()
         })?,
         rutinas,
+        boveda_raiz: boveda.raiz().display().to_string(),
+        boveda: notas,
         propuestas: store.list_propuestas(&PropuestaFilter {
             estado: Some(EstadoPropuesta::Pendiente),
             limit: Some(100),
@@ -168,6 +181,7 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
                 Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes),
                 Tab::Rutinas => rutinas_view::render(frame, chunks[1], &data.rutinas),
                 Tab::Propuestas => propuestas_view::render(frame, chunks[1], &data.propuestas),
+                Tab::Boveda => boveda_view::render(frame, chunks[1], &data.boveda_raiz, &data.boveda),
             }
         })?;
 

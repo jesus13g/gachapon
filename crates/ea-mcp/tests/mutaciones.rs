@@ -221,6 +221,9 @@ async fn lo_desatendido_no_puede_ni_simular_ni_proponer_ni_crear() {
             "ea_cambiar_estado_tarea" => json!({ "id": t, "estado": "completada" }),
             "ea_reiniciar_servicio" => json!({ "servicio": "ea-mcp" }),
             "ea_crear_tarea" => json!({ "titulo": "a", "solicita": "b", "asignado_a": "usuario" }),
+            // Denegadas antes de tocar nada, así que no llegan a la bóveda configurada.
+            "ea_escribir_nota" => json!({ "titulo": "a", "contenido": "b" }),
+            "ea_promover_nota" => json!({ "ruta": "modelo-local/a.md" }),
             _ => json!({ "slug": "vieja" }),
         };
         let err = llamar(&c, h.nombre, args).await.unwrap_err();

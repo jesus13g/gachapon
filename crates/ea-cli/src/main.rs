@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinasAccion, TareasAccion, VozAccion};
+use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinasAccion, TareasAccion, VozAccion};
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -75,11 +75,21 @@ fn main() -> Result<()> {
                 commands::acciones::ejecutar(&mut store, &herramienta, &args)?
             }
         },
+        Command::Boveda { accion } => match accion {
+            BovedaAccion::Estado => commands::boveda::estado(&mut store)?,
+            BovedaAccion::Listar { region, limite } => commands::boveda::listar(&mut store, region, limite)?,
+            BovedaAccion::Buscar { consulta, region, limite } => {
+                commands::boveda::buscar(&mut store, &consulta, region, limite)?
+            }
+            BovedaAccion::Leer { ruta, desde } => commands::boveda::leer(&ruta, desde)?,
+            BovedaAccion::Promover { ruta, destino } => commands::boveda::promover(&mut store, &ruta, destino)?,
+            BovedaAccion::Reindexar => commands::boveda::reindexar(&mut store)?,
+        },
         Command::Voz { accion } => match accion {
             VozAccion::Hablar => commands::voz::hablar()?,
             VozAccion::Estado => commands::voz::estado()?,
         },
-        Command::Tui => tui::run(&store)?,
+        Command::Tui => tui::run(&mut store)?,
     }
 
     Ok(())
