@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use ea_boveda::{Boveda, ErrorBoveda, PlanPromocion};
+use ea_store::Store;
 use tokio::process::Command;
 use tokio::time::timeout;
 
@@ -34,11 +36,26 @@ pub trait Consulta: Send + Sync {
 
     /// Contenido del fichero de la rutina, o `None` si no existe.
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String>;
+
+    /// Lo que haría promover una nota a la región compartida, sin hacerlo.
+    fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda>;
 }
 
 pub trait Sistema: Consulta {
     fn servicio_reiniciar(&self, nombre: &str) -> impl Future<Output = Result<(), String>> + Send;
     fn rutina_eliminar(&self, slug: &str) -> Result<(), String>;
+
+    /// Copia una nota a la región compartida (la promoción que acepta el
+    /// usuario). `huella` es la del contenido que se simuló.
+    fn nota_promover(
+        &self,
+        store: &mut Store,
+        ruta: &str,
+        destino: Option<&str>,
+        huella: &str,
+        actor: &str,
+        canal: &str,
+    ) -> Result<PlanPromocion, ErrorBoveda>;
 }
 
 /// Los slugs acaban en una ruta de fichero: nada que no sea `[A-Za-z0-9_-]`.
@@ -95,6 +112,9 @@ async fn estado_systemd(nombre: &str) -> Result<EstadoServicio, String> {
 /// [`Sistema`], así que con él es imposible mutar el sistema.
 pub struct SoloConsulta {
     pub rutinas_dir: PathBuf,
+    /// Solo se usa para mirar ([`Boveda::planear_promocion`]); promover
+    /// exige un [`Sistema`], que este tipo no implementa.
+    pub boveda: Boveda,
 }
 
 impl Consulta for SoloConsulta {
@@ -104,11 +124,15 @@ impl Consulta for SoloConsulta {
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
         leer_rutina(&self.rutinas_dir, slug)
     }
+    fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
+        self.boveda.planear_promocion(ruta, destino)
+    }
 }
 
 /// El sistema real, para las interfaces del usuario (`ea`, `ea-web`).
 pub struct SistemaReal {
     pub rutinas_dir: PathBuf,
+    pub boveda: Boveda,
     /// Servicio al que pertenece el proceso actual: no puede reiniciarse a
     /// sí mismo a mitad de la petición (`ea-web` pasa `Some("ea-web")`).
     pub propio: Option<&'static str>,
@@ -120,6 +144,9 @@ impl Consulta for SistemaReal {
     }
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
         leer_rutina(&self.rutinas_dir, slug)
+    }
+    fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
+        self.boveda.planear_promocion(ruta, destino)
     }
 }
 
@@ -152,6 +179,18 @@ impl Sistema for SistemaReal {
         let ruta = ruta_rutina(&self.rutinas_dir, slug)?;
         std::fs::remove_file(&ruta).map_err(|e| format!("no se pudo borrar {}: {e}", ruta.display()))
     }
+
+    fn nota_promover(
+        &self,
+        store: &mut Store,
+        ruta: &str,
+        destino: Option<&str>,
+        huella: &str,
+        actor: &str,
+        canal: &str,
+    ) -> Result<PlanPromocion, ErrorBoveda> {
+        self.boveda.promover(store, ruta, destino, huella, actor, canal)
+    }
 }
 
 /// Sistema en memoria para pruebas: no toca `systemd` ni el disco, y apunta
@@ -160,6 +199,8 @@ impl Sistema for SistemaReal {
 pub struct SistemaSimulado {
     pub servicios: Mutex<HashMap<String, EstadoServicio>>,
     pub rutinas: Mutex<HashMap<String, String>>,
+    /// Notas de la bóveda en memoria, por ruta relativa.
+    pub notas: Mutex<HashMap<String, String>>,
     /// Si es `Some`, los reinicios fallan con este mensaje.
     pub fallo_reinicio: Mutex<Option<String>>,
     /// Registro de mutaciones aplicadas, p. ej. `reiniciar:ea-mcp`.
@@ -177,6 +218,11 @@ impl SistemaSimulado {
 
     pub fn con_rutina(self, slug: &str, contenido: &str) -> Self {
         self.rutinas.lock().unwrap().insert(slug.to_string(), contenido.to_string());
+        self
+    }
+
+    pub fn con_nota(self, ruta: &str, contenido: &str) -> Self {
+        self.notas.lock().unwrap().insert(ruta.to_string(), contenido.to_string());
         self
     }
 
@@ -201,6 +247,29 @@ impl Consulta for SistemaSimulado {
         }
         Ok(self.rutinas.lock().unwrap().get(slug).cloned())
     }
+    fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
+        let partes = ea_boveda::ruta::validar_ruta(ruta)?;
+        if partes[0] == ea_boveda::ruta::REGION_COMPARTIDA {
+            return Err(ErrorBoveda::Argumentos(format!("{ruta} ya está en la región compartida")));
+        }
+        let destino = match destino {
+            Some(d) => ea_boveda::ruta::en_region(ea_boveda::ruta::REGION_COMPARTIDA, d)?,
+            None => format!("compartida/{}", partes[1..].join("/")),
+        };
+        let notas = self.notas.lock().unwrap();
+        let contenido = notas.get(ruta).ok_or_else(|| ErrorBoveda::NoExiste(ruta.to_string()))?;
+        if notas.contains_key(&destino) {
+            return Err(ErrorBoveda::YaExiste(destino));
+        }
+        Ok(PlanPromocion {
+            origen: ruta.to_string(),
+            destino,
+            titulo: ruta.to_string(),
+            autor: partes[0].to_string(),
+            bytes: contenido.len(),
+            huella: ea_boveda::huella(contenido),
+        })
+    }
 }
 
 impl Sistema for SistemaSimulado {
@@ -215,5 +284,24 @@ impl Sistema for SistemaSimulado {
         self.mutaciones.lock().unwrap().push(format!("eliminar_rutina:{slug}"));
         self.rutinas.lock().unwrap().remove(slug);
         Ok(())
+    }
+    fn nota_promover(
+        &self,
+        _store: &mut Store,
+        ruta: &str,
+        destino: Option<&str>,
+        huella: &str,
+        _actor: &str,
+        _canal: &str,
+    ) -> Result<PlanPromocion, ErrorBoveda> {
+        let plan = self.plan_promocion(ruta, destino)?;
+        if plan.huella != huella {
+            return Err(ErrorBoveda::Cambio(ruta.to_string()));
+        }
+        let mut notas = self.notas.lock().unwrap();
+        let c = notas[ruta].clone();
+        notas.insert(plan.destino.clone(), c);
+        self.mutaciones.lock().unwrap().push(format!("promover:{ruta}->{}", plan.destino));
+        Ok(plan)
     }
 }

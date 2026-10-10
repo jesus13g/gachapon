@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 ea-store = { path = "../ea-store" }
 ea-acciones = { path = "../ea-acciones" }
+ea-boveda = { path = "../ea-boveda" }
 ea-orchestrator = { path = "../ea-orchestrator" }
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "process", "time"] }

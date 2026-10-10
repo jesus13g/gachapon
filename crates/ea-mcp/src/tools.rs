@@ -22,10 +22,12 @@ use serde_json::json;
 use tokio::sync::Mutex;
 
 use ea_acciones::{autorizar_mcp, buscar, observar, proponer, simular_con, Riesgo, SoloConsulta};
+use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
-    CambiarEstadoTareaArgs, CrearTareaArgs, ListarDiarioArgs, ListarTareasArgs,
-    ReiniciarServicioArgs, RutinaArgs, VerTareaArgs,
+    BuscarNotasArgs, CambiarEstadoTareaArgs, CrearTareaArgs, EscribirNotaArgs, LeerNotaArgs,
+    ListarDiarioArgs, ListarTareasArgs, PromoverNotaArgs, ReiniciarServicioArgs, RutinaArgs,
+    VerTareaArgs,
 };
 
 /// Deriva el actor que este servidor escribe en el diario y en las tareas
@@ -51,6 +53,10 @@ pub struct EaTools {
     /// Lo único que este servidor sabe del sistema: mirar. No implementa
     /// `Sistema`, así que desde aquí no se puede mutar nada (solo proponer).
     consulta: Arc<SoloConsulta>,
+    /// La bóveda. Aquí solo se escribe en la región del propio agente
+    /// ([`Boveda::escribir_nota`]); promover a la compartida es del usuario y
+    /// este servidor solo puede proponerlo.
+    boveda: Boveda,
     // Leído por el código que genera `#[tool_handler]` sobre el impl de
     // `ServerHandler` más abajo; el análisis de dead-code no lo ve porque
     // ese acceso vive en un bloque distinto expandido por macro.
@@ -109,10 +115,16 @@ impl EaTools {
         Self::con_rutinas_dir(store, ea_orchestrator::config::load().rutinas_dir)
     }
 
+    /// Con la bóveda configurada (`EA_BOVEDA_DIR`, `boveda.toml`).
     pub fn con_rutinas_dir(store: Arc<Mutex<Store>>, rutinas_dir: std::path::PathBuf) -> Self {
+        Self::con_entorno(store, rutinas_dir, Boveda::configurada())
+    }
+
+    pub fn con_entorno(store: Arc<Mutex<Store>>, rutinas_dir: std::path::PathBuf, boveda: Boveda) -> Self {
         Self {
             store,
-            consulta: Arc::new(SoloConsulta { rutinas_dir }),
+            consulta: Arc::new(SoloConsulta { rutinas_dir, boveda: boveda.clone() }),
+            boveda,
             tool_router: Self::tool_router(),
         }
     }
@@ -481,6 +493,200 @@ impl EaTools {
         respond(body)
     }
 
+    /// Autoriza una herramienta del catálogo por el actor y, si falla, deja la
+    /// denegación en el diario (§11.3). `Ok(())` si puede seguir.
+    async fn autorizar(
+        &self,
+        actor: &str,
+        nombre: &str,
+        accion: &str,
+        started: Instant,
+        args: &serde_json::Value,
+    ) -> Result<(), McpError> {
+        let h = buscar(nombre).expect("en el catálogo");
+        if let Err(msg) = autorizar_mcp(actor, h) {
+            let body: ToolBody = Err(msg.clone());
+            self.log_invocation(actor, &format!("{accion}_denegada"), None, started, args.clone(), &body).await;
+            return Err(McpError::internal_error(msg, None));
+        }
+        Ok(())
+    }
+
+    #[tool(
+        description = "Busca notas en la bóveda por palabras (todas deben aparecer) \
+            en las regiones modelo-local, claude-code y compartida. Devuelve pocos \
+            resultados, con un fragmento; lee la nota entera con ea_leer_nota. Lo de \
+            la región compartida es contenido que el usuario promovió.",
+        annotations(title = "Buscar notas", read_only_hint = true)
+    )]
+    async fn ea_buscar_notas(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<BuscarNotasArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let started = Instant::now();
+        let args_json = json!({ "consulta": args.consulta, "region": args.region, "limite": args.limite });
+        let body: ToolBody = async {
+            let lim = Limites::para_actor(actor);
+            let pedido = args.limite.filter(|n| *n > 0).map(|n| n as usize);
+            let mut store = self.store.lock().await;
+            let r = self
+                .boveda
+                .buscar(&mut store, &args.consulta, args.region.as_deref(), pedido, &lim)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({
+                "total": r.len(),
+                "maximo_por_busqueda": lim.max_resultados,
+                "resultados": r.iter().map(|x| json!({
+                    "ruta": x.ruta, "titulo": x.titulo, "region": x.region, "autor": x.autor,
+                    "actualizada": x.actualizada, "fragmento": x.fragmento,
+                })).collect::<Vec<_>>(),
+            }))
+        }
+        .await;
+        self.log_invocation(actor, "mcp_buscar_notas", None, started, args_json, &body).await;
+        respond(body)
+    }
+
+    #[tool(
+        description = "Lee una nota de la bóveda por su ruta (la que devuelve \
+            ea_buscar_notas). Las notas largas se devuelven por trozos: si \
+            'siguiente_desde' no es null, repite con desde=ese valor.",
+        annotations(title = "Leer nota", read_only_hint = true)
+    )]
+    async fn ea_leer_nota(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<LeerNotaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let started = Instant::now();
+        let args_json = json!({ "ruta": args.ruta, "desde": args.desde });
+        let body: ToolBody = async {
+            let lim = Limites::para_actor(actor);
+            let desde = args.desde.filter(|n| *n > 0).unwrap_or(0) as usize;
+            let n = self.boveda.leer(&args.ruta, desde, &lim).map_err(|e| e.to_string())?;
+            Ok(json!({
+                "ruta": n.ruta,
+                "region": n.region,
+                "titulo": n.cabecera.as_ref().map(|c| c.titulo.clone()),
+                "autor": n.cabecera.as_ref().map(|c| c.autor.clone()),
+                "origen": n.cabecera.as_ref().map(|c| c.origen.clone()),
+                "promocion": n.cabecera.as_ref().map(|c| c.promocion.clone()),
+                "actualizada": n.cabecera.as_ref().map(|c| c.actualizada.clone()),
+                "tags": n.cabecera.as_ref().map(|c| c.tags.clone()),
+                "aviso_cabecera": n.aviso_cabecera,
+                "desde": n.desde,
+                "total_caracteres": n.total_caracteres,
+                "truncado": n.truncado,
+                "siguiente_desde": n.siguiente_desde,
+                "contenido": n.contenido,
+            }))
+        }
+        .await;
+        self.log_invocation(actor, "mcp_leer_nota", None, started, args_json, &body).await;
+        respond(body)
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Escribe una nota en TU región de la \
+            bóveda (libertad total ahí; no se puede escribir en otra región ni en la \
+            compartida). La cabecera la pone el sistema. Con simular=true solo valida y \
+            dice dónde caería. Para llevarla a la región compartida usa ea_promover_nota.",
+        annotations(
+            title = "Escribir nota",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_escribir_nota(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<EscribirNotaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let started = Instant::now();
+        let simular = args.simular.unwrap_or(false);
+        let args_json = json!({
+            "titulo": args.titulo, "bytes": args.contenido.len(), "ruta": args.ruta,
+            "etiquetas": args.etiquetas, "tarea": args.tarea, "sobrescribir": args.sobrescribir,
+            "simular": simular,
+        });
+        self.autorizar(actor, "ea_escribir_nota", "mcp_escribir_nota", started, &args_json).await?;
+        let origen = args.tarea.map(|t| format!("tarea:{t}")).unwrap_or_else(|| "manual".into());
+        let etiquetas = args.etiquetas.clone().unwrap_or_default();
+        let nota = NuevaNota {
+            titulo: &args.titulo,
+            cuerpo: &args.contenido,
+            ruta: args.ruta.as_deref(),
+            tags: &etiquetas,
+            origen: &origen,
+            sobrescribir: args.sobrescribir.unwrap_or(false),
+        };
+        let lim = Limites::para_actor(actor);
+        if simular {
+            let body: ToolBody = self
+                .boveda
+                .simular_escritura(actor, &nota, &lim)
+                .map(|(ruta, existe)| {
+                    json!({
+                        "simulado": true, "ruta": ruta, "existe": existe,
+                        "aviso": "No se ha escrito nada. Repite sin simular para escribirla.",
+                    })
+                })
+                .map_err(|e| e.to_string());
+            self.log_invocation(actor, "mcp_escribir_nota_simulada", args.tarea, started, args_json, &body).await;
+            return respond(body);
+        }
+        let body: ToolBody = {
+            let mut store = self.store.lock().await;
+            self.boveda
+                .escribir_nota(&mut store, actor, &nota, &lim)
+                .map(|n| {
+                    json!({
+                        "escrita": true, "ruta": n.ruta, "region": n.region, "bytes": n.bytes,
+                        "creada": n.creada,
+                        "aviso": "Está en tu región. Llevarla a la región compartida lo decide el \
+                                  usuario: propónlo con ea_promover_nota.",
+                    })
+                })
+                .map_err(|e| e.to_string())
+        };
+        // Como `ea_crear_tarea`: si tuvo éxito, el escritor ya dejó su evento
+        // `boveda_escritura` (actor, ruta, bytes, huella); duplicarlo aquí
+        // contradiría "una sola fuente de verdad". Si falló, se anota.
+        if body.is_err() {
+            self.log_invocation(actor, "mcp_escribir_nota", args.tarea, started, args_json, &body).await;
+        }
+        respond(body)
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Propone copiar una nota de TU región \
+            a la región compartida de la bóveda. NO la copia: con simular=true lo describe; \
+            sin él encola una propuesta que solo el usuario puede aceptar (la promoción \
+            la decide el usuario, nunca un agente).",
+        annotations(
+            title = "Proponer promoción de nota",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_promover_nota(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<PromoverNotaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut a = json!({ "ruta": args.ruta });
+        if let Some(d) = args.destino {
+            a["destino"] = json!(d);
+        }
+        self.mutante(context, "ea_promover_nota", a, args.simular.unwrap_or(false)).await
+    }
+
     #[tool(
         description = "[Riesgo: mutación reversible] Cambia el estado de una tarea. \
             NO lo ejecuta: con simular=true describe el cambio; sin él encola una \
@@ -575,10 +781,13 @@ impl ServerHandler for EaTools {
                  ea_crear_tarea (con simular=true para previsualizar) delega \
                  trabajo a otro actor del ecosistema. Las herramientas que cambian \
                  el sistema (ea_cambiar_estado_tarea, ea_encolar_rutina, \
-                 ea_reiniciar_servicio, ea_eliminar_rutina) nunca se ejecutan desde \
-                 aquí: con simular=true describen lo que harían; sin él encolan una \
-                 propuesta que solo el usuario puede aceptar. Las irreversibles solo \
-                 se confirman desde una terminal."
+                 ea_reiniciar_servicio, ea_eliminar_rutina, ea_promover_nota) nunca se \
+                 ejecutan desde aquí: con simular=true describen lo que harían; sin él \
+                 encolan una propuesta que solo el usuario puede aceptar. Las \
+                 irreversibles solo se confirman desde una terminal. La bóveda de \
+                 notas se consulta con ea_buscar_notas y ea_leer_nota; ea_escribir_nota \
+                 escribe en la región propia del agente; la región compartida solo \
+                 recibe notas que el usuario promueve."
                     .to_string(),
             )
     }

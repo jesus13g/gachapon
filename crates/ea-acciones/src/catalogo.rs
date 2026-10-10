@@ -130,6 +130,44 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Borra para siempre el fichero de una rutina",
     },
+    // Bóveda (fase 7). Leer y buscar son lecturas con resultados acotados
+    // por actor (el modelo local, con 8192 tokens de contexto, recibe cotas
+    // más estrechas).
+    Herramienta {
+        nombre: "ea_buscar_notas",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Busca notas en la bóveda (resultados acotados)",
+    },
+    Herramienta {
+        nombre: "ea_leer_nota",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Lee una nota de la bóveda (por trozos)",
+    },
+    // Segunda excepción razonada a §11.1, junto a `ea_crear_tarea`: la región
+    // propia de cada agente es de libertad total (decisión 8), así que
+    // escribir ahí no pide confirmación. No puede nombrar otra región, no
+    // borra nada y deja un evento en el diario. El orquestador (lo
+    // desatendido) no la ve: `autorizar_mcp` solo le deja las lecturas.
+    Herramienta {
+        nombre: "ea_escribir_nota",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Escribe una nota en la región propia del agente",
+    },
+    // Promover a la región compartida lo decide el usuario (decisión 9): un
+    // agente solo propone, y aceptar la propuesta la ejecuta.
+    Herramienta {
+        nombre: "ea_promover_nota",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: true,
+        resumen: "Propone copiar una nota a la región compartida (la decide el usuario)",
+    },
 ];
 
 pub fn buscar(nombre: &str) -> Option<&'static Herramienta> {

@@ -13,19 +13,28 @@ fn el_catalogo_local_es_la_proyeccion_reducida_del_catalogo_unico() {
     esperado.sort();
     nombres.sort();
     assert_eq!(nombres, esperado);
-    // ...que son las lecturas y, como mucho, proponer un cambio de estado
-    // (reversible): nada irreversible, y ninguna herramienta que ejecute.
+    // ...que son las lecturas, proponer mutaciones (reversibles) y una única
+    // escritura directa: la nota en su región propia (decisión 8, libertad
+    // total ahí). Nada irreversible.
     for n in &nombres {
         let h = ea_acciones::buscar(n).unwrap();
         assert!(h.riesgo != ea_acciones::Riesgo::Irreversible, "{n}");
         assert!(
-            h.riesgo == ea_acciones::Riesgo::Lectura || h.ejecucion == ea_acciones::Ejecucion::Supervisada,
-            "{n}: una mutante del modelo local debe ser solo-propone"
+            h.riesgo == ea_acciones::Riesgo::Lectura
+                || h.ejecucion == ea_acciones::Ejecucion::Supervisada
+                || *n == "ea_escribir_nota",
+            "{n}: una mutante del modelo local debe ser solo-propone (salvo la región propia)"
         );
         // Y el servidor se la permite al modelo local.
         assert!(ea_acciones::autorizar_mcp("modelo-local", h).is_ok(), "{n}");
     }
     assert!(nombres.contains(&"ea_cambiar_estado_tarea"));
+    // La promoción a la región compartida solo se propone.
+    assert!(nombres.contains(&"ea_promover_nota"));
+    assert_eq!(
+        ea_acciones::buscar("ea_promover_nota").unwrap().ejecucion,
+        ea_acciones::Ejecucion::Supervisada
+    );
 }
 
 #[test]

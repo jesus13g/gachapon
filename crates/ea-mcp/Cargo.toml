@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 ea-store = { path = "../ea-store" }
 ea-acciones = { path = "../ea-acciones" }
+ea-boveda = { path = "../ea-boveda" }
 ea-orchestrator = { path = "../ea-orchestrator" }
 rmcp = { version = "3.3", features = [
     "server",

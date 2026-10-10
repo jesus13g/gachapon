@@ -53,6 +53,26 @@ struct PorServicio {
     servicio: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PromoverNota {
+    ruta: String,
+    #[serde(default)]
+    destino: Option<String>,
+}
+
+/// Valida solo el texto de las rutas de una promoción (sin mirar el disco).
+fn comprobar_promocion(a: &PromoverNota) -> Result<(), ErrorAccion> {
+    let partes = ea_boveda::ruta::validar_ruta(&a.ruta)?;
+    if partes[0] == ea_boveda::ruta::REGION_COMPARTIDA {
+        return Err(ErrorAccion::Argumentos(format!("{} ya está en la región compartida", a.ruta)));
+    }
+    if let Some(d) = a.destino.as_deref().filter(|d| !d.trim().is_empty()) {
+        ea_boveda::ruta::en_region(ea_boveda::ruta::REGION_COMPARTIDA, d)?;
+    }
+    Ok(())
+}
+
 fn parsear<T: for<'de> Deserialize<'de>>(args: &Value) -> Result<T, ErrorAccion> {
     serde_json::from_value(args.clone()).map_err(|e| ErrorAccion::Argumentos(e.to_string()))
 }
@@ -130,6 +150,7 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
         }
         "ea_encolar_rutina" | "ea_eliminar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
         "ea_reiniciar_servicio" => comprobar_servicio(&parsear::<PorServicio>(args)?.servicio),
+        "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -265,6 +286,26 @@ pub fn simular_con<C: Consulta>(
                 json!({ "huella": huella(&contenido), "bytes": contenido.len() }),
             )
         }
+        "ea_promover_nota" => {
+            let a: PromoverNota = parsear(args)?;
+            comprobar_promocion(&a)?;
+            let destino = a.destino.filter(|d| !d.trim().is_empty());
+            let plan = consulta.plan_promocion(&a.ruta, destino.as_deref())?;
+            let mut norm = json!({ "ruta": plan.origen });
+            if let Some(d) = &destino {
+                norm["destino"] = json!(d);
+            }
+            (
+                norm,
+                format!(
+                    "Copiaría la nota «{}» (de {}, {} bytes) de {} a {} en la región compartida y \
+                     marcaría ambas como promovidas. El original se conserva. Desde ahí la leen \
+                     todos los agentes como contenido de confianza.",
+                    plan.titulo, plan.autor, plan.bytes, plan.origen, plan.destino
+                ),
+                json!({ "huella": plan.huella, "destino": plan.destino }),
+            )
+        }
         otro => return Err(ErrorAccion::NoSupervisada(otro.to_string())),
     };
     Ok(Simulacion { herramienta: h.nombre, riesgo: h.riesgo, argumentos, texto, precondicion })
@@ -339,7 +380,7 @@ pub fn aplicar_en_store(
                 datos: json!({ "tarea": t.id, "rutina": a.slug }),
             }))
         }
-        "ea_reiniciar_servicio" | "ea_eliminar_rutina" => Ok(None),
+        "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" => Ok(None),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -347,10 +388,25 @@ pub fn aplicar_en_store(
 /// Aplica la parte de la acción que actúa sobre el sistema operativo.
 pub async fn aplicar_en_sistema<S: Sistema>(
     sistema: &S,
+    store: &mut Store,
+    actor: &str,
+    canal: Canal,
     nombre: &str,
     args: &Value,
+    precondicion: &Value,
 ) -> Result<Aplicada, ErrorAccion> {
     match nombre {
+        "ea_promover_nota" => {
+            let a: PromoverNota = parsear(args)?;
+            let huella = precondicion["huella"].as_str().unwrap_or_default();
+            let destino = a.destino.as_deref().filter(|d| !d.trim().is_empty());
+            let plan = sistema.nota_promover(store, &a.ruta, destino, huella, actor, canal.nombre())?;
+            Ok(Aplicada {
+                texto: format!("Nota {} promovida a {}.", plan.origen, plan.destino),
+                tarea: None,
+                datos: json!({ "origen": plan.origen, "destino": plan.destino }),
+            })
+        }
         "ea_reiniciar_servicio" => {
             let a: PorServicio = parsear(args)?;
             sistema.servicio_reiniciar(&a.servicio).await.map_err(ErrorAccion::Sistema)?;

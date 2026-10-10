@@ -32,6 +32,7 @@ fn montar() -> Fixture {
         umbral_heartbeat_s: 60,
         tema_path: dir.path().join("no-existe.toml"),
         rutinas_dir,
+        boveda: ea_boveda::Boveda::en(dir.path().join("boveda")),
         systemctl: false,
     };
     let state = Arc::new(AppState::new(store, config));
@@ -291,7 +292,10 @@ async fn sirve_la_pagina_y_el_tema() {
 }
 
 async fn proponer_accion(f: &Fixture, herramienta: &str, args: Value) -> i64 {
-    let sis = ea_acciones::SoloConsulta { rutinas_dir: f.state.config.rutinas_dir.clone() };
+    let sis = ea_acciones::SoloConsulta {
+        rutinas_dir: f.state.config.rutinas_dir.clone(),
+        boveda: f.state.boveda.clone(),
+    };
     let hechos = ea_acciones::observar(&sis, herramienta, &args).await.unwrap();
     let store = f.state.store.lock().await;
     ea_acciones::proponer(&store, &sis, &hechos, "claude-code", None, None, herramienta, &args)

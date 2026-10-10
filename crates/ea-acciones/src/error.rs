@@ -26,3 +26,17 @@ pub enum ErrorAccion {
     #[error(transparent)]
     Store(#[from] ea_store::StoreError),
 }
+
+impl From<ea_boveda::ErrorBoveda> for ErrorAccion {
+    fn from(e: ea_boveda::ErrorBoveda) -> Self {
+        use ea_boveda::ErrorBoveda as B;
+        let m = e.to_string();
+        match e {
+            B::Ruta(_) | B::Argumentos(_) | B::Cabecera(_) => ErrorAccion::Argumentos(m),
+            B::NoExiste(_) | B::YaExiste(_) | B::Cambio(_) | B::Ocupada => ErrorAccion::NoAplica(m),
+            B::Prohibida(_) | B::FueraDeLaBoveda(_) => ErrorAccion::Prohibida(m),
+            B::Store(s) => ErrorAccion::Store(s),
+            B::Io(_) | B::EventoPerdido(..) => ErrorAccion::Sistema(m),
+        }
+    }
+}

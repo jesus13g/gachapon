@@ -258,7 +258,10 @@ async fn procesar_tarea(
 
     // Lo desatendido solo propone: `SoloConsulta` no implementa `Sistema`, así
     // que desde aquí es imposible mutar el sistema, sea cual sea la rutina.
-    let consulta = SoloConsulta { rutinas_dir: rutinas_dir.to_path_buf() };
+    let consulta = SoloConsulta {
+        rutinas_dir: rutinas_dir.to_path_buf(),
+        boveda: ea_acciones::Boveda::configurada(),
+    };
     for pr in &resultado.propuestas {
         let mut descripcion = pr.descripcion.clone();
         let creada = match &pr.accion {

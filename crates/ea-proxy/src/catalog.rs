@@ -1,6 +1,8 @@
 //! Catálogo reducido de herramientas proyectado hacia el modelo local:
-//! lecturas más una única herramienta mutante, `ea_cambiar_estado_tarea`, que
-//! en ea-mcp solo propone (el usuario confirma); descripciones cortas e imperativas, argumentos fuertemente
+//! lecturas (incluida la búsqueda en la bóveda), dos mutantes que en ea-mcp
+//! solo proponen (`ea_cambiar_estado_tarea`, `ea_promover_nota`: el usuario
+//! confirma) y una escritura directa en la región propia de la bóveda
+//! (`ea_escribir_nota`); descripciones cortas e imperativas, argumentos fuertemente
 //! tipados (§7.1 de la especificación) — declarado a mano, no derivado en
 //! caliente del catálogo flexible que `ea-mcp` expone a Claude Code (ver
 //! razonamiento en el plan de esta fase). Cada entrada aquí corresponde a
@@ -90,6 +92,52 @@ fn schema_ea_cambiar_estado_tarea() -> Value {
     })
 }
 
+fn schema_ea_buscar_notas() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "consulta": { "type": "string" },
+            "limite": { "type": ["integer", "null"] },
+        },
+        "required": ["consulta", "limite"],
+        "additionalProperties": false,
+    })
+}
+
+fn schema_ea_leer_nota() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "ruta": { "type": "string" },
+        },
+        "required": ["ruta"],
+        "additionalProperties": false,
+    })
+}
+
+fn schema_ea_escribir_nota() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "titulo": { "type": "string" },
+            "contenido": { "type": "string" },
+        },
+        "required": ["titulo", "contenido"],
+        "additionalProperties": false,
+    })
+}
+
+fn schema_ea_promover_nota() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "ruta": { "type": "string" },
+        },
+        "required": ["ruta"],
+        "additionalProperties": false,
+    })
+}
+
 pub const CATALOGO: &[CatalogTool] = &[
     CatalogTool {
         name: "ea_status",
@@ -125,6 +173,34 @@ pub const CATALOGO: &[CatalogTool] = &[
         args_help: "id: identificador numérico de la tarea. estado: el estado nuevo \
             (pendiente/en_progreso/completada/fallida/cancelada). resultado: texto breve \
             del resultado, o null.",
+    },
+    CatalogTool {
+        name: "ea_buscar_notas",
+        description: "Busca notas guardadas en la bóveda por palabras clave.",
+        args_schema: schema_ea_buscar_notas,
+        args_help: "consulta: las palabras a buscar, sin signos. limite: máximo de resultados \
+            o null.",
+    },
+    CatalogTool {
+        name: "ea_leer_nota",
+        description: "Lee una nota de la bóveda a partir de su ruta.",
+        args_schema: schema_ea_leer_nota,
+        args_help: "ruta: la ruta de la nota tal como la devolvió una búsqueda, por ejemplo \
+            compartida/servicios/mcp.md.",
+    },
+    CatalogTool {
+        name: "ea_escribir_nota",
+        description: "Guarda una nota nueva en la región propia del modelo local.",
+        args_schema: schema_ea_escribir_nota,
+        args_help: "titulo: título breve de la nota. contenido: el texto de la nota, completo.",
+    },
+    CatalogTool {
+        name: "ea_promover_nota",
+        description: "Pide llevar una nota propia a la región compartida. Solo propone: el \
+            usuario lo decide.",
+        args_schema: schema_ea_promover_nota,
+        args_help: "ruta: la ruta de una nota de la región del modelo local, por ejemplo \
+            modelo-local/ideas.md.",
     },
 ];
 

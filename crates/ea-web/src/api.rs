@@ -102,7 +102,11 @@ impl ApiError {
 /// El sistema real para las acciones que confirma el usuario desde esta
 /// página. `ea-web` no puede reiniciarse a sí mismo a mitad de la petición.
 fn sistema(s: &AppState) -> SistemaReal {
-    SistemaReal { rutinas_dir: s.config.rutinas_dir.clone(), propio: Some("ea-web") }
+    SistemaReal {
+        rutinas_dir: s.config.rutinas_dir.clone(),
+        boveda: s.boveda.clone(),
+        propio: Some("ea-web"),
+    }
 }
 
 impl From<RutinaError> for ApiError {

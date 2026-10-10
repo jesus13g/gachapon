@@ -89,6 +89,58 @@ pub struct ReiniciarServicioArgs {
     pub simular: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BuscarNotasArgs {
+    /// Palabras a buscar en el título, las etiquetas y el texto de las notas
+    /// (todas deben aparecer; sin acentos ni mayúsculas).
+    pub consulta: String,
+    /// Limita la búsqueda a una región: modelo-local, claude-code o compartida.
+    pub region: Option<String>,
+    /// Máximo de resultados; el servidor lo recorta a su tope por actor.
+    pub limite: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LeerNotaArgs {
+    /// Ruta de la nota tal como la devuelve la búsqueda, p. ej.
+    /// "compartida/servicios/mcp.md".
+    pub ruta: String,
+    /// Carácter del cuerpo desde el que leer (0 por defecto). Una nota larga
+    /// se devuelve por trozos: usa `siguiente_desde` de la respuesta anterior.
+    pub desde: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EscribirNotaArgs {
+    /// Título de la nota (una línea, hasta 200 caracteres).
+    pub titulo: String,
+    /// Cuerpo de la nota en Markdown. No incluyas cabecera: la pone el sistema.
+    pub contenido: String,
+    /// Ruta dentro de TU región (p. ej. "ideas/rust.md"). Sin ella se deriva
+    /// del título. No se puede elegir otra región.
+    pub ruta: Option<String>,
+    /// Etiquetas (letras, cifras, '-', '_' o '/').
+    pub etiquetas: Option<Vec<String>>,
+    /// Id de la tarea en cuyo marco se escribe la nota (queda en la cabecera).
+    pub tarea: Option<i64>,
+    /// Reemplazar la nota si ya existe (por defecto falla).
+    pub sobrescribir: Option<bool>,
+    /// Si es true, valida y dice dónde caería la nota, sin escribir.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PromoverNotaArgs {
+    /// Nota de tu región que propones llevar a la región compartida.
+    pub ruta: String,
+    /// Ruta de destino dentro de "compartida" (por defecto, la misma que tiene
+    /// en tu región).
+    pub destino: Option<String>,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se copia aquí.
+    pub simular: Option<bool>,
+}
+
 /// Acepta tanto RFC3339 completo como una fecha simple AAAA-MM-DD
 /// (interpretada como medianoche UTC) — mismo comportamiento que
 /// `ea-cli`'s `parse_flexible_date`, duplicado aquí porque es una función

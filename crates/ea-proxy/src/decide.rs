@@ -119,7 +119,7 @@ pub async fn decidir(
     let started = Instant::now();
     let mut mensajes = vec![ChatMessage::system(format!(
         "Decides si para responder a la última petición del usuario hace falta \
-         consultar alguna herramienta del ecosistema de tareas/eventos, o si puedes \
+         consultar alguna herramienta del ecosistema (tareas, eventos o notas), o si puedes \
          responder sin consultar nada.\n\n{}",
         catalog_prompt()
     ))];

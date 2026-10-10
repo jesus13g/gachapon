@@ -322,13 +322,14 @@ async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
 
 #[test]
 fn invariantes_del_catalogo() {
-    // Solo ea_crear_tarea es mutante y de ejecución directa (excepción razonada).
+    // Solo ea_crear_tarea y ea_escribir_nota (la región propia de cada agente)
+    // son mutantes de ejecución directa (excepciones razonadas).
     let directas_mutantes: Vec<_> = CATALOGO
         .iter()
         .filter(|h| h.riesgo.es_mutante() && h.ejecucion == Ejecucion::Directa)
         .map(|h| h.nombre)
         .collect();
-    assert_eq!(directas_mutantes, ["ea_crear_tarea"]);
+    assert_eq!(directas_mutantes, ["ea_crear_tarea", "ea_escribir_nota"]);
     // Los irreversibles son siempre supervisados y nunca van al modelo local.
     for h in CATALOGO.iter().filter(|h| h.riesgo == Riesgo::Irreversible) {
         assert_eq!(h.ejecucion, Ejecucion::Supervisada);

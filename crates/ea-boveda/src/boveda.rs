@@ -308,18 +308,10 @@ impl Boveda {
 
     // --- escritura ---------------------------------------------------------
 
-    /// Escribe una nota en la región del propio autor, con libertad total
-    /// (decisión 8) pero nunca fuera de ella: no hay forma de nombrar otra
-    /// región. Valida la cabecera, escribe de forma atómica bajo el candado,
-    /// actualiza el índice y deja el evento `boveda_escritura`.
-    pub fn escribir_nota(
-        &self,
-        store: &mut Store,
-        autor: &str,
-        n: &NuevaNota<'_>,
-        lim: &Limites,
-    ) -> Resultado<NotaEscrita> {
-        let inicio = Instant::now();
+    /// Validaciones que no necesitan el disco: autor, cabecera, tamaños y
+    /// forma de la ruta. Devuelve la región del autor y la ruta pedida, ya
+    /// con su región delante.
+    fn validar_nota(autor: &str, n: &NuevaNota<'_>, lim: &Limites) -> Resultado<(&'static str, Option<String>)> {
         let region = region_de_agente(autor).ok_or_else(|| {
             ErrorBoveda::Prohibida(format!("'{autor}' no escribe en la bóveda (solo los agentes, en su región)"))
         })?;
@@ -348,6 +340,34 @@ impl Boveda {
             Some(r) => Some(ruta::en_region(region, r)?),
             None => None,
         };
+        Ok((region, pedida))
+    }
+
+    /// Simulación de una escritura: valida todo y dice dónde caería la nota
+    /// y si ya existe, sin escribir ni tomar el candado.
+    pub fn simular_escritura(&self, autor: &str, n: &NuevaNota<'_>, lim: &Limites) -> Resultado<(String, bool)> {
+        let (region, pedida) = Self::validar_nota(autor, n, lim)?;
+        let ruta = pedida.unwrap_or_else(|| format!("{region}/{}.md", ruta::slug(n.titulo)));
+        let existe = fs::canonicalize(&self.raiz).is_ok() && existe(&self.resolver(&ruta)?);
+        if existe && n.ruta.is_some() && !n.sobrescribir {
+            return Err(ErrorBoveda::YaExiste(format!("{ruta} (usa sobrescribir para reemplazarla)")));
+        }
+        Ok((ruta, existe))
+    }
+
+    /// Escribe una nota en la región del propio autor, con libertad total
+    /// (decisión 8) pero nunca fuera de ella: no hay forma de nombrar otra
+    /// región. Valida la cabecera, escribe de forma atómica bajo el candado,
+    /// actualiza el índice y deja el evento `boveda_escritura`.
+    pub fn escribir_nota(
+        &self,
+        store: &mut Store,
+        autor: &str,
+        n: &NuevaNota<'_>,
+        lim: &Limites,
+    ) -> Resultado<NotaEscrita> {
+        let inicio = Instant::now();
+        let (region, pedida) = Self::validar_nota(autor, n, lim)?;
 
         let _candado = self.candado()?;
         let (ruta_final, destino, previo) = match pedida {

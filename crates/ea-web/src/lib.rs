@@ -28,6 +28,8 @@ pub struct WebConfig {
     /// `colors.toml` del tema activo de Omarchy.
     pub tema_path: PathBuf,
     pub rutinas_dir: PathBuf,
+    /// La bóveda que se muestra y en la que se promueve.
+    pub boveda: ea_boveda::Boveda,
     /// Si es falso no se lanza ningún `systemctl` (tests, o una máquina sin
     /// `systemd --user`): los servicios se reportan como desconocidos.
     pub systemctl: bool,
@@ -49,6 +51,7 @@ impl WebConfig {
             umbral_heartbeat_s: (orquestador.intervalo_heartbeat_s * 2) as i64,
             tema_path,
             rutinas_dir: orquestador.rutinas_dir,
+            boveda: ea_boveda::Boveda::configurada(),
             systemctl: true,
         }
     }
@@ -56,6 +59,7 @@ impl WebConfig {
 
 pub struct AppState {
     pub store: Mutex<Store>,
+    pub boveda: ea_boveda::Boveda,
     pub config: WebConfig,
     pub http: reqwest::Client,
 }
@@ -64,6 +68,7 @@ impl AppState {
     pub fn new(store: Store, config: WebConfig) -> Self {
         Self {
             store: Mutex::new(store),
+            boveda: config.boveda.clone(),
             config,
             http: reqwest::Client::builder()
                 // El ciclo de voz completo (grabar, transcribir, preguntar,
