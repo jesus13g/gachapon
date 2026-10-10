@@ -1,7 +1,8 @@
 //! El flujo de traducción de protocolo en sí: hasta 3 llamadas acotadas por
 //! gramática contra `llama-server`, cada una con un schema mínimo y
 //! aislado — el diseño que la validación empírica de esta fase mostró como
-//! fiable (ver plan de la fase). Cada paso queda en el diario
+//! fiable (ver plan de la fase) — y una última llamada sin acotar que
+//! redacta la respuesta en lenguaje natural. Cada paso queda en el diario
 //! (`actor="modelo-local"`) para poder medir después el acierto del
 //! modelo, igual que `ea-mcp` ya registra sus invocaciones.
 
@@ -20,6 +21,54 @@ pub struct Decision {
     pub content: String,
     pub herramienta_usada: Option<String>,
     pub argumentos_usados: Option<Value>,
+    /// Lo que devolvió la herramienta, tal cual — `content` es su redacción
+    /// en lenguaje natural, y esto es lo que permite contrastarla.
+    pub resultado_herramienta: Option<Value>,
+}
+
+/// Estilo de toda respuesta final: quien la recibe puede ser la voz, que
+/// lee en alto lo que llegue — JSON y markdown incluidos.
+const ESTILO_RESPUESTA: &str = "Responde en español, en una o dos frases cortas de texto \
+     llano: sin JSON, sin markdown, sin listas y sin bloques de código.";
+
+/// Tope del resultado de herramienta que se le pasa al modelo para
+/// redactar: el contexto de `llama-server` es de 8192 tokens y un listado
+/// del diario lo desborda con facilidad.
+const MAX_RESULTADO_CHARS: usize = 6000;
+
+/// Recorta `texto` a `max` caracteres sin partir un carácter multibyte.
+pub fn recortar(texto: &str, max: usize) -> (&str, bool) {
+    match texto.char_indices().nth(max) {
+        Some((i, _)) => (&texto[..i], true),
+        None => (texto, false),
+    }
+}
+
+/// Mensajes del paso de redacción: la petición original más el resultado
+/// de la herramienta, para que el modelo lo cuente en vez de devolverlo.
+pub fn mensajes_redaccion(
+    conversacion: &[ChatMessage],
+    herramienta: &str,
+    resultado: &Value,
+) -> Vec<ChatMessage> {
+    let crudo = resultado.to_string();
+    let (recortado, truncado) = recortar(&crudo, MAX_RESULTADO_CHARS);
+    let aviso = if truncado {
+        "\n(El resultado está recortado: di que hay más de lo que cuentas.)"
+    } else {
+        ""
+    };
+    let mut mensajes = vec![ChatMessage::system(format!(
+        "Para atender la última petición del usuario se consultó la herramienta \
+         '{herramienta}', que devolvió este resultado:\n{recortado}{aviso}\n\n\
+         Contesta a la petición usando solo esos datos, con sus cifras concretas y \
+         sin inventar nada. Si el resultado está vacío, dilo. Si trae varios \
+         elementos, di cuántos son y nombra como mucho tres por su título, sin \
+         leer identificadores, fechas ni mensajes de error completos. \
+         {ESTILO_RESPUESTA}"
+    ))];
+    mensajes.extend_from_slice(conversacion);
+    mensajes
 }
 
 fn catalog_prompt() -> String {
@@ -77,8 +126,10 @@ pub async fn decidir(
 
     if !necesita_herramienta {
         let started = Instant::now();
+        let mut mensajes = vec![ChatMessage::system(ESTILO_RESPUESTA)];
+        mensajes.extend_from_slice(conversacion);
         let content = llama
-            .free(conversacion, profile.temperature, profile.max_tokens)
+            .free(&mensajes, profile.temperature, profile.max_tokens)
             .await?;
         log_event(
             store,
@@ -91,6 +142,7 @@ pub async fn decidir(
             content,
             herramienta_usada: None,
             argumentos_usados: None,
+            resultado_herramienta: None,
         });
     }
 
@@ -162,10 +214,29 @@ pub async fn decidir(
 
     let resultado = mcp.call_tool(&herramienta, args_map).await?;
 
+    // Paso 4: redactar. El resultado crudo es JSON; devolverlo tal cual
+    // hace que la voz lo lea en alto.
+    let started = Instant::now();
+    let content = llama
+        .free(
+            &mensajes_redaccion(conversacion, &herramienta, &resultado),
+            profile.temperature,
+            profile.max_tokens,
+        )
+        .await?;
+    log_event(
+        store,
+        "proxy_redaccion",
+        started,
+        json!({ "herramienta": herramienta, "longitud": content.len() }),
+    )
+    .await;
+
     Ok(Decision {
-        content: serde_json::to_string_pretty(&resultado).unwrap_or_else(|_| resultado.to_string()),
+        content,
         herramienta_usada: Some(herramienta),
         argumentos_usados: Some(argumentos),
+        resultado_herramienta: Some(resultado),
     })
 }
 

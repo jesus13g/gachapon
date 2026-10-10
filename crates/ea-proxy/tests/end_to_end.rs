@@ -79,6 +79,14 @@ async fn flujo_completo_contra_llama_server_real() {
         .await
         .expect("decidir sobre estado");
     assert_eq!(decision.herramienta_usada.as_deref(), Some("ea_status"));
+    assert!(decision.resultado_herramienta.is_some());
+    // La respuesta se redacta: nunca el JSON crudo de la herramienta.
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&decision.content).is_err()
+            && !decision.content.contains('{'),
+        "la respuesta debe ser texto llano: {}",
+        decision.content
+    );
 
     // Caso con herramienta y argumento enum.
     let tareas = [ChatMessage::user(

@@ -104,8 +104,11 @@ Dos endpoints:
 
 - `POST /v1/chat/completions`: forma de chat completion de OpenAI. Resuelve
   hasta 3 llamadas acotadas por gramática (clasificar → elegir herramienta →
-  extraer argumentos) contra el catálogo reducido de solo lectura, y ejecuta
-  contra `ea-mcp`.
+  extraer argumentos) contra el catálogo reducido de solo lectura, ejecuta
+  contra `ea-mcp` y, con una última llamada sin acotar, redacta el resultado
+  en una o dos frases de texto llano — la voz lee en alto lo que llegue en
+  `content`. El JSON crudo de la herramienta va aparte, en
+  `resultado_herramienta`.
 - `POST /v1/rama`: punto de decisión de una rutina — `{contexto, opciones}`
   → `{rama}`, una elección acotada por gramática entre un conjunto cerrado.
   Lo usa `ea-orchestrator`; ningún otro proceso habla con `llama-server`

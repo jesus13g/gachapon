@@ -1,7 +1,7 @@
 //! Endpoint HTTP expuesto por `ea-proxy`: `POST /v1/chat/completions` con
 //! forma de chat completion de OpenAI (§5.1: "endpoint único y estable"),
 //! más los campos de trazabilidad que este proxy añade
-//! (`herramienta_usada`, `argumentos_usados`). El consumidor no declara
+//! (`herramienta_usada`, `argumentos_usados`, `resultado_herramienta`). El consumidor no declara
 //! `tools`: el proxy ya sabe qué catálogo reducido aplicar.
 
 use std::sync::Arc;
@@ -46,6 +46,7 @@ struct ChatResponse {
     choices: Vec<Choice>,
     herramienta_usada: Option<String>,
     argumentos_usados: Option<serde_json::Value>,
+    resultado_herramienta: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -85,6 +86,7 @@ async fn chat_completions(
         }],
         herramienta_usada: decision.herramienta_usada,
         argumentos_usados: decision.argumentos_usados,
+        resultado_herramienta: decision.resultado_herramienta,
     }))
 }
 
