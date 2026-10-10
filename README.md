@@ -302,7 +302,7 @@ cualquier agente o al orquestador como autor de la promoción.
 
 Lo que ve el usuario: `ea boveda estado|listar|buscar|leer|promover|reindexar`,
 la pestaña «Bóveda» de `ea tui` (solo lectura, fotografía) y la sección ▥ del
-panel web (tecla `6`; el cuadro de filtro hace una búsqueda de texto completo).
+panel web (tecla `8`; el cuadro de filtro hace una búsqueda de texto completo).
 
 **Rutinas (§8.1).** La especificación dice que el documento de cada rutina
 vive en la bóveda. **No se ha movido:** siguen en
@@ -578,11 +578,28 @@ una propuesta con acción pide un segundo clic.
 
 | Símbolo | Sección | Tecla |
 |---|---|---|
-| ▤ | Tareas: crear, iniciar, completar, fallar, cancelar | `1` |
-| ≡ | Diario (♡/♥ muestra u oculta los latidos) | `2` |
-| ↻ | Rutinas: pasos, ejecuciones, encolar | `3` |
-| ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `4` |
-| ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `5` |
+| ⌂ | Inicio: propuestas por decidir, problemas del sistema, tareas en curso, rutinas y lo último que terminó | `1` |
+| ▤ | Tareas: crear, iniciar, completar, fallar, cancelar, repetir ↺ | `2` |
+| ≡ | Diario (♡/♥ muestra u oculta los latidos) | `3` |
+| ↻ | Rutinas: pasos, ejecuciones, encolar | `4` |
+| ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
+| ▶ | Acciones: el catálogo de herramientas; las supervisadas se simulan y se ejecutan | `6` |
+| ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
+| ▥ | Bóveda: listar, buscar, leer y promover | `8` |
+
+La ficha de una tarea (abrirla en ⌂ o ▤) es donde se comprueba un resultado:
+duración, petición, resultado (el error, destacado), su línea temporal con lo
+que cada evento dice de sí mismo y, si es la ejecución de una rutina, los pasos
+dados y las propuestas que dejó. `↺` la vuelve a lanzar como tarea nueva
+enlazada a la original (la de una rutina se encola con `ea_encolar_rutina`) y
+`✎` abre el formulario de tarea nueva relleno con sus datos.
+
+La consola de acciones (▶) hace lo mismo que `ea acciones simular|ejecutar`:
+se rellenan los argumentos, `◌ simular` describe lo que pasaría sin hacer nada
+y `▶ ejecutar` lo aplica revalidando contra lo simulado (si el estado ha
+cambiado entre medias, responde 409 y no hace nada). Las irreversibles se
+pueden simular, pero el panel solo enseña el comando de terminal. Las
+herramientas no supervisadas se listan a título informativo.
 
 `n` tarea nueva, `/` filtra, `j`/`k` mueve, `Enter` abre o cierra el detalle,
 `Esc` cierra. `◉` pide al orquestador que escuche.

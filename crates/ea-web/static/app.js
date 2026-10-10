@@ -3,7 +3,10 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const SECCIONES = ['tareas', 'diario', 'rutinas', 'propuestas', 'sistema', 'boveda'];
+const SECCIONES = ['inicio', 'tareas', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda'];
+// Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
+const DETALLE = { inicio: 'tr', tareas: 't', rutinas: 'r', boveda: 'b' };
+const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
 const SIM = { pendiente: '○', en_progreso: '◐', completada: '●', fallida: '✕', cancelada: '⊘' };
 const ORIGEN = { manual: '✎', boton: '▪', voz: '◉', programado: '↻', agente: '◈' };
 const PASO = { accion: '▸', decision: '¿', propuesta: '◇', fin: '■' };
@@ -13,7 +16,7 @@ const ACCIONES = {
 };
 
 const st = {
-  sec: 'tareas',
+  sec: 'inicio',
   estado: null,        // /api/estado
   datos: null,         // datos de la sección visible
   detalle: {},         // detalle cargado de las filas abiertas
@@ -29,6 +32,7 @@ const st = {
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
   voz: false,
+  consola: {},         // por herramienta: { v: valores, sim, res, err }
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -91,10 +95,36 @@ const btn = (a, glifo, titulo, datos = {}, cls = '') =>
   `<button class="b ${cls}" data-a="${a}" title="${esc(titulo)}" aria-label="${esc(titulo)}"` +
   Object.entries(datos).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('') + `>${glifo}</button>`;
 
+// Lo que un evento cuenta de sí mismo en una línea: su error o su texto.
+function extracto(e) {
+  if (!e.detalle) return '';
+  try {
+    const d = JSON.parse(e.detalle);
+    const x = d && (d.error ?? d.texto);
+    return x == null ? '' : String(x);
+  } catch { return e.detalle; }
+}
+
 function eventos(lista) {
-  return lista.map(e => `<div class="ev"><span>${hora(e.ts)}</span>` +
-    `<i class="${e.resultado === 'error' ? 'hot' : ''}">${e.resultado === 'ok' ? '✓' : e.resultado === 'error' ? '✕' : '·'}</i>` +
-    `<span>${esc(e.actor)}</span><span>${esc(e.accion)}</span><span>${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span></div>`).join('');
+  return lista.map(e => {
+    const err = e.resultado === 'error';
+    const ex = extracto(e);
+    return `<div class="ev"><span>${hora(e.ts)}</span>` +
+      `<i class="${err ? 'hot' : ''}">${e.resultado === 'ok' ? '✓' : err ? '✕' : '·'}</i>` +
+      `<span>${esc(e.actor)}</span><span>${esc(e.accion)}</span><span>${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>` +
+      (ex ? `<span class="ex${err ? ' hot' : ''}">${esc(ex)}</span>` : '') + `</div>`;
+  }).join('');
+}
+
+const FINAL = ['completada', 'fallida', 'cancelada'];
+
+// Cuánto tardó (o lleva) una tarea: desde que se inició, o desde que se creó
+// si nadie la marcó como iniciada.
+function duracionTarea(t, d) {
+  if (t.estado === 'pendiente') return '';
+  const ini = d?.eventos.find(e => e.accion === 'tarea_iniciada')?.ts ?? t.creada;
+  const fin = FINAL.includes(t.estado) ? ms(t.actualizada) : Date.now();
+  return dur(Math.max(0, fin - ms(ini)));
 }
 
 function filasTareas(tareas) {
@@ -105,12 +135,20 @@ function filasTareas(tareas) {
       `<span class="x">${esc(t.titulo)}</span><span class="m w">${esc(t.asignado_a)}</span><span class="m">${hace(t.actualizada)}</span>`;
     const d = st.detalle[k];
     const acc = (ACCIONES[t.estado] || []).map(([v, g, tt]) => btn('estado', g, tt, { id: t.id, v }, v === 'fallida' ? 'hot' : '')).join('');
-    const det = `<p class="m">${esc(t.creado_por)} → ${esc(t.asignado_a)} · ${hora(t.creada)}</p>` +
+    const fin = FINAL.includes(t.estado);
+    const tiempo = duracionTarea(t, d);
+    const x = d?.ejecucion;
+    const det = `<p class="m">${esc(t.creado_por)} → ${esc(t.asignado_a)} · ${hora(t.creada)}${tiempo ? ' · ◷ ' + tiempo : ''}</p>` +
       `<p class="tx">» ${esc(t.peticion)}</p>` +
-      (t.resultado ? `<p class="tx">« ${esc(t.resultado)}</p>` : '') +
-      (t.padre ? `<p>↳ ${btn('ir-tarea', '#' + t.padre, 'tarea padre', { id: t.padre }, 'l')}</p>` : '') +
+      (t.resultado ? `<pre class="tx${t.estado === 'fallida' ? ' hot' : ''}">« ${esc(pretty(t.resultado))}</pre>` : '') +
+      (x ? `<p class="m" title="pasos · llamadas al modelo">${btn('ir-rutina', '↻ ' + x.rutina, 'ver rutina', { slug: x.rutina }, 'l')} · ▸ ${x.pasos} · ¿ ${x.llamadas_modelo}${x.detalle ? ' · ' + esc(x.detalle) : ''}</p>` : '') +
+      (d?.propuestas ?? []).map(p => `<p>◇ ${btn('ir-prop', '#' + p.id, 'ver propuesta', { id: p.id }, 'l')} <span class="m">${esc(p.descripcion)} · ${p.estado}</span></p>`).join('') +
+      (t.padre ? `<p>↳ ${btn('ir-tarea', '#' + t.padre, 'tarea de origen', { id: t.padre }, 'l')}</p>` : '') +
+      (d?.hijas ?? []).map(h => `<p>↺ ${btn('ir-tarea', '#' + h.id, 'repetición', { id: h.id }, 'l')} <span class="m">${h.estado}</span></p>`).join('') +
       `<div class="evs">${d ? eventos(d.eventos) : ''}</div>` +
-      (acc ? `<div class="acc">${t.estado === 'en_progreso' ? '<input class="res" placeholder="«" aria-label="Resultado">' : ''}${acc}</div>` : '');
+      `<div class="acc">${t.estado === 'en_progreso' ? '<input class="res" placeholder="«" aria-label="Resultado">' : ''}${acc}` +
+      (fin ? btn('repetir', '↺', t.estado === 'completada' ? 'repetir' : 'reintentar', { id: t.id }) : '') +
+      btn('plantilla', '✎', 'tarea nueva a partir de esta', { id: t.id }) + `</div>`;
     return fila(k, 't', row, `#${t.id} ${t.titulo} ${t.asignado_a} ${t.estado} ${t.origen}`, det,
       t.estado === 'completada' || t.estado === 'cancelada' ? ' fin' : '');
   });
@@ -222,7 +260,7 @@ function filasBoveda(d) {
   });
 }
 
-function filasSistema(e) {
+function filasSistema(e, plano = false) {
   const out = [];
   e.servicios.forEach(s => {
     const activo = s.activo === 'active';
@@ -235,19 +273,80 @@ function filasSistema(e) {
     out.push(fila('s' + s.nombre, 's', row, s.nombre + ' ' + s.activo));
   });
   const o = e.orquestador;
-  out.push(fila('sorq', 's', `<i class="${o.vivo ? 'm' : 'hot'}">♥</i><span class="x">orquestador</span><span class="m"></span><span class="m">${hace(o.ultimo_latido)}</span><span></span>`, 'orquestador latido', '', ' g'));
+  out.push(fila('sorq', 's', `<i class="${o.vivo ? 'm' : 'hot'}">♥</i><span class="x">orquestador</span><span class="m"></span><span class="m">${hace(o.ultimo_latido)}</span><span></span>`, 'orquestador latido', '', plano ? '' : ' g'));
   e.agentes.forEach((a, i) => {
     const tarea = a.tarea ? `<span class="x" title="${esc(a.tarea.titulo)}">#${a.tarea.id} ${esc(a.tarea.titulo)}</span>` : '<span class="m">—</span>';
     const row = `<i class="${a.tarea ? '' : 'n'}">◈</i><span class="x">${a.nombre}</span>${tarea}` +
       `<span class="m" title="${esc(a.ultimo?.accion ?? '')}">${a.ultimo ? hace(a.ultimo.ts) : ''}</span><span></span>`;
-    out.push(fila('s' + a.nombre, 's', row, a.nombre + ' ' + (a.tarea?.titulo ?? ''), '', i === 0 ? ' g' : ''));
+    out.push(fila('s' + a.nombre, 's', row, a.nombre + ' ' + (a.tarea?.titulo ?? ''), '', i === 0 && !plano ? ' g' : ''));
   });
+  return out;
+}
+
+function filasAcciones(hs) {
+  return hs.map(h => {
+    const c = st.consola[h.nombre] || {};
+    const row = `<i class="${h.riesgo === 'irreversible' ? 'hot' : 'm'}" title="${h.riesgo}">${RIESGO[h.riesgo]}</i>` +
+      `<span class="x">${esc(h.nombre)}</span><span class="m">${esc(h.resumen)}</span><span class="m">${h.riesgo}</span>`;
+    let det;
+    if (!h.supervisada) {
+      det = '<p class="m">Herramienta de los agentes: se ejecuta al invocarla, sin confirmación. No se lanza desde aquí.</p>';
+    } else {
+      const v = c.v || {};
+      const attrs = f => `data-campo="${esc(f.nombre)}" data-h="${esc(h.nombre)}" title="${esc(f.ayuda)}" aria-label="${esc(f.ayuda)}"`;
+      det = '<div class="fm">' + h.campos.map(f => {
+        const val = v[f.nombre] ?? '';
+        if (f.opciones.length) {
+          return `<select ${attrs(f)}><option value="">${esc(f.nombre)}</option>` +
+            f.opciones.map(o => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('') + '</select>';
+        }
+        return `<input ${attrs(f)} placeholder="${esc(f.ayuda)}" value="${esc(val)}"${f.entero ? ' inputmode="numeric" size="8"' : ''}>`;
+      }).join('') + btn('simular', '◌ simular', 'describe lo que haría, sin hacer nada', { h: h.nombre }) + '</div>';
+      // Lo que sale de simular o ejecutar (.sal) caduca en cuanto cambia un argumento.
+      if (c.sim) {
+        det += `<p class="tx sal">Simulación: ${esc(c.sim.texto)}</p>` + (c.sim.confirmable
+          ? `<div class="acc sal">${btn('ejecutar', '▶ ejecutar', 'ejecutar lo simulado', { h: h.nombre }, 'hot')}</div>`
+          : `<p class="hot sal">Irreversible: solo desde la terminal, con <b>ea acciones ejecutar ${esc(h.nombre)} --args '${esc(JSON.stringify(c.sim.argumentos))}'</b>.</p>`);
+      }
+      if (c.res) {
+        det += `<p class="tx sal">✓ ${esc(c.res.texto)}` +
+          (c.res.tarea != null ? ' ' + btn('ir-tarea', '→ #' + c.res.tarea, 'ver tarea', { id: c.res.tarea }, 'l') : '') + '</p>';
+      }
+      if (c.err) det += `<p class="hot sal">✕ ${esc(c.err)}</p>`;
+    }
+    return fila('a' + h.nombre, 'a', row, `${h.nombre} ${h.resumen} ${h.riesgo}`, det, h.supervisada ? '' : ' fin');
+  });
+}
+
+const suelto = html => ({ k: null, txt: '', html });
+const grupo = (glifo, titulo, n) => suelto(`<h2 class="gr"><i>${glifo}</i>${titulo}${n ? `<b>${n}</b>` : ''}</h2>`);
+
+// La portada: lo que espera una decisión, lo que no va bien, lo que está en
+// marcha, las rutinas y lo último que terminó.
+function filasInicio(d) {
+  const out = [];
+  if (d.propuestas.length) out.push(grupo('◇', 'esperan tu decisión', d.propuestas.length), ...filasPropuestas(d.propuestas));
+
+  const e = st.estado;
+  if (e) {
+    const mal = new Set(e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => 's' + s.nombre));
+    if (!e.orquestador.vivo) mal.add('sorq');
+    if (mal.size) out.push(grupo('▦', 'sistema'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
+  }
+
+  out.push(grupo('◐', 'en curso', d.activas.length));
+  out.push(...(d.activas.length ? filasTareas(d.activas) : [suelto('<p class="nada">nada en curso</p>')]));
+  if (d.rutinas.length) out.push(grupo('↻', 'rutinas'), ...filasRutinas(d.rutinas));
+  out.push(grupo('●', 'recientes'));
+  out.push(...(d.recientes.length ? filasTareas(d.recientes) : [suelto('<p class="nada">sin actividad todavía</p>')]));
   return out;
 }
 
 function construir() {
   const d = st.datos;
   switch (st.sec) {
+    case 'inicio': return d ? filasInicio(d) : [];
+    case 'acciones': return d ? filasAcciones(d) : [];
     case 'tareas': return d ? filasTareas(d) : [];
     case 'diario': return d ? filasDiario(d) : [];
     case 'rutinas': return d ? filasRutinas(d) : [];
@@ -298,7 +397,7 @@ function cabecera() {
 function pintar() {
   // No pisar lo que se está escribiendo dentro de un detalle.
   const foco = document.activeElement;
-  if (foco && foco.matches('input') && foco.closest('#lista')) return;
+  if (foco && foco.matches('input, select') && foco.closest('#lista')) return;
 
   if (!st.datos && st.sec !== 'sistema') {
     st.vis = [];
@@ -312,7 +411,7 @@ function pintar() {
   const todas = construir();
   // En la bóveda el filtro es una búsqueda de texto completo en el servidor.
   const vis = q && st.sec !== 'boveda' ? todas.filter(f => f.txt.includes(q)) : todas;
-  st.vis = vis.map(f => f.k);
+  st.vis = vis.map(f => f.k).filter(Boolean);
   if (st.sel && !st.vis.includes(st.sel)) st.sel = null;
 
   const html = vis.length ? vis.map(f => f.html).join('') : '<p class="vacio">∅</p>';
@@ -329,16 +428,17 @@ function pintar() {
 // ---------------------------------------------------------------------- datos
 
 async function cargaDetalle(k) {
-  const prefijo = { tareas: 't', rutinas: 'r', boveda: 'b' }[st.sec];
-  if (!prefijo || k[0] !== prefijo) return;
-  const ruta = { t: '/api/tareas/', r: '/api/rutinas/', b: '/api/boveda/nota?ruta=' }[prefijo];
+  if (!(DETALLE[st.sec] || '').includes(k[0])) return;
+  const ruta = { t: '/api/tareas/', r: '/api/rutinas/', b: '/api/boveda/nota?ruta=' }[k[0]];
   try { st.detalle[k] = await api(ruta + encodeURIComponent(k.slice(1))); } catch { delete st.detalle[k]; }
 }
 
 async function cargaSeccion() {
   const sec = st.sec;
   let datos = null;
-  if (sec === 'tareas') datos = await api('/api/tareas?limite=200' + (st.filtroEstado ? '&estado=' + st.filtroEstado : ''));
+  if (sec === 'inicio') datos = await api('/api/inicio');
+  else if (sec === 'acciones') datos = await api('/api/acciones');
+  else if (sec === 'tareas') datos = await api('/api/tareas?limite=200' + (st.filtroEstado ? '&estado=' + st.filtroEstado : ''));
   else if (sec === 'diario') datos = await api('/api/diario?limite=300' + (st.latidos ? '&latidos=1' : ''));
   else if (sec === 'rutinas') datos = await api('/api/rutinas');
   else if (sec === 'propuestas') datos = await api('/api/propuestas' + (st.propTodas ? '' : '?estado=pendiente'));
@@ -396,8 +496,33 @@ function mover(d) {
   $(`.f[data-k="${CSS.escape(st.sel)}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 
+// Argumentos de la consola tal como los espera la herramienta: tipos y
+// obligatorios según el catálogo.
+function argumentos(h) {
+  const def = (Array.isArray(st.datos) ? st.datos : []).find(x => x.nombre === h);
+  if (!def) throw new Error('herramienta desconocida');
+  const v = st.consola[h]?.v || {};
+  const args = {};
+  for (const f of def.campos) {
+    const crudo = (v[f.nombre] ?? '').trim();
+    if (!crudo) {
+      if (f.obligatorio) throw new Error(`falta '${f.nombre}'`);
+      continue;
+    }
+    if (f.entero && !/^\d+$/.test(crudo)) throw new Error(`'${f.nombre}' debe ser un número`);
+    args[f.nombre] = f.entero ? Number(crudo) : crudo;
+  }
+  return args;
+}
+
+function abre(sec, k) {
+  ir(sec);
+  st.abiertos.add(k);
+  st.sel = k;
+}
+
 async function accion(b) {
-  const { a, id, v, slug, n, ruta } = b.dataset;
+  const { a, id, v, slug, n, ruta, h } = b.dataset;
   try {
     if (a === 'estado') {
       const res = $('.res', b.closest('.f'))?.value.trim();
@@ -440,10 +565,43 @@ async function accion(b) {
       }
     } else if (a === 'ir-tarea') {
       st.filtroEstado = null;
-      ir('tareas');
-      st.abiertos.add('t' + id);
-      st.sel = 't' + id;
+      abre('tareas', 't' + id);
       return;
+    } else if (a === 'ir-prop') {
+      st.propTodas = true;
+      abre('propuestas', 'p' + id);
+      return;
+    } else if (a === 'ir-rutina') {
+      abre('rutinas', 'r' + slug);
+      return;
+    } else if (a === 'repetir') {
+      const t = await post(`/api/tareas/${id}/repetir`);
+      avisa('↺ #' + t.id, true);
+      st.abiertos.add('t' + t.id);
+      st.sel = 't' + t.id;
+    } else if (a === 'plantilla') {
+      const t = st.detalle['t' + id]?.tarea;
+      if (!t) throw new Error('la tarea aún no se ha cargado');
+      const f = $('#form').elements;
+      f.titulo.value = t.titulo;
+      f.asignado_a.value = t.asignado_a;
+      f.solicita.value = t.peticion;
+      formulario(true);
+      return;
+    } else if (a === 'simular' || a === 'ejecutar') {
+      // Los fallos se quedan junto al formulario, no en un aviso pasajero.
+      const c = (st.consola[h] ??= {});
+      const sim = c.sim;
+      c.sim = c.res = c.err = null;
+      try {
+        if (a === 'simular') {
+          c.sim = await post('/api/acciones/simular', { herramienta: h, argumentos: argumentos(h) });
+        } else if (sim) {
+          c.res = await post('/api/acciones/ejecutar', { herramienta: h, argumentos: sim.argumentos, precondicion: sim.precondicion });
+        }
+      } catch (e) {
+        c.err = e.message;
+      }
     } else if (a === 'latidos') {
       st.latidos = !st.latidos;
     } else if (a === 'prop') {
@@ -502,7 +660,7 @@ document.addEventListener('click', ev => {
   }
   const b = t.closest('button[data-a]');
   if (b) return accion(b);
-  if (t.closest('input')) return;
+  if (t.closest('input, select')) return;
   const fila = t.closest('#lista .f');
   if (fila) { st.sel = fila.dataset.k; alterna(fila.dataset.k); }
 });
@@ -517,11 +675,23 @@ $('#form').addEventListener('submit', async ev => {
     formulario(false);
     avisa('+ #' + t.id, true);
     st.filtroEstado = null;
-    if (st.sec !== 'tareas') ir('tareas'); else { st.html = ''; tick(); }
+    if (st.sec !== 'tareas' && st.sec !== 'inicio') ir('tareas'); else { st.html = ''; tick(); }
     st.sel = 't' + t.id;
   } catch (e) {
     avisa(e.message);
   }
+});
+
+// La consola de acciones guarda lo escrito en el estado (la lista se repinta
+// entera) y da por caducada la simulación en cuanto cambia un argumento.
+$('#lista').addEventListener('input', ev => {
+  const el = ev.target.closest('[data-campo]');
+  if (!el) return;
+  const c = (st.consola[el.dataset.h] ??= {});
+  (c.v ??= {})[el.dataset.campo] = el.value;
+  c.sim = c.res = c.err = null;
+  st.html = '';
+  $$('.sal', el.closest('.det')).forEach(n => n.remove());
 });
 
 let busqueda;
@@ -541,6 +711,11 @@ document.addEventListener('keydown', ev => {
     else { st.abiertos.clear(); st.sel = null; }
     st.html = '';
     pintar();
+    return;
+  }
+  if (ev.key === 'Enter' && t.matches('input[data-campo]')) {
+    ev.preventDefault();
+    accion({ dataset: { a: 'simular', h: t.dataset.h } });
     return;
   }
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;

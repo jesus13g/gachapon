@@ -466,3 +466,168 @@ async fn una_accion_en_curso_no_bloquea_las_lecturas() {
         assert_eq!(s, StatusCode::OK, "{ruta}");
     }
 }
+
+#[tokio::test]
+async fn la_portada_reune_lo_pendiente_lo_activo_y_lo_reciente() {
+    let f = montar();
+
+    let (s, i) = get(&f, "/api/inicio").await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(i["propuestas"].as_array().unwrap().is_empty());
+    assert!(i["activas"].as_array().unwrap().is_empty());
+    assert!(i["recientes"].as_array().unwrap().is_empty());
+    assert_eq!(i["rutinas"][0]["slug"], "revision-diaria");
+
+    let mut ids = Vec::new();
+    for titulo in ["una", "otra"] {
+        let (_, t) = post(
+            &f,
+            "/api/tareas",
+            json!({ "titulo": titulo, "asignado_a": "claude-code", "solicita": "x" }),
+        )
+        .await;
+        ids.push(t["id"].as_i64().unwrap());
+    }
+    post(&f, &format!("/api/tareas/{}/estado", ids[0]), json!({ "estado": "cancelada" })).await;
+    {
+        let store = f.state.store.lock().await;
+        let run = store.start_routine_run("revision-diaria", None).unwrap();
+        store.create_propuesta(run.id, "Revisar incidencias").unwrap();
+    }
+
+    let (_, i) = get(&f, "/api/inicio").await;
+    assert_eq!(i["propuestas"][0]["descripcion"], "Revisar incidencias");
+    assert_eq!(i["activas"].as_array().unwrap().len(), 1);
+    assert_eq!(i["activas"][0]["id"], ids[1]);
+    assert_eq!(i["recientes"].as_array().unwrap().len(), 1);
+    assert_eq!(i["recientes"][0]["estado"], "cancelada");
+}
+
+#[tokio::test]
+async fn repetir_una_tarea_crea_otra_enlazada_a_la_original() {
+    let f = montar();
+    let (_, t) = post(
+        &f,
+        "/api/tareas",
+        json!({ "titulo": "Informe", "asignado_a": "modelo-local", "solicita": "Resume el día" }),
+    )
+    .await;
+    let id = t["id"].as_i64().unwrap();
+    let repetir = format!("/api/tareas/{id}/repetir");
+
+    let (s, _) = post(&f, &repetir, json!({})).await;
+    assert_eq!(s, StatusCode::CONFLICT, "una tarea sin terminar no se repite");
+    let (s, _) = post(&f, "/api/tareas/999/repetir", json!({})).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    post(&f, &format!("/api/tareas/{id}/estado"), json!({ "estado": "cancelada" })).await;
+    let (s, nueva) = post(&f, &repetir, json!({})).await;
+    assert_eq!(s, StatusCode::CREATED);
+    assert_eq!(nueva["padre"], id);
+    assert_eq!(nueva["estado"], "pendiente");
+    assert_eq!(nueva["asignado_a"], "modelo-local");
+    assert_eq!(nueva["peticion"], "Resume el día");
+
+    let (_, ficha) = get(&f, &format!("/api/tareas/{id}")).await;
+    assert_eq!(ficha["hijas"][0]["id"], nueva["id"]);
+}
+
+#[tokio::test]
+async fn la_ficha_de_una_rutina_enlaza_su_ejecucion_y_repetirla_la_encola() {
+    let f = montar();
+    let (_, t) = post(&f, "/api/rutinas/revision-diaria/encolar", json!({})).await;
+    let id = t["id"].as_i64().unwrap();
+    {
+        let store = f.state.store.lock().await;
+        let run = store.start_routine_run("revision-diaria", Some(id)).unwrap();
+        store.create_propuesta(run.id, "Hay errores").unwrap();
+    }
+
+    let (_, ficha) = get(&f, &format!("/api/tareas/{id}")).await;
+    assert_eq!(ficha["ejecucion"]["rutina"], "revision-diaria");
+    assert_eq!(ficha["propuestas"][0]["descripcion"], "Hay errores");
+
+    post(&f, &format!("/api/tareas/{id}/estado"), json!({ "estado": "cancelada" })).await;
+    let (s, nueva) = post(&f, &format!("/api/tareas/{id}/repetir"), json!({})).await;
+    assert_eq!(s, StatusCode::CREATED);
+    assert_eq!(nueva["asignado_a"], "orquestador");
+    let (s, _) = post(&f, &format!("/api/tareas/{id}/repetir"), json!({})).await;
+    assert_eq!(s, StatusCode::CONFLICT, "ya hay una ejecución en cola");
+}
+
+#[tokio::test]
+async fn la_consola_lista_simula_y_ejecuta_acciones() {
+    let f = montar();
+
+    let (s, cat) = get(&f, "/api/acciones").await;
+    assert_eq!(s, StatusCode::OK);
+    let de = |n: &str| cat.as_array().unwrap().iter().find(|h| h["nombre"] == n).unwrap().clone();
+    assert_eq!(de("ea_status")["supervisada"], false);
+    assert_eq!(de("ea_eliminar_rutina")["confirmable"], false);
+    let encolar = de("ea_encolar_rutina");
+    assert_eq!(encolar["confirmable"], true);
+    assert_eq!(encolar["campos"][0]["opciones"], json!(["revision-diaria"]));
+
+    let cuerpo = json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "revision-diaria" } });
+    let (s, sim) = post(&f, "/api/acciones/simular", cuerpo.clone()).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(sim["texto"].as_str().unwrap().contains("revision-diaria"));
+    let (_, e) = get(&f, "/api/estado").await;
+    assert_eq!(e["tareas"]["pendiente"], 0, "simular no hace nada");
+
+    let ejecutar = json!({
+        "herramienta": "ea_encolar_rutina",
+        "argumentos": sim["argumentos"],
+        "precondicion": sim["precondicion"],
+    });
+    let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar.clone()).await;
+    assert_eq!(s, StatusCode::OK);
+    let tarea = r["tarea"].as_i64().unwrap();
+    let (_, ficha) = get(&f, &format!("/api/tareas/{tarea}")).await;
+    assert_eq!(ficha["tarea"]["asignado_a"], "orquestador");
+
+    // El mundo ya no es el de la simulación: ni simular ni ejecutar de nuevo.
+    let (s, _) = post(&f, "/api/acciones/ejecutar", ejecutar).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let (s, _) = post(&f, "/api/acciones/simular", cuerpo).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn la_consola_valida_y_no_ejecuta_irreversibles() {
+    let f = montar();
+
+    let (s, _) = post(&f, "/api/acciones/simular", json!({ "herramienta": "ea_status" })).await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "solo las supervisadas");
+    let (s, _) = post(
+        &f,
+        "/api/acciones/simular",
+        json!({ "herramienta": "ea_cambiar_estado_tarea", "argumentos": { "id": "uno" } }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = post(
+        &f,
+        "/api/acciones/simular",
+        json!({ "herramienta": "ea_reiniciar_servicio", "argumentos": { "servicio": "ea-mcp" } }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
+
+    let borrar = json!({ "herramienta": "ea_eliminar_rutina", "argumentos": { "slug": "revision-diaria" } });
+    let (s, sim) = post(&f, "/api/acciones/simular", borrar).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(sim["confirmable"], false);
+    let (s, _) = post(
+        &f,
+        "/api/acciones/ejecutar",
+        json!({
+            "herramienta": "ea_eliminar_rutina",
+            "argumentos": sim["argumentos"],
+            "precondicion": sim["precondicion"],
+        }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+}

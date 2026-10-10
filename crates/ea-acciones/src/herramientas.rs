@@ -155,6 +155,50 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
     }
 }
 
+/// Un argumento de una herramienta supervisada, descrito para quien tenga
+/// que pedírselo a una persona (el formulario de la web).
+#[derive(Debug, Clone, Copy)]
+pub struct Campo {
+    pub nombre: &'static str,
+    pub entero: bool,
+    pub obligatorio: bool,
+    /// Dominio cerrado de valores; vacío si es libre.
+    pub opciones: &'static [&'static str],
+    pub ayuda: &'static str,
+}
+
+const ESTADOS_TAREA: &[&str] = &["pendiente", "en_progreso", "completada", "fallida", "cancelada"];
+
+const fn campo(nombre: &'static str, ayuda: &'static str) -> Campo {
+    Campo { nombre, entero: false, obligatorio: true, opciones: &[], ayuda }
+}
+
+const CAMPOS_ESTADO: &[Campo] = &[
+    Campo { entero: true, ..campo("id", "número de la tarea") },
+    Campo { opciones: ESTADOS_TAREA, ..campo("estado", "estado nuevo") },
+    Campo { obligatorio: false, ..campo("resultado", "resultado (opcional)") },
+];
+const CAMPOS_SLUG: &[Campo] = &[campo("slug", "rutina")];
+const CAMPOS_SERVICIO: &[Campo] =
+    &[Campo { opciones: &SERVICIOS_REINICIABLES, ..campo("servicio", "servicio") }];
+const CAMPOS_PROMOVER: &[Campo] = &[
+    campo("ruta", "ruta de la nota (p. ej. claude-code/tema/nota.md)"),
+    Campo { obligatorio: false, ..campo("destino", "destino en «compartida» (opcional)") },
+];
+
+/// Los argumentos que acepta una herramienta supervisada, en el orden en que
+/// conviene pedirlos. Debe casar con las estructuras de arriba (lo vigila
+/// una prueba).
+pub fn campos(nombre: &str) -> &'static [Campo] {
+    match nombre {
+        "ea_cambiar_estado_tarea" => CAMPOS_ESTADO,
+        "ea_encolar_rutina" | "ea_eliminar_rutina" => CAMPOS_SLUG,
+        "ea_reiniciar_servicio" => CAMPOS_SERVICIO,
+        "ea_promover_nota" => CAMPOS_PROMOVER,
+        _ => &[],
+    }
+}
+
 /// Lo que hay que preguntarle al sistema de forma asíncrona antes de
 /// simular. Se obtiene con [`observar`] **sin** sostener la conexión a la
 /// base de datos (que no se comparte entre hilos); luego [`simular_con`] es

@@ -370,3 +370,29 @@ fn el_canal_web_nunca_confirma_irreversibles() {
     assert!(Canal::Web.puede_confirmar(Riesgo::Irreversible).is_err());
     assert!(Canal::Terminal.puede_confirmar(Riesgo::Irreversible).is_ok());
 }
+
+#[test]
+fn los_campos_declarados_casan_con_los_argumentos_que_se_validan() {
+    for h in CATALOGO.iter().filter(|h| h.ejecucion == Ejecucion::Supervisada) {
+        let campos = campos(h.nombre);
+        assert!(!campos.is_empty(), "{} no declara campos", h.nombre);
+
+        let valor = |c: &Campo| match (c.entero, c.opciones.first(), c.nombre) {
+            (true, _, _) => json!(1),
+            (_, Some(o), _) => json!(o),
+            (_, _, "ruta") => json!("claude-code/tema/nota.md"),
+            (_, _, "destino") => json!("tema/nota.md"),
+            _ => json!("revision-diaria"),
+        };
+        // Solo los obligatorios, y luego todos: ambas formas deben validar.
+        for solo_obligatorios in [true, false] {
+            let args: serde_json::Map<String, Value> = campos
+                .iter()
+                .filter(|c| c.obligatorio || !solo_obligatorios)
+                .map(|c| (c.nombre.to_string(), valor(c)))
+                .collect();
+            validar_argumentos(h.nombre, &Value::Object(args))
+                .unwrap_or_else(|e| panic!("{}: {e}", h.nombre));
+        }
+    }
+}
