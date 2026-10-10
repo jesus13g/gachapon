@@ -1,0 +1,15 @@
+# Copiar a ~/.config/ecosistema-asistente/proxy.toml para sobreescribir los
+# defaults (ea-proxy arranca sin este fichero: los valores de abajo son
+# exactamente los que usa si no existe).
+
+puerto = 8090
+llama_endpoint = "http://127.0.0.1:8080"
+mcp_endpoint = "http://127.0.0.1:8765/mcp"
+
+[perfiles.rapido]
+temperature = 0.2
+max_tokens = 256
+
+[perfiles.largo]
+temperature = 0.4
+max_tokens = 1024

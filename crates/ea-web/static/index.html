@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ea</title>
+<link rel="stylesheet" href="/tema.css">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<nav id="rail" aria-label="Secciones">
+  <button data-s="tareas" title="Tareas (1)" aria-label="Tareas"><i>▤</i><b></b></button>
+  <button data-s="diario" title="Diario (2)" aria-label="Diario"><i>≡</i></button>
+  <button data-s="rutinas" title="Rutinas (3)" aria-label="Rutinas"><i>↻</i></button>
+  <button data-s="propuestas" title="Propuestas (4)" aria-label="Propuestas"><i>◇</i><b></b></button>
+  <button data-s="sistema" title="Sistema (5)" aria-label="Sistema"><i>▦</i></button>
+</nav>
+<main>
+  <header>
+    <i class="logo">◆</i>
+    <div id="servicios" role="status"></div>
+    <i id="orq" title="">♥</i>
+    <i id="off" class="hot" title="sin conexión" hidden>✕</i>
+    <span class="grow"></span>
+    <button id="voz" title="Voz" aria-label="Voz">◉</button>
+    <button id="nueva" title="Tarea nueva (n)" aria-label="Tarea nueva">+</button>
+  </header>
+  <form id="form" hidden autocomplete="off">
+    <input name="titulo" placeholder="título" maxlength="200" required aria-label="Título">
+    <input name="asignado_a" list="dest" value="claude-code" maxlength="64" size="14" aria-label="Asignada a">
+    <datalist id="dest"><option value="claude-code"><option value="modelo-local"></datalist>
+    <input name="solicita" placeholder="petición" class="grow" required aria-label="Petición">
+    <button title="Crear (Enter)" aria-label="Crear">↵</button>
+  </form>
+  <div id="eco" hidden></div>
+  <div id="barra"><span id="fb"></span><input id="q" placeholder="/" aria-label="Filtrar" spellcheck="false"></div>
+  <section id="lista"></section>
+</main>
+<div id="aviso" role="alert"></div>
+<script src="/app.js"></script>
+</body>
+</html>

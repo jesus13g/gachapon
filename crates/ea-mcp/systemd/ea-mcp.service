@@ -1,0 +1,12 @@
+[Unit]
+Description=Servidor de herramientas MCP del ecosistema de asistente
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/Proyectos/ecosistema-asistente/target/release/ea-mcp
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

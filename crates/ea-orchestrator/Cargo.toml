@@ -1,0 +1,36 @@
+[package]
+name = "ea-orchestrator"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "ea-orchestrator"
+path = "src/main.rs"
+
+[dependencies]
+ea-store = { path = "../ea-store" }
+rmcp = { version = "3.3", features = [
+    "client",
+    "transport-streamable-http-client-reqwest",
+] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net"] }
+tokio-util = "0.7"
+axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+directories = "5.0"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# Capa de voz (fase 5, §6 de la especificación): runtime único para ASR,
+# TTS y VAD (sherpa-onnx); captura/reproducción de audio en CPU (cpal).
+sherpa-onnx = "1.13"
+cpal = "0.15"
+
+[dev-dependencies]
+tempfile = "3"

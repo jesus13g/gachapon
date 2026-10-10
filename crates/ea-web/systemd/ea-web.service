@@ -1,0 +1,13 @@
+[Unit]
+Description=Interfaz web del ecosistema de asistente
+After=network.target ea-mcp.service
+Wants=ea-mcp.service
+
+[Service]
+Type=simple
+ExecStart=%h/Proyectos/ecosistema-asistente/target/release/ea-web
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

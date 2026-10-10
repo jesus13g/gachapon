@@ -1,0 +1,30 @@
+[package]
+name = "ea-web"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "ea-web"
+path = "src/main.rs"
+
+[dependencies]
+ea-store = { path = "../ea-store" }
+ea-orchestrator = { path = "../ea-orchestrator" }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "process", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+directories = "5.0"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+anyhow = "1.0"
+libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"

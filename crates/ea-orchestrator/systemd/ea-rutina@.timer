@@ -1,0 +1,14 @@
+[Unit]
+Description=Disparador temporal de la rutina '%i' del ecosistema de asistente
+
+[Timer]
+# Plantilla genérica: cada rutina necesita su propio horario, así que este
+# fichero no se instala tal cual. Cópialo como
+# ~/.config/systemd/user/ea-rutina@<slug>.timer (systemd prioriza el
+# fichero de instancia concreta sobre esta plantilla) y ajusta OnCalendar=.
+# Ejemplo: todos los días a las 08:00.
+OnCalendar=*-*-* 08:00:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

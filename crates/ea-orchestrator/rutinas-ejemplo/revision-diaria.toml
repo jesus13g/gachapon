@@ -1,0 +1,44 @@
+# Rutina de ejemplo (y de verificación end-to-end de la fase 4): revisa el
+# diario de eventos desde la última ejecución con éxito y, si encuentra
+# algún evento con outcome=error, encola una propuesta en vez de actuar
+# (§11.2: ejecución desatendida es de solo lectura, sin excepciones).
+#
+# Para probarla: copia este fichero a
+# ~/.config/ecosistema-asistente/rutinas/revision-diaria.toml (ver README).
+
+[rutina]
+descripcion = "Revisa el diario desde la última ejecución y avisa si hay errores"
+inicio = "consultar_diario"
+max_duracion_s = 120
+max_pasos = 10
+max_llamadas_modelo = 5
+ventana_inicial_dias = 1
+
+[[pasos]]
+id = "consultar_diario"
+tipo = "accion"
+herramienta = "ea_listar_diario"
+argumentos = { desde = "{ultima_ejecucion}", limite = 50 }
+siguiente = "clasificar"
+
+[[pasos]]
+id = "clasificar"
+tipo = "decision"
+contexto = """
+Estos son los eventos del diario del ecosistema de asistente desde la \
+última revisión de esta rutina:
+
+{salida_previa}
+
+¿Hay algún evento con "outcome":"error" en esa lista?
+"""
+ramas = { hay_errores = "proponer_revision", sin_errores = "fin" }
+
+[[pasos]]
+id = "proponer_revision"
+tipo = "propuesta"
+descripcion = "Se detectaron eventos con error en el diario desde {ultima_ejecucion}. Revisar con 'ea diario listar'."
+
+[[pasos]]
+id = "fin"
+tipo = "fin"

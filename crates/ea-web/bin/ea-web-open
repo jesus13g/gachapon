@@ -1,0 +1,20 @@
+#!/bin/bash
+# Abre el panel de ea-web como web app en el escritorio 4. Si la ventana ya
+# existe, solo enfoca el escritorio. La clase de ventana de Chromium sale del
+# host (localhost → chrome-localhost__-Default); no usar 127.0.0.1, que ya es
+# la clase del tutor de Hyprland (regla en ~/.config/hypr/hyprland.lua).
+PORT="${EA_WEB_PORT:-8092}"
+URL="http://localhost:${PORT}/"
+CLASS="chrome-localhost__-Default"
+WORKSPACE=4
+
+if hyprctl -j clients | grep -q "\"class\": \"$CLASS\""; then
+  exec hyprctl dispatch "hl.dsp.focus({ workspace = \"$WORKSPACE\" })" >/dev/null
+fi
+
+# Al iniciar sesión el servicio puede tardar un poco en arrancar.
+for _ in $(seq 1 60); do
+  curl -sf -m 2 -o /dev/null "${URL}api/estado" && break
+  sleep 1
+done
+exec omarchy-launch-webapp "$URL"
