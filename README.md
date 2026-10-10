@@ -20,8 +20,11 @@ o, si el usuario la activa en `voz.toml`, con palabra de activación
 micrófono abierto de forma continua). Ambas recorren el mismo turno.
 Mutaciones supervisadas (fase 6): las herramientas que cambian el sistema
 solo simulan o encolan una propuesta con acción estructurada, y la ejecuta el
-usuario al aceptarla (ver «Mutaciones supervisadas»). Un panel web (`ea-web`)
-para ver y gestionar todo desde el escritorio.
+usuario al aceptarla (ver «Mutaciones supervisadas»). Bóveda compartida
+(fase 7): notas en regiones por autor, escritor único serializado, búsqueda
+indexada con resultados acotados y promoción a la región compartida decidida
+por el usuario (ver «Bóveda compartida»). Un panel web (`ea-web`) para ver y
+gestionar todo desde el escritorio.
 
 ## Estructura
 
@@ -31,6 +34,9 @@ para ver y gestionar todo desde el escritorio.
 - `crates/ea-acciones`: capa interna de herramientas. Catálogo único con
   nivel de riesgo, simulación, revalidación, ejecución y el flujo propuesta →
   aceptación → ejecución. Aquí vive la lógica de sistema operativo.
+- `crates/ea-boveda`: la bóveda de notas (§8.3). Único código que escribe
+  ficheros de la bóveda: escritor serializado, regiones, contrato de cabecera,
+  promoción, lectura y búsqueda acotadas. El índice FTS5 vive en `ea-store`.
 - `crates/ea-cli`: binario `ea`, interfaz de terminal.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor de herramientas MCP (HTTP,
   `127.0.0.1`) consumido por Claude Code y por `ea-proxy`/`ea-orchestrator`.
@@ -60,6 +66,8 @@ ea propuestas listar [--estado pendiente]
 ea propuestas ver <id>                       # acción, riesgo, simulación, ejecución
 ea propuestas decidir <id> --aceptar|--rechazar   # aceptar una con acción la ejecuta
 ea acciones listar|simular|ejecutar          # catálogo de herramientas y ejecución directa
+ea boveda estado|listar|buscar|leer          # ver la bóveda (ver «Bóveda compartida»)
+ea boveda promover <ruta>                    # copiar una nota a la región compartida
 ea voz hablar                                # activación manual (ver más abajo)
 ea voz estado                                # motor de voz y palabra de activación
 ea tui                                       # interfaz interactiva
@@ -81,6 +89,9 @@ riesgo (§7.3):
 | Herramienta | Riesgo | Desde un agente | Modelo local |
 |---|---|---|---|
 | `ea_status`, `ea_listar_tareas`, `ea_ver_tarea`, `ea_listar_diario` | lectura | se ejecuta | sí |
+| `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta | sí |
+| `ea_escribir_nota` | mutación reversible | se ejecuta, pero solo en la región propia del agente (excepción razonada: decisión 8) | sí |
+| `ea_promover_nota` | mutación reversible | solo simula o propone | sí (solo propone) |
 | `ea_crear_tarea` (con `simular: true`) | mutación reversible | se ejecuta (excepción razonada: es la primitiva de comunicación entre actores, §9.1; solo escribe una fila) | no |
 | `ea_cambiar_estado_tarea` | mutación reversible | solo simula o propone | sí (solo propone) |
 | `ea_encolar_rutina` | mutación reversible | solo simula o propone | no |
@@ -160,6 +171,156 @@ usuario y capacidad de simular un TTY o de hablar con `127.0.0.1:8092` podría
 saltarse la confirmación reversible. La defensa es no darle a los agentes
 ningún camino por las herramientas, los permisos de su propio entorno y que lo
 irreversible exija escribir una frase en una terminal real.
+
+### Bóveda compartida (fase 7)
+
+Implementa §8.3: el sustrato de notas que se leen meses después, compartido
+por el modelo local, Claude Code y el usuario.
+
+**Dónde está.** Por defecto en `~/.local/share/ecosistema-asistente/boveda/`,
+un directorio propio del ecosistema (no la bóveda personal de Obsidian). La raíz
+se cambia con la variable `EA_BOVEDA_DIR` o con
+`~/.config/ecosistema-asistente/boveda.toml`:
+
+```toml
+raiz = "~/ruta/a/una/carpeta"
+```
+
+Orden de resolución: variable de entorno, fichero, valor por defecto. Para
+que Obsidian la abra, basta con abrir esa carpeta como bóveda, o apuntar la
+configuración a una carpeta de una bóveda existente. **Eso es decisión del
+usuario y no se ha hecho.** Conviene apuntar a una carpeta dedicada (p. ej.
+`~/Obsidian/SegundoCerebro/asistente`) y no a la raíz de la bóveda: el
+ecosistema solo ve, indexa y escribe tres subcarpetas de la raíz (las
+regiones); todo lo demás que haya en ella le es invisible, pero crea en ella
+las regiones y un fichero oculto `.ea-escritor.lock`.
+
+**Regiones** (partición por autor, no por tema; decisiones 8 y 9):
+
+| Carpeta | Quién escribe | Contenido |
+|---|---|---|
+| `modelo-local/` | el modelo local, con libertad total | sus notas |
+| `claude-code/` | Claude Code, con libertad total | sus notas |
+| `compartida/` | nadie directamente: solo recibe notas por **promoción** que decide el usuario | lo de confianza |
+
+Cada agente escribe únicamente en su carpeta: las herramientas no tienen
+argumento de región y la ruta que dan es relativa a la suya. El orquestador
+desatendido no escribe (§11.2: solo lectura). Cualquiera puede leer y buscar en
+las tres regiones.
+
+**Escritor único serializado** (decisión 10). Todo fichero de la bóveda se crea
+o cambia en `ea-boveda` (`Boveda::escribir_nota` y `Boveda::promover`); ningún
+otro componente toca los ficheros. Escriben procesos distintos (`ea-mcp` las
+notas de los agentes; `ea` y `ea-web` al promover), así que la exclusión es un
+`flock` exclusivo sobre `<raíz>/.ea-escritor.lock`: dos escritores, sean hilos
+o procesos, nunca se solapan (el segundo espera hasta 10 s y, si no puede,
+falla con un mensaje claro). Cada escritura es atómica (temporal oculto en el
+mismo directorio, `fsync` y renombrado) y deja su evento en el diario
+(`boveda_escritura`, `boveda_promocion`) *dentro* del candado, de modo que el
+orden de los eventos es el de las escrituras. *Por qué así y no un servicio
+dueño de una cola:* la CLI y la web tendrían que depender de que ese servicio
+esté levantado, y la promoción del usuario pasaría por el proceso que sirve a
+los agentes. El candado da exclusión mutua, no un orden FIFO estricto entre los
+que esperan.
+
+**Contrato de cabecera.** Toda nota que escribe el ecosistema empieza por un
+bloque YAML (subconjunto plano, con analizador propio) que se valida al escribir:
+
+```yaml
+---
+contrato: 1                         # versión del contrato
+titulo: "Cómo se reinicia ea-mcp"   # 1-200 caracteres, una línea
+autor: modelo-local                 # modelo-local | claude-code | usuario
+region: modelo-local                # modelo-local | claude-code | compartida
+creada: 2026-10-10T12:00:00Z        # RFC 3339, UTC
+actualizada: 2026-10-10T12:00:00Z
+origen: "tarea:12"                  # tarea:<id> | rutina:<slug> | manual
+promocion: ninguna                  # ninguna | promovida
+tags: [servicios, mcp]              # opcional, hasta 10
+# solo tras promover:
+promovida_de: "modelo-local/x.md"   # en la copia compartida
+promovida_a: "compartida/x.md"      # en el original
+promovida_por: usuario
+promovida_en: 2026-10-10T13:00:00Z
+---
+```
+
+Reglas: en la región de un agente solo firma ese agente (`region` = `autor`);
+una nota de agente en `compartida/` exige `promocion: promovida`; las claves
+desconocidas se conservan al reescribir; `tags` es la clave de etiquetas de
+Obsidian. Las notas ajenas (sin cabecera, o con otra) se leen y se indexan con
+tolerancia (título = primer `# ` o nombre del fichero, autor desconocido); solo
+se exige el contrato a lo que escribe el ecosistema. El estado `propuesta` /
+`rechazada` de una promoción no se copia a la cabecera: vive en la propuesta
+(`ea propuestas`), que es su única fuente.
+
+**Rutas.** Relativas a la raíz, `región/…/nota.md`. Se rechazan las absolutas,
+`..`, `.`, componentes vacíos u ocultos, barras invertidas, caracteres de
+control y lo que no acabe en `.md`; además, resueltos los enlaces simbólicos
+la ruta debe seguir dentro de la carpeta de su región (un enlace hacia fuera de
+la bóveda, o hacia otra región, se rechaza al escribir y al leer). Límite:
+la comprobación y la escritura no son una sola operación del sistema operativo,
+así que un enlace creado en el instante entre ambas por alguien con acceso a
+la carpeta no queda cubierto.
+
+**Búsqueda y lectura acotadas.** El modelo local nunca ve el sistema de
+ficheros: solo `ea_buscar_notas` y `ea_leer_nota`. La búsqueda es SQLite FTS5
+(la versión enlazada de `rusqlite` lo trae; migración `0004`), sin acentos ni
+mayúsculas, con todos los términos exigidos y el texto del usuario nunca
+interpretado como sintaxis de consulta. Cotas por actor (el contexto del
+modelo local es de 8192 tokens):
+
+| | Modelo local | Claude Code / usuario |
+|---|---|---|
+| Resultados por búsqueda | 5 | 20 (50 en la web) |
+| Fragmento por resultado | 200 caracteres | 400 |
+| Caracteres por lectura (el resto, por trozos con `desde`) | 3000 | 20 000 |
+| Cuerpo de una nota escrita | 8 KiB | 64 KiB |
+
+El índice es una caché derivada de los ficheros: se pone al día solo (compara
+fecha y tamaño) al buscar o listar, de modo que las ediciones hechas en
+Obsidian se ven; `ea boveda reindexar` lo reconstruye entero. Se ignoran
+ficheros y carpetas ocultos, enlaces simbólicos, lo que no sea `.md` y lo que
+pese más de 512 KiB.
+
+**Promoción** (decisión 9). Apoyada en el mismo mecanismo que las mutaciones
+de la fase 6: `ea_promover_nota` es una herramienta supervisada y reversible.
+Un agente solo la simula o la propone (`ea propuestas`, TUI o ◇ de la web);
+**aceptar la propuesta la ejecuta**, desde la terminal o la web. El usuario
+también puede promover directamente: `ea boveda promover <ruta> [--destino
+x/y.md]` (pide terminal interactiva, muestra la simulación y confirma) o ⇧
+en la sección ▥ de la web (segundo clic). Efecto: **copia** la nota a
+`compartida/<misma ruta sin la región>` (o al destino indicado) con la
+cabecera `promocion: promovida`, `promovida_de`, `promovida_por`,
+`promovida_en`; el original se conserva y solo su cabecera pasa a
+`promovida` con `promovida_a`. Se copia y no se mueve porque la acción es así
+reversible y no quita nada a la región del autor. No sobrescribe nunca: si el
+destino existe, falla. La propuesta guarda la huella del contenido que el
+usuario vio: si la nota cambia entre proponer y aceptar, la ejecución falla
+con un mensaje claro y no copia nada. `Boveda::promover` rechaza además a
+cualquier agente o al orquestador como autor de la promoción.
+
+Lo que ve el usuario: `ea boveda estado|listar|buscar|leer|promover|reindexar`,
+la pestaña «Bóveda» de `ea tui` (solo lectura, fotografía) y la sección ▥ del
+panel web (tecla `6`; el cuadro de filtro hace una búsqueda de texto completo).
+
+**Rutinas (§8.1).** La especificación dice que el documento de cada rutina
+vive en la bóveda. **No se ha movido:** siguen en
+`~/.config/ecosistema-asistente/rutinas/` (TOML, cargados por el orquestador),
+y el escritor único no gestiona ficheros `.toml`. Es aditivo y sin cambios de
+código: `rutinas_dir` de `orchestrator.toml` puede apuntar a una carpeta de la
+bóveda (fuera de las tres regiones, porque no son notas de agente) si el
+usuario quiere verlas en Obsidian. No se ha hecho por defecto porque mezclaría
+un fichero ejecutable con notas que un agente puede reescribir.
+
+**Limitaciones conocidas.** El orden entre escritores que esperan no es FIFO.
+Las ediciones externas no dejan evento en el diario (solo se reflejan en el
+índice). No hay borrado ni renombrado de notas por herramienta (los agentes
+sobrescriben; borrar es cosa del usuario en el sistema de ficheros). Los
+agentes solo "reemplazan" notas propias, no hacen *append*. El catálogo local
+pasa de 5 a 9 herramientas, lo que puede restar fiabilidad al modelo de 7B al
+elegir; está sin medir con el `llama-server` real más allá de los tests
+existentes. La TUI es una fotografía: no promueve desde dentro.
 
 ### Proxy de inferencia local (`ea-proxy`)
 
@@ -452,7 +613,7 @@ monotónico e ignora latidos del orquestador fechados en el futuro.
 ## Verificación
 
 ```bash
-cargo test          # incluye ea-store, ea-acciones, ea-mcp, ea-proxy, ea-orchestrator, ea-web
+cargo test          # incluye ea-store, ea-boveda, ea-acciones, ea-mcp, ea-proxy, ea-orchestrator, ea-web
 cargo test -- --ignored   # además, los tests de extremo a extremo contra
                            # el llama-server real (requiere el servicio arriba)
 
