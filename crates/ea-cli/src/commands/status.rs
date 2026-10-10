@@ -1,7 +1,6 @@
 use anyhow::Result;
 use comfy_table::Table;
 use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store, TaskFilter, TaskStatus};
-use time::OffsetDateTime;
 
 use super::fmt_ts;
 
@@ -11,23 +10,14 @@ use super::fmt_ts;
 /// actor='orquestador', action='heartbeat'"). Nunca inventa un heartbeat
 /// contra un proceso que no responde: si no hay ninguno, dice que no hay
 /// señal, no que esté "caído".
-fn estado_orquestador(store: &Store) -> Result<String> {
-    let recientes = store.list_events(&EventFilter {
-        actor: Some("orquestador".to_string()),
-        limit: Some(20),
-        ..Default::default()
-    })?;
-    let Some(ultimo_heartbeat) = recientes.iter().find(|e| e.action == "heartbeat") else {
-        return Ok("sin señal (ningún heartbeat registrado todavía)".to_string());
-    };
-
-    let umbral_s = ea_orchestrator::config::load().intervalo_heartbeat_s * 2;
-    let antiguedad = OffsetDateTime::now_utc() - ultimo_heartbeat.ts;
-    if antiguedad.whole_seconds() <= umbral_s as i64 {
-        Ok(format!("vivo (heartbeat {})", fmt_ts(ultimo_heartbeat.ts)))
-    } else {
-        Ok(format!("sin señal reciente (último heartbeat {})", fmt_ts(ultimo_heartbeat.ts)))
-    }
+pub fn estado_orquestador(store: &Store) -> Result<String> {
+    let umbral_s = (ea_orchestrator::config::load().intervalo_heartbeat_s * 2) as i64;
+    let estado = store.estado_orquestador(umbral_s)?;
+    Ok(match estado.ultimo_latido {
+        None => "sin señal (ningún heartbeat registrado todavía)".to_string(),
+        Some(t) if estado.vivo => format!("vivo (heartbeat {})", fmt_ts(t)),
+        Some(t) => format!("sin señal reciente (último heartbeat {})", fmt_ts(t)),
+    })
 }
 
 const ALL_STATUSES: [TaskStatus; 5] = [

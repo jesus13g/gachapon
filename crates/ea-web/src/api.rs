@@ -261,19 +261,6 @@ fn propuesta_json(p: &Propuesta, rutina: Option<String>) -> Value {
 
 // ------------------------------------------------------------------ estado
 
-/// Último heartbeat de una lista de eventos. Ignora los fechados en el
-/// futuro: el diario es append-only y un arranque con el reloj mal puesto
-/// (esta máquina alterna con Windows) deja filas que, ordenadas por `ts`,
-/// taparían a los latidos reales y darían por vivo a un orquestador caído.
-fn ultimo_latido(eventos: &[Event], ahora: OffsetDateTime) -> Option<OffsetDateTime> {
-    const MARGEN: time::Duration = time::Duration::seconds(5);
-    eventos
-        .iter()
-        .filter(|e| e.action == "heartbeat" && e.ts <= ahora + MARGEN)
-        .map(|e| e.ts)
-        .max()
-}
-
 async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
     let servicios = estado::servicios(s.config.systemctl).await;
 
@@ -287,36 +274,19 @@ async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
         })
         .collect();
 
-    let ahora = OffsetDateTime::now_utc();
-    let eventos_orquestador = store.list_events(&EventFilter {
-        actor: Some("orquestador".into()),
-        limit: Some(50),
-        ..Default::default()
-    })?;
-    let ultimo_latido = ultimo_latido(&eventos_orquestador, ahora);
-    let vivo = ultimo_latido
-        .is_some_and(|t| (ahora - t).whole_seconds() <= s.config.umbral_heartbeat_s);
+    let orquestador = store.estado_orquestador(s.config.umbral_heartbeat_s)?;
 
-    let mut agentes = Vec::new();
-    for nombre in ["claude-code", "modelo-local"] {
-        let en_curso = tareas
-            .iter()
-            .find(|t| t.assigned_to == nombre && t.status == TaskStatus::EnProgreso);
-        let ultimo = store
-            .list_events(&EventFilter {
-                actor: Some(nombre.into()),
-                exclude_action: Some("heartbeat".into()),
-                limit: Some(1),
-                ..Default::default()
-            })?
-            .into_iter()
-            .next();
-        agentes.push(json!({
-            "nombre": nombre,
-            "tarea": en_curso.map(|t| json!({ "id": t.id, "titulo": t.title })),
-            "ultimo": ultimo.map(|e| json!({ "ts": ts(e.ts), "accion": e.action })),
-        }));
-    }
+    let agentes: Vec<Value> = store
+        .resumen_agentes()?
+        .into_iter()
+        .map(|a| {
+            json!({
+                "nombre": a.nombre,
+                "tarea": a.tarea_en_curso.map(|t| json!({ "id": t.id, "titulo": t.title })),
+                "ultimo": a.ultimo_evento.map(|e| json!({ "ts": ts(e.ts), "accion": e.action })),
+            })
+        })
+        .collect();
 
     let propuestas_pendientes = store
         .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?
@@ -327,7 +297,7 @@ async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
         "servicios": servicios.iter().map(|sv| json!({
             "nombre": sv.nombre, "activo": sv.activo, "activo_s": sv.activo_s,
         })).collect::<Vec<_>>(),
-        "orquestador": { "vivo": vivo, "ultimo_latido": ultimo_latido.map(ts) },
+        "orquestador": { "vivo": orquestador.vivo, "ultimo_latido": orquestador.ultimo_latido.map(ts) },
         "agentes": agentes,
         "tareas": por_estado,
         "propuestas_pendientes": propuestas_pendientes,
@@ -677,35 +647,4 @@ async fn servicio_reiniciar(State(s): Estado, Path(nombre): Path<String>) -> Api
     resultado
         .map(|()| Json(json!({ "ok": true })))
         .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn latido(ts: OffsetDateTime) -> Event {
-        Event {
-            id: 0,
-            ts,
-            actor: "orquestador".into(),
-            action: "heartbeat".into(),
-            task_id: None,
-            outcome: None,
-            duration_ms: None,
-            detail: None,
-        }
-    }
-
-    #[test]
-    fn el_ultimo_latido_ignora_los_fechados_en_el_futuro() {
-        let ahora = OffsetDateTime::now_utc();
-        let real = ahora - time::Duration::seconds(10);
-        let eventos = [
-            latido(ahora + time::Duration::hours(1)), // reloj mal puesto al arrancar
-            latido(real),
-            latido(real - time::Duration::seconds(30)),
-        ];
-        assert_eq!(ultimo_latido(&eventos, ahora), Some(real));
-        assert_eq!(ultimo_latido(&eventos[..1], ahora), None);
-    }
 }

@@ -1,7 +1,8 @@
+mod agentes_view;
 mod diario_view;
-mod placeholder_view;
 mod propuestas_view;
 mod rutinas_view;
+mod servicios_view;
 mod tareas_view;
 
 use std::io::{self, Stdout};
@@ -11,7 +12,7 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, Key
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ea_orchestrator::rutina;
-use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, Store, Task, TaskFilter};
+use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, Store, Task, TaskFilter};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
@@ -27,6 +28,14 @@ pub struct RutinaResumen {
     pub slug: String,
     pub descripcion: String,
     pub ultima_ejecucion: Option<String>,
+}
+
+/// Servicio residente para la pestaña `Servicios` (copia plana de
+/// `ea_web::estado::Servicio`, que lleva un `&'static str`).
+pub struct ServicioResumen {
+    pub nombre: &'static str,
+    pub activo: String,
+    pub activo_s: Option<i64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -70,6 +79,9 @@ struct AppData {
     events: Vec<EaEvent>,
     rutinas: Vec<RutinaResumen>,
     propuestas: Vec<Propuesta>,
+    servicios: Vec<ServicioResumen>,
+    orquestador: String,
+    agentes: Vec<ResumenAgente>,
 }
 
 /// Lanza la interfaz de terminal interactiva. Es una fotografía de los datos
@@ -86,7 +98,20 @@ pub fn run(store: &Store) -> Result<()> {
         rutinas.push(RutinaResumen { slug, descripcion, ultima_ejecucion });
     }
 
+    // Misma consulta a `systemd --user` que hace `ea-web`; es asíncrona, así
+    // que se resuelve con un runtime mínimo antes de entrar en modo raw.
+    let servicios = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(ea_web::estado::servicios(true))
+        .into_iter()
+        .map(|s| ServicioResumen { nombre: s.nombre, activo: s.activo, activo_s: s.activo_s })
+        .collect();
+
     let data = AppData {
+        servicios,
+        orquestador: crate::commands::status::estado_orquestador(store)?,
+        agentes: store.resumen_agentes()?,
         tasks: store.list_tasks(&TaskFilter {
             limit: Some(100),
             ..Default::default()
@@ -139,8 +164,8 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
             match current {
                 Tab::Tareas => tareas_view::render(frame, chunks[1], &data.tasks),
                 Tab::Diario => diario_view::render(frame, chunks[1], &data.events),
-                Tab::Servicios => placeholder_view::render(frame, chunks[1], "Servicios", "no implementado en esta fase (ver fase 13 de la especificación)"),
-                Tab::Agentes => placeholder_view::render(frame, chunks[1], "Agentes", "no implementado en esta fase (ver fase 3 de la especificación)"),
+                Tab::Servicios => servicios_view::render(frame, chunks[1], &data.servicios, &data.orquestador),
+                Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes),
                 Tab::Rutinas => rutinas_view::render(frame, chunks[1], &data.rutinas),
                 Tab::Propuestas => propuestas_view::render(frame, chunks[1], &data.propuestas),
             }

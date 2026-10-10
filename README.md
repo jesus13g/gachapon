@@ -174,6 +174,12 @@ ejecuciones acumuladas compitiendo con el arranque del escritorio). Cada
 rutina recibe como `{ultima_ejecucion}` la fecha de su última ejecución con
 éxito, para que revise la ventana real transcurrida.
 
+Como el equipo rara vez está en Linux a la hora fijada, el timer añade
+`OnStartupSec=10min`: una única ejecución por arranque de sesión, retrasada
+para no competir con el escritorio. No recupera nada (`Persistent` sigue en
+`false`): si ya hubo ejecución a las 08:00, la del arranque simplemente se
+suma, y la rutina ajusta su ventana con `{ultima_ejecucion}`.
+
 ### Voz (activación manual)
 
 Corre embebida dentro de `ea-orchestrator` (§6.3 de la especificación: el

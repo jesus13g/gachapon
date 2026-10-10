@@ -8,6 +8,11 @@ Description=Disparador temporal de la rutina '%i' del ecosistema de asistente
 # fichero de instancia concreta sobre esta plantilla) y ajusta OnCalendar=.
 # Ejemplo: todos los días a las 08:00.
 OnCalendar=*-*-* 08:00:00
+# Esta máquina alterna con Windows y rara vez está en Linux a esa hora, así
+# que además se dispara una sola vez, 10 min después de arrancar la sesión
+# (retraso para no competir con el arranque del escritorio). No es
+# recuperar ejecuciones perdidas: por eso Persistent sigue en false (dec. 13).
+OnStartupSec=10min
 Persistent=false
 
 [Install]

@@ -176,8 +176,20 @@ impl EaTools {
                     ..Default::default()
                 })
                 .map_err(|e| e.to_string())?;
+            // Mismo criterio que `ea status` y `ea-web`: último latido del
+            // diario, con umbral del doble del intervalo configurado.
+            let umbral_s = (ea_orchestrator::config::load().intervalo_heartbeat_s * 2) as i64;
+            let orquestador = store.estado_orquestador(umbral_s).map_err(|e| e.to_string())?;
             Ok(json!({
-                "orquestador": "no implementado todavía",
+                "orquestador": {
+                    "vivo": orquestador.vivo,
+                    "ultimo_latido": orquestador.ultimo_latido.map(fmt_ts),
+                    "estado": match (orquestador.vivo, orquestador.ultimo_latido) {
+                        (true, _) => "vivo",
+                        (false, Some(_)) => "sin señal reciente",
+                        (false, None) => "sin señal (ningún heartbeat registrado todavía)",
+                    },
+                },
                 "tareas_por_estado": counts,
                 "ultimos_eventos": events.iter().map(event_to_json).collect::<Vec<_>>(),
             }))

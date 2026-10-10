@@ -10,6 +10,7 @@ mod connection;
 mod error;
 mod migrations;
 mod models;
+mod orquestador;
 mod repository;
 mod store;
 
@@ -19,6 +20,7 @@ pub use models::{
     EstadoPropuesta, Event, EventOutcome, NewEvent, NewTask, Propuesta, RoutineRun, RunOutcome,
     Task, TaskOrigin, TaskStatus,
 };
+pub use orquestador::{ultimo_latido, EstadoOrquestador, ResumenAgente, AGENTES};
 pub use repository::events::EventFilter;
 pub use repository::propuestas::PropuestaFilter;
 pub use repository::tasks::TaskFilter;

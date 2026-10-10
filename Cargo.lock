@@ -780,11 +780,13 @@ dependencies = [
  "crossterm 0.28.1",
  "ea-orchestrator",
  "ea-store",
+ "ea-web",
  "ratatui",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "time",
+ "tokio",
 ]
 
 [[package]]
@@ -793,6 +795,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "ea-orchestrator",
  "ea-store",
  "rmcp",
  "schemars",

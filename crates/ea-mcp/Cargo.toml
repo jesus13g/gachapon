@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 ea-store = { path = "../ea-store" }
+ea-orchestrator = { path = "../ea-orchestrator" }
 rmcp = { version = "3.3", features = [
     "server",
     "macros",
