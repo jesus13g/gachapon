@@ -57,6 +57,38 @@ pub struct CrearTareaArgs {
     pub simular: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CambiarEstadoTareaArgs {
+    /// Identificador numérico de la tarea.
+    pub id: i64,
+    /// Nuevo estado: pendiente, en_progreso, completada, fallida o cancelada.
+    pub estado: String,
+    /// Texto de resultado que se anota en la tarea (opcional).
+    pub resultado: Option<String>,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RutinaArgs {
+    /// Nombre (slug) de la rutina, p. ej. "revision-diaria".
+    pub slug: String,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReiniciarServicioArgs {
+    /// Servicio de la lista cerrada: llama-server, ea-mcp, ea-proxy,
+    /// ea-orchestrator o ea-web.
+    pub servicio: String,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
 /// Acepta tanto RFC3339 completo como una fecha simple AAAA-MM-DD
 /// (interpretada como medianoche UTC) — mismo comportamiento que
 /// `ea-cli`'s `parse_flexible_date`, duplicado aquí porque es una función

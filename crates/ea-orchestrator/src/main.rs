@@ -9,6 +9,7 @@ use ea_orchestrator::proxy_client::ProxyClient;
 use ea_orchestrator::voz::palabra::DetectorPalabra;
 use ea_orchestrator::voz::{self, captura, MotorVoz};
 use ea_orchestrator::{activacion, config, ejecutor, http, rutina};
+use ea_acciones::SoloConsulta;
 use ea_store::{EventOutcome, NewEvent, RunOutcome, Store, Task, TaskFilter, TaskStatus};
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
@@ -255,8 +256,32 @@ async fn procesar_tarea(
         });
     }
 
-    for descripcion in &resultado.propuestas {
-        if let Ok(propuesta) = store.create_propuesta(run.id, descripcion) {
+    // Lo desatendido solo propone: `SoloConsulta` no implementa `Sistema`, así
+    // que desde aquí es imposible mutar el sistema, sea cual sea la rutina.
+    let consulta = SoloConsulta { rutinas_dir: rutinas_dir.to_path_buf() };
+    for pr in &resultado.propuestas {
+        let mut descripcion = pr.descripcion.clone();
+        let creada = match &pr.accion {
+            Some(a) => match async {
+                let hechos = ea_acciones::observar(&consulta, &a.herramienta, &a.argumentos).await?;
+                ea_acciones::proponer(
+                    store, &consulta, &hechos, ACTOR, Some(run.id), Some(&pr.descripcion),
+                    &a.herramienta, &a.argumentos,
+                )
+            }
+            .await
+            {
+                Ok((p, _)) => Ok(p),
+                Err(e) => {
+                    // La acción ya no aplica (o no se pudo simular): la
+                    // propuesta se conserva como texto, con el motivo.
+                    descripcion = format!("{} [acción '{}' no propuesta: {e}]", pr.descripcion, a.herramienta);
+                    store.create_propuesta(run.id, &descripcion)
+                }
+            },
+            None => store.create_propuesta(run.id, &pr.descripcion),
+        };
+        if let Ok(propuesta) = creada {
             let _ = store.append_event(NewEvent {
                 actor: ACTOR.to_string(),
                 action: "rutina_propuesta".to_string(),
@@ -266,6 +291,9 @@ async fn procesar_tarea(
                 detail: Some(
                     serde_json::json!({
                         "rutina": slug, "propuesta_id": propuesta.id, "descripcion": descripcion,
+                        "accion": propuesta.accion.as_ref().map(|a| serde_json::json!({
+                            "herramienta": a.herramienta, "argumentos": a.argumentos, "riesgo": a.riesgo,
+                        })),
                     })
                     .to_string(),
                 ),

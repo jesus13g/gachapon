@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::connection;
 use crate::error::StoreResult;
 use crate::models::{
-    EstadoPropuesta, Event, NewEvent, NewTask, Propuesta, RoutineRun, RunOutcome, Task, TaskStatus,
+    EstadoEjecucion, EstadoPropuesta, Event, NewEvent, NewTask, NuevaPropuesta, Propuesta, RoutineRun, RunOutcome, Task, TaskStatus,
 };
 use crate::repository::events::{self, EventFilter};
 use crate::repository::propuestas::{self, PropuestaFilter};
@@ -116,6 +116,25 @@ impl Store {
 
     pub fn create_propuesta(&self, routine_run_id: i64, descripcion: &str) -> StoreResult<Propuesta> {
         propuestas::create_propuesta(&self.conn, routine_run_id, descripcion)
+    }
+
+    /// Encola una propuesta (de texto libre o con acción estructurada).
+    pub fn crear_propuesta(&self, nueva: NuevaPropuesta) -> StoreResult<Propuesta> {
+        propuestas::crear(&self.conn, nueva)
+    }
+
+    /// Acepta una propuesta con acción y la reclama para ejecutarla (atómico).
+    pub fn reclamar_propuesta(&self, id: i64) -> StoreResult<Propuesta> {
+        propuestas::reclamar_para_ejecucion(&self.conn, id)
+    }
+
+    pub fn registrar_ejecucion_propuesta(
+        &self,
+        id: i64,
+        estado: EstadoEjecucion,
+        detalle: &str,
+    ) -> StoreResult<Propuesta> {
+        propuestas::registrar_ejecucion(&self.conn, id, estado, detalle)
     }
 
     pub fn get_propuesta(&self, id: i64) -> StoreResult<Propuesta> {

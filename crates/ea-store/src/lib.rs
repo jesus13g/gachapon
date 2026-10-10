@@ -17,7 +17,7 @@ mod store;
 pub use connection::resolve_db_path;
 pub use error::{StoreError, StoreResult};
 pub use models::{
-    EstadoPropuesta, Event, EventOutcome, NewEvent, NewTask, Propuesta, RoutineRun, RunOutcome,
+    AccionPropuesta, EjecucionPropuesta, EstadoEjecucion, EstadoPropuesta, Event, EventOutcome, NewEvent, NewTask, NuevaPropuesta, Propuesta, RoutineRun, RunOutcome,
     Task, TaskOrigin, TaskStatus,
 };
 pub use orquestador::{ultimo_latido, EstadoOrquestador, ResumenAgente, AGENTES};

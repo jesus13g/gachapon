@@ -21,7 +21,12 @@ use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool, tool_handler,
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use crate::args::{CrearTareaArgs, ListarDiarioArgs, ListarTareasArgs, VerTareaArgs};
+use ea_acciones::{autorizar_mcp, buscar, observar, proponer, simular_con, Riesgo, SoloConsulta};
+
+use crate::args::{
+    CambiarEstadoTareaArgs, CrearTareaArgs, ListarDiarioArgs, ListarTareasArgs,
+    ReiniciarServicioArgs, RutinaArgs, VerTareaArgs,
+};
 
 /// Deriva el actor que este servidor escribe en el diario y en las tareas
 /// que crea, a partir del nombre que el cliente MCP declaró al conectar
@@ -43,6 +48,9 @@ fn actor_for(client_name: Option<&str>) -> &'static str {
 #[derive(Clone)]
 pub struct EaTools {
     store: Arc<Mutex<Store>>,
+    /// Lo único que este servidor sabe del sistema: mirar. No implementa
+    /// `Sistema`, así que desde aquí no se puede mutar nada (solo proponer).
+    consulta: Arc<SoloConsulta>,
     // Leído por el código que genera `#[tool_handler]` sobre el impl de
     // `ServerHandler` más abajo; el análisis de dead-code no lo ve porque
     // ese acceso vive en un bloque distinto expandido por macro.
@@ -98,10 +106,81 @@ fn respond(body: ToolBody) -> Result<CallToolResult, McpError> {
 #[tool_router]
 impl EaTools {
     pub fn new(store: Arc<Mutex<Store>>) -> Self {
+        Self::con_rutinas_dir(store, ea_orchestrator::config::load().rutinas_dir)
+    }
+
+    pub fn con_rutinas_dir(store: Arc<Mutex<Store>>, rutinas_dir: std::path::PathBuf) -> Self {
         Self {
             store,
+            consulta: Arc::new(SoloConsulta { rutinas_dir }),
             tool_router: Self::tool_router(),
         }
+    }
+
+    /// Cuerpo común de las herramientas mutantes supervisadas (§11.1): el
+    /// agente nunca ejecuta. Con `simular` obtiene la descripción de lo que
+    /// pasaría; sin ella se encola una propuesta con acción estructurada que
+    /// solo el usuario puede aceptar (`ea propuestas decidir`, panel web).
+    /// No existe ninguna herramienta ni token con el que un agente confirme.
+    async fn mutante(
+        &self,
+        context: RequestContext<RoleServer>,
+        nombre: &'static str,
+        args: serde_json::Value,
+        simular: bool,
+    ) -> Result<CallToolResult, McpError> {
+        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let started = Instant::now();
+        let mut args_log = args.clone();
+        args_log["simular"] = json!(simular);
+
+        let body: ToolBody = async {
+            let h = buscar(nombre).ok_or_else(|| format!("herramienta desconocida: {nombre}"))?;
+            autorizar_mcp(actor, h)?;
+            // Lo asíncrono (preguntar a systemd) antes de tomar la base de datos.
+            let hechos = observar(&*self.consulta, nombre, &args).await.map_err(|e| e.to_string())?;
+            let store = self.store.lock().await;
+            if simular {
+                let sim = simular_con(&store, &*self.consulta, &hechos, nombre, &args)
+                    .map_err(|e| e.to_string())?;
+                return Ok(json!({
+                    "simulado": true,
+                    "herramienta": nombre,
+                    "riesgo": sim.riesgo.as_str(),
+                    "argumentos": sim.argumentos,
+                    "simulacion": sim.texto,
+                    "aviso": "No se ha hecho nada. Para pedirlo, repite sin simular: se encolará una \
+                              propuesta que el usuario decide.",
+                }));
+            }
+            let (p, nueva) = proponer(&store, &*self.consulta, &hechos, actor, None, None, nombre, &args)
+                .map_err(|e| e.to_string())?;
+            let a = p.accion.as_ref().ok_or("propuesta sin acción")?;
+            let donde = if a.riesgo == Riesgo::Irreversible.as_str() {
+                format!("Es irreversible: solo se confirma desde una terminal (`ea propuestas decidir {} --aceptar`).", p.id)
+            } else {
+                format!("El usuario la acepta con `ea propuestas decidir {} --aceptar` o en el panel web (◇).", p.id)
+            };
+            Ok(json!({
+                "ejecutado": false,
+                "propuesta": { "id": p.id, "estado": p.estado.as_str(), "nueva": nueva },
+                "herramienta": nombre,
+                "riesgo": a.riesgo,
+                "argumentos": a.argumentos,
+                "simulacion": a.simulacion,
+                "aviso": format!("NO se ha ejecutado nada: queda pendiente de la confirmación del usuario. {donde}"),
+            }))
+        }
+        .await;
+
+        let tarea = args["id"].as_i64();
+        let accion = format!(
+            "mcp_{}{}",
+            nombre.trim_start_matches("ea_"),
+            if simular { "_simulada" } else { "" }
+        );
+        self.log_invocation(actor, &accion, tarea, started, args_log, &body).await;
+        respond(body)
     }
 
     /// Registra en el diario una invocación de herramienta: quién, qué
@@ -343,6 +422,13 @@ impl EaTools {
             "simular": simular,
         });
 
+        if let Err(msg) = autorizar_mcp(actor, buscar("ea_crear_tarea").expect("en el catálogo")) {
+            let body: ToolBody = Err(msg);
+            self.log_invocation(actor, "mcp_crear_tarea_denegada", None, started, args_json, &body)
+                .await;
+            return respond(body);
+        }
+
         if simular {
             let body: ToolBody = Ok(json!({
                 "simulado": true,
@@ -394,6 +480,87 @@ impl EaTools {
         }
         respond(body)
     }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Cambia el estado de una tarea. \
+            NO lo ejecuta: con simular=true describe el cambio; sin él encola una \
+            propuesta que el usuario debe aceptar (el usuario confirma, nunca un agente).",
+        annotations(
+            title = "Cambiar estado de tarea",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_cambiar_estado_tarea(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<CambiarEstadoTareaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut a = json!({ "id": args.id, "estado": args.estado });
+        if let Some(r) = args.resultado {
+            a["resultado"] = json!(r);
+        }
+        self.mutante(context, "ea_cambiar_estado_tarea", a, args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Encola la ejecución de una rutina \
+            (se ejecuta de solo lectura). NO lo ejecuta: con simular=true lo describe; \
+            sin él encola una propuesta que el usuario debe aceptar.",
+        annotations(
+            title = "Encolar rutina",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_encolar_rutina(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<RutinaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_encolar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Reinicia un servicio del ecosistema \
+            (lista cerrada: llama-server, ea-mcp, ea-proxy, ea-orchestrator, ea-web). \
+            NO lo ejecuta: con simular=true lo describe; sin él encola una propuesta \
+            que el usuario debe aceptar.",
+        annotations(
+            title = "Reiniciar servicio",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_reiniciar_servicio(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<ReiniciarServicioArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_reiniciar_servicio", json!({ "servicio": args.servicio }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación IRREVERSIBLE] Borra para siempre el fichero de una \
+            rutina del usuario. NO lo ejecuta: con simular=true lo describe; sin él encola \
+            una propuesta que el usuario solo puede confirmar desde una terminal.",
+        annotations(
+            title = "Eliminar rutina",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_eliminar_rutina(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<RutinaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_eliminar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
+    }
 }
 
 #[tool_handler]
@@ -406,7 +573,12 @@ impl ServerHandler for EaTools {
                  una vista general; ea_listar_tareas y ea_ver_tarea inspeccionan \
                  tareas; ea_listar_diario consulta el historial de eventos; \
                  ea_crear_tarea (con simular=true para previsualizar) delega \
-                 trabajo a otro actor del ecosistema."
+                 trabajo a otro actor del ecosistema. Las herramientas que cambian \
+                 el sistema (ea_cambiar_estado_tarea, ea_encolar_rutina, \
+                 ea_reiniciar_servicio, ea_eliminar_rutina) nunca se ejecutan desde \
+                 aquí: con simular=true describen lo que harían; sin él encolan una \
+                 propuesta que solo el usuario puede aceptar. Las irreversibles solo \
+                 se confirman desde una terminal."
                     .to_string(),
             )
     }

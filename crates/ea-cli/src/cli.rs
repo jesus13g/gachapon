@@ -32,6 +32,11 @@ pub enum Command {
         #[command(subcommand)]
         accion: PropuestasAccion,
     },
+    /// Herramientas del catálogo: listar, simular y ejecutar (con confirmación)
+    Acciones {
+        #[command(subcommand)]
+        accion: AccionesAccion,
+    },
     /// Voz (activación manual y palabra de activación)
     Voz {
         #[command(subcommand)]
@@ -113,6 +118,27 @@ pub enum RutinasAccion {
 }
 
 #[derive(Subcommand)]
+pub enum AccionesAccion {
+    /// Lista el catálogo de herramientas con su nivel de riesgo
+    Listar,
+    /// Describe lo que haría una herramienta mutante, sin hacerlo
+    Simular {
+        herramienta: String,
+        /// Argumentos como objeto JSON
+        #[arg(long, default_value = "{}")]
+        args: String,
+    },
+    /// Ejecuta una herramienta mutante: muestra la simulación y pide
+    /// confirmación en la terminal (los irreversibles, confirmación expresa)
+    Ejecutar {
+        herramienta: String,
+        /// Argumentos como objeto JSON
+        #[arg(long, default_value = "{}")]
+        args: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum VozAccion {
     /// Escucha una frase (activación manual), la transcribe, pregunta al
     /// modelo local y habla la respuesta. La captura y la reproducción de
@@ -132,7 +158,8 @@ pub enum PropuestasAccion {
     },
     /// Muestra el detalle de una propuesta
     Ver { id: i64 },
-    /// Registra la decisión del usuario sobre una propuesta pendiente
+    /// Decide una propuesta pendiente. Aceptar una propuesta con acción la
+    /// ejecuta, tras mostrar la simulación y pedir confirmación en la terminal
     Decidir {
         id: i64,
         #[arg(long)]

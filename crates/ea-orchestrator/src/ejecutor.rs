@@ -12,11 +12,11 @@ use std::time::{Duration, Instant};
 use ea_store::RunOutcome;
 
 use crate::plantilla::{self, Contexto};
-use crate::rutina::{Paso, Rutina};
+use crate::rutina::{AccionRutina, Paso, Rutina};
 
 /// Ejecuta un paso `accion`: la única forma en que una rutina toca el
 /// mundo exterior en esta fase, siempre de solo lectura (validado al
-/// cargar la rutina, ver `rutina::HERRAMIENTAS_PERMITIDAS`).
+/// cargar la rutina, ver `rutina::herramienta_de_lectura`).
 pub trait EjecutorHerramientas {
     fn llamar(
         &self,
@@ -43,18 +43,26 @@ pub struct PasoEjecutado {
     pub detalle: serde_json::Value,
 }
 
+/// Una propuesta que la rutina quiere encolar, con su acción estructurada
+/// (ya con las plantillas resueltas) si la lleva.
+#[derive(Debug, Clone)]
+pub struct PropuestaRutina {
+    pub descripcion: String,
+    pub accion: Option<AccionRutina>,
+}
+
 #[derive(Debug)]
 pub struct ResultadoEjecucion {
     pub outcome: RunOutcome,
     pub motivo_fallo: Option<String>,
     pub pasos: Vec<PasoEjecutado>,
-    pub propuestas: Vec<String>,
+    pub propuestas: Vec<PropuestaRutina>,
     pub llamadas_modelo: i64,
 }
 
 fn fallo(
     pasos: Vec<PasoEjecutado>,
-    propuestas: Vec<String>,
+    propuestas: Vec<PropuestaRutina>,
     llamadas_modelo: i64,
     motivo: String,
 ) -> ResultadoEjecucion {
@@ -81,7 +89,7 @@ where
     let presupuesto_tiempo = Duration::from_secs(rutina.max_duracion_s);
 
     let mut pasos_log: Vec<PasoEjecutado> = Vec::new();
-    let mut propuestas: Vec<String> = Vec::new();
+    let mut propuestas: Vec<PropuestaRutina> = Vec::new();
     let mut visitados: HashSet<String> = HashSet::new();
     let mut llamadas_modelo: i64 = 0;
     let mut salida_previa = String::new();
@@ -208,15 +216,24 @@ where
                 }
             }
 
-            Paso::Propuesta { descripcion, siguiente } => {
+            Paso::Propuesta { descripcion, accion, siguiente } => {
                 let ctx = Contexto { ultima_ejecucion, salida_previa: &salida_previa };
                 let descripcion_render = plantilla::renderizar(descripcion, &ctx);
+                let accion_render = accion.as_ref().map(|a| AccionRutina {
+                    herramienta: a.herramienta.clone(),
+                    argumentos: plantilla::renderizar_valor(&a.argumentos, &ctx),
+                });
                 pasos_log.push(PasoEjecutado {
                     id: actual.clone(),
                     tipo: "propuesta",
-                    detalle: serde_json::json!({ "descripcion": descripcion_render }),
+                    detalle: serde_json::json!({
+                        "descripcion": descripcion_render,
+                        "accion": accion_render.as_ref().map(|a| serde_json::json!({
+                            "herramienta": a.herramienta, "argumentos": a.argumentos,
+                        })),
+                    }),
                 });
-                propuestas.push(descripcion_render);
+                propuestas.push(PropuestaRutina { descripcion: descripcion_render, accion: accion_render });
                 match siguiente {
                     Some(s) => actual = s.clone(),
                     None => {
@@ -287,6 +304,10 @@ mod tests {
             "proponer".to_string(),
             Paso::Propuesta {
                 descripcion: "revisar desde {ultima_ejecucion}".to_string(),
+                accion: Some(AccionRutina {
+                    herramienta: "ea_reiniciar_servicio".to_string(),
+                    argumentos: serde_json::json!({ "servicio": "ea-mcp" }),
+                }),
                 siguiente: None,
             },
         );
@@ -317,9 +338,29 @@ mod tests {
 
         assert!(matches!(resultado.outcome, RunOutcome::Ok));
         assert_eq!(resultado.propuestas.len(), 1);
-        assert!(resultado.propuestas[0].contains("2026-09-13T00:00:00Z"));
+        assert!(resultado.propuestas[0].descripcion.contains("2026-09-13T00:00:00Z"));
+        assert_eq!(resultado.propuestas[0].accion.as_ref().unwrap().herramienta, "ea_reiniciar_servicio");
         assert_eq!(resultado.llamadas_modelo, 1);
         assert_eq!(resultado.pasos.len(), 3);
+    }
+
+    struct HerramientasContadas(std::sync::Mutex<Vec<String>>);
+    impl EjecutorHerramientas for HerramientasContadas {
+        async fn llamar(&self, herramienta: &str, _argumentos: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+            self.0.lock().unwrap().push(herramienta.to_string());
+            Ok(serde_json::json!({}))
+        }
+    }
+
+    #[tokio::test]
+    async fn una_propuesta_con_accion_no_invoca_ninguna_herramienta() {
+        // Lo desatendido solo propone: el paso `propuesta` nunca llama a la
+        // herramienta mutante que lleva; solo la deja en la lista de propuestas.
+        let rutina = rutina_ejemplo();
+        let herramientas = HerramientasContadas(Default::default());
+        let resultado = ejecutar(&rutina, "2026-09-13T00:00:00Z", &herramientas, &DecisionesFijas("hay_errores")).await;
+        assert_eq!(resultado.propuestas.len(), 1);
+        assert_eq!(*herramientas.0.lock().unwrap(), vec!["ea_listar_diario".to_string()]);
     }
 
     #[tokio::test]

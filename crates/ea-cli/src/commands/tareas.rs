@@ -109,7 +109,20 @@ pub fn actualizar(
     resultado: Option<String>,
     actor: String,
 ) -> Result<()> {
-    let task = store.update_task_status(id, estado, &actor, resultado)?;
-    println!("Tarea #{} actualizada a '{}'", task.id, task.status.as_str());
+    // Por la misma capa interna que las propuestas aceptadas y los botones de
+    // la web: mismo registro `accion_ejecutada` en el diario.
+    let mut args = serde_json::json!({ "id": id, "estado": estado.as_str() });
+    if let Some(r) = resultado.filter(|r| !r.trim().is_empty()) {
+        args["resultado"] = serde_json::json!(r);
+    }
+    super::bloquear(ea_acciones::ejecutar_directo(
+        store,
+        &super::sistema(),
+        &actor,
+        ea_acciones::Canal::Terminal,
+        "ea_cambiar_estado_tarea",
+        &args,
+    ))?;
+    println!("Tarea #{id} actualizada a '{}'", estado.as_str());
     Ok(())
 }

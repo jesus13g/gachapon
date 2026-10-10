@@ -1,0 +1,322 @@
+//! El flujo propuesta -> aceptación -> ejecución, con el diario como
+//! testigo. Cada paso que cambia algo deja un evento: `propuesta_encolada`,
+//! `propuesta_decidida`, `accion_ejecutada` / `accion_fallida`.
+
+use ea_store::{
+    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventOutcome, NewEvent, NuevaPropuesta,
+    Propuesta, PropuestaFilter, Store,
+};
+use serde_json::{json, Value};
+
+use crate::catalogo::{Canal, Riesgo};
+use crate::error::ErrorAccion;
+use crate::herramientas::{self, supervisada, Hechos};
+use crate::sistema::{Consulta, Sistema};
+
+/// Tope de propuestas con acción pendientes: un agente que insiste no puede
+/// inundar la cola del usuario.
+pub const MAX_PENDIENTES_CON_ACCION: usize = 30;
+
+#[derive(Debug, Clone)]
+pub struct Resultado {
+    pub texto: String,
+    pub tarea: Option<i64>,
+    pub datos: Value,
+}
+
+fn evento(store: &Store, actor: &str, action: &str, tarea: Option<i64>, ok: bool, detalle: Value) {
+    let _ = store.append_event(NewEvent {
+        actor: actor.to_string(),
+        action: action.to_string(),
+        task_id: tarea,
+        outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
+        duration_ms: None,
+        detail: Some(detalle.to_string()),
+    });
+}
+
+fn tarea_de(args: &Value) -> Option<i64> {
+    args["id"].as_i64()
+}
+
+/// Encola una propuesta con acción estructurada. La simulación se hace aquí
+/// (solo lectura) y queda guardada con la propuesta. Si ya hay una
+/// pendiente idéntica (misma herramienta y argumentos) no se duplica: se
+/// devuelve esa, con `false`. No ejecuta nada: ni puede, porque solo recibe
+/// una [`Consulta`].
+pub fn proponer<C: Consulta>(
+    store: &Store,
+    consulta: &C,
+    hechos: &Hechos,
+    proponente: &str,
+    routine_run_id: Option<i64>,
+    descripcion: Option<&str>,
+    herramienta: &str,
+    args: &Value,
+) -> Result<(Propuesta, bool), ErrorAccion> {
+    let sim = herramientas::simular_con(store, consulta, hechos, herramienta, args)?;
+
+    let pendientes = store.list_propuestas(&PropuestaFilter {
+        estado: Some(EstadoPropuesta::Pendiente),
+        limit: None,
+    })?;
+    if let Some(igual) = pendientes.iter().find(|p| {
+        p.accion
+            .as_ref()
+            .is_some_and(|a| a.herramienta == herramienta && a.argumentos == sim.argumentos)
+    }) {
+        return Ok((igual.clone(), false));
+    }
+    if pendientes.iter().filter(|p| p.accion.is_some()).count() >= MAX_PENDIENTES_CON_ACCION {
+        return Err(ErrorAccion::NoAplica(format!(
+            "hay {MAX_PENDIENTES_CON_ACCION} propuestas con acción pendientes; el usuario debe \
+             decidir algunas antes de encolar más"
+        )));
+    }
+
+    let descripcion = match descripcion {
+        Some(d) if !d.trim().is_empty() => d.to_string(),
+        _ => sim.texto.clone(),
+    };
+    let propuesta = store.crear_propuesta(NuevaPropuesta {
+        routine_run_id,
+        proponente: proponente.to_string(),
+        descripcion,
+        accion: Some(AccionPropuesta {
+            herramienta: herramienta.to_string(),
+            argumentos: sim.argumentos.clone(),
+            riesgo: sim.riesgo.as_str().to_string(),
+            simulacion: sim.texto.clone(),
+            precondicion: sim.precondicion.clone(),
+        }),
+    })?;
+    evento(
+        store,
+        proponente,
+        "propuesta_encolada",
+        tarea_de(&sim.argumentos),
+        true,
+        json!({
+            "propuesta": propuesta.id, "herramienta": herramienta, "riesgo": sim.riesgo.as_str(),
+            "argumentos": sim.argumentos, "simulacion": sim.texto,
+        }),
+    );
+    Ok((propuesta, true))
+}
+
+/// Ejecuta una herramienta mutante supervisada: comprueba que el canal puede
+/// confirmar ese riesgo, revalida contra la precondición, aplica, y deja el
+/// evento (`accion_ejecutada` o `accion_fallida`) con argumentos y resultado.
+/// Quien llama es responsable de que `actor` sea quien confirmó.
+#[allow(clippy::too_many_arguments)]
+pub async fn ejecutar<S: Sistema>(
+    store: &mut Store,
+    sistema: &S,
+    actor: &str,
+    canal: Canal,
+    herramienta: &str,
+    args: &Value,
+    precondicion: &Value,
+    propuesta: Option<&Propuesta>,
+) -> Result<Resultado, ErrorAccion> {
+    let h = supervisada(herramienta)?;
+    let contexto = |extra: Value| {
+        let mut v = json!({
+            "herramienta": herramienta, "riesgo": h.riesgo.as_str(), "canal": canal.nombre(),
+            "argumentos": args,
+            "propuesta": propuesta.map(|p| p.id),
+            "proponente": propuesta.and_then(|p| p.proponente.clone()),
+        });
+        if let (Some(o), Some(e)) = (v.as_object_mut(), extra.as_object()) {
+            o.extend(e.clone());
+        }
+        v
+    };
+
+    let intento: Result<herramientas::Aplicada, ErrorAccion> = async {
+        canal.puede_confirmar(h.riesgo)?;
+        let hechos = herramientas::observar(sistema, herramienta, args).await?;
+        herramientas::revalidar_con(store, sistema, &hechos, herramienta, args, precondicion)?;
+        match herramientas::aplicar_en_store(store, actor, canal, herramienta, args)? {
+            Some(a) => Ok(a),
+            None => herramientas::aplicar_en_sistema(sistema, herramienta, args).await,
+        }
+    }
+    .await;
+
+    match intento {
+        Ok(a) => {
+            evento(
+                store,
+                actor,
+                "accion_ejecutada",
+                a.tarea.or_else(|| tarea_de(args)),
+                true,
+                contexto(json!({ "resultado": a.datos, "texto": a.texto })),
+            );
+            Ok(Resultado { texto: a.texto, tarea: a.tarea, datos: a.datos })
+        }
+        Err(e) => {
+            evento(
+                store,
+                actor,
+                "accion_fallida",
+                tarea_de(args),
+                false,
+                contexto(json!({ "error": e.to_string() })),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// Ejecución directa por el usuario presente (un botón, un comando de
+/// terminal): simula y ejecuta enseguida. El gesto del usuario es la
+/// confirmación; el canal sigue limitando los irreversibles.
+pub async fn ejecutar_directo<S: Sistema>(
+    store: &mut Store,
+    sistema: &S,
+    actor: &str,
+    canal: Canal,
+    herramienta: &str,
+    args: &Value,
+) -> Result<Resultado, ErrorAccion> {
+    let h = supervisada(herramienta)?;
+    if let Err(e) = canal.puede_confirmar(h.riesgo) {
+        evento(
+            store,
+            actor,
+            "accion_fallida",
+            tarea_de(args),
+            false,
+            json!({
+                "herramienta": herramienta, "riesgo": h.riesgo.as_str(), "canal": canal.nombre(),
+                "argumentos": args, "error": e.to_string(),
+            }),
+        );
+        return Err(e);
+    }
+    let hechos = herramientas::observar(sistema, herramienta, args).await;
+    let sim = match hechos.and_then(|h| herramientas::simular_con(store, sistema, &h, herramienta, args)) {
+        Ok(s) => s,
+        Err(e) => {
+            evento(
+                store,
+                actor,
+                "accion_fallida",
+                tarea_de(args),
+                false,
+                json!({
+                    "herramienta": herramienta, "riesgo": h.riesgo.as_str(), "canal": canal.nombre(),
+                    "argumentos": args, "error": e.to_string(),
+                }),
+            );
+            return Err(e);
+        }
+    };
+    ejecutar(store, sistema, actor, canal, herramienta, &sim.argumentos, &sim.precondicion, None).await
+}
+
+fn riesgo_de(p: &Propuesta, a: &AccionPropuesta) -> Result<Riesgo, ErrorAccion> {
+    Riesgo::parse(&a.riesgo)
+        .filter(|r| r.es_mutante())
+        .ok_or_else(|| ErrorAccion::NoAplica(format!("propuesta #{} con riesgo inválido '{}'", p.id, a.riesgo)))
+}
+
+/// El usuario acepta una propuesta. Sin acción (las antiguas, de texto
+/// libre): solo constancia. Con acción: se reclama de forma atómica (aceptar
+/// dos veces no ejecuta dos veces), se ejecuta por la capa interna con
+/// revalidación y se anota el resultado en la propuesta. Una acción que
+/// falla no es un `Err`: la propuesta queda aceptada con ejecución
+/// `fallida` y el detalle. `Err` significa que nada se reclamó (propuesta
+/// inexistente, ya decidida, o canal no autorizado para ese riesgo).
+pub async fn aceptar_propuesta<S: Sistema>(
+    store: &mut Store,
+    sistema: &S,
+    id: i64,
+    actor: &str,
+    canal: Canal,
+) -> Result<Propuesta, ErrorAccion> {
+    let previa = store.get_propuesta(id)?;
+    let Some(accion) = previa.accion.clone() else {
+        let p = store.decidir_propuesta(id, EstadoPropuesta::Aceptada)?;
+        evento(
+            store,
+            actor,
+            "propuesta_decidida",
+            None,
+            true,
+            json!({ "propuesta": id, "estado": "aceptada", "canal": canal.nombre() }),
+        );
+        return Ok(p);
+    };
+
+    // La política de canal se comprueba antes de reclamar: una web que
+    // intenta aceptar un irreversible no consume la propuesta.
+    if let Err(e) = canal.puede_confirmar(riesgo_de(&previa, &accion)?) {
+        evento(
+            store,
+            actor,
+            "accion_fallida",
+            tarea_de(&accion.argumentos),
+            false,
+            json!({
+                "propuesta": id, "herramienta": accion.herramienta, "riesgo": accion.riesgo,
+                "canal": canal.nombre(), "error": e.to_string(),
+            }),
+        );
+        return Err(e);
+    }
+    let reclamada = store.reclamar_propuesta(id)?;
+    evento(
+        store,
+        actor,
+        "propuesta_decidida",
+        None,
+        true,
+        json!({
+            "propuesta": id, "estado": "aceptada", "canal": canal.nombre(),
+            "herramienta": accion.herramienta, "riesgo": accion.riesgo,
+        }),
+    );
+
+    let (estado, detalle) = match ejecutar(
+        store,
+        sistema,
+        actor,
+        canal,
+        &accion.herramienta,
+        &accion.argumentos,
+        &accion.precondicion,
+        Some(&reclamada),
+    )
+    .await
+    {
+        Ok(r) => (EstadoEjecucion::Ejecutada, r.texto),
+        Err(e) => (EstadoEjecucion::Fallida, e.to_string()),
+    };
+    Ok(store.registrar_ejecucion_propuesta(id, estado, &detalle)?)
+}
+
+pub fn rechazar_propuesta(
+    store: &Store,
+    id: i64,
+    actor: &str,
+    canal: Canal,
+) -> Result<Propuesta, ErrorAccion> {
+    let p = store.decidir_propuesta(id, EstadoPropuesta::Rechazada)?;
+    evento(
+        store,
+        actor,
+        "propuesta_decidida",
+        None,
+        true,
+        json!({ "propuesta": id, "estado": "rechazada", "canal": canal.nombre() }),
+    );
+    Ok(p)
+}
+
+/// Útil para las interfaces: la simulación guardada, sin recalcular.
+pub fn simulacion_guardada(p: &Propuesta) -> Option<&str> {
+    p.accion.as_ref().map(|a| a.simulacion.as_str())
+}

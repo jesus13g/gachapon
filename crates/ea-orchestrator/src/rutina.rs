@@ -4,12 +4,14 @@
 //! los pasos `decision`, eligiendo entre un conjunto cerrado de ramas — la
 //! secuencia de acciones en sí está fijada de antemano por el autor.
 //!
-//! Alcance deliberadamente acotado a esta fase: el catálogo de herramientas
-//! sigue siendo de solo lectura (fase 6 trae mutaciones), así que un paso
-//! `accion` solo admite las cuatro herramientas de consulta ya existentes.
+//! Lo desatendido es de solo lectura (§11.2): un paso `accion` solo admite
+//! las herramientas de nivel `lectura` del catálogo único (`ea-acciones`).
 //! Una rutina que nombre cualquier otra falla al cargar — no se ejecuta
 //! parcialmente. La única forma de expresar "esto necesita al usuario" es
-//! que el propio autor diseñe una rama que termine en un paso `propuesta`.
+//! que el propio autor diseñe una rama que termine en un paso `propuesta`,
+//! que puede llevar una `accion` estructurada (herramienta mutante supervisada
+//! + argumentos), validada también al cargar: la rutina nunca la ejecuta, solo
+//! la encola para que el usuario la acepte.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -17,10 +19,11 @@ use std::path::Path;
 use serde::Deserialize;
 use thiserror::Error;
 
-/// Herramientas de solo lectura que un paso `accion` puede invocar en esta
-/// fase — el mismo catálogo reducido que ya usa `ea-proxy`.
-pub const HERRAMIENTAS_PERMITIDAS: &[&str] =
-    &["ea_status", "ea_listar_tareas", "ea_ver_tarea", "ea_listar_diario"];
+/// Herramientas que un paso `accion` puede invocar: las de solo lectura del
+/// catálogo único.
+pub fn herramienta_de_lectura(nombre: &str) -> bool {
+    ea_acciones::catalogo::lecturas().any(|h| h.nombre == nombre)
+}
 
 #[derive(Debug, Error)]
 pub enum RutinaError {
@@ -36,6 +39,8 @@ pub enum RutinaError {
     PasoDesconocido(String, String),
     #[error("el paso '{0}' invoca la herramienta '{1}', fuera del catálogo de solo lectura permitido en rutinas")]
     HerramientaNoPermitida(String, String),
+    #[error("el paso '{0}' propone la acción '{1}': {2}")]
+    AccionInvalida(String, String, String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,11 +83,23 @@ enum PasoRaw {
     Propuesta {
         id: String,
         descripcion: String,
+        #[serde(default)]
+        accion: Option<AccionRutina>,
         siguiente: Option<String>,
     },
     Fin {
         id: String,
     },
+}
+
+/// Acción mutante estructurada que una propuesta lleva consigo. La rutina no
+/// la ejecuta: se encola y la ejecuta el usuario al aceptarla.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccionRutina {
+    pub herramienta: String,
+    #[serde(default)]
+    pub argumentos: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +115,7 @@ pub enum Paso {
     },
     Propuesta {
         descripcion: String,
+        accion: Option<AccionRutina>,
         siguiente: Option<String>,
     },
     Fin,
@@ -144,14 +162,19 @@ fn validar(slug: &str, raw: RutinaFile) -> Result<Rutina, RutinaError> {
     for paso_raw in raw.pasos {
         let (id, paso) = match paso_raw {
             PasoRaw::Accion { id, herramienta, argumentos, siguiente } => {
-                if !HERRAMIENTAS_PERMITIDAS.contains(&herramienta.as_str()) {
+                if !herramienta_de_lectura(&herramienta) {
                     return Err(RutinaError::HerramientaNoPermitida(id, herramienta));
                 }
                 (id, Paso::Accion { herramienta, argumentos, siguiente })
             }
             PasoRaw::Decision { id, contexto, ramas } => (id, Paso::Decision { contexto, ramas }),
-            PasoRaw::Propuesta { id, descripcion, siguiente } => {
-                (id, Paso::Propuesta { descripcion, siguiente })
+            PasoRaw::Propuesta { id, descripcion, accion, siguiente } => {
+                if let Some(a) = &accion {
+                    ea_acciones::validar_argumentos(&a.herramienta, &a.argumentos).map_err(|e| {
+                        RutinaError::AccionInvalida(id.clone(), a.herramienta.clone(), e.to_string())
+                    })?;
+                }
+                (id, Paso::Propuesta { descripcion, accion, siguiente })
             }
             PasoRaw::Fin { id } => (id, Paso::Fin),
         };
@@ -242,6 +265,50 @@ tipo = "fin"
         let raw: RutinaFile = toml::from_str(&toml_str).expect("parsear TOML");
         let err = validar("revision-diaria", raw).unwrap_err();
         assert!(matches!(err, RutinaError::HerramientaNoPermitida(_, _)));
+    }
+
+    fn con_accion(accion: &str) -> String {
+        EJEMPLO.replace(
+            "descripcion = \"Revisar incidencias detectadas desde {ultima_ejecucion}\"",
+            &format!("descripcion = \"Revisar\"\naccion = {accion}"),
+        )
+    }
+
+    #[test]
+    fn una_propuesta_puede_llevar_una_accion_valida() {
+        let t = con_accion(r#"{ herramienta = "ea_reiniciar_servicio", argumentos = { servicio = "ea-mcp" } }"#);
+        let raw: RutinaFile = toml::from_str(&t).expect("parsear TOML");
+        let r = validar("x", raw).expect("validar");
+        match &r.pasos["proponer_revision"] {
+            Paso::Propuesta { accion: Some(a), .. } => assert_eq!(a.herramienta, "ea_reiniciar_servicio"),
+            otro => panic!("{otro:?}"),
+        }
+    }
+
+    #[test]
+    fn rechaza_acciones_de_propuesta_invalidas_al_cargar() {
+        for accion in [
+            r#"{ herramienta = "ea_inventada", argumentos = {} }"#,
+            r#"{ herramienta = "ea_listar_diario", argumentos = {} }"#, // lectura: no es una acción supervisada
+            r#"{ herramienta = "ea_crear_tarea", argumentos = {} }"#,   // directa: no supervisada
+            r#"{ herramienta = "ea_reiniciar_servicio", argumentos = { servicio = "sshd" } }"#,
+            r#"{ herramienta = "ea_reiniciar_servicio", argumentos = { servicio = "ea-mcp", extra = 1 } }"#,
+            r#"{ herramienta = "ea_eliminar_rutina", argumentos = { slug = "../x" } }"#,
+            r#"{ herramienta = "ea_cambiar_estado_tarea", argumentos = { id = 1, estado = "rara" } }"#,
+        ] {
+            let raw: RutinaFile = toml::from_str(&con_accion(accion)).expect("parsear TOML");
+            let err = validar("x", raw).unwrap_err();
+            assert!(matches!(err, RutinaError::AccionInvalida(..)), "{accion}: {err}");
+        }
+    }
+
+    #[test]
+    fn un_paso_accion_nunca_puede_invocar_una_herramienta_mutante() {
+        for mutante in ["ea_crear_tarea", "ea_cambiar_estado_tarea", "ea_encolar_rutina", "ea_reiniciar_servicio", "ea_eliminar_rutina"] {
+            let raw: RutinaFile =
+                toml::from_str(&EJEMPLO.replace("ea_listar_diario", mutante)).expect("parsear TOML");
+            assert!(matches!(validar("x", raw), Err(RutinaError::HerramientaNoPermitida(..))), "{mutante}");
+        }
     }
 
     #[test]

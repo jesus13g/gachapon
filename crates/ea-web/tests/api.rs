@@ -136,8 +136,12 @@ async fn ciclo_de_vida_de_una_tarea() {
         .unwrap()
         .iter()
         .map(|e| e["accion"].as_str().unwrap())
+        .filter(|a| *a != "accion_ejecutada") // el registro de la capa interna, una por cambio
         .collect();
     assert_eq!(acciones, ["tarea_creada", "tarea_iniciada", "tarea_completada"]);
+    let (_, d) = get(&f, "/api/diario").await;
+    let n = d.as_array().unwrap().iter().filter(|e| e["accion"] == "accion_ejecutada").count();
+    assert_eq!(n, 2, "cada cambio de estado pasa por la capa interna y queda registrado");
 
     let (_, lista) = get(&f, "/api/tareas?estado=completada").await;
     assert_eq!(lista.as_array().unwrap().len(), 1);
@@ -284,4 +288,80 @@ async fn sirve_la_pagina_y_el_tema() {
     let (s, css) = enviar(&f, Method::GET, "/tema.css", "localhost:8092", None, false).await;
     assert_eq!(s, StatusCode::OK);
     assert!(css.starts_with(":root{") && css.contains("--accent:#ad2222;"));
+}
+
+async fn proponer_accion(f: &Fixture, herramienta: &str, args: Value) -> i64 {
+    let sis = ea_acciones::SoloConsulta { rutinas_dir: f.state.config.rutinas_dir.clone() };
+    let hechos = ea_acciones::observar(&sis, herramienta, &args).await.unwrap();
+    let store = f.state.store.lock().await;
+    ea_acciones::proponer(&store, &sis, &hechos, "claude-code", None, None, herramienta, &args)
+        .unwrap()
+        .0
+        .id
+}
+
+#[tokio::test]
+async fn aceptar_una_propuesta_con_accion_la_ejecuta_una_sola_vez() {
+    let f = montar();
+    let (_, t) = post(&f, "/api/tareas", json!({ "titulo": "x", "asignado_a": "claude-code", "solicita": "y" })).await;
+    let tid = t["id"].as_i64().unwrap();
+    let id = proponer_accion(&f, "ea_cambiar_estado_tarea", json!({ "id": tid, "estado": "completada" })).await;
+
+    let (_, lista) = get(&f, "/api/propuestas?estado=pendiente").await;
+    assert_eq!(lista[0]["accion"]["herramienta"], "ea_cambiar_estado_tarea");
+    assert_eq!(lista[0]["accion"]["riesgo"], "reversible");
+    assert_eq!(lista[0]["proponente"], "claude-code");
+    assert!(lista[0]["accion"]["simulacion"].as_str().unwrap().contains("completada"));
+    let (_, t) = get(&f, &format!("/api/tareas/{tid}")).await;
+    assert_eq!(t["tarea"]["estado"], "pendiente", "proponer no ejecuta");
+
+    let ruta = format!("/api/propuestas/{id}/decidir");
+    let (s, p) = post(&f, &ruta, json!({ "decision": "aceptar" })).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(p["estado"], "aceptada");
+    assert_eq!(p["ejecutada"]["estado"], "ejecutada");
+    let (_, t) = get(&f, &format!("/api/tareas/{tid}")).await;
+    assert_eq!(t["tarea"]["estado"], "completada");
+
+    let (s, _) = post(&f, &ruta, json!({ "decision": "aceptar" })).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let (_, d) = get(&f, "/api/diario").await;
+    let ejecuciones = d.as_array().unwrap().iter().filter(|e| e["accion"] == "accion_ejecutada").count();
+    assert_eq!(ejecuciones, 1);
+}
+
+#[tokio::test]
+async fn una_propuesta_cuyo_estado_cambio_falla_con_mensaje_claro() {
+    let f = montar();
+    let (_, t) = post(&f, "/api/tareas", json!({ "titulo": "x", "asignado_a": "claude-code", "solicita": "y" })).await;
+    let tid = t["id"].as_i64().unwrap();
+    let id = proponer_accion(&f, "ea_cambiar_estado_tarea", json!({ "id": tid, "estado": "completada" })).await;
+    post(&f, &format!("/api/tareas/{tid}/estado"), json!({ "estado": "en_progreso" })).await;
+
+    let (s, p) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "aceptar" })).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(p["ejecutada"]["estado"], "fallida");
+    assert!(p["ejecutada"]["detalle"].as_str().unwrap().contains("cambió desde la simulación"));
+    let (_, t) = get(&f, &format!("/api/tareas/{tid}")).await;
+    assert_eq!(t["tarea"]["estado"], "en_progreso");
+}
+
+#[tokio::test]
+async fn la_web_no_confirma_irreversibles() {
+    let f = montar();
+    let id = proponer_accion(&f, "ea_eliminar_rutina", json!({ "slug": "revision-diaria" })).await;
+    let (_, lista) = get(&f, "/api/propuestas").await;
+    assert_eq!(lista[0]["accion"]["riesgo"], "irreversible");
+
+    let (s, e) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "aceptar" })).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert!(e["error"].as_str().unwrap().contains("terminal"));
+    assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+    let (_, lista) = get(&f, "/api/propuestas?estado=pendiente").await;
+    assert_eq!(lista.as_array().unwrap().len(), 1, "sigue pendiente");
+
+    // Rechazarla sí se puede desde la web.
+    let (s, p) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "rechazar" })).await;
+    assert_eq!((s, p["estado"].as_str()), (StatusCode::OK, Some("rechazada")));
+    assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
 }

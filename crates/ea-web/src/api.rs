@@ -11,10 +11,11 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use ea_acciones::{Canal, ErrorAccion, SistemaReal};
 use ea_orchestrator::rutina::{self, Paso, Rutina, RutinaError};
 use ea_store::{
-    EstadoPropuesta, Event, EventFilter, EventOutcome, NewEvent, NewTask, Propuesta,
-    PropuestaFilter, RoutineRun, StoreError, Task, TaskFilter, TaskOrigin, TaskStatus,
+    EstadoPropuesta, Event, EventFilter, Propuesta,
+    PropuestaFilter, RoutineRun, StoreError, NewTask, Task, TaskFilter, TaskOrigin, TaskStatus,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -68,6 +69,40 @@ impl From<StoreError> for ApiError {
         };
         Self(status, e.to_string())
     }
+}
+
+impl From<ErrorAccion> for ApiError {
+    fn from(e: ErrorAccion) -> Self {
+        let status = match &e {
+            ErrorAccion::Desconocida(_) | ErrorAccion::NoSupervisada(_) => StatusCode::NOT_FOUND,
+            ErrorAccion::Argumentos(_) => StatusCode::BAD_REQUEST,
+            ErrorAccion::NoAplica(_) => StatusCode::CONFLICT,
+            ErrorAccion::Prohibida(_) => StatusCode::FORBIDDEN,
+            ErrorAccion::Sistema(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorAccion::Store(StoreError::PropuestaYaDecidida(_)) => StatusCode::CONFLICT,
+            ErrorAccion::Store(se) => return ApiError::from_store_ref(se, e.to_string()),
+        };
+        Self(status, e.to_string())
+    }
+}
+
+impl ApiError {
+    fn from_store_ref(se: &StoreError, msg: String) -> Self {
+        let status = match se {
+            StoreError::TaskNotFound(_)
+            | StoreError::EventNotFound(_)
+            | StoreError::RoutineRunNotFound(_)
+            | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        Self(status, msg)
+    }
+}
+
+/// El sistema real para las acciones que confirma el usuario desde esta
+/// página. `ea-web` no puede reiniciarse a sí mismo a mitad de la petición.
+fn sistema(s: &AppState) -> SistemaReal {
+    SistemaReal { rutinas_dir: s.config.rutinas_dir.clone(), propio: Some("ea-web") }
 }
 
 impl From<RutinaError> for ApiError {
@@ -252,11 +287,29 @@ fn propuesta_json(p: &Propuesta, rutina: Option<String>) -> Value {
         "id": p.id,
         "ejecucion": p.routine_run_id,
         "rutina": rutina,
+        "proponente": p.proponente,
         "creada": ts(p.creado_en),
         "descripcion": p.descripcion,
         "estado": p.estado.as_str(),
         "decidida": p.decidido_en.map(ts),
+        "accion": p.accion.as_ref().map(|a| json!({
+            "herramienta": a.herramienta,
+            "argumentos": a.argumentos,
+            "riesgo": a.riesgo,
+            "simulacion": a.simulacion,
+        })),
+        "ejecutada": p.ejecucion.as_ref().map(|e| json!({
+            "estado": e.estado.as_str(),
+            "detalle": e.detalle,
+            "cuando": e.ejecutada_en.map(ts),
+        })),
     })
+}
+
+fn rutina_de(store: &ea_store::Store, p: &Propuesta) -> Option<String> {
+    p.routine_run_id
+        .and_then(|id| store.get_routine_run(id).ok())
+        .map(|r| r.routine_slug)
 }
 
 // ------------------------------------------------------------------ estado
@@ -371,11 +424,16 @@ async fn tarea_estado(
     Path(id): Path<i64>,
     Json(body): Json<CambioEstado>,
 ) -> ApiResult<Json<Value>> {
-    let nuevo: TaskStatus = body.estado.parse()?;
-    let resultado = body.resultado.filter(|r| !r.trim().is_empty());
+    let mut args = json!({ "id": id, "estado": body.estado });
+    if let Some(r) = body.resultado.filter(|r| !r.trim().is_empty()) {
+        args["resultado"] = json!(r);
+    }
+    let sis = sistema(&s);
     let mut store = s.store.lock().await;
-    let tarea = store.update_task_status(id, nuevo, ACTOR, resultado)?;
-    Ok(Json(tarea_json(&tarea)))
+    store.get_task(id)?; // 404 si no existe
+    ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_cambiar_estado_tarea", &args)
+        .await?;
+    Ok(Json(tarea_json(&store.get_task(id)?)))
 }
 
 // ------------------------------------------------------------------ diario
@@ -524,15 +582,13 @@ async fn rutina_encolar(
     // Falla pronto si la rutina no existe o es inválida.
     rutina::cargar(&s.config.rutinas_dir, &slug)?;
 
+    let sis = sistema(&s);
     let mut store = s.store.lock().await;
-    let tarea = store.create_task(NewTask {
-        created_by: ACTOR.into(),
-        assigned_to: "orquestador".into(),
-        origin: TaskOrigin::Boton,
-        parent_task_id: None,
-        title: format!("Ejecutar rutina: {slug}"),
-        request: json!({ "rutina": slug }).to_string(),
-    })?;
+    let r = ea_acciones::ejecutar_directo(
+        &mut store, &sis, ACTOR, Canal::Web, "ea_encolar_rutina", &json!({ "slug": slug }),
+    )
+    .await?;
+    let tarea = store.get_task(r.tarea.ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "sin tarea"))?)?;
     Ok((StatusCode::CREATED, Json(tarea_json(&tarea))))
 }
 
@@ -556,8 +612,7 @@ async fn propuestas_listar(
         .list_propuestas(&filter)?
         .iter()
         .map(|p| {
-            let rutina = store.get_routine_run(p.routine_run_id).ok().map(|r| r.routine_slug);
-            propuesta_json(p, rutina)
+            propuesta_json(p, rutina_de(&store, p))
         })
         .collect::<Vec<_>>();
     Ok(Json(json!(filas)))
@@ -568,35 +623,29 @@ struct Decision {
     decision: String,
 }
 
-/// Solo deja constancia de la decisión (igual que `ea propuestas decidir`):
-/// ejecutar una propuesta aceptada requiere herramientas mutantes que aún
-/// no existen.
+/// Aceptar una propuesta con acción la ejecuta (a través de la capa interna,
+/// con revalidación; el resultado queda en la propuesta y en el diario). Las
+/// irreversibles no se confirman desde la web: 403. Las antiguas de texto
+/// libre solo dejan constancia.
 async fn propuesta_decidir(
     State(s): Estado,
     Path(id): Path<i64>,
     Json(body): Json<Decision>,
 ) -> ApiResult<Json<Value>> {
-    let estado = match body.decision.as_str() {
-        "aceptar" => EstadoPropuesta::Aceptada,
-        "rechazar" => EstadoPropuesta::Rechazada,
+    let aceptar = match body.decision.as_str() {
+        "aceptar" => true,
+        "rechazar" => false,
         _ => return Err(ApiError::bad("decision debe ser 'aceptar' o 'rechazar'")),
     };
 
-    let store = s.store.lock().await;
-    if store.get_propuesta(id)?.estado != EstadoPropuesta::Pendiente {
-        return Err(ApiError::new(StatusCode::CONFLICT, format!("propuesta #{id} ya decidida")));
-    }
-    let p = store.decidir_propuesta(id, estado)?;
-    store.append_event(NewEvent {
-        actor: ACTOR.into(),
-        action: "propuesta_decidida".into(),
-        task_id: None,
-        outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
-        detail: Some(json!({ "propuesta": id, "estado": estado.as_str() }).to_string()),
-    })?;
-    let rutina = store.get_routine_run(p.routine_run_id).ok().map(|r| r.routine_slug);
-    Ok(Json(propuesta_json(&p, rutina)))
+    let sis = sistema(&s);
+    let mut store = s.store.lock().await;
+    let p = if aceptar {
+        ea_acciones::aceptar_propuesta(&mut store, &sis, id, ACTOR, Canal::Web).await?
+    } else {
+        ea_acciones::rechazar_propuesta(&store, id, ACTOR, Canal::Web)?
+    };
+    Ok(Json(propuesta_json(&p, rutina_de(&store, &p))))
 }
 
 // --------------------------------------------------------------------- voz
@@ -634,17 +683,11 @@ async fn servicio_reiniciar(State(s): Estado, Path(nombre): Path<String>) -> Api
         return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "systemctl desactivado"));
     }
 
-    let resultado = estado::reiniciar(&nombre).await;
-    let store = s.store.lock().await;
-    store.append_event(NewEvent {
-        actor: ACTOR.into(),
-        action: "servicio_reiniciado".into(),
-        task_id: None,
-        outcome: Some(if resultado.is_ok() { EventOutcome::Ok } else { EventOutcome::Error }),
-        duration_ms: None,
-        detail: Some(json!({ "servicio": nombre, "error": resultado.as_ref().err() }).to_string()),
-    })?;
-    resultado
-        .map(|()| Json(json!({ "ok": true })))
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e))
+    let sis = sistema(&s);
+    let mut store = s.store.lock().await;
+    ea_acciones::ejecutar_directo(
+        &mut store, &sis, ACTOR, Canal::Web, "ea_reiniciar_servicio", &json!({ "servicio": nombre }),
+    )
+    .await?;
+    Ok(Json(json!({ "ok": true })))
 }

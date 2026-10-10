@@ -46,9 +46,10 @@ fn text_of(result: &rmcp::model::CallToolResult) -> serde_json::Value {
 async fn start_server(db_path: std::path::PathBuf) -> String {
     let store = Store::open_at(&db_path).expect("abrir store de prueba");
     let store = Arc::new(Mutex::new(store));
+    let rutinas = db_path.parent().unwrap().join("rutinas");
 
     let service = StreamableHttpService::new(
-        move || Ok(EaTools::new(store.clone())),
+        move || Ok(EaTools::con_rutinas_dir(store.clone(), rutinas.clone())),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig::default(),
     );
@@ -84,6 +85,10 @@ async fn expone_el_catalogo_y_responde_a_una_llamada() {
         "ea_ver_tarea",
         "ea_listar_diario",
         "ea_crear_tarea",
+        "ea_cambiar_estado_tarea",
+        "ea_encolar_rutina",
+        "ea_reiniciar_servicio",
+        "ea_eliminar_rutina",
     ] {
         assert!(
             names.contains(&expected),

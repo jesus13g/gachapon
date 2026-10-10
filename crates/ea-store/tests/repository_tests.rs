@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use ea_store::{
-    EstadoPropuesta, EventFilter, NewEvent, NewTask, PropuestaFilter, RunOutcome, Store,
+    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, NewEvent, NewTask, NuevaPropuesta,
+    PropuestaFilter, RunOutcome, Store, StoreError,
     TaskFilter, TaskOrigin, TaskStatus,
 };
 
@@ -260,4 +261,95 @@ fn propuesta_lifecycle_pendiente_to_decidida() {
         })
         .expect("listar pendientes tras decidir");
     assert!(pendientes.is_empty());
+}
+
+#[test]
+fn la_migracion_0003_conserva_las_propuestas_existentes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vieja.db");
+    {
+        // Una base tal como la dejó la fase 5 (migraciones 1 y 2).
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("../migrations/0001_initial.sql")).unwrap();
+        conn.execute_batch(include_str!("../migrations/0002_routine_runs.sql")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO routine_runs (routine_slug, started_at) VALUES ('r', '2026-01-01T00:00:00Z');
+             INSERT INTO propuestas (routine_run_id, creado_en, descripcion, estado, decidido_en)
+               VALUES (1, '2026-01-01T00:00:01Z', 'vieja aceptada', 'aceptada', '2026-01-02T00:00:00Z');
+             INSERT INTO propuestas (routine_run_id, creado_en, descripcion, estado)
+               VALUES (1, '2026-01-01T00:00:02Z', 'vieja pendiente', 'pendiente');
+             INSERT INTO events (ts, actor, action) VALUES ('2026-01-01T00:00:00Z', 'a', 'x');
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+    }
+    let store = Store::open_at(&path).expect("migrar");
+    let todas = store.list_propuestas(&PropuestaFilter::default()).unwrap();
+    assert_eq!(todas.len(), 2);
+    let vieja = store.get_propuesta(1).unwrap();
+    assert_eq!(vieja.descripcion, "vieja aceptada");
+    assert_eq!(vieja.estado, EstadoPropuesta::Aceptada);
+    assert_eq!(vieja.routine_run_id, Some(1));
+    assert!(vieja.accion.is_none() && vieja.ejecucion.is_none() && vieja.proponente.is_none());
+    // El diario sigue siendo append-only tras migrar.
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert!(conn.execute("DELETE FROM events", []).is_err());
+    assert!(conn.execute("UPDATE events SET actor = 'b'", []).is_err());
+}
+
+fn accion() -> AccionPropuesta {
+    AccionPropuesta {
+        herramienta: "ea_reiniciar_servicio".into(),
+        argumentos: serde_json::json!({ "servicio": "ea-mcp" }),
+        riesgo: "reversible".into(),
+        simulacion: "Reiniciaría ea-mcp".into(),
+        precondicion: serde_json::json!({ "cargado": true }),
+    }
+}
+
+#[test]
+fn propuesta_con_accion_sin_rutina_se_reclama_una_sola_vez() {
+    let store = open_test_store();
+    let p = store
+        .crear_propuesta(NuevaPropuesta {
+            routine_run_id: None,
+            proponente: "claude-code".into(),
+            descripcion: "reiniciar".into(),
+            accion: Some(accion()),
+        })
+        .unwrap();
+    assert_eq!(p.accion.as_ref().unwrap(), &accion());
+    assert_eq!(p.proponente.as_deref(), Some("claude-code"));
+
+    // Aceptarla "a secas" está prohibido: aceptar es ejecutar.
+    assert!(matches!(
+        store.decidir_propuesta(p.id, EstadoPropuesta::Aceptada),
+        Err(StoreError::PropuestaConAccion(_))
+    ));
+
+    let r = store.reclamar_propuesta(p.id).unwrap();
+    assert_eq!(r.estado, EstadoPropuesta::Aceptada);
+    assert_eq!(r.ejecucion.unwrap().estado, EstadoEjecucion::Ejecutando);
+    assert!(matches!(store.reclamar_propuesta(p.id), Err(StoreError::PropuestaYaDecidida(_))));
+
+    let fin = store
+        .registrar_ejecucion_propuesta(p.id, EstadoEjecucion::Ejecutada, "ok")
+        .unwrap();
+    assert_eq!(fin.ejecucion.as_ref().unwrap().estado, EstadoEjecucion::Ejecutada);
+    assert!(fin.ejecucion.unwrap().ejecutada_en.is_some());
+    // Un resultado ya registrado no se reescribe.
+    assert!(store.registrar_ejecucion_propuesta(p.id, EstadoEjecucion::Fallida, "x").is_err());
+}
+
+#[test]
+fn una_propuesta_de_texto_no_se_puede_reclamar_y_decidir_dos_veces_falla() {
+    let store = open_test_store();
+    let run = store.start_routine_run("r", None).unwrap();
+    let p = store.create_propuesta(run.id, "texto").unwrap();
+    assert!(matches!(store.reclamar_propuesta(p.id), Err(StoreError::PropuestaSinAccion(_))));
+    store.decidir_propuesta(p.id, EstadoPropuesta::Rechazada).unwrap();
+    assert!(matches!(
+        store.decidir_propuesta(p.id, EstadoPropuesta::Aceptada),
+        Err(StoreError::PropuestaYaDecidida(_))
+    ));
 }

@@ -771,6 +771,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "ea-acciones"
+version = "0.1.0"
+dependencies = [
+ "ea-store",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "ea-cli"
 version = "0.1.0"
 dependencies = [
@@ -778,6 +790,7 @@ dependencies = [
  "clap",
  "comfy-table",
  "crossterm 0.28.1",
+ "ea-acciones",
  "ea-orchestrator",
  "ea-store",
  "ea-web",
@@ -795,6 +808,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "ea-acciones",
  "ea-orchestrator",
  "ea-store",
  "rmcp",
@@ -817,6 +831,7 @@ dependencies = [
  "axum",
  "cpal",
  "directories",
+ "ea-acciones",
  "ea-store",
  "reqwest 0.12.28",
  "rmcp",
@@ -862,6 +877,7 @@ dependencies = [
  "rusqlite_migration",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 1.0.69",
  "time",
 ]
@@ -873,6 +889,7 @@ dependencies = [
  "anyhow",
  "axum",
  "directories",
+ "ea-acciones",
  "ea-orchestrator",
  "ea-store",
  "http-body-util",

@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{Cli, Command, DiarioAccion, PropuestasAccion, RutinasAccion, TareasAccion, VozAccion};
+use cli::{AccionesAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinasAccion, TareasAccion, VozAccion};
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -64,6 +64,15 @@ fn main() -> Result<()> {
             PropuestasAccion::Ver { id } => commands::propuestas::ver(&store, id)?,
             PropuestasAccion::Decidir { id, aceptar, rechazar } => {
                 commands::propuestas::decidir(&mut store, id, aceptar, rechazar)?
+            }
+        },
+        Command::Acciones { accion } => match accion {
+            AccionesAccion::Listar => commands::acciones::listar(),
+            AccionesAccion::Simular { herramienta, args } => {
+                commands::acciones::simular(&store, &herramienta, &args)?
+            }
+            AccionesAccion::Ejecutar { herramienta, args } => {
+                commands::acciones::ejecutar(&mut store, &herramienta, &args)?
             }
         },
         Command::Voz { accion } => match accion {

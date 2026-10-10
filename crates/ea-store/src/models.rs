@@ -237,16 +237,86 @@ impl std::str::FromStr for EstadoPropuesta {
     }
 }
 
-/// Acción mutante que una rutina desatendida no ejecutó, encolada para que
-/// el usuario decida al volver (§11.2, §12.3).
+/// Resultado de ejecutar la acción de una propuesta aceptada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EstadoEjecucion {
+    /// Reclamada por quien la ejecuta; si el proceso muere aquí se queda así
+    /// y nunca se reintenta sola (una acción irreversible no se repite).
+    Ejecutando,
+    Ejecutada,
+    Fallida,
+}
+
+impl EstadoEjecucion {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EstadoEjecucion::Ejecutando => "ejecutando",
+            EstadoEjecucion::Ejecutada => "ejecutada",
+            EstadoEjecucion::Fallida => "fallida",
+        }
+    }
+}
+
+impl std::str::FromStr for EstadoEjecucion {
+    type Err = StoreError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ejecutando" => Ok(EstadoEjecucion::Ejecutando),
+            "ejecutada" => Ok(EstadoEjecucion::Ejecutada),
+            "fallida" => Ok(EstadoEjecucion::Fallida),
+            other => Err(StoreError::InvalidStatus(other.to_string())),
+        }
+    }
+}
+
+/// Acción estructurada de una propuesta: qué herramienta, con qué
+/// argumentos, su nivel de riesgo (`reversible` / `irreversible`), el texto
+/// de la simulación que vio quien la propuso y la precondición (estado del
+/// mundo en la simulación) contra la que se revalida antes de ejecutar.
+/// `ea-store` solo la guarda; su significado vive en `ea-acciones`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccionPropuesta {
+    pub herramienta: String,
+    pub argumentos: serde_json::Value,
+    pub riesgo: String,
+    pub simulacion: String,
+    pub precondicion: serde_json::Value,
+}
+
+/// Ejecución de la acción de una propuesta aceptada.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EjecucionPropuesta {
+    pub estado: EstadoEjecucion,
+    pub detalle: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub ejecutada_en: Option<OffsetDateTime>,
+}
+
+/// Acción mutante que una rutina desatendida (o un agente) no ejecutó,
+/// encolada para que el usuario decida (§11.2, §12.3). Las propuestas
+/// antiguas son solo texto (`accion = None`): aceptarlas deja constancia.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Propuesta {
     pub id: i64,
-    pub routine_run_id: i64,
+    pub routine_run_id: Option<i64>,
+    /// Actor que la encoló (`orquestador`, `claude-code`, `modelo-local`).
+    pub proponente: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub creado_en: OffsetDateTime,
     pub descripcion: String,
     pub estado: EstadoPropuesta,
     #[serde(with = "time::serde::rfc3339::option")]
     pub decidido_en: Option<OffsetDateTime>,
+    pub accion: Option<AccionPropuesta>,
+    pub ejecucion: Option<EjecucionPropuesta>,
+}
+
+/// Datos para encolar una propuesta.
+#[derive(Debug, Clone)]
+pub struct NuevaPropuesta {
+    pub routine_run_id: Option<i64>,
+    pub proponente: String,
+    pub descripcion: String,
+    pub accion: Option<AccionPropuesta>,
 }

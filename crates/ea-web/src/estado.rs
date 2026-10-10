@@ -112,19 +112,3 @@ pub async fn proxima_ejecucion(slug: &str) -> Option<i64> {
     let bloques = show(&unidad, &["NextElapseUSecRealtime"]).await?;
     marca_unix(bloques.first()?.get("NextElapseUSecRealtime"))
 }
-
-pub async fn reiniciar(nombre: &str) -> Result<(), String> {
-    let mut cmd = Command::new("systemctl");
-    cmd.args(["--user", "restart", &format!("{nombre}.service")]);
-    cmd.kill_on_drop(true);
-
-    let salida = timeout(Duration::from_secs(30), cmd.output())
-        .await
-        .map_err(|_| "systemctl tardó demasiado".to_string())?
-        .map_err(|e| format!("no se pudo ejecutar systemctl: {e}"))?;
-    if salida.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&salida.stderr).trim().to_string())
-    }
-}

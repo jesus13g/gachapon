@@ -14,6 +14,15 @@ pub enum StoreError {
     #[error("propuesta #{0} no encontrada")]
     PropuestaNotFound(i64),
 
+    #[error("propuesta #{0} ya decidida")]
+    PropuestaYaDecidida(i64),
+
+    #[error("la propuesta #{0} lleva una acción: aceptarla es ejecutarla, no solo marcarla")]
+    PropuestaConAccion(i64),
+
+    #[error("la propuesta #{0} no lleva ninguna acción que ejecutar")]
+    PropuestaSinAccion(i64),
+
     #[error("valor de estado inválido: {0}")]
     InvalidStatus(String),
 
