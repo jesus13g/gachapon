@@ -5,6 +5,7 @@
 //! y `ea-mcp` (acciones de solo lectura), y encola una propuesta por cada
 //! punto donde la rutina "querría" mutar en vez de ejecutar nada.
 
+pub mod activacion;
 pub mod config;
 pub mod ejecutor;
 pub mod http;
@@ -12,4 +13,5 @@ pub mod mcp_client;
 pub mod plantilla;
 pub mod proxy_client;
 pub mod rutina;
+pub mod turno;
 pub mod voz;

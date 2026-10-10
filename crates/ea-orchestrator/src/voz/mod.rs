@@ -10,6 +10,7 @@
 
 pub mod captura;
 pub mod config;
+pub mod palabra;
 pub mod reconocimiento;
 pub mod sintesis;
 
@@ -51,7 +52,7 @@ pub struct MotorVoz {
 }
 
 impl MotorVoz {
-    pub fn cargar(modelos: &config::ModelosConfig) -> anyhow::Result<Self> {
+    pub fn cargar(modelos: &config::VozConfig) -> anyhow::Result<Self> {
         modelos.verificar()?;
         Ok(Self {
             vad: captura::crear_vad(modelos)?,

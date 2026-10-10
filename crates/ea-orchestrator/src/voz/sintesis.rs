@@ -11,7 +11,7 @@ use sherpa_onnx::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::config::ModelosConfig;
+use super::config::VozConfig;
 use super::Sintetizador;
 
 pub struct SherpaSintetizador {
@@ -19,7 +19,7 @@ pub struct SherpaSintetizador {
 }
 
 impl SherpaSintetizador {
-    pub fn cargar(modelos: &ModelosConfig) -> anyhow::Result<Self> {
+    pub fn cargar(modelos: &VozConfig) -> anyhow::Result<Self> {
         fn path(p: &std::path::Path) -> String {
             p.to_string_lossy().into_owned()
         }
@@ -49,12 +49,10 @@ impl SherpaSintetizador {
     }
 }
 
-impl Sintetizador for SherpaSintetizador {
-    fn hablar(&self, texto: &str, cancelacion: &CancellationToken) -> anyhow::Result<()> {
-        if cancelacion.is_cancelled() {
-            return Ok(());
-        }
-
+impl SherpaSintetizador {
+    /// Genera el audio del texto en memoria, sin reproducirlo: muestras
+    /// `f32` y su frecuencia de muestreo.
+    pub fn sintetizar(&self, texto: &str) -> anyhow::Result<(Vec<f32>, i32)> {
         let generacion = GenerationConfig {
             speed: 1.0,
             silence_scale: 1.0,
@@ -66,9 +64,35 @@ impl Sintetizador for SherpaSintetizador {
             .tts
             .generate_with_config(texto, &generacion, None::<fn(&[f32], f32) -> bool>)
             .ok_or_else(|| anyhow::anyhow!("sherpa-onnx no pudo sintetizar el texto"))?;
-
-        reproducir(audio.samples(), audio.sample_rate(), cancelacion)
+        Ok((audio.samples().to_vec(), audio.sample_rate()))
     }
+}
+
+impl Sintetizador for SherpaSintetizador {
+    fn hablar(&self, texto: &str, cancelacion: &CancellationToken) -> anyhow::Result<()> {
+        if cancelacion.is_cancelled() {
+            return Ok(());
+        }
+        let (muestras, frecuencia) = self.sintetizar(texto)?;
+        reproducir(&muestras, frecuencia, cancelacion)
+    }
+}
+
+/// Pitido breve que confirma que la palabra de activación se ha oído y que
+/// ya se está escuchando (sin él, el usuario no sabe cuándo hablar).
+pub fn pitido(cancelacion: &CancellationToken) -> anyhow::Result<()> {
+    const FRECUENCIA: i32 = 16_000;
+    let (tono, duracion) = (880.0_f32, 0.12_f32);
+    let n = (FRECUENCIA as f32 * duracion) as usize;
+    let muestras: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / FRECUENCIA as f32;
+            // Rampa de entrada y salida para evitar chasquidos.
+            let envolvente = (i.min(n - i) as f32 / (n as f32 * 0.2)).min(1.0);
+            0.25 * envolvente * (2.0 * std::f32::consts::PI * tono * t).sin()
+        })
+        .collect();
+    reproducir(&muestras, FRECUENCIA, cancelacion)
 }
 
 /// Reproduce un buffer de audio ya en memoria sobre el dispositivo de

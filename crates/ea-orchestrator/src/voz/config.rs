@@ -2,9 +2,9 @@
 //! que el modelo de `llama-server`: sin script de instalación automatizado
 //! en esta fase — ver README) bajo el directorio de datos XDG existente,
 //! nunca vendorizados en el repositorio. Los nombres de fichero exactos
-//! dependen de qué build en concreto se descargue de cada modelo; si no
-//! coinciden con los defaults de aquí, se sobreescriben en `voz.toml`
-//! (mismo mecanismo que `orchestrator.toml`).
+//! corresponden a los ficheros reales de cada modelo (ver README); si se usa
+//! otro build, se sobreescriben en `voz.toml` (mismo mecanismo que
+//! `orchestrator.toml`).
 
 use std::path::PathBuf;
 
@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
-pub struct ModelosConfig {
+pub struct VozConfig {
     /// Whisper-small (offline, multilingüe): encoder, decoder y tokens.
     pub whisper_encoder: PathBuf,
     pub whisper_decoder: PathBuf,
@@ -25,31 +25,106 @@ pub struct ModelosConfig {
     pub vits_lexicon: Option<PathBuf>,
     /// Silero VAD.
     pub vad_model: PathBuf,
+    /// Palabra de activación (tabla `[palabra_activacion]` de `voz.toml`).
+    /// Desactivada por defecto: implica el micrófono abierto de forma
+    /// continua, así que el usuario tiene que pedirla a conciencia.
+    pub palabra_activacion: PalabraActivacionConfig,
 }
 
-fn voz_dir() -> PathBuf {
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct PalabraActivacionConfig {
+    pub activada: bool,
+    /// Palabra o frase en español. Cualquiera sirve (el detector es de
+    /// vocabulario abierto), pero mejor 2-4 sílabas distintivas y no una
+    /// palabra de uso común.
+    pub palabra: String,
+    /// Otras formas en que el reconocedor puede oír la palabra (por ejemplo
+    /// «hoy asistente» para «oye asistente»); cualquiera de ellas activa.
+    pub alias: Vec<String>,
+    /// Umbral de detección del modelo (0-1). Más alto, menos falsos
+    /// positivos y más activaciones perdidas.
+    pub umbral: f32,
+    /// Refuerzo (`boosting score`) de la palabra en la búsqueda. Más alto,
+    /// más fácil de detectar.
+    pub puntuacion: f32,
+    /// Segundos tras una activación durante los que se ignoran otras.
+    pub enfriamiento_s: f32,
+    /// Exige que el VAD haya visto voz justo antes de aceptar la detección.
+    pub exigir_voz: bool,
+    /// Transductor streaming en español usado como detector.
+    pub encoder: PathBuf,
+    pub decoder: PathBuf,
+    pub joiner: PathBuf,
+    pub tokens: PathBuf,
+}
+
+impl Default for PalabraActivacionConfig {
+    fn default() -> Self {
+        let dir = voz_dir().join("kws-zipformer-es-kroko");
+        Self {
+            activada: false,
+            palabra: "hola asistente".to_string(),
+            alias: Vec::new(),
+            umbral: 0.25,
+            puntuacion: 1.0,
+            enfriamiento_s: 3.0,
+            exigir_voz: true,
+            encoder: dir.join("encoder.onnx"),
+            decoder: dir.join("decoder.onnx"),
+            joiner: dir.join("joiner.onnx"),
+            tokens: dir.join("tokens.txt"),
+        }
+    }
+}
+
+impl PalabraActivacionConfig {
+    pub fn verificar(&self) -> anyhow::Result<()> {
+        for (nombre, ruta) in [
+            ("encoder", &self.encoder),
+            ("decoder", &self.decoder),
+            ("joiner", &self.joiner),
+            ("tokens", &self.tokens),
+        ] {
+            anyhow::ensure!(
+                ruta.is_file(),
+                "falta el fichero '{nombre}' del modelo de palabra de activación en {} \
+                 (ver README, sección Voz)",
+                ruta.display()
+            );
+        }
+        anyhow::ensure!(
+            (0.0..=1.0).contains(&self.umbral) && self.enfriamiento_s >= 0.0,
+            "umbral debe estar entre 0 y 1 y enfriamiento_s no puede ser negativo"
+        );
+        Ok(())
+    }
+}
+
+pub fn voz_dir() -> PathBuf {
     directories::ProjectDirs::from("", "", "ecosistema-asistente")
         .map(|dirs| dirs.data_dir().join("voz"))
         .unwrap_or_else(|| PathBuf::from("voz"))
 }
 
-impl Default for ModelosConfig {
+impl Default for VozConfig {
     fn default() -> Self {
         let dir = voz_dir();
         Self {
-            whisper_encoder: dir.join("whisper-small-encoder.onnx"),
-            whisper_decoder: dir.join("whisper-small-decoder.onnx"),
-            whisper_tokens: dir.join("whisper-small-tokens.txt"),
-            vits_model: dir.join("vits-coqui-es-css10.onnx"),
-            vits_tokens: dir.join("vits-coqui-es-css10-tokens.txt"),
+            whisper_encoder: dir.join("whisper-small/small-encoder.int8.onnx"),
+            whisper_decoder: dir.join("whisper-small/small-decoder.int8.onnx"),
+            whisper_tokens: dir.join("whisper-small/small-tokens.txt"),
+            vits_model: dir.join("vits-coqui-es-css10/model.onnx"),
+            vits_tokens: dir.join("vits-coqui-es-css10/tokens.txt"),
             vits_data_dir: None,
             vits_lexicon: None,
             vad_model: dir.join("silero_vad.onnx"),
+            palabra_activacion: PalabraActivacionConfig::default(),
         }
     }
 }
 
-impl ModelosConfig {
+impl VozConfig {
     /// Rutas obligatorias que deben existir para poder arrancar el motor de
     /// voz. `vits_data_dir`/`vits_lexicon` son opcionales porque no todos
     /// los builds de VITS los traen.
@@ -90,9 +165,9 @@ fn config_path() -> Option<PathBuf> {
 /// cae en los defaults documentados arriba (no es un error fatal: el resto
 /// del orquestador —sondeo de rutinas, heartbeat— debe seguir arrancando
 /// aunque la voz no esté configurada todavía).
-pub fn load() -> ModelosConfig {
+pub fn load() -> VozConfig {
     let Some(path) = config_path() else {
-        return ModelosConfig::default();
+        return VozConfig::default();
     };
     match std::fs::read_to_string(&path) {
         Ok(contents) => match toml::from_str(&contents) {
@@ -102,9 +177,9 @@ pub fn load() -> ModelosConfig {
             }
             Err(err) => {
                 tracing::warn!(path = %path.display(), %err, "voz.toml inválido, usando defaults");
-                ModelosConfig::default()
+                VozConfig::default()
             }
         },
-        Err(_) => ModelosConfig::default(),
+        Err(_) => VozConfig::default(),
     }
 }

@@ -68,6 +68,7 @@ fn main() -> Result<()> {
         },
         Command::Voz { accion } => match accion {
             VozAccion::Hablar => commands::voz::hablar()?,
+            VozAccion::Estado => commands::voz::estado()?,
         },
         Command::Tui => tui::run(&store)?,
     }

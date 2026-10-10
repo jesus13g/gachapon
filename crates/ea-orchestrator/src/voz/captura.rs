@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use sherpa_onnx::{SileroVadModelConfig, VadModelConfig, VoiceActivityDetector};
 
-use super::config::ModelosConfig;
+use super::config::VozConfig;
 use super::reconocimiento::SAMPLE_RATE;
 
 /// Tope duro de duración de una frase: el VAD la corta aquí aunque el
@@ -21,7 +21,7 @@ const DURACION_MAXIMA_FRASE_S: f32 = 15.0;
 /// Tiempo total de espera sin ninguna voz detectada antes de desistir.
 const ESPERA_MAXIMA_SIN_VOZ: Duration = Duration::from_secs(20);
 
-pub fn crear_vad(modelos: &ModelosConfig) -> anyhow::Result<VoiceActivityDetector> {
+pub fn crear_vad(modelos: &VozConfig) -> anyhow::Result<VoiceActivityDetector> {
     let config = VadModelConfig {
         silero_vad: SileroVadModelConfig {
             model: Some(modelos.vad_model.to_string_lossy().into_owned()),

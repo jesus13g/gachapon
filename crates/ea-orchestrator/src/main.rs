@@ -1,12 +1,14 @@
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use ea_orchestrator::mcp_client::McpClient;
 use ea_orchestrator::proxy_client::ProxyClient;
-use ea_orchestrator::voz::{self, MotorVoz};
-use ea_orchestrator::{config, ejecutor, http, rutina};
+use ea_orchestrator::voz::palabra::DetectorPalabra;
+use ea_orchestrator::voz::{self, captura, MotorVoz};
+use ea_orchestrator::{activacion, config, ejecutor, http, rutina};
 use ea_store::{EventOutcome, NewEvent, RunOutcome, Store, Task, TaskFilter, TaskStatus};
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
@@ -72,13 +74,44 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // Palabra de activación: desactivada por defecto (micrófono abierto de
+    // forma continua). Si está activada pero no puede arrancar, el
+    // orquestador sigue igual: rutinas, heartbeat y voz manual no dependen
+    // de ella.
+    let cfg_palabra = modelos_voz.palabra_activacion.clone();
+    let mut estado_palabra = http::EstadoPalabra::Desactivada;
+    let mut palabra_lista = None;
+    if cfg_palabra.activada {
+        estado_palabra = match &motor {
+            None => http::EstadoPalabra::NoDisponible("motor de voz no disponible".to_string()),
+            Some(_) => match DetectorPalabra::cargar(&cfg_palabra)
+                .and_then(|d| Ok((d, captura::crear_vad(&modelos_voz)?)))
+            {
+                Ok((detector, vad)) => {
+                    let palabra = detector.palabra.clone();
+                    palabra_lista = Some((detector, vad));
+                    http::EstadoPalabra::Escuchando(palabra)
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "palabra de activación no disponible; la voz manual sigue funcionando");
+                    http::EstadoPalabra::NoDisponible(e.to_string())
+                }
+            },
+        };
+    }
+
     let voz_store = Store::open().context("no se pudo abrir la base de datos para la voz")?;
     let voz_proxy = ProxyClient::new(config.proxy_endpoint.clone());
     let voz_state = Arc::new(http::AppState {
         store: Mutex::new(voz_store),
         proxy: voz_proxy,
-        motor,
+        motor: motor.clone(),
+        turno_en_curso: AtomicBool::new(false),
+        palabra: std::sync::Mutex::new(estado_palabra),
     });
+    if let (Some((detector, vad)), Some(motor)) = (palabra_lista, motor) {
+        tokio::spawn(activacion::bucle(voz_state.clone(), motor, Arc::new(detector), Arc::new(vad)));
+    }
     let voz_bind = format!("127.0.0.1:{}", config.voz_puerto);
     let voz_listener = tokio::net::TcpListener::bind(&voz_bind)
         .await

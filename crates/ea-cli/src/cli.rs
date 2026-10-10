@@ -32,7 +32,7 @@ pub enum Command {
         #[command(subcommand)]
         accion: PropuestasAccion,
     },
-    /// Voz (activación manual)
+    /// Voz (activación manual y palabra de activación)
     Voz {
         #[command(subcommand)]
         accion: VozAccion,
@@ -119,6 +119,8 @@ pub enum VozAccion {
     /// audio ocurren en el proceso `ea-orchestrator` (dueño del
     /// dispositivo), no en esta CLI.
     Hablar,
+    /// Estado del motor de voz y de la palabra de activación.
+    Estado,
 }
 
 #[derive(Subcommand)]

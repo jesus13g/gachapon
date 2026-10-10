@@ -8,7 +8,7 @@ use sherpa_onnx::{
     OfflineModelConfig, OfflineRecognizer, OfflineRecognizerConfig, OfflineWhisperModelConfig,
 };
 
-use super::config::ModelosConfig;
+use super::config::VozConfig;
 use super::{Reconocedor, Transcripcion};
 
 /// Frecuencia de muestreo que espera `sherpa-onnx` para Whisper y para el
@@ -21,7 +21,7 @@ pub struct SherpaReconocedor {
 }
 
 impl SherpaReconocedor {
-    pub fn cargar(modelos: &ModelosConfig) -> anyhow::Result<Self> {
+    pub fn cargar(modelos: &VozConfig) -> anyhow::Result<Self> {
         let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
 
         let config = OfflineRecognizerConfig {
