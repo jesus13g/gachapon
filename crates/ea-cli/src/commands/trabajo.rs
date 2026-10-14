@@ -61,13 +61,103 @@ pub fn listar() -> Result<()> {
     Ok(())
 }
 
-pub fn ver(id: &str) -> Result<()> {
+pub fn ver(id: &str, json: bool) -> Result<()> {
     let b = Bus::abrir()?;
-    println!("== orden ==\n{}", serde_json::to_string_pretty(&b.leer_orden(id)?)?);
-    println!("== estado ==\n{}", serde_json::to_string_pretty(&b.leer_estado(id)?)?);
-    match b.leer_informe(id)? {
-        Some(i) => println!("== informe ==\n{}", serde_json::to_string_pretty(&i)?),
-        None => println!("== informe ==\n(todavía no hay)"),
+    let orden = b.leer_orden(id)?;
+    let estado = b.leer_estado(id)?;
+    let informe = b.leer_informe(id)?;
+    if json {
+        let v = serde_json::json!({ "orden": orden, "estado": estado, "informe": informe });
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
+    println!("trabajo   {id}");
+    println!("titulo    {}", orden.titulo);
+    println!("modo      {}", orden.modo.as_str());
+    println!("estado    {}", estado.estado.as_str());
+    let fase = estado.fase_actual.map(|f| format!(" · fase {f}/{}", orden.fases.len())).unwrap_or_default();
+    println!("iteracion {}{fase}", estado.iteracion);
+    if let Some(d) = &estado.detalle {
+        println!("detalle   {d}");
+    }
+    println!("worktree  {}", orden.worktree);
+    if let Some(c) = &orden.criterio_exito {
+        println!("criterio  {c}");
+    }
+    if let Some(r) = orden.revisar_cada {
+        println!("revisar_cada {r}");
+    }
+    if !orden.notas_revision.is_empty() {
+        println!("notas de revision: {}", orden.notas_revision.len());
+    }
+    let Some(i) = informe else {
+        println!("informe   (todavia no hay)");
+        return Ok(());
+    };
+    println!("--- informe ---");
+    println!("resultado     {:?}", i.resultado);
+    println!("obra_completa {}", i.obra_completa);
+    println!("fases_hechas  {}  ·  duracion {}s", i.fases_hechas, i.duracion_s);
+    if let Some(m) = &i.motivo {
+        println!("motivo        {m}");
+    }
+    if let Some(c) = &i.commit_inicio {
+        println!("commit_inicio {c}");
+    }
+    for f in &i.fases {
+        println!("fase {} [{}] {}", f.numero, f.resultado, f.titulo);
+    }
+    println!("evidencia:\n{}", i.evidencia.trim_end());
+    if let Some(d) = &i.diff_stat {
+        println!("diff stat:\n{}", d.trim_end());
+    }
+    println!("(detalle: ea trabajo diff {id} [--fase N] · todo: ea trabajo ver {id} --json)");
+    Ok(())
+}
+
+fn git(wt: &str, args: &[&str]) -> Result<String> {
+    let o = std::process::Command::new("git").arg("-C").arg(wt).args(args).output()?;
+    if !o.status.success() {
+        bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&o.stderr).trim());
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+pub fn diff(id: &str, fase: Option<u32>) -> Result<()> {
+    let b = Bus::abrir()?;
+    let orden = b.leer_orden(id)?;
+    let wt = orden.worktree.as_str();
+    let inicio = b
+        .leer_informe(id)?
+        .and_then(|i| i.commit_inicio)
+        .ok_or_else(|| anyhow!("el trabajo {id} no tiene informe con commit_inicio"))?;
+    let excl = ":(exclude,glob)**/__pycache__/**";
+    if let Some(n) = fase {
+        // Árboles guardados por la obra en el informe de cada fase (SQLite).
+        let store = ea_store::Store::open().map_err(|e| anyhow!("sin acceso al store: {e}"))?;
+        let fases = store.listar_fases(id)?;
+        let arbol = |num: i64| -> Option<String> {
+            let f = fases.iter().find(|f| f.numero == num)?;
+            let v: serde_json::Value = serde_json::from_str(f.informe.as_deref()?).ok()?;
+            v.get("arbol")?.as_str().map(String::from)
+        };
+        let Some(fin) = arbol(i64::from(n)) else {
+            bail!("no hay instantánea de árbol de la fase {n} (la obra no la guardó o el store no la tiene)");
+        };
+        let base = if n <= 1 { format!("{inicio}^{{tree}}") } else { arbol(i64::from(n) - 1).ok_or_else(|| anyhow!("no hay instantánea de la fase {}", n - 1))? };
+        print!("{}", git(wt, &["diff", &base, &fin, "--", ".", excl])?);
+        return Ok(());
+    }
+    print!("{}", git(wt, &["diff", &inicio, "--", ".", excl])?);
+    let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {
+        let ruta = std::path::Path::new(wt).join(f);
+        match std::fs::read(&ruta) {
+            Ok(bytes) if std::str::from_utf8(&bytes).is_ok() => {
+                println!("\n=== fichero nuevo sin seguimiento: {f} ===\n{}", String::from_utf8_lossy(&bytes))
+            }
+            _ => println!("\n=== fichero nuevo sin seguimiento: {f} (binario o ilegible) ==="),
+        }
     }
     Ok(())
 }
@@ -91,7 +181,7 @@ pub fn confirmar(id: &str, contexto: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn cola(agente: Option<&str>) -> Result<()> {
+pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
     let b = Bus::abrir()?;
     let agentes = match agente {
         None => vec![Agente::ModeloLocal, Agente::ClaudeCode],
@@ -99,6 +189,19 @@ pub fn cola(agente: Option<&str>) -> Result<()> {
         Some("claude-code") => vec![Agente::ClaudeCode],
         Some(otro) => bail!("agente desconocido: {otro} (modelo-local o claude-code)"),
     };
+    if json {
+        let mut m = serde_json::Map::new();
+        for a in agentes {
+            let v: Vec<_> = b
+                .listar_cola(a)?
+                .into_iter()
+                .map(|e| serde_json::json!({ "id": e.id, "trabajo": e.trabajo, "motivo": e.motivo, "encolado_en": e.encolado_en }))
+                .collect();
+            m.insert(a.as_str().into(), v.into());
+        }
+        println!("{}", serde_json::to_string_pretty(&m)?);
+        return Ok(());
+    }
     for a in agentes {
         println!("[{}]", a.as_str());
         for e in b.listar_cola(a)? {

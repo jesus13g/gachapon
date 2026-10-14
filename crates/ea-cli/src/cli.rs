@@ -52,6 +52,9 @@ pub enum Command {
     Cola {
         /// modelo-local o claude-code
         agente: Option<String>,
+        /// Salida en JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Semáforos de worktree ocupados ahora mismo
     Semaforos,
@@ -82,7 +85,19 @@ pub enum TrabajoAccion {
     /// Lista los trabajos con su estado
     Listar,
     /// Orden, estado e informe de un trabajo
-    Ver { id: String },
+    Ver {
+        id: String,
+        /// Salida completa en JSON (orden, estado e informe)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Diff completo del trabajo desde commit_inicio, más los ficheros nuevos sin seguimiento
+    Diff {
+        id: String,
+        /// Solo el diff de esa fase de una obra (usa las instantáneas de árbol)
+        #[arg(long)]
+        fase: Option<u32>,
+    },
     /// Da por bueno un trabajo en revisión
     Cerrar { id: String },
     /// Aprueba una revisión intermedia: la obra sigue en la fase actual

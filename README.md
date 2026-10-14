@@ -398,6 +398,27 @@ La máquina arranca con la hora desajustada tras Windows hasta que NTP la
 corrige, así que el panel mide el tiempo activo de los servicios con el reloj
 monotónico e ignora latidos del orquestador fechados en el futuro.
 
+## Skills de Claude Code
+
+Versionadas en `claude/skills/<nombre>/SKILL.md` y enlazadas con symlink en `~/.claude/skills/`. Claude Code solo formaliza y revisa; el trabajo lo hace el agente local.
+
+| Skill | Qué hace |
+| --- | --- |
+| `/mision` | Formaliza objetivo y criterio de éxito (comando de shell) y crea el trabajo con `ea trabajo crear --orden` |
+| `/obra` | Plan por fases pequeñas (instrucciones, entregable, criterio por fase) y `revisar_cada` |
+| `/rutina` | Proceso repetible como TOML versionado: `ea rutina registrar`, lanzar, timer y corrección |
+| `/revisar` | Consume la cola `claude-code`: `ea trabajo ver`, `diff` si hace falta, y cierra, reformula o continúa |
+
+Instalación:
+
+```bash
+for s in mision obra rutina revisar; do
+  ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
+done
+```
+
+Apoyo en la CLI: `ea trabajo ver <id> [--json]`, `ea trabajo diff <id> [--fase N]` y `ea cola [agente] [--json]`.
+
 ## Verificación
 
 ```bash

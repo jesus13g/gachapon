@@ -91,14 +91,15 @@ fn main() -> Result<()> {
                 commands::trabajo::crear(orden, &modo, titulo, worktree, objetivo, criterio)?
             }
             TrabajoAccion::Listar => commands::trabajo::listar()?,
-            TrabajoAccion::Ver { id } => commands::trabajo::ver(&id)?,
+            TrabajoAccion::Ver { id, json } => commands::trabajo::ver(&id, json)?,
+            TrabajoAccion::Diff { id, fase } => commands::trabajo::diff(&id, fase)?,
             TrabajoAccion::Cerrar { id } => commands::trabajo::evento(&id, ea_bus::Evento::Cerrar)?,
             TrabajoAccion::Continuar { id } => commands::trabajo::reformular(&id, "")?,
             TrabajoAccion::Confirmar { id, contexto } => commands::trabajo::confirmar(&id, &contexto.unwrap_or_default())?,
             TrabajoAccion::Reformular { id, nota } => commands::trabajo::reformular(&id, &nota)?,
             TrabajoAccion::Cancelar { id } => commands::trabajo::evento(&id, ea_bus::Evento::Cancelar)?,
         },
-        Command::Cola { agente } => commands::trabajo::cola(agente.as_deref())?,
+        Command::Cola { agente, json } => commands::trabajo::cola(agente.as_deref(), json)?,
         Command::Semaforos => commands::trabajo::semaforos(),
         Command::Tui => tui::run(&mut store)?,
     }
