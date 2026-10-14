@@ -535,7 +535,7 @@ function pintar() {
   if (!st.datos && st.sec !== 'sistema') {
     st.vis = [];
     st.html = '';
-    $('#lista').innerHTML = '';
+    $('#filas').innerHTML = '';
     barra();
     return;
   }
@@ -554,7 +554,7 @@ function pintar() {
     const lista = $('#lista');
     const y = lista.scrollTop;
     st.html = html;
-    lista.innerHTML = html;
+    $('#filas').innerHTML = html; // la escena, encima, no se repinta
     lista.scrollTop = y;
   }
   relojes();
@@ -573,9 +573,9 @@ async function cargaSeccion() {
   const sec = st.sec;
   let datos = null;
   if (sec === 'inicio') {
-    const [propuestas, colas, semaforos] = await Promise.all([
-      api('/api/propuestas?estado=pendiente'), api('/api/colas'), api('/api/semaforos')]);
-    datos = { propuestas, colas, semaforos };
+    const [propuestas, colas, semaforos, diario] = await Promise.all([
+      api('/api/propuestas?estado=pendiente'), api('/api/colas'), api('/api/semaforos'), api('/api/diario?limite=30')]);
+    datos = { propuestas, colas, semaforos, diario };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await api('/api/acciones');
   else if (sec === 'diario') datos = await api('/api/diario?limite=300' + (st.latidos ? '&latidos=1' : ''));
@@ -597,6 +597,7 @@ async function tick() {
     $('#off').hidden = true;
     cabecera();
     if (await cargaSeccion()) pintar();
+    if (st.sec === 'inicio' && st.datos) gasha.actualizar({ trabajos: st.trabajos, estado: st.estado, ...st.datos });
   } catch {
     $('#off').hidden = false;
   } finally {
@@ -615,6 +616,7 @@ function marco() {
   $('#q').placeholder = st.sec === 'boveda' ? 'buscar en las notas ( / )' : 'filtrar ( / )';
   $$('#rail button').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
   $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
+  $('#escena').hidden = st.sec !== 'inicio';
 }
 
 function ir(sec) {
@@ -851,6 +853,7 @@ addEventListener('hashchange', () => {
 {
   const h = location.hash.slice(1);
   if (SECCIONES.includes(h)) st.sec = h;
+  gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
   marco();
   // La primera vez, la guía abierta.
   try { if (!localStorage.getItem('ea-ayuda-vista')) ayuda(true); } catch { /* sin almacenamiento */ }

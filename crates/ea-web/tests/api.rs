@@ -404,7 +404,7 @@ async fn servicios_degradan_con_limpieza() {
 #[tokio::test]
 async fn sirve_la_pagina_y_el_tema() {
     let f = montar();
-    for ruta in ["/", "/app.css", "/app.js"] {
+    for ruta in ["/", "/app.css", "/app.js", "/gashapon.css", "/gashapon.js"] {
         let (s, _) = enviar(&f, Method::GET, ruta, "localhost:8092", None, false).await;
         assert_eq!(s, StatusCode::OK, "{ruta}");
     }

@@ -6,6 +6,7 @@
 <title>ea</title>
 <link rel="stylesheet" href="/tema.css">
 <link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/gashapon.css">
 </head>
 <body>
 <nav id="rail" aria-label="Secciones">
@@ -30,7 +31,7 @@
   </header>
   <div id="titulo"><h1></h1><p></p></div>
   <div id="barra"><span id="fb"></span><input id="q" placeholder="filtrar ( / )" aria-label="Filtrar" spellcheck="false"></div>
-  <section id="lista"></section>
+  <section id="lista"><div id="escena" hidden></div><div id="filas"></div></section>
 </main>
 <div id="aviso" role="alert"></div>
 
@@ -45,6 +46,13 @@
       <li><b>Tú decides lo que falla.</b> Si una rutina falla, su paquete de corrección queda en espera hasta que lo confirmes (con contexto si quieres).</li>
     </ol>
 
+    <h2>La escena</h2>
+    <p class="nota-esc">Arriba de la portada, cada agente es una máquina de gashapon y cada trabajo una cápsula. La pila que se ve tras el cristal es su cola; el semáforo dice quién tiene el worktree; el raíl de arriba es el orquestador, que mueve las cápsulas. Pulsa una cápsula para abrir su ficha; <i>▶ demo</i> enseña un recorrido de ejemplo sin tocar nada.</p>
+    <dl class="leyenda">
+      <dt>cápsula</dt><dd>roja misión, azul obra, amarilla rutina, rosa propuesta</dd>
+      <dt class="hot">! aviso</dt><dd>la máquina se sacude y avisa: paquete de corrección, trabajo bloqueado, orquestador sin latido o servicio parado</dd>
+    </dl>
+
     <h2>Estados de un trabajo</h2>
     <dl class="leyenda">
       <dt>○ en cola</dt><dd>orden creada; espera al modelo local</dd>
@@ -57,7 +65,7 @@
 
     <h2>Secciones</h2>
     <dl class="leyenda">
-      <dt>⌂ Inicio</dt><dd>colas, semáforo del worktree y tablero de trabajos</dd>
+      <dt>⌂ Inicio</dt><dd>la escena de los agentes, colas, semáforo del worktree y tablero de trabajos</dd>
       <dt>▤ Trabajos</dt><dd>misiones, obras y rutinas; ficha con informe, diff y acciones</dd>
       <dt>≡ Diario</dt><dd>el registro de cada cosa que ocurre</dd>
       <dt>↻ Rutinas</dt><dd>las rutinas registradas, con su versión; se pueden lanzar</dd>
@@ -78,6 +86,7 @@
     </dl>
   </div>
 </aside>
+<script src="/gashapon.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
