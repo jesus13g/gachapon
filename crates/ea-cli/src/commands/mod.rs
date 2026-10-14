@@ -4,6 +4,7 @@ pub mod diario;
 pub mod propuestas;
 pub mod rutinas;
 pub mod status;
+pub mod trabajo;
 pub mod tareas;
 
 use anyhow::{Context, Result};

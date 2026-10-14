@@ -1,11 +1,25 @@
 use std::time::Duration;
 
+use ea_bus::{Bus, ConfigOrquestador};
 use ea_orchestrator::config;
+use ea_orchestrator::ejecutor::{ejecutar_uno, QwenCode};
 use ea_store::{EventOutcome, NewEvent, Store};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Actor que este proceso escribe en el diario.
 const ACTOR: &str = "orquestador";
+
+/// Bus con historial en SQLite (si la base no abre, sigue solo con ficheros).
+fn abrir_bus() -> anyhow::Result<Bus> {
+    let bus = Bus::abrir()?;
+    Ok(match Store::open() {
+        Ok(s) => bus.con_store(s),
+        Err(e) => {
+            tracing::warn!(error = %e, "bus sin historial SQLite");
+            bus
+        }
+    })
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -41,12 +55,32 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    tracing::info!("ea-orchestrator arrancado (sin ejecutor: en reconstrucción)");
+    let bus = abrir_bus()?;
+    match bus.recuperar() {
+        Ok(v) if !v.is_empty() => tracing::warn!(trabajos = ?v, "trabajos recuperados al arrancar"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "no se pudo recuperar el bus"),
+    }
+    tracing::info!("ea-orchestrator arrancado");
 
+    let sondeo = Duration::from_secs(config.intervalo_sondeo_s);
     loop {
-        // FASE 3: aquí se enchufará el ejecutor del bus. Cada ciclo leerá
-        // las tareas pendientes del bus, las pasará a Qwen Code headless
-        // (`qwen -p`) y devolverá el resultado para su revisión.
-        tokio::time::sleep(Duration::from_secs(config.intervalo_sondeo_s)).await;
+        // La configuración se relee en cada ciclo; el ejecutor bloquea (qwen
+        // tarda minutos), así que va en un hilo aparte.
+        let b = abrir_bus()?;
+        let resultado = tokio::task::spawn_blocking(move || {
+            let cfg = ConfigOrquestador::cargar();
+            ejecutar_uno(&b, &cfg, &QwenCode)
+        })
+        .await;
+        match resultado {
+            Ok(Some(id)) => {
+                tracing::info!(%id, "trabajo procesado");
+                continue; // puede haber más en la cola
+            }
+            Ok(None) => {}
+            Err(e) => tracing::error!(error = %e, "el ejecutor falló"),
+        }
+        tokio::time::sleep(sondeo).await;
     }
 }

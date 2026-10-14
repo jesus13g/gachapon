@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinasAccion, TareasAccion};
+use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinasAccion, TareasAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -85,6 +85,18 @@ fn main() -> Result<()> {
             BovedaAccion::Promover { ruta, destino } => commands::boveda::promover(&mut store, &ruta, destino)?,
             BovedaAccion::Reindexar => commands::boveda::reindexar(&mut store)?,
         },
+        Command::Trabajo { accion } => match accion {
+            TrabajoAccion::Crear { orden, modo, titulo, worktree, objetivo, criterio } => {
+                commands::trabajo::crear(orden, &modo, titulo, worktree, objetivo, criterio)?
+            }
+            TrabajoAccion::Listar => commands::trabajo::listar()?,
+            TrabajoAccion::Ver { id } => commands::trabajo::ver(&id)?,
+            TrabajoAccion::Cerrar { id } => commands::trabajo::evento(&id, ea_bus::Evento::Cerrar)?,
+            TrabajoAccion::Reformular { id, nota } => commands::trabajo::reformular(&id, &nota)?,
+            TrabajoAccion::Cancelar { id } => commands::trabajo::evento(&id, ea_bus::Evento::Cancelar)?,
+        },
+        Command::Cola { agente } => commands::trabajo::cola(agente.as_deref())?,
+        Command::Semaforos => commands::trabajo::semaforos(),
         Command::Tui => tui::run(&mut store)?,
     }
 

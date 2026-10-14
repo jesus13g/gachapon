@@ -90,6 +90,9 @@ pub struct Orden {
     pub topes: Topes,
     #[serde(default)]
     pub rutina: Option<RutinaRef>,
+    /// Notas que añade la revisión al reformular.
+    #[serde(default)]
+    pub notas_revision: Vec<String>,
     pub creada_en: String,
     pub creada_por: String,
 }

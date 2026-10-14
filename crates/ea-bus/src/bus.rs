@@ -290,12 +290,83 @@ impl Bus {
         let dir = self.dir_trabajo(id)?;
         escribir_json(&dir.join("estado.json"), &nuevo)?;
         self.historial(id, evento.nombre(), &nuevo)?;
+        match &evento {
+            Evento::Entregar(inf) => {
+                let motivo = match inf.resultado {
+                    ResultadoInforme::Terminado => "terminado",
+                    ResultadoInforme::Bloqueado => "bloqueado",
+                };
+                self.encolar(Agente::ClaudeCode, id, motivo)?;
+            }
+            Evento::Reformular => {
+                self.encolar(Agente::ModeloLocal, id, "reformulado")?;
+            }
+            _ => {}
+        }
         if let Some(s) = &self.store {
             s.actualizar_estado_trabajo(id, nuevo.estado.as_str(), &nuevo.actualizado_en)?;
             self.sincronizar_fases(s, id, &evento, &nuevo)?;
             self.diario(s, id, &format!("bus_{}", evento.nombre()), true, serde_json::json!({ "estado": nuevo.estado.as_str() }));
         }
         Ok(nuevo)
+    }
+
+    /// Reformula un trabajo en revisión: añade las notas de la revisión a
+    /// `orden.json` (`notas_revision`) y aplica `Reformular`, que lo vuelve
+    /// a encolar en `modelo-local`.
+    pub fn reformular(&self, id: &str, notas: &str) -> Resultado<Estado> {
+        let estado = self.leer_estado(id)?;
+        transicion(estado.estado, &Evento::Reformular)?; // validar antes de tocar la orden
+        let mut orden = self.leer_orden(id)?;
+        if !notas.trim().is_empty() {
+            orden.notas_revision.push(notas.trim().into());
+            escribir_json(&self.dir_trabajo(id)?.join("orden.json"), &orden)?;
+        }
+        self.aplicar(id, Evento::Reformular)
+    }
+
+    /// Para llamar al arrancar. Devuelve a la cola los reclamos `.tomada-*`
+    /// huérfanos cuyo trabajo sigue `EnCola`, y entrega como Bloqueado
+    /// («interrumpido») lo que se quedó en `Ejecutando`. Devuelve los ids
+    /// recuperados.
+    pub fn recuperar(&self) -> Resultado<Vec<String>> {
+        let mut recuperados = Vec::new();
+        for agente in [Agente::ModeloLocal, Agente::ClaudeCode] {
+            let dir = self.dir_cola(agente);
+            for e in fs::read_dir(&dir)?.flatten() {
+                let p = e.path();
+                let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                if !n.starts_with('.') || !n.contains(".tomada-") {
+                    continue;
+                }
+                let entrada: Option<EntradaCola> = fs::read(&p).ok().and_then(|b| serde_json::from_slice(&b).ok());
+                if let Some(en) = entrada {
+                    let en_cola = self.leer_estado(&en.trabajo).is_ok_and(|s| s.estado == EstadoTrabajo::EnCola);
+                    let ya_en_cola = self.listar_cola(agente)?.iter().any(|x| x.trabajo == en.trabajo);
+                    if en_cola && !ya_en_cola {
+                        self.encolar(agente, &en.trabajo, "recuperado")?;
+                        recuperados.push(en.trabajo);
+                    }
+                }
+                let _ = fs::remove_file(&p);
+            }
+        }
+        for id in self.listar_trabajos()? {
+            if self.leer_estado(&id).is_ok_and(|s| s.estado == EstadoTrabajo::Ejecutando) {
+                let inf = Informe {
+                    resultado: ResultadoInforme::Bloqueado,
+                    evidencia: String::new(),
+                    commit_inicio: None,
+                    diff_stat: None,
+                    motivo: Some("interrumpido".into()),
+                    fases_hechas: 0,
+                    duracion_s: 0,
+                };
+                self.aplicar(&id, Evento::Entregar(inf))?;
+                recuperados.push(id);
+            }
+        }
+        Ok(recuperados)
     }
 
     fn sincronizar_fases(&self, s: &Store, id: &str, evento: &Evento, nuevo: &Estado) -> Resultado<()> {

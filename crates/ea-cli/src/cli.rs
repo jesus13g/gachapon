@@ -42,8 +42,56 @@ pub enum Command {
         #[command(subcommand)]
         accion: BovedaAccion,
     },
+    /// Trabajos del bus del orquestador (crear, ver, reformular, cerrar)
+    Trabajo {
+        #[command(subcommand)]
+        accion: TrabajoAccion,
+    },
+    /// Entradas de una cola del bus (por defecto, las dos)
+    Cola {
+        /// modelo-local o claude-code
+        agente: Option<String>,
+    },
+    /// Semáforos de worktree ocupados ahora mismo
+    Semaforos,
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum TrabajoAccion {
+    /// Crea un trabajo y lo encola en modelo-local
+    Crear {
+        /// Orden completa en JSON (el resto de opciones se ignora)
+        #[arg(long)]
+        orden: Option<std::path::PathBuf>,
+        /// mision, obra o rutina
+        #[arg(long, default_value = "mision")]
+        modo: String,
+        #[arg(long)]
+        titulo: Option<String>,
+        #[arg(long)]
+        worktree: Option<String>,
+        #[arg(long)]
+        objetivo: Option<String>,
+        /// Comando de shell que decide si está hecho
+        #[arg(long)]
+        criterio: Option<String>,
+    },
+    /// Lista los trabajos con su estado
+    Listar,
+    /// Orden, estado e informe de un trabajo
+    Ver { id: String },
+    /// Da por bueno un trabajo en revisión
+    Cerrar { id: String },
+    /// Devuelve un trabajo en revisión al modelo local, con una nota
+    Reformular {
+        id: String,
+        #[arg(long)]
+        nota: String,
+    },
+    /// Cancela un trabajo
+    Cancelar { id: String },
 }
 
 #[derive(Subcommand)]

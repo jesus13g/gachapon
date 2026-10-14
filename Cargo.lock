@@ -525,6 +525,7 @@ dependencies = [
  "crossterm 0.28.1",
  "ea-acciones",
  "ea-boveda",
+ "ea-bus",
  "ea-orchestrator",
  "ea-store",
  "ea-web",
@@ -564,8 +565,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "directories",
+ "ea-bus",
  "ea-store",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "toml",

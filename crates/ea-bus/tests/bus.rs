@@ -27,6 +27,7 @@ fn orden(wt: &Path) -> Orden {
         revisar_cada: None,
         topes: Topes::default(),
         rutina: None,
+        notas_revision: vec![],
         creada_en: String::new(),
         creada_por: "claude-code".into(),
     }
@@ -62,7 +63,8 @@ fn crear_tomar_entregar_y_cerrar_con_historial_en_sqlite() {
     assert_eq!((e.estado, e.iteracion), (EstadoTrabajo::Ejecutando, 1));
     bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
     assert_eq!(bus.leer_informe(&id).unwrap().unwrap().evidencia, "ok");
-    bus.encolar(Agente::ClaudeCode, &id, "revisar").unwrap();
+    // entregar encola en claude-code por sí solo
+    assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap()[0].motivo, "terminado");
     assert_eq!(bus.tomar(Agente::ClaudeCode).unwrap(), Some(id.clone()));
     bus.aplicar(&id, Evento::Cerrar).unwrap();
     assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::Cerrado);
@@ -176,4 +178,45 @@ fn sin_configuracion_se_usan_los_valores_por_defecto() {
     std::fs::write(&p, "modelo = \"otro\"\n[topes]\nturnos = 5\n").unwrap();
     let c = ConfigOrquestador::cargar_de(&p);
     assert_eq!((c.modelo.as_str(), c.topes.turnos, c.topes.tiempo_s, c.qwen_bin.as_str()), ("otro", 5, 900, "qwen"));
+}
+
+#[test]
+fn reformular_anade_notas_y_vuelve_a_encolar() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    let id = bus.crear_trabajo(orden(d.path())).unwrap();
+    assert!(bus.reformular(&id, "no vale").is_err()); // aún EnCola
+    bus.tomar(Agente::ModeloLocal).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
+    bus.reformular(&id, "falta la prueba").unwrap();
+    assert_eq!(bus.leer_orden(&id).unwrap().notas_revision, vec!["falta la prueba".to_string()]);
+    assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
+    assert_eq!(bus.tomar(Agente::ModeloLocal).unwrap(), Some(id));
+}
+
+#[test]
+fn recuperar_devuelve_huerfanos_y_bloquea_lo_interrumpido() {
+    let d = tempfile::tempdir().unwrap();
+    let raiz = d.path().join("estado");
+    let bus = Bus::abrir_en(&raiz).unwrap();
+    let a = bus.crear_trabajo(orden(d.path())).unwrap();
+    // simula un reclamo huérfano de `a` (sigue EnCola)
+    let cola = raiz.join("colas/modelo-local");
+    let f = std::fs::read_dir(&cola).unwrap().flatten().next().unwrap().path();
+    let nombre = f.file_name().unwrap().to_string_lossy().to_string();
+    std::fs::rename(&f, cola.join(format!(".{nombre}.tomada-1"))).unwrap();
+    assert!(bus.listar_cola(Agente::ModeloLocal).unwrap().is_empty());
+    // y un trabajo que se quedó ejecutando
+    let b = bus.crear_trabajo(orden(d.path())).unwrap();
+    bus.tomar(Agente::ModeloLocal).unwrap();
+    bus.aplicar(&b, Evento::Tomar).unwrap();
+    let rec = bus.recuperar().unwrap();
+    assert!(rec.contains(&a) && rec.contains(&b));
+    assert_eq!(bus.listar_cola(Agente::ModeloLocal).unwrap()[0].trabajo, a);
+    assert_eq!(bus.leer_estado(&b).unwrap().estado, EstadoTrabajo::EnRevision);
+    let inf = bus.leer_informe(&b).unwrap().unwrap();
+    assert_eq!((inf.resultado, inf.motivo.as_deref()), (ResultadoInforme::Bloqueado, Some("interrumpido")));
+    assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap()[0].motivo, "bloqueado");
+    assert!(bus.recuperar().unwrap().is_empty());
 }

@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 ea-store = { path = "../ea-store" }
+ea-bus = { path = "../ea-bus" }
 ea-acciones = { path = "../ea-acciones" }
 ea-boveda = { path = "../ea-boveda" }
 ea-orchestrator = { path = "../ea-orchestrator" }

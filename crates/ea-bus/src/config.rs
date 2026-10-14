@@ -15,6 +15,8 @@ pub struct ConfigOrquestador {
     pub qwen_bin: String,
     pub topes: Topes,
     pub avisos_escritorio: bool,
+    /// Ejecuta qwen dentro de bubblewrap (solo el worktree es escribible).
+    pub sandbox: bool,
 }
 
 impl Default for ConfigOrquestador {
@@ -25,6 +27,7 @@ impl Default for ConfigOrquestador {
             qwen_bin: "qwen".into(),
             topes: Topes::default(),
             avisos_escritorio: true,
+            sandbox: false,
         }
     }
 }
