@@ -45,7 +45,7 @@ main {
   display: flex; flex-direction: column; min-width: 0; height: 100vh;
   padding: 0 24px;
 }
-header, #titulo, #form, #barra, #lista { width: 100%; max-width: 1200px; }
+header, #titulo, #barra, #lista { width: 100%; max-width: 1200px; }
 header { display: flex; align-items: center; gap: 12px; height: 52px; flex: none; }
 .logo { color: var(--accent); }
 #servicios { display: flex; gap: 8px; }
@@ -78,9 +78,6 @@ input:focus, select:focus { background: var(--sel); }
 select { appearance: none; cursor: pointer; }
 ::placeholder { color: var(--fg-lo); opacity: 1; }
 
-#form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; flex: none; }
-#form input, #form select { height: 38px; }
-#pista { flex-basis: 100%; color: var(--fg-lo); font-size: 12.5px; padding-left: 2px; }
 .pri { height: 38px; padding: 0 16px; color: var(--fg-hi); background: var(--accent); }
 .pri:hover { background: var(--hot); color: var(--fg-hi); }
 
@@ -104,9 +101,9 @@ select { appearance: none; cursor: pointer; }
   display: grid; align-items: center; gap: 0 12px; min-height: 34px;
   padding: 0 10px; border-radius: 4px; cursor: default;
 }
-.r.t { grid-template-columns: 104px 48px 1fr 130px 44px; }
+.r.j { grid-template-columns: 124px 60px 1fr 200px 160px 44px; }
 .r.d { grid-template-columns: 96px 18px 120px 1fr 56px 56px; }
-.r.u { grid-template-columns: 18px minmax(120px, 200px) 1fr 110px 80px 150px; }
+.r.u { grid-template-columns: 18px minmax(120px, 200px) 40px 1fr 80px 110px; }
 .r.p { grid-template-columns: 18px 48px 1fr 150px 44px 210px; }
 .r.s { grid-template-columns: 18px 190px 1fr 60px 120px; }
 .r.b { grid-template-columns: 18px 1fr minmax(120px, 280px) 100px 48px; }
@@ -118,7 +115,8 @@ select { appearance: none; cursor: pointer; }
 .e.pendiente { color: var(--fg-lo); }
 .e.en_progreso { color: var(--fg-hi); }
 .e.completada, .e.cancelada { color: var(--fg-dim); }
-.e.fallida { color: var(--hot); }
+.e.fallida, .e.en_espera { color: var(--hot); }
+.e.ejecutando { color: var(--fg-hi); }
 .g { margin-top: 18px; }
 
 /* nombres de columna y estado con palabra */
@@ -128,8 +126,10 @@ select { appearance: none; cursor: pointer; }
 .est { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; color: var(--fg-lo); }
 .est i { width: 14px; }
 .est.en_progreso { color: var(--fg-hi); }
-.est.completada, .est.cancelada { color: var(--fg-dim); }
-.est.fallida { color: var(--hot); }
+.est.completada, .est.cancelada, .est.cerrado, .est.cancelado { color: var(--fg-dim); }
+.est.fallida, .est.en_espera { color: var(--hot); }
+.est.ejecutando { color: var(--fg-hi); }
+.est.en_revision { color: var(--accent); }
 .bs { display: flex; gap: 4px; justify-content: flex-end; }
 .r > button { justify-self: end; white-space: nowrap; }
 .r time, .card time, .actor time { font-variant-numeric: tabular-nums; }
@@ -234,19 +234,19 @@ select { appearance: none; cursor: pointer; }
   #rail b { right: 6px; }
   #aviso { left: 68px; max-width: calc(100vw - 80px); }
   .actores, .tablero { grid-template-columns: 1fr; }
+  .tablero.t5 { grid-template-columns: 1fr; }
   .actor .rol { min-height: 0; }
   #salud, #titulo p { display: none; }
   #q { width: 140px; }
-  .r.u { grid-template-columns: 18px 1fr 80px 150px; }
-  .r.u .m:nth-child(3), .r.u .m:nth-child(4) { display: none; }
+  .r.u { grid-template-columns: 18px 1fr 40px 110px; }
+  .r.u .m:nth-child(4), .r.u .m:nth-child(5) { display: none; }
   .r.s { grid-template-columns: 18px 1fr 60px 120px; }
   .r.s > :nth-child(3) { display: none; }
   .hd { display: none !important; }
-  #form input { flex-basis: 100%; }
-  #form select { flex: 1; min-width: 0; }
   main { padding: 0 12px; }
   .w { display: none; }
-  .r.t { grid-template-columns: 104px 48px 1fr 44px; }
+  .r.j { grid-template-columns: 124px 1fr 44px; }
+  .r.j > :nth-child(2), .r.j > :nth-child(4), .r.j > :nth-child(5) { display: none; }
   .r.d { grid-template-columns: 96px 18px 1fr 56px 56px; }
   .r.p { grid-template-columns: 18px 48px 1fr 210px; }
   .r.p > :nth-child(5) { display: none; }
@@ -256,5 +256,18 @@ select { appearance: none; cursor: pointer; }
   .det { padding-left: 38px; }
   .ev { grid-template-columns: 64px 18px 1fr 48px; }
   .ev span:nth-child(3) { display: none; }
-  #form { flex-wrap: wrap; }
 }
+
+/* ---- orquestador ---- */
+.tablero.t5 { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.actor .que.cola { cursor: pointer; white-space: normal; word-break: break-word; }
+.actor .que.cola:hover { color: var(--fg-hi); }
+.actor .que.run { cursor: pointer; }
+.paq { background: var(--bg0); border-radius: 6px; padding: 12px 14px; margin: 6px 0; box-shadow: inset 3px 0 0 var(--hot); }
+.paq h3 { display: flex; align-items: baseline; gap: 8px; font: inherit; color: var(--fg-hi); }
+.paq h3 i { color: var(--hot); width: 14px; }
+.paq p { margin: 4px 0; }
+.paq .acc { margin-top: 8px; }
+.acc textarea { flex: 1; min-width: 220px; max-width: 520px; background: var(--bg); color: var(--fg); border: 0; border-radius: 4px; padding: 6px 8px; font: inherit; resize: vertical; }
+.det pre.diff { max-height: 420px; overflow: auto; background: var(--bg0); padding: 8px 10px; border-radius: 4px; font-size: 12px; white-space: pre; }
+@media (max-width: 1100px) and (min-width: 761px) { .tablero.t5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

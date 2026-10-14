@@ -10,23 +10,6 @@ fn rutinas_dir() -> PathBuf {
     ea_orchestrator::config::load().rutinas_dir
 }
 
-/// Slugs de los ficheros `.toml` del directorio de rutinas (ordenados).
-pub fn listar_slugs(dir: &std::path::Path) -> Result<Vec<String>> {
-    let mut v = Vec::new();
-    if let Ok(it) = std::fs::read_dir(dir) {
-        for e in it.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x == "toml") {
-                if let Some(n) = p.file_stem().and_then(|n| n.to_str()) {
-                    v.push(n.to_string());
-                }
-            }
-        }
-    }
-    v.sort();
-    Ok(v)
-}
-
 /// Próxima ejecución programada según `systemd --user`, si el timer de la
 /// rutina está instalado. Mejor esfuerzo: la CLI no habla con ningún
 /// agente (§12.2), pero preguntarle al gestor de servicios del sistema por

@@ -11,6 +11,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use ea_acciones::{Canal, ErrorAccion, SistemaReal};
+use ea_bus::{Agente, Bus, ErrorBus, Evento};
 use ea_store::{
     EstadoPropuesta, Event, EventFilter, Propuesta,
     PropuestaFilter, RoutineRun, StoreError, NewTask, Task, TaskFilter, TaskOrigin, TaskStatus,
@@ -107,37 +108,16 @@ fn sistema(s: &AppState) -> SistemaReal {
     }
 }
 
-/// Slugs de los ficheros `.toml` del directorio de rutinas (ordenados).
-fn listar_slugs(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
-    let mut v = Vec::new();
-    match std::fs::read_dir(dir) {
-        Ok(it) => {
-            for e in it.flatten() {
-                let p = e.path();
-                if p.extension().is_some_and(|x| x == "toml") {
-                    if let Some(n) = p.file_stem().and_then(|n| n.to_str()) {
-                        v.push(n.to_string());
-                    }
-                }
-            }
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    v.sort();
-    Ok(v)
-}
-
-/// El fichero de la rutina, o 404 si no existe.
-fn leer_rutina(dir: &std::path::Path, slug: &str) -> ApiResult<String> {
-    std::fs::read_to_string(dir.join(format!("{slug}.toml"))).map_err(|e| {
-        let status = if e.kind() == std::io::ErrorKind::NotFound {
-            StatusCode::NOT_FOUND
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
+impl From<ErrorBus> for ApiError {
+    fn from(e: ErrorBus) -> Self {
+        let status = match &e {
+            ErrorBus::NoExiste(_) => StatusCode::NOT_FOUND,
+            ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado => StatusCode::CONFLICT,
+            ErrorBus::Argumentos(_) => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        ApiError::new(status, format!("rutina '{slug}': {e}"))
-    })
+        Self(status, e.to_string())
+    }
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -155,7 +135,17 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/diario", get(diario))
         .route("/api/rutinas", get(rutinas_listar))
         .route("/api/rutinas/{slug}", get(rutina_ver))
-        .route("/api/rutinas/{slug}/encolar", post(rutina_encolar))
+        .route("/api/rutinas/{slug}/lanzar", post(rutina_lanzar))
+        .route("/api/trabajos", get(trabajos_listar))
+        .route("/api/trabajos/{id}", get(trabajo_ver))
+        .route("/api/trabajos/{id}/diff", get(trabajo_diff))
+        .route("/api/trabajos/{id}/cerrar", post(trabajo_cerrar))
+        .route("/api/trabajos/{id}/cancelar", post(trabajo_cancelar))
+        .route("/api/trabajos/{id}/continuar", post(trabajo_continuar))
+        .route("/api/trabajos/{id}/reformular", post(trabajo_reformular))
+        .route("/api/trabajos/{id}/confirmar", post(trabajo_confirmar))
+        .route("/api/colas", get(colas))
+        .route("/api/semaforos", get(semaforos))
         .route("/api/propuestas", get(propuestas_listar))
         .route("/api/propuestas/{id}/decidir", post(propuesta_decidir))
         .route("/api/acciones", get(acciones_listar))
@@ -387,12 +377,11 @@ async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
     })))
 }
 
-/// La portada: lo que espera una decisión, lo que está en marcha, las rutinas
-/// y lo último que terminó. Una sola petición por refresco.
+/// Las propuestas pendientes y las tareas del sistema antiguo. Los trabajos
+/// del orquestador van por `/api/trabajos`, `/api/colas` y `/api/semaforos`. Una sola petición por refresco.
 async fn inicio(State(s): Estado) -> ApiResult<Json<Value>> {
     const RECIENTES: usize = 8;
 
-    let rutinas = rutinas_resumen(&s).await?;
     let store = s.store.lock().await;
     let propuestas = store
         .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: Some(20) })?
@@ -409,7 +398,6 @@ async fn inicio(State(s): Estado) -> ApiResult<Json<Value>> {
         "propuestas": propuestas,
         "activas": tareas.iter().filter(activa).map(tarea_json).collect::<Vec<_>>(),
         "recientes": recientes.into_iter().take(RECIENTES).map(tarea_json).collect::<Vec<_>>(),
-        "rutinas": rutinas,
     })))
 }
 
@@ -602,70 +590,249 @@ async fn diario(State(s): Estado, Query(q): Query<DiarioQuery>) -> ApiResult<Jso
 // ----------------------------------------------------------------- rutinas
 
 async fn rutinas_listar(State(s): Estado) -> ApiResult<Json<Value>> {
-    Ok(Json(json!(rutinas_resumen(&s).await?)))
-}
-
-async fn rutinas_resumen(s: &AppState) -> ApiResult<Vec<Value>> {
-    let dir = &s.config.rutinas_dir;
-    let slugs = listar_slugs(dir)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let mut filas = Vec::with_capacity(slugs.len());
-    for slug in slugs {
-        let (descripcion, error): (Option<String>, Option<String>) = (None, None);
-        let (ultima, ultimo_exito) = {
-            let store = s.store.lock().await;
-            (
-                store.list_routine_runs(&slug, Some(1))?.into_iter().next(),
-                store.last_successful_run(&slug)?,
-            )
-        };
-        let proxima = if s.config.systemctl && slug_valido(&slug).is_ok() {
-            estado::proxima_ejecucion(&slug).await
+    let filas = s.store.lock().await.listar_rutinas()?;
+    let mut out = Vec::with_capacity(filas.len());
+    for f in filas {
+        let r = ea_bus::Rutina::parsear(&f.definicion).ok();
+        let proxima = if s.config.systemctl && ea_bus::slug_valido(&f.slug) {
+            estado::proxima_ejecucion(&f.slug).await
         } else {
             None
         };
-        filas.push(json!({
-            "slug": slug,
-            "descripcion": descripcion,
-            "error": error,
-            "ultima": ultima.as_ref().map(run_json),
-            "ultimo_exito": ultimo_exito.map(|r| ts(r.started_at)),
+        out.push(json!({
+            "slug": f.slug,
+            "version": f.version,
+            "descripcion": r.as_ref().map(|r| r.rutina.descripcion.clone()),
+            "worktree": r.as_ref().map(|r| r.rutina.worktree.clone()),
+            "criterio_exito": r.as_ref().map(|r| r.rutina.criterio_exito.clone()),
+            "entradas": r.as_ref().map(|r| r.entradas.clone()),
+            "error": if r.is_none() { Some("definición ilegible") } else { None },
+            "registrada": f.creada_en,
             "proxima": proxima,
         }));
     }
-    Ok(filas)
+    Ok(Json(json!(out)))
 }
 
 async fn rutina_ver(State(s): Estado, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     slug_valido(&slug)?;
-    let contenido = leer_rutina(&s.config.rutinas_dir, &slug)?;
-    let ejecuciones = s.store.lock().await.list_routine_runs(&slug, Some(20))?;
-    Ok(Json(json!({
-        "slug": slug,
-        "contenido": contenido,
-        "ejecuciones": ejecuciones.iter().map(run_json).collect::<Vec<_>>(),
-    })))
+    let fila = s
+        .store
+        .lock()
+        .await
+        .ultima_rutina(&slug)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, format!("la rutina '{slug}' no está registrada")))?;
+    Ok(Json(json!({ "slug": slug, "version": fila.version, "contenido": fila.definicion })))
 }
 
-/// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`): no
-/// ejecuta la rutina, solo crea el trabajo en el bus, que el orquestador
-/// recogerá. Responde `{ "trabajo": id, "rutina": slug }`.
-async fn rutina_encolar(
+/// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`): crea el
+/// trabajo en el bus y el orquestador lo recoge. `{ "trabajo": id, "rutina": slug }`.
+async fn rutina_lanzar(
     State(s): Estado,
     Path(slug): Path<String>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     slug_valido(&slug)?;
-    // Falla pronto si la rutina no existe.
-    leer_rutina(&s.config.rutinas_dir, &slug)?;
+    let bus = bus_con_store(&s).await?;
+    bus.rutina(&slug).map_err(|_| ApiError::new(StatusCode::NOT_FOUND, format!("la rutina '{slug}' no está registrada")))?;
+    if !bus.trabajos_activos_de_rutina(&slug)?.is_empty() {
+        return Err(ApiError::new(StatusCode::CONFLICT, format!("la rutina '{slug}' ya tiene una ejecución en curso")));
+    }
+    let id = bus.lanzar_rutina(&slug, &[])?;
+    Ok((StatusCode::CREATED, Json(json!({ "trabajo": id, "rutina": slug }))))
+}
 
-    let sis = sistema(&s);
-    let mut store = s.acciones.lock().await;
-    let r = ea_acciones::ejecutar_directo(
-        &mut store, &sis, ACTOR, Canal::Web, "ea_encolar_rutina", &json!({ "slug": slug }),
-    )
-    .await?;
-    Ok((StatusCode::CREATED, Json(r.datos)))
+// --------------------------------------------------------------- orquestador
+
+/// Bus de solo lectura, sobre la raíz de estado estándar.
+fn bus_lectura() -> ApiResult<Bus> {
+    Ok(Bus::abrir()?)
+}
+
+/// Bus con el historial y el diario de SQLite, para las acciones del usuario.
+async fn bus_con_store(s: &AppState) -> ApiResult<Bus> {
+    let store = s.acciones.lock().await.duplicar()?;
+    Ok(Bus::abrir()?.con_actor(ACTOR).con_store(store))
+}
+
+fn trabajo_resumen(bus: &Bus, id: &str) -> Option<Value> {
+    let orden = bus.leer_orden(id).ok()?;
+    let estado = bus.leer_estado(id).ok()?;
+    let informe = bus.leer_informe(id).ok().flatten();
+    Some(json!({
+        "id": id,
+        "modo": orden.modo.as_str(),
+        "titulo": orden.titulo,
+        "estado": estado.estado.as_str(),
+        "fase_actual": estado.fase_actual,
+        "fases_total": orden.fases.len(),
+        "iteracion": estado.iteracion,
+        "detalle": estado.detalle,
+        "resultado": informe.as_ref().map(|i| match i.resultado {
+            ea_bus::ResultadoInforme::Terminado => "terminado",
+            ea_bus::ResultadoInforme::Bloqueado => "bloqueado",
+        }),
+        "obra_completa": informe.as_ref().map(|i| i.obra_completa),
+        "rutina": orden.rutina,
+        "creado": orden.creada_en,
+        "actualizado": estado.actualizado_en,
+    }))
+}
+
+async fn trabajos_listar() -> ApiResult<Json<Value>> {
+    let bus = bus_lectura()?;
+    let mut v: Vec<Value> = bus.listar_trabajos()?.iter().filter_map(|id| trabajo_resumen(&bus, id)).collect();
+    v.reverse(); // el más reciente primero
+    Ok(Json(json!(v)))
+}
+
+async fn trabajo_ver(Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let bus = bus_lectura()?;
+    let orden = bus.leer_orden(&id)?;
+    let estado = bus.leer_estado(&id)?;
+    let mut informe = serde_json::to_value(bus.leer_informe(&id)?)
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if let Some(o) = informe.as_object_mut() {
+        o.remove("diff"); // el diff va aparte, bajo demanda
+    }
+    let dir = bus.raiz().join("trabajos").join(&id);
+    let historial: Vec<Value> = std::fs::read_to_string(dir.join("historial.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let paquete = std::fs::read_to_string(dir.join("paquete-correccion.md")).ok();
+    Ok(Json(json!({
+        "id": id,
+        "orden": orden,
+        "estado": estado,
+        "informe": informe,
+        "historial": historial,
+        "paquete": paquete,
+    })))
+}
+
+const DIFF_MAX: usize = 200_000;
+
+async fn git(wt: &str, args: &[&str]) -> ApiResult<String> {
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.arg("-C").arg(wt).args(args).kill_on_drop(true);
+    let o = tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output())
+        .await
+        .map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "git no respondió"))?
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if !o.status.success() {
+        return Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&o.stderr).trim()),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// Lo mismo que `ea trabajo diff`: lo cambiado desde `commit_inicio` más los
+/// ficheros nuevos sin seguimiento. Recortado a `DIFF_MAX` bytes.
+async fn trabajo_diff(Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let bus = bus_lectura()?;
+    let orden = bus.leer_orden(&id)?;
+    let inicio = bus
+        .leer_informe(&id)?
+        .and_then(|i| i.commit_inicio)
+        .ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "el trabajo aún no tiene informe con commit_inicio"))?;
+    let wt = orden.worktree.as_str();
+    let mut texto = git(wt, &["diff", &inicio, "--", ".", ":(exclude,glob)**/__pycache__/**"]).await?;
+    let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"]).await?;
+    for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {
+        match std::fs::read(std::path::Path::new(wt).join(f)) {
+            Ok(b) if std::str::from_utf8(&b).is_ok() => {
+                texto.push_str(&format!("\n=== fichero nuevo sin seguimiento: {f} ===\n{}", String::from_utf8_lossy(&b)))
+            }
+            _ => texto.push_str(&format!("\n=== fichero nuevo sin seguimiento: {f} (binario o ilegible) ===\n")),
+        }
+    }
+    let truncado = texto.len() > DIFF_MAX;
+    if truncado {
+        let mut fin = DIFF_MAX;
+        while !texto.is_char_boundary(fin) {
+            fin -= 1;
+        }
+        texto.truncate(fin);
+    }
+    Ok(Json(json!({ "id": id, "commit_inicio": inicio, "diff": texto, "truncado": truncado })))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct NotaUsuario {
+    nota: String,
+    contexto: String,
+}
+
+fn estado_json(id: &str, e: &ea_bus::Estado) -> Json<Value> {
+    Json(json!({ "id": id, "estado": e.estado.as_str() }))
+}
+
+async fn trabajo_cerrar(State(s): Estado, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let e = bus_con_store(&s).await?.aplicar(&id, Evento::Cerrar)?;
+    Ok(estado_json(&id, &e))
+}
+
+async fn trabajo_cancelar(State(s): Estado, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let e = bus_con_store(&s).await?.aplicar(&id, Evento::Cancelar)?;
+    Ok(estado_json(&id, &e))
+}
+
+/// Aprueba una revisión intermedia: reformular sin nota (como `ea trabajo continuar`).
+async fn trabajo_continuar(State(s): Estado, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let e = bus_con_store(&s).await?.reformular(&id, "")?;
+    Ok(estado_json(&id, &e))
+}
+
+async fn trabajo_reformular(
+    State(s): Estado,
+    Path(id): Path<String>,
+    Json(b): Json<NotaUsuario>,
+) -> ApiResult<Json<Value>> {
+    let nota = texto_no_vacio(&b.nota, "nota", 10_000)?;
+    let e = bus_con_store(&s).await?.reformular(&id, &nota)?;
+    Ok(estado_json(&id, &e))
+}
+
+/// El usuario confirma el paquete de corrección de una rutina en espera.
+async fn trabajo_confirmar(
+    State(s): Estado,
+    Path(id): Path<String>,
+    Json(b): Json<NotaUsuario>,
+) -> ApiResult<Json<Value>> {
+    if b.contexto.chars().count() > 10_000 {
+        return Err(ApiError::bad("'contexto' supera 10000 caracteres"));
+    }
+    let e = bus_con_store(&s).await?.confirmar(&id, &b.contexto)?;
+    Ok(estado_json(&id, &e))
+}
+
+async fn colas() -> ApiResult<Json<Value>> {
+    let bus = bus_lectura()?;
+    let mut m = serde_json::Map::new();
+    for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+        let v: Vec<Value> = bus
+            .listar_cola(a)?
+            .into_iter()
+            .map(|e| {
+                let titulo = bus.leer_orden(&e.trabajo).map(|o| o.titulo).ok();
+                json!({ "id": e.id, "trabajo": e.trabajo, "titulo": titulo, "motivo": e.motivo, "encolado_en": e.encolado_en })
+            })
+            .collect();
+        m.insert(a.as_str().into(), v.into());
+    }
+    Ok(Json(Value::Object(m)))
+}
+
+async fn semaforos() -> ApiResult<Json<Value>> {
+    let v: Vec<Value> = ea_bus::listar_semaforos()
+        .into_iter()
+        .map(|(_, o)| json!({ "agente": o.agente, "trabajo": o.trabajo, "pid": o.pid, "desde": o.desde }))
+        .collect();
+    Ok(Json(json!(v)))
 }
 
 // -------------------------------------------------------------- propuestas
@@ -729,7 +896,7 @@ async fn propuesta_decidir(
 /// El catálogo completo, para verlo; ejecutables desde aquí solo las
 /// supervisadas (las directas son de los agentes o ya tienen su sección).
 async fn acciones_listar(State(s): Estado) -> ApiResult<Json<Value>> {
-    let slugs = listar_slugs(&s.config.rutinas_dir).unwrap_or_default();
+    let slugs: Vec<String> = s.store.lock().await.listar_rutinas()?.into_iter().map(|r| r.slug).collect();
     let filas: Vec<Value> = ea_acciones::CATALOGO
         .iter()
         .map(|h| {

@@ -1,7 +1,7 @@
 [Unit]
 Description=Orquestador de rutinas del ecosistema de asistente
 After=network.target ea-mcp.service
-Wants=ea-proxy.service ea-mcp.service
+Wants=ea-mcp.service
 
 [Service]
 Type=simple

@@ -3,33 +3,32 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const SECCIONES = ['inicio', 'tareas', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda'];
+const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda'];
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
-const DETALLE = { inicio: 'tr', tareas: 't', rutinas: 'r', boveda: 'b' };
+const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', boveda: 'b' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
-const SIM = { pendiente: '○', en_progreso: '◐', completada: '●', fallida: '✕', cancelada: '⊘' };
-const ACCIONES = {
-  pendiente: [['en_progreso', '▶ iniciar', 'marcarla como en curso (la llevas tú)'], ['cancelada', '⊘ cancelar', 'cancelarla']],
-  en_progreso: [['completada', '✓ completar', 'darla por hecha, con el resultado escrito al lado'], ['fallida', '✕ fallar', 'darla por fallida'], ['cancelada', '⊘ cancelar', 'cancelarla']],
+// Estados de un trabajo: glifo y palabra. El orden es el del recorrido.
+const EST = {
+  en_cola: ['○', 'en cola'], ejecutando: ['◐', 'ejecutando'], en_revision: ['◇', 'en revisión'],
+  en_espera: ['!', 'en espera'], cerrado: ['●', 'cerrado'], cancelado: ['⊘', 'cancelado'],
 };
-const ESTADO_TXT = { pendiente: 'en cola', en_progreso: 'en curso', completada: 'hecha', fallida: 'fallida', cancelada: 'cancelada' };
+const FINAL = ['cerrado', 'cancelado'];
+const MODO = { mision: 'misión', obra: 'obra', rutina: 'rutina' };
 const NOMBRE = { 'modelo-local': 'modelo local', 'claude-code': 'Claude Code', orquestador: 'orquestador', usuario: 'tú' };
-// Las tareas de estos dos las ejecuta el orquestador solo: no se llevan a mano.
-const AUTO = ['modelo-local', 'orquestador'];
 const TITULOS = {
-  inicio: ['Inicio', 'Qué se está ejecutando ahora, qué espera en cola y qué acaba de terminar. Pide algo en el cuadro de abajo.'],
-  tareas: ['Tareas', 'Todo lo que se ha pedido. Pulsa una tarea para ver su resultado y su historia.'],
+  inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada trabajo: en cola → ejecutando → en revisión → en espera → cerrado.'],
+  trabajos: ['Trabajos', 'Misiones, obras y rutinas. Pulsa uno para ver su informe, el diff y las acciones que admite.'],
   diario: ['Diario', 'El registro de todo lo que ocurre en el ecosistema, lo más reciente arriba.'],
-  rutinas: ['Rutinas', 'Trabajos programados. Se pueden ejecutar ahora sin esperar a su hora.'],
-  propuestas: ['Propuestas', 'Cambios que un agente o una rutina quiere hacer y que necesitan tu visto bueno.'],
+  rutinas: ['Rutinas', 'Procesos versionados y registrados. Se pueden lanzar ahora sin esperar a su hora.'],
+  propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
   acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
   sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
   boveda: ['Bóveda', 'Las notas de los agentes y las compartidas. El buscador busca dentro de su contenido.'],
 };
 const VACIO = {
-  tareas: 'No hay tareas. Pulsa «+ tarea» (o la tecla n) para pedir algo.',
+  trabajos: 'No hay trabajos. Se lanzan desde Claude Code con /mision, /obra o /rutina.',
   diario: 'El diario está vacío.',
-  rutinas: 'No hay rutinas dadas de alta.',
+  rutinas: 'No hay rutinas registradas (ea rutina registrar).',
   propuestas: 'Nada espera tu decisión.',
   boveda: 'No hay notas.',
 };
@@ -37,9 +36,11 @@ const VACIO = {
 const st = {
   sec: 'inicio',
   estado: null,        // /api/estado
+  trabajos: [],        // /api/trabajos, siempre al día (portada, lista y avisos)
   datos: null,         // datos de la sección visible
   detalle: {},         // detalle cargado de las filas abiertas
-  abiertos: new Set(), // claves abiertas (t41, r<slug>, …)
+  diffs: {},           // diff de los trabajos con el diff desplegado (id -> respuesta)
+  abiertos: new Set(), // claves abiertas (j<id>, r<slug>, …)
   sel: null,           // clave seleccionada
   vis: [],             // claves visibles, en orden
   html: '',
@@ -144,66 +145,94 @@ function eventos(lista) {
   }).join('');
 }
 
-const FINAL = ['completada', 'fallida', 'cancelada'];
+// ------------------------------------------------------------------- trabajos
 
-// Cuánto tardó (o lleva) una tarea: desde que se inició, o desde que se creó
-// si nadie la marcó como iniciada.
-function duracionTarea(t, d) {
-  if (t.estado === 'pendiente') return '';
-  const ini = d?.eventos.find(e => e.accion === 'tarea_iniciada')?.ts ?? t.creada;
-  if (!FINAL.includes(t.estado)) return reloj(ini);
-  return dur(Math.max(0, ms(t.actualizada) - ms(ini)));
+const estadoJ = e => `<span class="est ${e}"><i>${EST[e][0]}</i>${EST[e][1]}</span>`;
+
+// «fase 2/5» o «iteración 3», lo que diga más del avance.
+function avance(t) {
+  if (t.fases_total) return `fase ${Math.min(t.fase_actual ?? 1, t.fases_total)}/${t.fases_total}`;
+  return t.iteracion ? `iteración ${t.iteracion}` : '';
 }
 
-const estado = t => `<span class="est ${t.estado}"><i>${SIM[t.estado]}</i>${ESTADO_TXT[t.estado]}</span>`;
+const resultadoTxt = t => (t.resultado ? (t.resultado === 'bloqueado' ? '✕ bloqueado' : '✓ terminado') : '');
 
-// Qué le va a pasar a una tarea que aún no ha terminado, y quién se ocupa.
-function notaEstado(t) {
-  if (FINAL.includes(t.estado)) return '';
-  if (t.asignado_a === 'claude-code') {
-    return t.estado === 'pendiente'
-      ? 'En cola hasta que una sesión de Claude Code la recoja. También puedes llevarla a mano con los botones.'
-      : 'Claude Code (o tú) la tiene en curso.';
+// Los botones que admite un trabajo según su estado. `i` es el informe, si hay.
+function accionesTrabajo(t, i) {
+  const id = esc(t.id);
+  const b = (a, g, tt, cls = '') => btn(a, g, tt, { id: t.id }, cls);
+  let h = '';
+  if (t.estado === 'en_revision') {
+    h += b('cerrar', '✓ cerrar', 'darlo por bueno');
+    if (i && !i.obra_completa) h += b('continuar', '▶ continuar', 'la obra sigue con las fases que quedan');
+    h += `<input class="nota" placeholder="nota para reformular" aria-label="Nota" maxlength="10000">` +
+      b('reformular', '↺ reformular', 'devolverlo al modelo local con esta nota (obligatoria)');
+  } else if (t.estado === 'en_espera') {
+    h += `<textarea class="nota" rows="2" placeholder="contexto que se añade al paquete (opcional)" aria-label="Contexto" maxlength="10000"></textarea>` +
+      b('confirmar', '✓ confirmar', 'pasa el paquete de corrección a Claude Code', 'hot');
   }
-  if (AUTO.includes(t.asignado_a)) {
-    return t.estado === 'pendiente' ? 'El orquestador la recoge en unos segundos.' : 'Ejecutándose ahora.';
-  }
-  return 'Nadie la ejecuta sola: llévala a mano con los botones.';
+  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ cancelar', 'cancelar el trabajo', 'hot');
+  return h ? `<div class="acc" data-j="${id}">${h}</div>` : '';
 }
 
-function filasTareas(tareas) {
-  return tareas.map(t => {
-    const k = 't' + t.id;
-    const row = estado(t) + `<span class="n">#${t.id}</span>` +
-      `<span class="x">${esc(t.titulo)}</span><span class="m w">${esc(NOMBRE[t.asignado_a] ?? t.asignado_a)}</span><span class="m">${reloj(t.actualizada)}</span>`;
+function informeHtml(d) {
+  const i = d.informe;
+  if (!i) return '<p class="m">Todavía no hay informe.</p>';
+  let h = `<p class="et">informe</p><p class="${i.resultado === 'bloqueado' ? 'hot' : 'tx'}">${i.resultado === 'bloqueado' ? '✕ bloqueado' : '✓ terminado'}` +
+    ` · obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s</p>`;
+  if (i.motivo) h += `<p class="et">motivo</p><pre class="tx">${esc(i.motivo)}</pre>`;
+  if (i.evidencia) h += `<p class="et">evidencia</p><pre class="tx">${esc(i.evidencia)}</pre>`;
+  if (i.diff_stat) h += `<p class="et">diff stat</p><pre class="tx">${esc(i.diff_stat)}</pre>`;
+  if (i.fases?.length) {
+    h += '<p class="et">fases</p>' + i.fases.map(f =>
+      `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="m">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}</span></p>`).join('');
+  }
+  return h;
+}
+
+function diffHtml(id) {
+  const abierto = st.diffs[id] !== undefined;
+  let h = `<p>${btn('diff', (abierto ? '▾' : '▸') + ' diff', 'mostrar u ocultar el diff del trabajo', { id }, 'l')}</p>`;
+  const x = st.diffs[id];
+  if (x) h += x.error ? `<p class="hot">${esc(x.error)}</p>` : `<pre class="diff">${esc(x.diff || '(sin cambios)')}${x.truncado ? '\n… (recortado)' : ''}</pre>`;
+  return h;
+}
+
+function filasTrabajos(ts) {
+  return ts.map(t => {
+    const k = 'j' + t.id;
+    const row = estadoJ(t.estado) + `<span class="n">${esc(t.id.slice(9, 15))}</span>` +
+      `<span class="x">${esc(t.titulo)}</span><span class="m w">${MODO[t.modo] ?? t.modo}${t.rutina ? ' · ' + esc(t.rutina.slug) + ' v' + t.rutina.version : ''}</span>` +
+      `<span class="m">${avance(t)} ${resultadoTxt(t)}</span><span class="m">${reloj(t.actualizado)}</span>`;
     const d = st.detalle[k];
-    const auto = AUTO.includes(t.asignado_a);
-    const acc = (ACCIONES[t.estado] || []).filter(([v]) => !auto || v === 'cancelada')
-      .map(([v, g, tt]) => btn('estado', g, tt, { id: t.id, v }, v === 'fallida' ? 'hot' : '')).join('');
-    const fin = FINAL.includes(t.estado);
-    const tiempo = duracionTarea(t, d);
-    const x = d?.ejecucion;
-    const nota = notaEstado(t);
-    const det = `<p class="m">${esc(NOMBRE[t.creado_por] ?? t.creado_por)} → ${esc(NOMBRE[t.asignado_a] ?? t.asignado_a)} · origen ${esc(t.origen)} · ${hora(t.creada)}${tiempo ? ` · ${fin ? 'tardó' : 'lleva'} ${tiempo}` : ''}</p>` +
-      (nota ? `<p class="m">${nota}</p>` : '') +
-      `<p class="et">petición</p><p class="tx">${esc(t.peticion)}</p>` +
-      (t.resultado ? `<p class="et">${t.estado === 'fallida' ? 'error' : 'resultado'}</p><pre class="tx${t.estado === 'fallida' ? ' hot' : ''}">${esc(pretty(t.resultado))}</pre>` : '') +
-      (x ? `<p class="m" title="pasos · llamadas al modelo">${btn('ir-rutina', '↻ ' + x.rutina, 'ver rutina', { slug: x.rutina }, 'l')} · ${x.pasos} pasos · ${x.llamadas_modelo} consultas al modelo${x.detalle ? ' · ' + esc(x.detalle) : ''}</p>` : '') +
-      (d?.propuestas ?? []).map(p => `<p>◇ propuso ${btn('ir-prop', '#' + p.id, 'ver propuesta', { id: p.id }, 'l')} <span class="m">${esc(p.descripcion)} · ${p.estado}</span></p>`).join('') +
-      (t.padre ? `<p>↳ repetición de ${btn('ir-tarea', '#' + t.padre, 'tarea de origen', { id: t.padre }, 'l')}</p>` : '') +
-      (d?.hijas ?? []).map(h => `<p>↺ repetida en ${btn('ir-tarea', '#' + h.id, 'repetición', { id: h.id }, 'l')} <span class="m">${ESTADO_TXT[h.estado] ?? h.estado}</span></p>`).join('') +
-      (d ? `<p class="et">historia</p><div class="evs">${eventos(d.eventos)}</div>` : '') +
-      `<div class="acc">${t.estado === 'en_progreso' && !auto ? '<input class="res" placeholder="resultado (opcional)" aria-label="Resultado">' : ''}${acc}` +
-      (fin ? btn('repetir', t.estado === 'completada' ? '↺ repetir' : '↺ reintentar', 'lanzarla otra vez como tarea nueva', { id: t.id }) : '') +
-      (t.asignado_a === 'orquestador' ? '' : btn('plantilla', '✎ copiar en nueva', 'abre el cuadro de tarea nueva con esta petición', { id: t.id })) + `</div>`;
-    return fila(k, 't', row, `#${t.id} ${t.titulo} ${t.asignado_a} ${t.estado} ${ESTADO_TXT[t.estado]} ${t.origen}`, det,
-      t.estado === 'completada' || t.estado === 'cancelada' ? ' fin' : '');
+    let det = `<p class="m">${esc(t.id)} · creado ${hora(t.creado)}${t.detalle ? ' · ' + esc(t.detalle) : ''}</p>`;
+    if (d) {
+      const o = d.orden;
+      det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
+        `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
+        (o.notas_revision?.length ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
+        informeHtml(d) +
+        (d.paquete ? `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>` : '') +
+        (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
+        `<p class="et">historial</p><div class="evs">` + d.historial.map(h =>
+          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span>${esc(h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}</span></div>`).join('') + '</div>' +
+        accionesTrabajo(t, d.informe);
+    } else {
+      det += accionesTrabajo(t, null);
+    }
+    return fila(k, 'j', row, `${t.titulo} ${t.modo} ${t.id} ${EST[t.estado][1]} ${t.resultado ?? ''}`, det, FINAL.includes(t.estado) ? ' fin' : '');
   });
 }
+
 
 function pretty(txt) {
   if (!txt) return '';
   try { return JSON.stringify(JSON.parse(txt), null, 1); } catch { return txt; }
+}
+
+// El trabajo del bus al que se refiere un evento del diario, si lo hay.
+function trabajoDe(e) {
+  try { return JSON.parse(e.detalle)?.trabajo || null; } catch { return null; }
 }
 
 function filasDiario(evs) {
@@ -215,7 +244,7 @@ function filasDiario(evs) {
       `<span class="n">${e.tarea != null ? '#' + e.tarea : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
     const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${new Date(e.ts).toLocaleString()}</p>` +
       (e.detalle ? `<pre>${esc(pretty(e.detalle))}</pre>` : '') +
-      (e.tarea != null ? `<p>${btn('ir-tarea', '→ #' + e.tarea, 'ver tarea', { id: e.tarea }, 'l')}</p>` : '');
+      (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '');
     return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.tarea != null ? '#' + e.tarea : ''} ${e.detalle ?? ''}`, det);
   });
 }
@@ -223,20 +252,12 @@ function filasDiario(evs) {
 function filasRutinas(rs) {
   return rs.map(r => {
     const k = 'r' + r.slug;
-    const u = r.ultima;
-    const ultima = u ? `<i class="${u.resultado === 'fallida' ? 'hot' : ''}">${u.resultado === 'ok' ? '●' : u.resultado === 'fallida' ? '✕' : '◐'}</i> hace ${reloj(u.inicio)}` : 'nunca';
-    const row = `<i>↻</i><span class="x">${esc(r.slug)}</span>` +
+    const row = `<i>↻</i><span class="x">${esc(r.slug)}</span><span class="m">v${r.version}</span>` +
       `<span class="m ${r.error ? 'hot' : ''}">${esc(r.descripcion ?? r.error ?? '')}</span>` +
-      `<span class="m">${ultima}</span><span class="m">${r.proxima ? en(r.proxima) : ''}</span>` +
-      (r.error ? '<span></span>' : btn('encolar', '▶ ejecutar ahora', 'encola una ejecución; el orquestador la recoge en segundos', { slug: r.slug }));
+      `<span class="m">${r.proxima ? en(r.proxima) : ''}</span>` +
+      (r.error ? '<span></span>' : btn('lanzar', '▶ lanzar', 'crea un trabajo de la rutina; el orquestador lo recoge en segundos', { slug: r.slug }));
     const d = st.detalle[k];
-    let det = '';
-    if (d) {
-      det = `<pre class="tx">${esc(d.contenido ?? '')}</pre>` +
-        (d.ejecuciones.length ? `<div class="sep">↻</div>` + d.ejecuciones.map(x =>
-          `<div class="ev"><span>${hora(x.inicio)}</span><i class="${x.resultado === 'fallida' ? 'hot' : ''}">${x.resultado === 'ok' ? '✓' : x.resultado === 'fallida' ? '✕' : '◐'}</i>` +
-          `<span>▸ ${x.pasos}</span><span>${esc(x.detalle ?? '')}</span><span></span></div>`).join('') : '');
-    }
+    const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p><pre class="tx">${esc(d.contenido ?? '')}</pre>` : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
 }
@@ -298,7 +319,6 @@ function filasBoveda(d) {
     return fila(k, 'b', row, `${n.titulo} ${n.ruta}`, det, '');
   });
 }
-
 function filasSistema(e, plano = false) {
   const out = [];
   e.servicios.forEach(s => {
@@ -349,14 +369,13 @@ function filasAcciones(hs) {
       }
       if (c.res) {
         det += `<p class="tx sal">✓ ${esc(c.res.texto)}` +
-          (c.res.tarea != null ? ' ' + btn('ir-tarea', '→ #' + c.res.tarea, 'ver tarea', { id: c.res.tarea }, 'l') : '') + '</p>';
+          '' + '</p>';
       }
       if (c.err) det += `<p class="hot sal">✕ ${esc(c.err)}</p>`;
     }
     return fila('a' + h.nombre, 'a', row, `${h.nombre} ${h.resumen} ${h.riesgo}`, det, h.supervisada ? '' : ' fin');
   });
 }
-
 const suelto = (html, fijo = false) => ({ k: null, txt: '', html, fijo });
 const grupo = (glifo, titulo, n, ayuda = '') =>
   suelto(`<h2 class="gr"><i>${glifo}</i>${titulo}${n ? `<b>${n}</b>` : ''}${ayuda ? `<span>${ayuda}</span>` : ''}</h2>`);
@@ -366,79 +385,82 @@ const columnas = (cls, ...nombres) =>
 
 const barraViva = '<div class="bar" role="progressbar" aria-label="en marcha"><i></i></div>';
 
-// Una tarea en el tablero. Pulsarla abre su ficha debajo.
-function tarjeta(t) {
-  const k = 't' + t.id;
-  const run = t.estado === 'en_progreso';
-  const fin = FINAL.includes(t.estado);
-  const espera = t.estado !== 'pendiente' ? ''
-    : t.asignado_a === 'claude-code' ? 'espera a una sesión de Claude Code'
-      : AUTO.includes(t.asignado_a) ? 'el orquestador la recoge en segundos' : 'nadie la ejecuta sola';
+// ------------------------------------------------------------------- portada
+
+// Una columna de la portada: cola de un agente o semáforo del worktree.
+function cajaCola(titulo, rol, entradas) {
+  return `<div class="actor"><h3><i class="luz"></i>${titulo}</h3><p class="rol">${rol}</p>` +
+    (entradas.length ? entradas.map(e =>
+      `<p class="que cola" data-k="j${esc(e.trabajo)}" title="pulsa para ver la ficha">${esc(e.titulo ?? e.trabajo)}</p>` +
+      `<p class="pie">${esc(e.motivo)} · hace ${reloj(e.encolado_en)}</p>`).join('') : '<p class="que">vacía</p>') +
+    `<p class="pie">${entradas.length} en cola</p></div>`;
+}
+
+function cajaSemaforo(sem) {
+  const dueños = sem.length ? sem.map(o => {
+    const t = st.trabajos.find(x => x.id === o.trabajo);
+    return `<p class="que run" data-k="j${esc(o.trabajo)}" title="pulsa para ver la ficha">${esc(NOMBRE[o.agente] ?? o.agente)} · ${esc(t?.titulo ?? o.trabajo)}</p>` +
+      `<p class="pie">desde hace ${reloj(o.desde)} · pid ${o.pid}</p>${barraViva}`;
+  }).join('') : '<p class="que">libre</p>';
+  return `<div class="actor${sem.length ? ' run' : ''}"><h3><i class="luz"></i>Semáforo del worktree</h3>` +
+    `<p class="rol">quien lo tiene escribe; el otro espera</p>${dueños}</div>`;
+}
+
+function tarjetaJ(t) {
+  const k = 'j' + t.id;
+  const run = t.estado === 'ejecutando';
   return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" title="pulsa para ver la ficha">` +
-    `<header>${estado(t)}<span class="n">#${t.id}</span></header>` +
-    `<p class="tit">${esc(t.titulo)}</p>` +
-    (run ? barraViva : '') +
-    (fin && t.resultado ? `<p class="res${t.estado === 'fallida' ? ' hot' : ''}">${esc(t.resultado.slice(0, 160))}</p>` : '') +
-    (espera ? `<p class="res">${espera}</p>` : '') +
-    `<footer><span>${esc(NOMBRE[t.asignado_a] ?? t.asignado_a)}</span><span>${run ? 'lleva' : 'hace'} ${reloj(t.actualizada)}</span></footer></article>`;
+    `<header>${estadoJ(t.estado)}<span class="n">${MODO[t.modo] ?? t.modo}</span></header>` +
+    `<p class="tit">${esc(t.titulo)}</p>` + (run ? barraViva : '') +
+    (t.resultado ? `<p class="res${t.resultado === 'bloqueado' ? ' hot' : ''}">${resultadoTxt(t)}${t.detalle ? ' · ' + esc(t.detalle.slice(0, 120)) : ''}</p>` : '') +
+    `<footer><span>${avance(t)}</span><span>hace ${reloj(t.actualizado)}</span></footer></article>`;
 }
 
-// El recorrido de una tarea, de izquierda a derecha.
-function tablero(d) {
-  const cola = d.activas.filter(t => t.estado === 'pendiente').reverse(); // la siguiente, arriba
-  const curso = d.activas.filter(t => t.estado === 'en_progreso');
-  const col = (cls, titulo, ayuda, ts, vacio) =>
+// El recorrido de un trabajo, de izquierda a derecha.
+function tableroJ() {
+  const por = e => st.trabajos.filter(t => t.estado === e);
+  const cerrados = st.trabajos.filter(t => FINAL.includes(t.estado)).slice(0, 6);
+  const col = (cls, titulo, ayuda, ts) =>
     `<section class="col ${cls}"><h3>${titulo}<b>${ts.length || ''}</b></h3><p class="ay">${ayuda}</p>` +
-    (ts.length ? ts.map(tarjeta).join('') : `<p class="nada">${vacio}</p>`) + '</section>';
-  return suelto('<div class="tablero">' +
-    col('cola', '○ En cola', 'esperan a que alguien las recoja', cola, 'nada espera') +
-    col('curso', '◐ Ejecutándose', 'en marcha ahora mismo', curso, 'nada en marcha') +
-    col('fin', '● Terminadas', 'las últimas; pulsa una para ver el resultado', d.recientes, 'todavía nada') +
-    '</div>');
+    (ts.length ? ts.map(tarjetaJ).join('') : '<p class="nada">nada</p>') + '</section>';
+  return suelto('<div class="tablero t5">' +
+    col('cola', '○ En cola', 'esperan al modelo local', por('en_cola')) +
+    col('curso', '◐ Ejecutando', 'el modelo local trabaja', por('ejecutando')) +
+    col('rev', '◇ En revisión', 'esperan a Claude Code', por('en_revision')) +
+    col('esp', '! En espera', 'esperan tu confirmación', por('en_espera')) +
+    col('fin', '● Cerrados', 'los últimos', cerrados) + '</div>');
 }
 
-// Quién trabaja en el ecosistema y qué hace cada uno ahora mismo.
-function actores(d) {
-  const e = st.estado;
-  const quienes = [
-    ['orquestador', 'Orquestador', 'en reconstrucción: ejecutará las tareas del bus (Qwen Code)'],
-    ['modelo-local', 'Modelo local', 'responde en el momento; puede consultar tareas, diario y notas'],
-    ['claude-code', 'Claude Code', 'recoge sus tareas cuando hay una sesión suya abierta'],
-  ];
-  return suelto('<div class="actores">' + quienes.map(([id, nombre, rol]) => {
-    const suyas = d.activas.filter(t => t.asignado_a === id);
-    const run = suyas.find(t => t.estado === 'en_progreso');
-    const cola = suyas.filter(t => t.estado === 'pendiente').length;
-    const orq = id === 'orquestador';
-    const caido = orq && e && !e.orquestador.vivo;
-    const ult = orq ? e?.orquestador.ultimo_latido : e?.agentes.find(a => a.nombre === id)?.ultimo?.ts;
-    const que = caido ? 'sin latido: no ejecutará nada'
-      : run ? `ejecutando #${run.id} · lleva ${reloj(run.actualizada)}` : 'libre';
-    return `<div class="actor${run ? ' run' : ''}${caido ? ' mal' : ''}"${run ? ` data-k="t${run.id}" title="pulsa para ver la ficha"` : ''}>` +
-      `<h3><i class="luz"></i>${nombre}</h3><p class="rol">${rol}</p><p class="que">${que}</p>` +
-      (run ? `<p class="tit">${esc(run.titulo)}</p>${barraViva}` : '') +
-      `<p class="pie">${cola ? cola + ' en cola · ' : ''}${ult ? (orq ? 'latido hace ' : 'última actividad hace ') + reloj(ult) : 'sin actividad todavía'}</p></div>`;
-  }).join('') + '</div>');
+// Aviso destacado de un paquete de corrección: añadir contexto y confirmar.
+function avisoPaquete(t) {
+  return suelto(`<div class="paq"><h3><i>!</i>${esc(t.titulo)} <span class="m">${t.rutina ? esc(t.rutina.slug) + ' v' + t.rutina.version : ''} falló · hace ${reloj(t.actualizado)}</span></h3>` +
+    `<p class="m">${esc(t.detalle ?? 'La rutina falló.')} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa a Claude Code.</p>` +
+    `<p>${btn('ir-trabajo', '▸ ver paquete', 'abrir la ficha', { id: t.id }, 'l')}</p>${accionesTrabajo(t, null)}</div>`);
 }
 
-// La portada: quién hace qué, lo que espera una decisión, lo que no va bien,
-// el tablero de tareas (con la ficha de las abiertas debajo) y las rutinas.
+// La portada: colas y semáforo, lo que espera una decisión, el tablero de
+// trabajos (con la ficha de los abiertos debajo).
 function filasInicio(d) {
-  const out = [actores(d)];
+  const out = [
+    grupo('⇄', 'Colas', 0, 'modelo local → Claude Code'),
+    suelto('<div class="actores">' +
+      cajaCola('Cola · modelo local', 'trabajo que espera para ejecutarse', d.colas['modelo-local']) +
+      cajaCola('Cola · Claude Code', 'trabajo que espera revisión', d.colas['claude-code']) +
+      cajaSemaforo(d.semaforos) + '</div>'),
+  ];
+  const paq = st.trabajos.filter(t => t.estado === 'en_espera' && t.modo === 'rutina');
+  if (paq.length) out.push(grupo('!', 'Paquetes de corrección en espera', paq.length, 'una rutina falló; nada pasa a Claude Code sin tu confirmación'), ...paq.map(avisoPaquete));
   if (d.propuestas.length) {
     out.push(grupo('◇', 'Esperan tu decisión', d.propuestas.length, 'acepta o rechaza; aceptar ejecuta la acción'), ...filasPropuestas(d.propuestas));
   }
-
   const e = st.estado;
   if (e) {
     const mal = new Set(e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => 's' + s.nombre));
     if (mal.size) out.push(grupo('▦', 'Servicios parados'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
   }
-
-  out.push(grupo('▤', 'Tareas', 0, 'pasan de izquierda a derecha'), tablero(d));
-  const abiertas = [...d.activas, ...d.recientes].filter(t => st.abiertos.has('t' + t.id));
-  if (abiertas.length) out.push(grupo('▸', 'Ficha', 0, 'pulsa la fila para cerrarla'), ...filasTareas(abiertas));
-  if (d.rutinas.length) out.push(grupo('↻', 'Rutinas', 0, 'trabajos programados; se pueden ejecutar ahora'), ...filasRutinas(d.rutinas));
+  out.push(grupo('▤', 'Trabajos', st.trabajos.length, 'pasan de izquierda a derecha'), tableroJ());
+  const abiertos = st.trabajos.filter(t => st.abiertos.has('j' + t.id));
+  if (abiertos.length) out.push(grupo('▸', 'Ficha', 0, 'pulsa la fila para cerrarla'), ...filasTrabajos(abiertos));
   return out;
 }
 
@@ -448,9 +470,10 @@ function construir() {
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
-    case 'tareas': return d ? con(columnas('t', 'estado', 'nº', 'tarea', 'para', 'hace'), filasTareas(d)) : [];
+    case 'trabajos': return d ? con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'avance', 'hace'),
+      filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d)) : [];
     case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'tarea', 'duró'), filasDiario(d)) : [];
-    case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'qué hace', 'última vez', 'próxima', ''), filasRutinas(d)) : [];
+    case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
     case 'boveda': return d ? con(columnas('b', '', 'nota', 'ruta', 'autor', 'hace'), filasBoveda(d)) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
@@ -462,10 +485,10 @@ function construir() {
 function barra() {
   const fb = $('#fb');
   let h = '';
-  if (st.sec === 'tareas' && st.estado) {
-    h = Object.keys(SIM).map(e =>
-      `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${e}" aria-label="${e}">` +
-      `<i class="e ${e}">${SIM[e]}</i>${ESTADO_TXT[e]} ${st.estado.tareas[e] || 0}</button>`).join('');
+  if (st.sec === 'trabajos') {
+    h = Object.keys(EST).map(e =>
+      `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-label="${EST[e][1]}">` +
+      `<i class="e ${e}">${EST[e][0]}</i>${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
     h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="latidos" aria-label="Latidos">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
   } else if (st.sec === 'propuestas') {
@@ -493,18 +516,21 @@ function cabecera() {
   o.className = e.orquestador.vivo ? '' : 'hot';
   o.title = e.orquestador.ultimo_latido ? 'latido hace ' + hace(e.orquestador.ultimo_latido) : 'sin latido';
 
-  const activas = (e.tareas.pendiente || 0) + (e.tareas.en_progreso || 0);
-  const bt = $('[data-s=tareas] b'), bp = $('[data-s=propuestas] b');
-  bt.textContent = activas || '';
+  // Trabajos que esperan a alguien: revisión de Claude Code o tu confirmación.
+  const atentos = st.trabajos.filter(t => t.estado === 'en_revision' || t.estado === 'en_espera').length;
+  const esperan = st.trabajos.filter(t => t.estado === 'en_espera').length;
+  const bt = $('[data-s=trabajos] b'), bp = $('[data-s=propuestas] b');
+  bt.textContent = atentos || '';
+  bt.className = esperan ? 'hot' : '';
   bp.textContent = e.propuestas_pendientes || '';
   bp.className = 'hot';
-  document.title = e.propuestas_pendientes ? `◇ ${e.propuestas_pendientes}` : 'ea';
+  document.title = esperan ? `! ${esperan}` : e.propuestas_pendientes ? `◇ ${e.propuestas_pendientes}` : 'ea';
 }
 
 function pintar() {
   // No pisar lo que se está escribiendo dentro de un detalle.
   const foco = document.activeElement;
-  if (foco && foco.matches('input, select') && foco.closest('#lista')) return relojes();
+  if (foco && foco.matches('input, select, textarea') && foco.closest('#lista')) return relojes();
 
   if (!st.datos && st.sec !== 'sistema') {
     st.vis = [];
@@ -539,16 +565,19 @@ function pintar() {
 
 async function cargaDetalle(k) {
   if (!(DETALLE[st.sec] || '').includes(k[0])) return;
-  const ruta = { t: '/api/tareas/', r: '/api/rutinas/', b: '/api/boveda/nota?ruta=' }[k[0]];
+  const ruta = { j: '/api/trabajos/', r: '/api/rutinas/', b: '/api/boveda/nota?ruta=' }[k[0]];
   try { st.detalle[k] = await api(ruta + encodeURIComponent(k.slice(1))); } catch { delete st.detalle[k]; }
 }
 
 async function cargaSeccion() {
   const sec = st.sec;
   let datos = null;
-  if (sec === 'inicio') datos = await api('/api/inicio');
+  if (sec === 'inicio') {
+    const [propuestas, colas, semaforos] = await Promise.all([
+      api('/api/propuestas?estado=pendiente'), api('/api/colas'), api('/api/semaforos')]);
+    datos = { propuestas, colas, semaforos };
+  } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await api('/api/acciones');
-  else if (sec === 'tareas') datos = await api('/api/tareas?limite=200' + (st.filtroEstado ? '&estado=' + st.filtroEstado : ''));
   else if (sec === 'diario') datos = await api('/api/diario?limite=300' + (st.latidos ? '&latidos=1' : ''));
   else if (sec === 'rutinas') datos = await api('/api/rutinas');
   else if (sec === 'propuestas') datos = await api('/api/propuestas' + (st.propTodas ? '' : '?estado=pendiente'));
@@ -564,7 +593,7 @@ async function tick() {
   if (st.ocupado) { st.otra = true; return; }
   st.ocupado = true;
   try {
-    st.estado = await api('/api/estado');
+    [st.estado, st.trabajos] = await Promise.all([api('/api/estado'), api('/api/trabajos')]);
     $('#off').hidden = true;
     cabecera();
     if (await cargaSeccion()) pintar();
@@ -586,7 +615,6 @@ function marco() {
   $('#q').placeholder = st.sec === 'boveda' ? 'buscar en las notas ( / )' : 'filtrar ( / )';
   $$('#rail button').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
   $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
-  formulario(false);
 }
 
 function ir(sec) {
@@ -644,12 +672,27 @@ function abre(sec, k) {
   st.sel = k;
 }
 
+
 async function accion(b) {
   const { a, id, v, slug, n, ruta, h } = b.dataset;
   try {
-    if (a === 'estado') {
-      const res = $('.res', b.closest('.f'))?.value.trim();
-      await post(`/api/tareas/${id}/estado`, { estado: v, resultado: res || null });
+    if (['cerrar', 'cancelar', 'continuar', 'reformular', 'confirmar'].includes(a)) {
+      const caja = b.closest('[data-j]');
+      const texto = $('.nota', caja)?.value.trim() ?? '';
+      if (a === 'reformular' && !texto) throw new Error('escribe la nota para reformular');
+      if (a === 'cancelar' && !(st.armado && st.armado.n === 'c' + id && st.armado.hasta > Date.now())) {
+        st.armado = { n: 'c' + id, hasta: Date.now() + 3000 };
+        b.textContent = '⊘ confirmar cancelar';
+        setTimeout(() => { st.armado = null; st.html = ''; pintar(); }, 3100);
+        return;
+      }
+      st.armado = null;
+      const cuerpo = a === 'reformular' ? { nota: texto } : a === 'confirmar' ? { contexto: texto } : {};
+      await post(`/api/trabajos/${id}/${a}`, cuerpo);
+      avisa(`${id.slice(9, 15)}: ${a}`, true);
+    } else if (a === 'diff') {
+      if (st.diffs[id] !== undefined) delete st.diffs[id];
+      else st.diffs[id] = await api(`/api/trabajos/${id}/diff`).catch(e => ({ error: e.message }));
     } else if (a === 'decidir') {
       const k = 'p' + id;
       if (v === 'aceptar' && b.dataset.ac && !(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
@@ -672,9 +715,10 @@ async function accion(b) {
       st.armado = null;
       const r = await post('/api/boveda/promover', { ruta });
       avisa(r.texto, true);
-    } else if (a === 'encolar') {
-      const t = await post(`/api/rutinas/${encodeURIComponent(slug)}/encolar`);
-      avisa(`Rutina encolada como tarea #${t.id}`, true);
+    } else if (a === 'lanzar') {
+      const t = await post(`/api/rutinas/${encodeURIComponent(slug)}/lanzar`);
+      avisa(`Rutina lanzada: trabajo ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
+      st.abiertos.add('j' + t.trabajo);
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;
@@ -686,30 +730,13 @@ async function accion(b) {
         setTimeout(pintar, 3100);
         return;
       }
-    } else if (a === 'ir-tarea') {
+    } else if (a === 'ir-trabajo') {
       st.filtroEstado = null;
-      abre('tareas', 't' + id);
+      abre('trabajos', 'j' + id);
       return;
     } else if (a === 'ir-prop') {
       st.propTodas = true;
       abre('propuestas', 'p' + id);
-      return;
-    } else if (a === 'ir-rutina') {
-      abre('rutinas', 'r' + slug);
-      return;
-    } else if (a === 'repetir') {
-      const t = await post(`/api/tareas/${id}/repetir`);
-      avisa(`Repetida como tarea #${t.id}`, true);
-      st.abiertos.add('t' + t.id);
-      st.sel = 't' + t.id;
-    } else if (a === 'plantilla') {
-      const t = st.detalle['t' + id]?.tarea;
-      if (!t) throw new Error('la tarea aún no se ha cargado');
-      const f = $('#form').elements;
-      f.solicita.value = t.peticion;
-      if ([...f.asignado_a.options].some(o => o.value === t.asignado_a)) f.asignado_a.value = t.asignado_a;
-      pista();
-      formulario(true);
       return;
     } else if (a === 'simular' || a === 'ejecutar') {
       // Los fallos se quedan junto al formulario, no en un aviso pasajero.
@@ -740,22 +767,6 @@ async function accion(b) {
   await tick();
 }
 
-// El cuadro de tarea nueva: siempre a la vista en la portada; en el resto de
-// secciones se abre con «+ tarea» o la tecla n.
-function formulario(mostrar) {
-  const f = $('#form');
-  f.hidden = !(mostrar || st.sec === 'inicio');
-  if (mostrar) f.elements.solicita.focus();
-}
-
-const PISTAS = {
-  'modelo-local': 'El orquestador se la pasa al modelo local en unos segundos. La verás moverse de «En cola» a «Ejecutándose» y a «Terminadas».',
-  'claude-code': 'Queda en cola hasta que una sesión de Claude Code la recoja: él consulta sus tareas, nadie se la envía.',
-};
-function pista() {
-  $('#pista').textContent = PISTAS[$('#form').elements.asignado_a.value] ?? '';
-}
-
 function ayuda(mostrar) {
   $('#ayuda').hidden = !mostrar;
   try { localStorage.setItem('ea-ayuda-vista', '1'); } catch { /* sin almacenamiento */ }
@@ -767,7 +778,6 @@ document.addEventListener('click', ev => {
   const t = ev.target;
   const rail = t.closest('#rail button');
   if (rail) return ir(rail.dataset.s);
-  if (t.closest('#nueva')) return formulario($('#form').hidden || st.sec === 'inicio');
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
   if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }
   const f = t.closest('button[data-f]');
@@ -778,31 +788,9 @@ document.addEventListener('click', ev => {
   }
   const b = t.closest('button[data-a]');
   if (b) return accion(b);
-  if (t.closest('input, select')) return;
+  if (t.closest('input, select, textarea, .acc')) return;
   const fila = t.closest('#lista [data-k]');
   if (fila) { st.sel = fila.dataset.k; alterna(fila.dataset.k); }
-});
-
-$('#form').elements.asignado_a.addEventListener('change', pista);
-
-$('#form').addEventListener('submit', async ev => {
-  ev.preventDefault();
-  const f = ev.target.elements;
-  try {
-    // El título es la primera línea de la petición, recortada.
-    const peticion = f.solicita.value.trim();
-    const linea = peticion.split('\n')[0];
-    const titulo = linea.length > 80 ? linea.slice(0, 79) + '…' : linea;
-    const t = await post('/api/tareas', { titulo, asignado_a: f.asignado_a.value, solicita: peticion });
-    f.solicita.value = '';
-    formulario(false);
-    avisa(`Tarea #${t.id} creada para ${NOMBRE[t.asignado_a] ?? t.asignado_a}`, true);
-    st.filtroEstado = null;
-    if (st.sec !== 'tareas' && st.sec !== 'inicio') ir('tareas'); else { st.html = ''; tick(); }
-    st.sel = 't' + t.id;
-  } catch (e) {
-    avisa(e.message);
-  }
 });
 
 // La consola de acciones guarda lo escrito en el estado (la lista se repinta
@@ -831,7 +819,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && !$('#ayuda').hidden) return ayuda(false);
   if (ev.key === 'Escape') {
     if (t.id === 'q') { t.value = ''; st.q = ''; }
-    if (enCampo) { t.blur(); if (t.closest('#form')) formulario(false); }
+    if (enCampo) t.blur();
     else { st.abiertos.clear(); st.sel = null; }
     st.html = '';
     pintar();
@@ -846,7 +834,6 @@ document.addEventListener('keydown', ev => {
   const n = Number(ev.key);
   if (n >= 1 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
   if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
-  else if (ev.key === 'n') { ev.preventDefault(); formulario(true); }
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);
@@ -865,7 +852,6 @@ addEventListener('hashchange', () => {
   const h = location.hash.slice(1);
   if (SECCIONES.includes(h)) st.sec = h;
   marco();
-  pista();
   // La primera vez, la guía abierta.
   try { if (!localStorage.getItem('ea-ayuda-vista')) ayuda(true); } catch { /* sin almacenamiento */ }
   tick();

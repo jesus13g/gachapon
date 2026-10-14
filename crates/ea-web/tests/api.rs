@@ -254,29 +254,157 @@ async fn decidir_una_propuesta() {
 }
 
 #[tokio::test]
-async fn rutinas_listar_ver_y_encolar() {
+async fn rutinas_listar_ver_y_lanzar() {
     let f = montar();
     let _g = aislar_bus(&f).await;
 
     let (_, lista) = get(&f, "/api/rutinas").await;
     assert_eq!(lista[0]["slug"], "revision-diaria");
-    assert!(lista[0]["ultima"].is_null());
+    assert_eq!(lista[0]["version"], 1);
 
     let (s, r) = get(&f, "/api/rutinas/revision-diaria").await;
     assert_eq!(s, StatusCode::OK);
-    assert!(r["contenido"].as_str().unwrap().contains("Revisión diaria"));
+    assert!(r["contenido"].as_str().unwrap().contains("revisa"));
 
-    let (s, t) = post(&f, "/api/rutinas/revision-diaria/encolar", json!({})).await;
+    let (s, t) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
     assert_eq!(s, StatusCode::CREATED);
     assert_eq!(t["rutina"], "revision-diaria");
-    assert!(!t["trabajo"].as_str().unwrap().is_empty());
+    let id = t["trabajo"].as_str().unwrap().to_string();
+    let (_, j) = get(&f, &format!("/api/trabajos/{id}")).await;
+    assert_eq!(j["estado"]["estado"], "en_cola");
+    let (s, _) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
+    assert_eq!(s, StatusCode::CONFLICT, "ya hay una ejecución en curso");
 
     let (s, _) = get(&f, "/api/rutinas/no-existe").await;
     assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = post(&f, "/api/rutinas/no-existe/lanzar", json!({})).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
     let (s, _) = get(&f, "/api/rutinas/a.b").await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
-    let (s, _) = post(&f, "/api/rutinas/a.b/encolar", json!({})).await;
+    let (s, _) = post(&f, "/api/rutinas/a.b/lanzar", json!({})).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+fn orden(modo: ea_bus::Modo, titulo: &str, worktree: &str) -> ea_bus::Orden {
+    ea_bus::Orden {
+        id: String::new(),
+        modo,
+        titulo: titulo.into(),
+        worktree: worktree.into(),
+        objetivo: "hacer algo".into(),
+        criterio_exito: Some("true".into()),
+        fases: vec![],
+        revisar_cada: None,
+        topes: Default::default(),
+        rutina: None,
+        notas_revision: vec![],
+        creada_en: String::new(),
+        creada_por: "test".into(),
+    }
+}
+
+#[tokio::test]
+async fn trabajos_colas_y_semaforos_de_solo_lectura() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let bus = ea_bus::Bus::abrir().unwrap();
+
+    let (s, v) = get(&f, "/api/trabajos").await;
+    assert_eq!((s, v.as_array().unwrap().len()), (StatusCode::OK, 0));
+
+    let id = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "Primera", "/tmp")).unwrap();
+    let (_, v) = get(&f, "/api/trabajos").await;
+    assert_eq!(v[0]["id"], id.as_str());
+    assert_eq!(v[0]["modo"], "mision");
+    assert_eq!(v[0]["estado"], "en_cola");
+    assert!(v[0]["resultado"].is_null());
+
+    let (_, c) = get(&f, "/api/colas").await;
+    assert_eq!(c["modelo-local"][0]["trabajo"], id.as_str());
+    assert_eq!(c["modelo-local"][0]["titulo"], "Primera");
+    assert!(c["claude-code"].as_array().unwrap().is_empty());
+
+    let (s, j) = get(&f, &format!("/api/trabajos/{id}")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(j["orden"]["titulo"], "Primera");
+    assert_eq!(j["historial"][0]["evento"], "crear");
+    assert!(j["informe"].is_null());
+
+    let (s, _) = get(&f, "/api/trabajos/no-existe").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = get(&f, &format!("/api/trabajos/{id}/diff")).await;
+    assert_eq!(s, StatusCode::CONFLICT, "sin informe no hay diff");
+
+    let (s, sem) = get(&f, "/api/semaforos").await;
+    assert_eq!((s, sem.as_array().unwrap().len()), (StatusCode::OK, 0));
+    let _candado = ea_bus::CandadoWorktree::adquirir_en(
+        bus.raiz(),
+        std::path::Path::new("/tmp"),
+        ea_bus::Ocupante { agente: "modelo-local".into(), trabajo: id.clone(), pid: 0, desde: "2026-10-14T10:00:00Z".into() },
+        std::time::Duration::from_millis(50),
+    )
+    .unwrap();
+    let (_, sem) = get(&f, "/api/semaforos").await;
+    assert_eq!(sem[0]["trabajo"], id.as_str());
+    assert_eq!(sem[0]["agente"], "modelo-local");
+}
+
+#[tokio::test]
+async fn acciones_del_usuario_sobre_los_trabajos() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let bus = ea_bus::Bus::abrir().unwrap();
+    let entrega = |id: &str, completa: bool| {
+        bus.aplicar(id, ea_bus::Evento::Tomar).unwrap();
+        let mut inf = ea_bus::Informe::nuevo(ea_bus::ResultadoInforme::Terminado);
+        inf.obra_completa = completa;
+        bus.aplicar(id, ea_bus::Evento::Entregar(inf)).unwrap();
+    };
+
+    // cerrar
+    let a = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "A", "/tmp")).unwrap();
+    let (s, _) = post(&f, &format!("/api/trabajos/{a}/cerrar"), json!({})).await;
+    assert_eq!(s, StatusCode::CONFLICT, "en cola no se cierra");
+    entrega(&a, true);
+    let (_, c) = get(&f, "/api/colas").await;
+    assert_eq!(c["claude-code"][0]["trabajo"], a.as_str());
+    let (s, r) = post(&f, &format!("/api/trabajos/{a}/cerrar"), json!({})).await;
+    assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("cerrado")));
+    let (_, c) = get(&f, "/api/colas").await;
+    assert!(c["claude-code"].as_array().unwrap().is_empty());
+
+    // reformular exige nota y vuelve a la cola del modelo local
+    let b = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "B", "/tmp")).unwrap();
+    entrega(&b, true);
+    let (s, _) = post(&f, &format!("/api/trabajos/{b}/reformular"), json!({})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, r) = post(&f, &format!("/api/trabajos/{b}/reformular"), json!({ "nota": "falta el caso vacío" })).await;
+    assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("en_cola")));
+    assert_eq!(bus.leer_orden(&b).unwrap().notas_revision, vec!["falta el caso vacío"]);
+
+    // continuar y cancelar
+    let c1 = bus.crear_trabajo(orden(ea_bus::Modo::Obra, "C", "/tmp")).unwrap();
+    entrega(&c1, false);
+    let (s, r) = post(&f, &format!("/api/trabajos/{c1}/continuar"), json!({})).await;
+    assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("en_cola")));
+    let (s, r) = post(&f, &format!("/api/trabajos/{c1}/cancelar"), json!({})).await;
+    assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("cancelado")));
+
+    // confirmar el paquete de corrección de una rutina en espera
+    let r1 = bus.crear_trabajo(orden(ea_bus::Modo::Rutina, "R", "/tmp")).unwrap();
+    let (s, _) = post(&f, &format!("/api/trabajos/{r1}/confirmar"), json!({})).await;
+    assert_eq!(s, StatusCode::CONFLICT, "solo en espera");
+    bus.aplicar(&r1, ea_bus::Evento::Tomar).unwrap();
+    bus.aplicar(&r1, ea_bus::Evento::PonerEnEspera).unwrap();
+    std::fs::write(bus.raiz().join("trabajos").join(&r1).join("paquete-correccion.md"), "# Paquete\n").unwrap();
+    let (_, j) = get(&f, &format!("/api/trabajos/{r1}")).await;
+    assert!(j["paquete"].as_str().unwrap().contains("Paquete"));
+    let (s, r) = post(&f, &format!("/api/trabajos/{r1}/confirmar"), json!({ "contexto": "ojo con la ruta" })).await;
+    assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("en_revision")));
+    let paquete = std::fs::read_to_string(bus.raiz().join("trabajos").join(&r1).join("paquete-correccion.md")).unwrap();
+    assert!(paquete.contains("ojo con la ruta"));
+    let (_, c) = get(&f, "/api/colas").await;
+    assert_eq!(c["claude-code"][0]["trabajo"], r1.as_str());
 }
 
 #[tokio::test]
@@ -491,7 +619,6 @@ async fn la_portada_reune_lo_pendiente_lo_activo_y_lo_reciente() {
     assert!(i["propuestas"].as_array().unwrap().is_empty());
     assert!(i["activas"].as_array().unwrap().is_empty());
     assert!(i["recientes"].as_array().unwrap().is_empty());
-    assert_eq!(i["rutinas"][0]["slug"], "revision-diaria");
 
     let mut ids = Vec::new();
     for titulo in ["una", "otra"] {

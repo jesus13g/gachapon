@@ -600,6 +600,7 @@ dependencies = [
  "directories",
  "ea-acciones",
  "ea-boveda",
+ "ea-bus",
  "ea-orchestrator",
  "ea-store",
  "http-body-util",

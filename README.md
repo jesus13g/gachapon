@@ -1,42 +1,144 @@
 # ecosistema-asistente
 
-Implementación en Rust de la especificación del ecosistema de asistente dual
-(`~/especificacion-ecosistema-asistente.md`).
-
-> En reconstrucción hacia el orquestador Claude Code + Qwen Code; ver
-> `orquestador-claude-qwen.md`.
+Orquestador en Rust que reparte el trabajo entre **Claude Code** (formaliza y
+revisa) y un **agente local** (Qwen Code sobre `llama-server`, que ejecuta). Ambos
+trabajan sobre el mismo worktree de git y se comunican por un bus de ficheros con
+colas y semáforos. Diseño y razones en `orquestador-claude-qwen.md`.
 
 ## Estado actual
 
-Persistencia y observabilidad: base de datos embebida, diario de eventos
-append-only, primitiva de tarea, interfaz de terminal (`ea`). Un servidor de
-herramientas MCP (`ea-mcp`) que Claude Code consume por HTTP. Un orquestador mínimo (`ea-orchestrator`) emite el heartbeat en el diario.
-Mutaciones supervisadas (fase 6): las herramientas que cambian el sistema
-solo simulan o encolan una propuesta con acción estructurada, y la ejecuta el
-usuario al aceptarla (ver «Mutaciones supervisadas»). Bóveda compartida
-(fase 7): notas en regiones por autor, escritor único serializado, búsqueda
-indexada con resultados acotados y promoción a la región compartida decidida
-por el usuario (ver «Bóveda compartida»). Un panel web (`ea-web`) para ver y
-gestionar todo desde el escritorio.
+Funcionan el bus, el ejecutor, las skills de Claude Code, la CLI (`ea`), el
+monitor (TUI y `ea-web`), el servidor de herramientas MCP, la bóveda compartida y
+las mutaciones supervisadas. El agente local es hoy Qwen3-Coder-30B-A3B.
+
+### Roles
+
+| | Claude Code | Agente local |
+|---|---|---|
+| Lanza el trabajo | Sí (y el calendario, para rutinas) | Nunca por su cuenta |
+| Define qué se hace | Objetivo, plan o proceso | No |
+| Ejecuta | Solo lo que exige criterio | Todo lo que se describe en pasos verificables |
+| Revisa | Sí: cierra, reformula o continúa | No |
+
+El criterio de éxito es un comando de shell que comprueba el **sistema**, no el
+agente: Qwen no se da el visto bueno a sí mismo.
+
+### Los tres modos
+
+| | `/mision` | `/obra` | `/rutina` |
+|---|---|---|---|
+| Para qué | Alcanzar un objetivo iterando | Implementar un plan por fases | Repetir un proceso conocido |
+| Vuelve a Claude Code | Al terminar o quedar bloqueado | Al terminar, o cada `revisar_cada` fases | Solo si falla y tú lo confirmas |
+| Se guarda | Orden e informe | Plan, fases, diffs por fase | Definición TOML versionada |
+
+Una rutina que falla deja un **paquete de corrección** en espera. Hasta que no lo
+confirmas (`ea trabajo confirmar` o el botón de `ea-web`, con contexto opcional) no
+llega a Claude Code, que entonces corrige la definición y sube la versión.
+
+### El bus
+
+Ficheros en `~/.local/state/ecosistema-asistente/` (o `$EA_ESTADO_DIR`); SQLite
+guarda el historial y el diario.
+
+```
+colas/modelo-local/       órdenes por ejecutar (un .json por entrada)
+colas/claude-code/        trabajos entregados que esperan revisión
+trabajos/<id>/            orden.json, estado.json, informe.json,
+                          historial.jsonl, paquete-correccion.md (rutinas)
+semaforos/                un .lock por worktree: quién lo tiene y desde cuándo
+```
+
+Estados de un trabajo: `en_cola` → `ejecutando` → `en_revision` → `cerrado`
+(o `en_espera` para el paquete de una rutina, y `cancelado`). Las transiciones las
+valida una máquina de estados pura (`ea-bus`).
+
+### El ciclo del ejecutor
+
+`ea-orchestrator` sondea la cola `modelo-local`, toma el trabajo más antiguo,
+adquiere el semáforo del worktree (`flock` exclusivo) y lanza Qwen Code en modo
+headless. Después **ejecuta él mismo el criterio**. En una misión repite la
+llamada con la evidencia del fallo hasta que el criterio pasa o se agotan las
+iteraciones; en una obra recorre las fases, guarda una instantánea del árbol tras
+cada una y se detiene cada `revisar_cada`. Entrega un informe (resultado, motivo,
+evidencia, diff stat, fases, `obra_completa`) y encola el trabajo en `claude-code`.
+Una rutina que pasa se cierra sola. Al arrancar recupera lo que se quedó a medias.
+Los fallos, bloqueos y paquetes en espera avisan con `notify-send`.
+
+### Seguridad
+
+Qwen Code corre dentro de **bubblewrap** (`bwrap`): sistema de ficheros de solo
+lectura salvo el worktree, un `/tmp` propio y `~/.qwen`; la red queda abierta para
+llegar a `llama-server`. Con `sandbox = false` el agente corre con aprobación
+total y puede escribir donde escriba tu usuario. Además: topes por ejecución
+(turnos, tiempo, llamadas a herramientas, iteraciones), exclusión de las
+herramientas web y semáforo para que los dos agentes no escriban a la vez.
+
+### Configuración (`orquestador.toml`)
+
+`~/.config/ecosistema-asistente/orquestador.toml`, todo opcional (plantilla en
+`crates/ea-bus/config/orquestador.example.toml`). Es el único sitio donde se
+nombra el modelo.
+
+```toml
+base_url = "http://127.0.0.1:8080/v1"
+modelo = "qwen3-coder-30b"
+qwen_bin = "qwen"
+avisos_escritorio = true
+sandbox = true
+
+[topes]
+turnos = 30
+tiempo_s = 900
+llamadas_herramienta = 60
+iteraciones = 5
+```
+
+### Cambiar de modelo
+
+`llama-server` lee `~/.config/llama-cpp/activo.env`, un enlace simbólico a un
+`.env` por modelo:
+
+```bash
+ln -sf qwen3-coder-30b.env ~/.config/llama-cpp/activo.env
+systemctl --user restart llama-server
+```
+
+Después ajusta `modelo` (y `base_url` si cambia) en `orquestador.toml` y reinicia
+`ea-orchestrator`. No hay que tocar código.
 
 ## Estructura
 
-- `crates/ea-store`: capa de datos compartida (SQLite embebido). Único punto
-  de acceso a la base de datos; el resto de crates la reutilizan sin
-  reimplementar esquema.
-- `crates/ea-acciones`: capa interna de herramientas. Catálogo único con
-  nivel de riesgo, simulación, revalidación, ejecución y el flujo propuesta →
-  aceptación → ejecución. Aquí vive la lógica de sistema operativo.
-- `crates/ea-boveda`: la bóveda de notas (§8.3). Único código que escribe
-  ficheros de la bóveda: escritor serializado, regiones, contrato de cabecera,
-  promoción, lectura y búsqueda acotadas. El índice FTS5 vive en `ea-store`.
-- `crates/ea-cli`: binario `ea`, interfaz de terminal.
-- `crates/ea-mcp`: binario `ea-mcp`, servidor de herramientas MCP (HTTP,
-  `127.0.0.1`) consumido por Claude Code.
-- `crates/ea-orchestrator`: binario `ea-orchestrator`, orquestador mínimo
-  (heartbeat; el ejecutor llegará en la fase 3).
-- `crates/ea-web`: binario `ea-web`, API JSON y panel web local (HTTP,
-  `127.0.0.1`).
+- `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
+  tareas, propuestas, índice de la bóveda, trabajos, fases y rutinas.
+- `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
+  del worktree, rutinas versionadas y `orquestador.toml`.
+- `crates/ea-orchestrator`: binario `ea-orchestrator`, el ejecutor del agente
+  local y el heartbeat.
+- `crates/ea-acciones`: catálogo único de herramientas con riesgo, simulación,
+  revalidación y el flujo propuesta → aceptación → ejecución.
+- `crates/ea-boveda`: la bóveda de notas; único código que escribe en ella.
+- `crates/ea-cli`: binario `ea`, CLI y TUI.
+- `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
+- `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
+- `claude/skills/`: las skills de Claude Code.
+
+## Skills de Claude Code
+
+Versionadas en `claude/skills/<nombre>/SKILL.md` y enlazadas en `~/.claude/skills/`.
+Claude Code solo formaliza y revisa; el trabajo lo hace el agente local.
+
+| Skill | Qué hace |
+| --- | --- |
+| `/mision` | Formaliza objetivo y criterio de éxito y crea el trabajo con `ea trabajo crear --orden` |
+| `/obra` | Plan por fases pequeñas (instrucciones, entregable, criterio por fase) y `revisar_cada` |
+| `/rutina` | Proceso repetible como TOML versionado: registrar, lanzar, timer y corrección |
+| `/revisar` | Consume la cola `claude-code`: `ea trabajo ver`, `diff` si hace falta, y cierra, reformula o continúa |
+
+```bash
+for s in mision obra rutina revisar; do
+  ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
+done
+```
 
 ## Uso
 
@@ -44,29 +146,38 @@ gestionar todo desde el escritorio.
 cargo build --release
 # los binarios quedan en target/release/{ea,ea-mcp,ea-orchestrator,ea-web}
 
-ea status                                    # resumen no interactivo
-ea tareas crear --titulo "..." --asignado-a claude-code --solicita "..."
-ea tareas listar
-ea tareas ver <id>
-ea tareas actualizar <id> --estado en_progreso
-ea diario listar
-ea diario ver <id>
+# Trabajos (el bus)
+ea trabajo crear --modo mision --titulo "..." --worktree <dir> --objetivo "..." --criterio "<comando>"
+ea trabajo crear --orden orden.json          # obra completa, con fases
+ea trabajo listar
+ea trabajo ver <id> [--json]                 # orden, estado e informe
+ea trabajo diff <id> [--fase N]              # diff desde commit_inicio
+ea trabajo cerrar|cancelar <id>
+ea trabajo reformular <id> --nota "..."      # vuelve al agente local
+ea trabajo continuar <id>                    # aprueba una revisión intermedia de una obra
+ea trabajo confirmar <id> [--contexto "..."] # paquete de corrección -> claude-code
+ea cola [modelo-local|claude-code] [--json]  # colas
+ea semaforos                                 # quién tiene el worktree
+
+# Rutinas versionadas
 ea rutina registrar <fichero.toml>           # valida y registra (la versión debe subir)
 ea rutina listar|ver <slug>
 ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus
-ea trabajo continuar <id>                    # aprueba una revisión intermedia de una obra
-ea trabajo confirmar <id> [--contexto "..."] # paquete de corrección de una rutina -> claude-code
-ea propuestas listar [--estado pendiente]
-ea propuestas ver <id>                       # acción, riesgo, simulación, ejecución
-ea propuestas decidir <id> --aceptar|--rechazar   # aceptar una con acción la ejecuta
-ea acciones listar|simular|ejecutar          # catálogo de herramientas y ejecución directa
-ea boveda estado|listar|buscar|leer          # ver la bóveda (ver «Bóveda compartida»)
-ea boveda promover <ruta>                    # copiar una nota a la región compartida
+
+# Resto del ecosistema
+ea status                                    # resumen no interactivo
+ea tareas crear|listar|ver|actualizar        # tareas entre actores (claude-code, usuario)
+ea diario listar|ver <id>
+ea propuestas listar|ver|decidir <id> --aceptar|--rechazar
+ea acciones listar|simular|ejecutar          # catálogo de herramientas
+ea boveda estado|listar|buscar|leer|promover|reindexar
 ea tui                                       # interfaz interactiva
 ```
 
 La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
-(o en la ruta de `$EA_DB_PATH` si está definida).
+(o en `$EA_DB_PATH`). Servicios de sesión (`systemd --user`): `llama-server`,
+`ea-orchestrator`, `ea-mcp` y `ea-web`; las rutinas se programan con
+`ea-rutina@<slug>.timer`, que solo crea el trabajo en el bus.
 
 ### Servidor de herramientas MCP (`ea-mcp`)
 
@@ -78,24 +189,21 @@ La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
 Herramientas expuestas (un solo catálogo, `ea-acciones`), con su nivel de
 riesgo (§7.3):
 
-| Herramienta | Riesgo | Desde un agente | Modelo local |
-|---|---|---|---|
-| `ea_status`, `ea_listar_tareas`, `ea_ver_tarea`, `ea_listar_diario` | lectura | se ejecuta | sí |
-| `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta | sí |
-| `ea_escribir_nota` | mutación reversible | se ejecuta, pero solo en la región propia del agente (excepción razonada: decisión 8) | sí |
-| `ea_promover_nota` | mutación reversible | solo simula o propone | sí (solo propone) |
-| `ea_crear_tarea` (con `simular: true`) | mutación reversible | se ejecuta (excepción razonada: es la primitiva de comunicación entre actores, §9.1; solo escribe una fila) | no |
-| `ea_cambiar_estado_tarea` | mutación reversible | solo simula o propone | sí (solo propone) |
-| `ea_encolar_rutina` | mutación reversible | solo simula o propone | no |
-| `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone | no |
-| `ea_eliminar_rutina` (borra el fichero de la rutina) | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal | no |
+| Herramienta | Riesgo | Desde un agente |
+|---|---|---|
+| `ea_status`, `ea_listar_tareas`, `ea_ver_tarea`, `ea_listar_diario` | lectura | se ejecuta |
+| `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta |
+| `ea_escribir_nota` | mutación reversible | se ejecuta, solo en la región propia del agente |
+| `ea_promover_nota` | mutación reversible | solo simula o propone |
+| `ea_crear_tarea` (con `simular: true`) | mutación reversible | se ejecuta (solo escribe una fila) |
+| `ea_cambiar_estado_tarea` | mutación reversible | solo simula o propone |
+| `ea_encolar_rutina` (crea el trabajo en el bus) | mutación reversible | solo simula o propone |
+| `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone |
+| `ea_eliminar_rutina` | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
-Toda invocación queda registrada en el diario, atribuida al cliente que la
-hizo: `claude-code` por defecto, `modelo-local` si el cliente se identifica
-como `ea-proxy`, `orquestador` si se identifica como `ea-orchestrator`.
-La autorización es del servidor, no del prompt: el `orquestador` (lo
-desatendido) solo puede leer, sin excepciones; el `modelo-local` solo ve su
-proyección reducida y nunca una irreversible.
+Toda invocación queda registrada en el diario, atribuida al cliente que la hizo
+(`claude-code` por defecto, `orquestador` si se identifica como `ea-orchestrator`).
+La autorización es del servidor, no del prompt: lo desatendido solo puede leer.
 
 Instalación como servicio de sesión (`systemd --user`):
 
@@ -117,8 +225,7 @@ claude mcp add --transport http --scope user ea-ecosistema http://127.0.0.1:8765
 ### Mutaciones supervisadas (fase 6)
 
 **La confirmación la da siempre el usuario, nunca un agente.** Una herramienta
-mutante invocada por un agente (Claude Code por MCP, el modelo local, una
-rutina) devuelve la **simulación** (`simular: true`: describe lo que haría sin
+mutante invocada por un agente (Claude Code por MCP) devuelve la **simulación** (`simular: true`: describe lo que haría sin
 hacerlo) o, sin simular, **encola una propuesta con acción estructurada**
 (herramienta, argumentos, riesgo, texto de la simulación y la precondición del
 mundo en ese momento). No existe ninguna herramienta, argumento ni token con el
@@ -128,11 +235,8 @@ las operaciones que mutan el sistema.
 
 Flujo propuesta → aceptación → ejecución:
 
-1. Un agente propone (`ea_cambiar_estado_tarea` …) o una rutina lo hace en un
-   paso `propuesta` con `accion = { herramienta = "...", argumentos = {...} }`,
-   validada al cargar la rutina contra el catálogo (una herramienta de lectura,
-   una inexistente o unos argumentos fuera de dominio hacen fallar la carga).
-   Una propuesta idéntica pendiente no se duplica y hay un tope de 30 con acción.
+1. Un agente propone (`ea_cambiar_estado_tarea` …). Una propuesta idéntica
+   pendiente no se duplica y hay un tope de 30 con acción.
 2. El usuario la ve en `ea propuestas ver <id>`, en la TUI o en la sección ◇ de
    `ea-web`, con la simulación.
 3. **Aceptar la ejecuta**: `ea propuestas decidir <id> --aceptar` (pide una
@@ -152,7 +256,7 @@ usuario en la terminal o en `ea-web`; irreversible, **solo desde la terminal**
 (`ea-web` responde 403 y la propuesta sigue pendiente; MCP no tiene
 camino de confirmación). La terminal exige TTY real en stdin y stdout: un
 agente que lance `ea` como subproceso sin terminal no puede confirmar. Los
-botones de `ea-web` (estado de tareas, reiniciar servicios, encolar rutinas) y
+botones de `ea-web` (reiniciar servicios, decidir propuestas) y
 `ea tareas actualizar` pasan por la misma capa y dejan el mismo
 `accion_ejecutada` en el diario. `ea acciones listar|simular|ejecutar` es la
 vía directa del usuario en terminal.
@@ -255,12 +359,11 @@ la comprobación y la escritura no son una sola operación del sistema operativo
 así que un enlace creado en el instante entre ambas por alguien con acceso a
 la carpeta no queda cubierto.
 
-**Búsqueda y lectura acotadas.** El modelo local nunca ve el sistema de
-ficheros: solo `ea_buscar_notas` y `ea_leer_nota`. La búsqueda es SQLite FTS5
+**Búsqueda y lectura acotadas.** El agente local no recibe el sistema de
+ficheros de la bóveda: solo `ea_buscar_notas` y `ea_leer_nota`. La búsqueda es SQLite FTS5
 (la versión enlazada de `rusqlite` lo trae; migración `0004`), sin acentos ni
 mayúsculas, con todos los términos exigidos y el texto del usuario nunca
-interpretado como sintaxis de consulta. Cotas por actor (el contexto del
-modelo local es de 8192 tokens):
+interpretado como sintaxis de consulta. Cotas por actor (la `region` `modelo-local` es la del agente local):
 
 | | Modelo local | Claude Code / usuario |
 |---|---|---|
@@ -296,84 +399,46 @@ Lo que ve el usuario: `ea boveda estado|listar|buscar|leer|promover|reindexar`,
 la pestaña «Bóveda» de `ea tui` (solo lectura, fotografía) y la sección ▥ del
 panel web (tecla `8`; el cuadro de filtro hace una búsqueda de texto completo).
 
-**Rutinas (§8.1).** La especificación dice que el documento de cada rutina
-vive en la bóveda. **No se ha movido:** siguen en
-`~/.config/ecosistema-asistente/rutinas/` (TOML, cargados por el orquestador),
-y el escritor único no gestiona ficheros `.toml`. Es aditivo y sin cambios de
-código: `rutinas_dir` de `orchestrator.toml` puede apuntar a una carpeta de la
-bóveda (fuera de las tres regiones, porque no son notas de agente) si el
-usuario quiere verlas en Obsidian. No se ha hecho por defecto porque mezclaría
-un fichero ejecutable con notas que un agente puede reescribir.
-
 **Limitaciones conocidas.** El orden entre escritores que esperan no es FIFO.
 Las ediciones externas no dejan evento en el diario (solo se reflejan en el
-índice). No hay borrado ni renombrado de notas por herramienta (los agentes
-sobrescriben; borrar es cosa del usuario en el sistema de ficheros). Los
-agentes solo "reemplazan" notas propias, no hacen *append*. El catálogo local
-pasa de 5 a 9 herramientas, lo que puede restar fiabilidad al modelo de 7B al
-elegir; está sin medir con el `llama-server` real más allá de los tests
-existentes. La TUI es una fotografía: no promueve desde dentro.
+índice). No hay borrado ni renombrado de notas por herramienta. Los agentes
+solo reemplazan notas propias, no hacen *append*. La TUI es una fotografía: no
+promueve desde dentro.
 
-### Orquestador (`ea-orchestrator`)
+### Monitor: TUI y `ea-web`
 
-Binario mínimo: emite un heartbeat periódico en el diario
-(`actor=orquestador, action=heartbeat` — es lo que `ea status` usa para
-reportar si está vivo). Sin ejecutor de tareas hasta la fase 3 (ver
-`orquestador-claude-qwen.md`).
+`ea tui` es una fotografía de solo lectura. Su primera pestaña, **Orquestador**,
+muestra las dos colas, el semáforo del worktree y los trabajos con su estado
+(↑/↓ para moverse, Enter para ver el resumen del informe); **Rutinas** lista las
+registradas con su versión, como `ea rutina listar`.
 
-### Interfaz web (`ea-web`)
-
-Panel local en `http://localhost:8092` (solo `127.0.0.1`; puerto con
-`$EA_WEB_PORT`) para ver y gestionar tareas, diario, rutinas, propuestas,
-servicios y agentes. Una sola página sin dependencias, minimalista y a base
-de símbolos, que toma los colores del tema activo de Omarchy
-(`~/.local/state/omarchy/current/theme/colors.toml`; si falta, City 783).
-
-Respeta el invariante de §12.2 de la especificación: lee del diario y de las
-tareas, y actúa creando tareas o decidiendo propuestas; nunca llama a Claude
-Code ni al modelo local.  Es
-una desviación consciente de §12.1 y §12.4 ("sin interfaz web", "no se levanta
-al arrancar"). Aceptar una propuesta con acción la ejecuta por la capa interna
-(`ea-acciones`), igual que `ea propuestas decidir`; las irreversibles no se
-confirman desde aquí (403): solo desde la terminal. El panel muestra la
-simulación, el riesgo, quién propuso y el resultado de la ejecución, y aceptar
-una propuesta con acción pide un segundo clic.
+`ea-web` es un panel local en `http://localhost:8092` (solo `127.0.0.1`; puerto
+con `$EA_WEB_PORT`): una página sin dependencias, a base de símbolos, con los
+colores del tema activo de Omarchy. Se actualiza sola cada 3 s. Nunca habla con
+Claude Code ni con el modelo; lee del bus y de SQLite, y sus acciones pasan por
+el mismo `Bus` que la CLI.
 
 | Símbolo | Sección | Tecla |
 |---|---|---|
-| ⌂ | Inicio: cuadro para pedir tareas, qué hace cada actor ahora, tablero de tareas (en cola → ejecutándose → terminadas), propuestas por decidir y rutinas | `1` |
-| ▤ | Tareas: crear, iniciar, completar, fallar, cancelar, repetir ↺ | `2` |
+| ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
+| ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (con nota), continuar, confirmar y cancelar según el estado | `2` |
 | ≡ | Diario (♡/♥ muestra u oculta los latidos) | `3` |
-| ↻ | Rutinas: pasos, ejecuciones, encolar | `4` |
+| ↻ | Rutinas registradas, con versión y próxima ejecución; ▶ lanzar | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
-| ▶ | Acciones: el catálogo de herramientas; las supervisadas se simulan y se ejecutan | `6` |
+| ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
 | ▥ | Bóveda: listar, buscar, leer y promover | `8` |
 
-La ficha de una tarea (abrirla en ⌂ o ▤) es donde se comprueba un resultado:
-duración, petición, resultado (el error, destacado), su línea temporal con lo
-que cada evento dice de sí mismo y, si es la ejecución de una rutina, los pasos
-dados y las propuestas que dejó. `↺` la vuelve a lanzar como tarea nueva
-enlazada a la original (la de una rutina se encola con `ea_encolar_rutina`) y
-`✎` abre el formulario de tarea nueva relleno con sus datos.
+`/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
+abre la ayuda.
 
-La consola de acciones (▶) hace lo mismo que `ea acciones simular|ejecutar`:
-se rellenan los argumentos, `◌ simular` describe lo que pasaría sin hacer nada
-y `▶ ejecutar` lo aplica revalidando contra lo simulado (si el estado ha
-cambiado entre medias, responde 409 y no hace nada). Las irreversibles se
-pueden simular, pero el panel solo enseña el comando de terminal. Las
-herramientas no supervisadas se listan a título informativo.
-
-`n` tarea nueva, `/` filtra, `j`/`k` mueve, `Enter` abre o cierra el detalle,
-`Esc` cierra, `?` abre la ayuda (también se abre sola la primera vez). Cada sección lleva su título, una línea que
-dice para qué sirve y el nombre de sus columnas; los botones dicen lo que hacen.
-
-**Quién ejecuta una tarea.** Hoy, nadie ejecuta las de `modelo-local` (el ejecutor del bus llega en la fase 3).
-Da igual quién las creó: el panel, `ea tareas crear` o un agente con
-`ea_crear_tarea`. Las de `claude-code` no las ejecuta nadie: esperan a que
-una sesión de Claude Code las recoja por MCP, o a que el usuario las lleve a
-mano con los botones de su ficha. El panel sigue sin hablar con ningún agente
-(§12.2): solo crea la tarea.
+API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`,
+`/api/colas`, `/api/semaforos`, `/api/rutinas`; y, con `Content-Type:
+application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformular,confirmar}`
+(`reformular` lleva `{"nota": "..."}`, `confirmar` `{"contexto": "..."}`) y
+`POST /api/rutinas/<slug>/lanzar`. Solo atiende `Host: localhost|127.0.0.1`.
+Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
+irreversibles no se confirman desde aquí (403).
 
 Instalación como servicio de sesión:
 
@@ -384,8 +449,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now ea-web.service
 ```
 
-Abierta en el escritorio 4 desde el inicio de sesión (Hyprland). Se abre como
-`localhost`, no `127.0.0.1`, porque esa clase de ventana ya la usa el tutor:
+Se abre en el escritorio 4 al iniciar sesión (Hyprland) como `localhost`, no
+`127.0.0.1`, porque esa clase de ventana ya la usa el tutor:
 
 ```lua
 -- ~/.config/hypr/hyprland.lua
@@ -396,44 +461,14 @@ o.exec_on_start(os.getenv("HOME") .. "/Proyectos/ecosistema-asistente/crates/ea-
 
 La máquina arranca con la hora desajustada tras Windows hasta que NTP la
 corrige, así que el panel mide el tiempo activo de los servicios con el reloj
-monotónico e ignora latidos del orquestador fechados en el futuro.
-
-## Skills de Claude Code
-
-Versionadas en `claude/skills/<nombre>/SKILL.md` y enlazadas con symlink en `~/.claude/skills/`. Claude Code solo formaliza y revisa; el trabajo lo hace el agente local.
-
-| Skill | Qué hace |
-| --- | --- |
-| `/mision` | Formaliza objetivo y criterio de éxito (comando de shell) y crea el trabajo con `ea trabajo crear --orden` |
-| `/obra` | Plan por fases pequeñas (instrucciones, entregable, criterio por fase) y `revisar_cada` |
-| `/rutina` | Proceso repetible como TOML versionado: `ea rutina registrar`, lanzar, timer y corrección |
-| `/revisar` | Consume la cola `claude-code`: `ea trabajo ver`, `diff` si hace falta, y cierra, reformula o continúa |
-
-Instalación:
-
-```bash
-for s in mision obra rutina revisar; do
-  ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
-done
-```
-
-Apoyo en la CLI: `ea trabajo ver <id> [--json]`, `ea trabajo diff <id> [--fase N]` y `ea cola [agente] [--json]`.
+monotónico e ignora latidos fechados en el futuro.
 
 ## Verificación
 
 ```bash
-cargo test          # incluye ea-store, ea-boveda, ea-acciones, ea-mcp, ea-orchestrator, ea-web
-cargo test -- --ignored   # además, los tests de extremo a extremo contra
-                           # el llama-server real (requiere el servicio arriba)
-
-ea tareas crear --titulo "Probar mecanismo" --asignado-a claude-code \
-    --solicita "Verificar que el diario registra el ciclo de vida" \
-    --origen manual --creado-por cli-test
-ea diario listar --tarea 1
-ea tareas actualizar 1 --estado en_progreso
-ea tareas actualizar 1 --estado completada --resultado "Ciclo verificado"
-ea tareas ver 1
-ea status
+cargo test --workspace
+cargo build --release
+systemctl --user restart ea-web ea-orchestrator ea-mcp
 
 # El diario es append-only a nivel de motor, no solo por convención:
 sqlite3 ~/.local/share/ecosistema-asistente/ecosistema.db \

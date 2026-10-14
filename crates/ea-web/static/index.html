@@ -9,8 +9,8 @@
 </head>
 <body>
 <nav id="rail" aria-label="Secciones">
-  <button data-s="inicio" title="Inicio (tecla 1)"><i>⌂</i><span>Inicio</span></button>
-  <button data-s="tareas" title="Tareas (tecla 2)"><i>▤</i><span>Tareas</span><b></b></button>
+  <button data-s="inicio" title="Orquestador (tecla 1)"><i>⌂</i><span>Inicio</span></button>
+  <button data-s="trabajos" title="Trabajos (tecla 2)"><i>▤</i><span>Trabajos</span><b></b></button>
   <button data-s="diario" title="Diario (tecla 3)"><i>≡</i><span>Diario</span></button>
   <button data-s="rutinas" title="Rutinas (tecla 4)"><i>↻</i><span>Rutinas</span></button>
   <button data-s="propuestas" title="Propuestas (tecla 5)"><i>◇</i><span>Propuestas</span><b></b></button>
@@ -26,19 +26,9 @@
     <span id="salud"></span>
     <i id="off" class="hot" title="sin conexión con el panel" hidden>✕ sin conexión</i>
     <span class="grow"></span>
-    <button id="nueva" title="Tarea nueva (tecla n)">+ tarea</button>
     <button id="bayuda" title="Cómo funciona esto (tecla ?)">? ayuda</button>
   </header>
   <div id="titulo"><h1></h1><p></p></div>
-  <form id="form" hidden autocomplete="off">
-    <input name="solicita" placeholder="¿Qué quieres que se haga? Escribe la petición…" class="grow" maxlength="10000" required aria-label="Petición">
-    <select name="asignado_a" aria-label="Quién la ejecuta" title="Quién la ejecuta">
-      <option value="modelo-local">modelo local · se ejecuta ahora</option>
-      <option value="claude-code">Claude Code · queda en cola</option>
-    </select>
-    <button class="pri" title="Crear la tarea (Enter)">▶ ejecutar</button>
-    <p id="pista"></p>
-  </form>
   <div id="barra"><span id="fb"></span><input id="q" placeholder="filtrar ( / )" aria-label="Filtrar" spellcheck="false"></div>
   <section id="lista"></section>
 </main>
@@ -49,34 +39,28 @@
     <button data-cerrar title="Cerrar (Esc)">✕ cerrar</button>
     <h2>Cómo funciona</h2>
     <ol>
-      <li><b>Pides algo.</b> En Inicio escribes la petición, eliges quién la ejecuta y pulsas «▶ ejecutar». Eso crea una <i>tarea</i>.</li>
-      <li><b>Alguien la ejecuta.</b> La tarea aparece en «En cola», pasa a «Ejecutándose» y acaba en «Terminadas».</li>
-      <li><b>Compruebas el resultado.</b> Pulsa la tarea para abrir su ficha: petición, resultado o error, y su historia paso a paso.</li>
+      <li><b>Claude Code formaliza.</b> Con <i>/mision</i>, <i>/obra</i> o <i>/rutina</i> deja una orden en la cola del modelo local. Esta página no lanza trabajo nuevo, salvo las rutinas.</li>
+      <li><b>El modelo local ejecuta.</b> El orquestador toma la orden, trabaja en el worktree (con su semáforo) y entrega un informe.</li>
+      <li><b>Claude Code revisa.</b> Cierra el trabajo, lo reformula con una nota o, en una obra, lo deja continuar. Tú también puedes hacerlo desde la ficha.</li>
+      <li><b>Tú decides lo que falla.</b> Si una rutina falla, su paquete de corrección queda en espera hasta que lo confirmes (con contexto si quieres).</li>
     </ol>
 
-    <h2>Quién ejecuta qué</h2>
-    <dl>
-      <dt>Modelo local</dt><dd>Se ejecuta solo, en unos segundos. Responde preguntas y puede consultar tareas, diario y notas.</dd>
-      <dt>Claude Code</dt><dd>La tarea espera en cola hasta que una sesión de Claude Code la recoja. Nadie se la envía.</dd>
-      <dt>Rutinas</dt><dd>Trabajos programados que ejecuta el orquestador. «▶ ejecutar ahora» las lanza sin esperar a su hora.</dd>
-      <dt>Propuestas</dt><dd>Lo que cambia el sistema nunca se hace solo: un agente o una rutina lo propone y tú lo aceptas o lo rechazas.</dd>
-    </dl>
-
-    <h2>Estados de una tarea</h2>
+    <h2>Estados de un trabajo</h2>
     <dl class="leyenda">
-      <dt>○ en cola</dt><dd>creada, nadie ha empezado</dd>
-      <dt>◐ en curso</dt><dd>ejecutándose ahora</dd>
-      <dt>● hecha</dt><dd>terminó bien; tiene resultado</dd>
-      <dt class="hot">✕ fallida</dt><dd>terminó con error; el motivo está en su ficha</dd>
-      <dt>⊘ cancelada</dt><dd>se descartó antes de terminar</dd>
+      <dt>○ en cola</dt><dd>orden creada; espera al modelo local</dd>
+      <dt>◐ ejecutando</dt><dd>el modelo local trabaja en el worktree</dd>
+      <dt>◇ en revisión</dt><dd>entregado; espera a Claude Code (cerrar, reformular o continuar)</dd>
+      <dt class="hot">! en espera</dt><dd>paquete de corrección de una rutina que falló; espera tu confirmación</dd>
+      <dt>● cerrado</dt><dd>revisado y dado por bueno</dd>
+      <dt>⊘ cancelado</dt><dd>descartado antes de cerrarse</dd>
     </dl>
 
     <h2>Secciones</h2>
     <dl class="leyenda">
-      <dt>⌂ Inicio</dt><dd>lo que pasa ahora y el cuadro para pedir tareas</dd>
-      <dt>▤ Tareas</dt><dd>todas las tareas, con filtros por estado</dd>
+      <dt>⌂ Inicio</dt><dd>colas, semáforo del worktree y tablero de trabajos</dd>
+      <dt>▤ Trabajos</dt><dd>misiones, obras y rutinas; ficha con informe, diff y acciones</dd>
       <dt>≡ Diario</dt><dd>el registro de cada cosa que ocurre</dd>
-      <dt>↻ Rutinas</dt><dd>los trabajos programados y sus ejecuciones</dd>
+      <dt>↻ Rutinas</dt><dd>las rutinas registradas, con su versión; se pueden lanzar</dd>
       <dt>◇ Propuestas</dt><dd>cambios que esperan tu visto bueno</dd>
       <dt>▶ Acciones</dt><dd>herramientas: simular y ejecutar a mano</dd>
       <dt>▦ Sistema</dt><dd>servicios y agentes; reiniciar un servicio</dd>
@@ -86,7 +70,6 @@
     <h2>Teclado</h2>
     <dl class="leyenda">
       <dt>1 – 8</dt><dd>cambiar de sección</dd>
-      <dt>n</dt><dd>tarea nueva</dd>
       <dt>/</dt><dd>filtrar o buscar</dd>
       <dt>j / k</dt><dd>bajar y subir por la lista</dd>
       <dt>Enter</dt><dd>abrir o cerrar la fila seleccionada</dd>
