@@ -11,6 +11,7 @@ use crate::repository::events::{self, EventFilter};
 use crate::repository::propuestas::{self, PropuestaFilter};
 use crate::repository::routine_runs;
 use crate::repository::tasks::{self, TaskFilter};
+use crate::repository::trabajos::{self, FilaFase, FilaRutina, FilaTrabajo};
 
 /// Fachada pública sobre la base de datos embebida. Único punto de acceso
 /// para todo consumidor (CLI hoy; proceso orquestador y servidor MCP en
@@ -44,6 +45,34 @@ impl Store {
             Some(ruta) if !ruta.is_empty() => Self::open_at(Path::new(ruta)),
             _ => Err(rusqlite::Error::InvalidPath("base en memoria".into()).into()),
         }
+    }
+
+    pub fn insertar_trabajo(&self, t: &FilaTrabajo) -> StoreResult<()> {
+        trabajos::insertar_trabajo(&self.conn, t)
+    }
+
+    pub fn actualizar_estado_trabajo(&self, id: &str, estado: &str, actualizado_en: &str) -> StoreResult<()> {
+        trabajos::actualizar_estado_trabajo(&self.conn, id, estado, actualizado_en)
+    }
+
+    pub fn obtener_trabajo(&self, id: &str) -> StoreResult<Option<FilaTrabajo>> {
+        trabajos::obtener_trabajo(&self.conn, id)
+    }
+
+    pub fn guardar_fase(&self, f: &FilaFase) -> StoreResult<()> {
+        trabajos::guardar_fase(&self.conn, f)
+    }
+
+    pub fn listar_fases(&self, trabajo_id: &str) -> StoreResult<Vec<FilaFase>> {
+        trabajos::listar_fases(&self.conn, trabajo_id)
+    }
+
+    pub fn guardar_rutina(&self, r: &FilaRutina) -> StoreResult<()> {
+        trabajos::guardar_rutina(&self.conn, r)
+    }
+
+    pub fn obtener_rutina(&self, slug: &str, version: i64) -> StoreResult<Option<FilaRutina>> {
+        trabajos::obtener_rutina(&self.conn, slug, version)
     }
 
     pub fn create_task(&mut self, new_task: NewTask) -> StoreResult<Task> {

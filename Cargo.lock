@@ -502,6 +502,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ea-bus"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "ea-store",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "toml",
+]
+
+[[package]]
 name = "ea-cli"
 version = "0.1.0"
 dependencies = [

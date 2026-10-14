@@ -24,4 +24,5 @@ pub use orquestador::{ultimo_latido, EstadoOrquestador, ResumenAgente, AGENTES};
 pub use repository::events::EventFilter;
 pub use repository::propuestas::PropuestaFilter;
 pub use repository::tasks::TaskFilter;
+pub use repository::trabajos::{FilaFase, FilaRutina, FilaTrabajo};
 pub use store::Store;
