@@ -1,10 +1,10 @@
 mod agentes_view;
 mod boveda_view;
 mod diario_view;
+mod orquestador_view;
 mod propuestas_view;
 mod rutinas_view;
 mod servicios_view;
-mod tareas_view;
 
 use std::io::{self, Stdout};
 
@@ -12,22 +12,19 @@ use anyhow::Result;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
-use ea_orchestrator::rutina;
-use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, ResultadoBusqueda, Store, Task, TaskFilter};
+use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, ResultadoBusqueda, Store};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Tabs};
 use ratatui::Terminal;
 
-use crate::commands::fmt_ts;
 
-/// Resumen de una rutina para la pestaña `Rutinas`: no es el tipo de
-/// dominio completo de `ea-orchestrator::rutina::Rutina` (eso viviría en
-/// disco, no en `ea-store`) — solo lo que hace falta para listar.
+/// Resumen de una rutina para la pestaña `Rutinas`: solo lo que hace falta
+/// para listar.
 pub struct RutinaResumen {
     pub slug: String,
-    pub descripcion: String,
+    pub version: i64,
     pub ultima_ejecucion: Option<String>,
 }
 
@@ -41,7 +38,7 @@ pub struct ServicioResumen {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
-    Tareas,
+    Orquestador,
     Diario,
     Servicios,
     Agentes,
@@ -52,7 +49,7 @@ enum Tab {
 
 impl Tab {
     const ALL: [Tab; 7] = [
-        Tab::Tareas,
+        Tab::Orquestador,
         Tab::Diario,
         Tab::Servicios,
         Tab::Agentes,
@@ -63,7 +60,7 @@ impl Tab {
 
     fn title(self) -> &'static str {
         match self {
-            Tab::Tareas => "Tareas",
+            Tab::Orquestador => "Orquestador",
             Tab::Diario => "Diario",
             Tab::Servicios => "Servicios",
             Tab::Agentes => "Agentes",
@@ -79,7 +76,6 @@ impl Tab {
 }
 
 struct AppData {
-    tasks: Vec<Task>,
     events: Vec<EaEvent>,
     rutinas: Vec<RutinaResumen>,
     propuestas: Vec<Propuesta>,
@@ -88,6 +84,7 @@ struct AppData {
     agentes: Vec<ResumenAgente>,
     boveda_raiz: String,
     boveda: Vec<ResultadoBusqueda>,
+    orquestador_bus: orquestador_view::DatosOrquestador,
 }
 
 /// Lanza la interfaz de terminal interactiva. Es una fotografía de los datos
@@ -99,14 +96,11 @@ pub fn run(store: &mut Store) -> Result<()> {
         .listar(store, None, Some(50), &ea_boveda::Limites { max_resultados: 50, ..ea_boveda::Limites::AMPLIOS })
         .unwrap_or_default();
     let store: &Store = store;
-    let rutinas_dir = ea_orchestrator::config::load().rutinas_dir;
     let mut rutinas = Vec::new();
-    for slug in rutina::listar_slugs(&rutinas_dir).unwrap_or_default() {
-        let descripcion = rutina::cargar(&rutinas_dir, &slug)
-            .map(|r| r.descripcion)
-            .unwrap_or_else(|e| format!("(inválida: {e})"));
-        let ultima_ejecucion = store.last_successful_run(&slug).ok().flatten().map(|r| fmt_ts(r.started_at));
-        rutinas.push(RutinaResumen { slug, descripcion, ultima_ejecucion });
+    for r in store.listar_rutinas().unwrap_or_default() {
+        let ultima_ejecucion = crate::commands::rutinas::ultimo_trabajo(&r.slug)
+            .map(|(_, e)| format!("{} ({})", e.actualizado_en, e.estado.as_str()));
+        rutinas.push(RutinaResumen { slug: r.slug, version: r.version, ultima_ejecucion });
     }
 
     // Misma consulta a `systemd --user` que hace `ea-web`; es asíncrona, así
@@ -123,15 +117,12 @@ pub fn run(store: &mut Store) -> Result<()> {
         servicios,
         orquestador: crate::commands::status::estado_orquestador(store)?,
         agentes: store.resumen_agentes()?,
-        tasks: store.list_tasks(&TaskFilter {
-            limit: Some(100),
-            ..Default::default()
-        })?,
         events: store.list_events(&EventFilter {
             limit: Some(200),
             ..Default::default()
         })?,
         rutinas,
+        orquestador_bus: datos_bus(),
         boveda_raiz: boveda.raiz().display().to_string(),
         boveda: notas,
         propuestas: store.list_propuestas(&PropuestaFilter {
@@ -159,8 +150,79 @@ pub fn run(store: &mut Store) -> Result<()> {
     result
 }
 
+/// Colas, semáforos y trabajos del bus; si no se puede leer, vacío.
+fn datos_bus() -> orquestador_view::DatosOrquestador {
+    use ea_bus::{Agente, Bus, EstadoTrabajo, ResultadoInforme};
+    let mut d = orquestador_view::DatosOrquestador {
+        cola_modelo_local: vec![],
+        cola_claude_code: vec![],
+        semaforos: vec![],
+        trabajos: vec![],
+    };
+    let Ok(bus) = Bus::abrir() else { return d };
+    let titulo = |id: &str| bus.leer_orden(id).map(|o| o.titulo).unwrap_or_else(|_| id.to_string());
+    for (agente, destino) in [(Agente::ModeloLocal, &mut d.cola_modelo_local), (Agente::ClaudeCode, &mut d.cola_claude_code)] {
+        *destino = bus
+            .listar_cola(agente)
+            .unwrap_or_default()
+            .iter()
+            .map(|e| format!("{}  ({})", titulo(&e.trabajo), e.motivo))
+            .collect();
+    }
+    d.semaforos = ea_bus::listar_semaforos()
+        .into_iter()
+        .map(|(_, o)| format!("{} · {} · desde {}", o.agente, titulo(&o.trabajo), o.desde))
+        .collect();
+    let mut ids = bus.listar_trabajos().unwrap_or_default();
+    ids.reverse();
+    for id in ids {
+        let (Ok(orden), Ok(estado)) = (bus.leer_orden(&id), bus.leer_estado(&id)) else { continue };
+        let avance = if !orden.fases.is_empty() {
+            format!("fase {}/{}", estado.fase_actual.unwrap_or(1).min(orden.fases.len() as u32), orden.fases.len())
+        } else if estado.iteracion > 0 {
+            format!("iteración {}", estado.iteracion)
+        } else {
+            String::new()
+        };
+        let mut informe = String::new();
+        match bus.leer_informe(&id).ok().flatten() {
+            None => informe.push_str("Todavía no hay informe.\n"),
+            Some(i) => {
+                let res = if i.resultado == ResultadoInforme::Terminado { "terminado" } else { "bloqueado" };
+                informe.push_str(&format!("resultado: {res} · obra_completa: {} · {} fases hechas · {}s\n", i.obra_completa, i.fases_hechas, i.duracion_s));
+                if let Some(m) = &i.motivo {
+                    informe.push_str(&format!("motivo: {m}\n"));
+                }
+                for f in &i.fases {
+                    informe.push_str(&format!("fase {} [{}] {}\n", f.numero, f.resultado, f.titulo));
+                }
+                if !i.evidencia.trim().is_empty() {
+                    informe.push_str(&format!("\nevidencia:\n{}\n", i.evidencia.trim_end()));
+                }
+                if let Some(s) = &i.diff_stat {
+                    informe.push_str(&format!("\ndiff stat:\n{}\n", s.trim_end()));
+                }
+            }
+        }
+        if estado.estado == EstadoTrabajo::EnEspera {
+            informe.push_str("\nPaquete de corrección en espera: confírmalo con `ea trabajo confirmar` o desde ea-web.\n");
+        }
+        d.trabajos.push(orquestador_view::TrabajoResumen {
+            id,
+            modo: orden.modo.as_str(),
+            titulo: orden.titulo,
+            estado: estado.estado.as_str(),
+            avance,
+            informe,
+        });
+    }
+    d
+}
+
 fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -> Result<()> {
-    let mut current = Tab::Tareas;
+    let mut current = Tab::Orquestador;
+    let mut sel = 0usize;
+    let mut detalle = false;
 
     loop {
         terminal.draw(|frame| {
@@ -175,7 +237,7 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
             frame.render_widget(tabs, chunks[0]);
 
             match current {
-                Tab::Tareas => tareas_view::render(frame, chunks[1], &data.tasks),
+                Tab::Orquestador => orquestador_view::render(frame, chunks[1], &data.orquestador_bus, sel, detalle),
                 Tab::Diario => diario_view::render(frame, chunks[1], &data.events),
                 Tab::Servicios => servicios_view::render(frame, chunks[1], &data.servicios, &data.orquestador),
                 Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes),
@@ -190,6 +252,11 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Down if current == Tab::Orquestador => {
+                            sel = (sel + 1).min(data.orquestador_bus.trabajos.len().saturating_sub(1));
+                        }
+                        KeyCode::Up if current == Tab::Orquestador => sel = sel.saturating_sub(1),
+                        KeyCode::Enter if current == Tab::Orquestador => detalle = !detalle,
                         KeyCode::Right | KeyCode::Tab => {
                             let idx = (current.index() + 1) % Tab::ALL.len();
                             current = Tab::ALL[idx];

@@ -1,7 +1,5 @@
-//! Configuración de `ea-orchestrator`: dónde viven las rutinas del usuario
-//! y con qué cadencia se sondea la cola de tareas, en fichero TOML opcional
-//! (mismo patrón que `ea-proxy/src/config.rs`) con defaults sensatos si no
-//! existe.
+//! Configuración de `ea-orchestrator`: cadencia del heartbeat, en fichero
+//! TOML opcional con defaults sensatos si no existe.
 
 use std::path::PathBuf;
 
@@ -10,15 +8,10 @@ use serde::Deserialize;
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Directorio de ficheros de rutina (los gestionan `ea-acciones` y la CLI).
     pub rutinas_dir: PathBuf,
     pub intervalo_sondeo_s: u64,
     pub intervalo_heartbeat_s: u64,
-    pub proxy_endpoint: String,
-    pub mcp_endpoint: String,
-    /// Puerto de la superficie HTTP local de voz (`POST /v1/voz/hablar`,
-    /// solo `127.0.0.1`) — la CLI (`ea voz hablar`) le habla a este puerto;
-    /// el propio dispositivo de audio lo posee este proceso (§6.3).
-    pub voz_puerto: u16,
 }
 
 impl Default for Config {
@@ -26,17 +19,9 @@ impl Default for Config {
         let rutinas_dir = directories::ProjectDirs::from("", "", "ecosistema-asistente")
             .map(|dirs| dirs.config_dir().join("rutinas"))
             .unwrap_or_else(|| PathBuf::from("rutinas"));
-        Self {
-            rutinas_dir,
-            intervalo_sondeo_s: 5,
-            intervalo_heartbeat_s: 30,
-            proxy_endpoint: "http://127.0.0.1:8090".to_string(),
-            mcp_endpoint: "http://127.0.0.1:8765/mcp".to_string(),
-            voz_puerto: 8091,
-        }
+        Self { rutinas_dir, intervalo_sondeo_s: 5, intervalo_heartbeat_s: 30 }
     }
 }
-
 fn config_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "ecosistema-asistente")
         .map(|dirs| dirs.config_dir().join("orchestrator.toml"))

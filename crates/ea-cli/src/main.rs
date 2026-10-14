@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinasAccion, TareasAccion, VozAccion};
+use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinaAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -14,50 +14,21 @@ fn main() -> Result<()> {
 
     match args.command {
         Command::Status => commands::status::mostrar(&store)?,
-        Command::Tareas { accion } => match accion {
-            TareasAccion::Crear {
-                titulo,
-                asignado_a,
-                solicita,
-                origen,
-                creado_por,
-                tarea_padre,
-            } => commands::tareas::crear(
-                &mut store,
-                titulo,
-                asignado_a,
-                solicita,
-                origen,
-                creado_por,
-                tarea_padre,
-            )?,
-            TareasAccion::Listar {
-                estado,
-                asignado_a,
-                limite,
-            } => commands::tareas::listar(&store, estado, asignado_a, limite)?,
-            TareasAccion::Ver { id } => commands::tareas::ver(&store, id)?,
-            TareasAccion::Actualizar {
-                id,
-                estado,
-                resultado,
-                actor,
-            } => commands::tareas::actualizar(&mut store, id, estado, resultado, actor)?,
-        },
         Command::Diario { accion } => match accion {
             DiarioAccion::Listar {
-                tarea,
+                trabajo,
                 actor,
                 desde,
                 hasta,
                 limite,
-            } => commands::diario::listar(&store, tarea, actor, desde, hasta, limite)?,
+            } => commands::diario::listar(&store, trabajo, actor, desde, hasta, limite)?,
             DiarioAccion::Ver { id } => commands::diario::ver(&store, id)?,
         },
-        Command::Rutinas { accion } => match accion {
-            RutinasAccion::Listar => commands::rutinas::listar(&store)?,
-            RutinasAccion::Ver { slug } => commands::rutinas::ver(&store, &slug)?,
-            RutinasAccion::Encolar { slug } => commands::rutinas::encolar(&mut store, &slug)?,
+        Command::Rutina { accion } => match accion {
+            RutinaAccion::Registrar { fichero } => commands::rutinas::registrar(&fichero)?,
+            RutinaAccion::Listar => commands::rutinas::listar(&store)?,
+            RutinaAccion::Ver { slug } => commands::rutinas::ver(&store, &slug)?,
+            RutinaAccion::Lanzar { slug, entrada } => commands::rutinas::lanzar(&slug, &entrada)?,
         },
         Command::Propuestas { accion } => match accion {
             PropuestasAccion::Listar { estado } => commands::propuestas::listar(&store, estado)?,
@@ -85,10 +56,21 @@ fn main() -> Result<()> {
             BovedaAccion::Promover { ruta, destino } => commands::boveda::promover(&mut store, &ruta, destino)?,
             BovedaAccion::Reindexar => commands::boveda::reindexar(&mut store)?,
         },
-        Command::Voz { accion } => match accion {
-            VozAccion::Hablar => commands::voz::hablar()?,
-            VozAccion::Estado => commands::voz::estado()?,
+        Command::Trabajo { accion } => match accion {
+            TrabajoAccion::Crear { orden, modo, titulo, worktree, objetivo, criterio } => {
+                commands::trabajo::crear(orden, &modo, titulo, worktree, objetivo, criterio)?
+            }
+            TrabajoAccion::Listar => commands::trabajo::listar()?,
+            TrabajoAccion::Ver { id, json } => commands::trabajo::ver(&id, json)?,
+            TrabajoAccion::Diff { id, fase } => commands::trabajo::diff(&id, fase)?,
+            TrabajoAccion::Cerrar { id } => commands::trabajo::evento(&id, ea_bus::Evento::Cerrar)?,
+            TrabajoAccion::Continuar { id } => commands::trabajo::reformular(&id, "")?,
+            TrabajoAccion::Confirmar { id, contexto } => commands::trabajo::confirmar(&id, &contexto.unwrap_or_default())?,
+            TrabajoAccion::Reformular { id, nota } => commands::trabajo::reformular(&id, &nota)?,
+            TrabajoAccion::Cancelar { id } => commands::trabajo::evento(&id, ea_bus::Evento::Cancelar)?,
         },
+        Command::Cola { agente, json } => commands::trabajo::cola(agente.as_deref(), json)?,
+        Command::Semaforos => commands::trabajo::semaforos(),
         Command::Tui => tui::run(&mut store)?,
     }
 

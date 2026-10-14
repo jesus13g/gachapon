@@ -64,7 +64,7 @@ pub struct NuevaNota<'a> {
     /// deriva del título.
     pub ruta: Option<&'a str>,
     pub tags: &'a [String],
-    /// `tarea:<id>`, `rutina:<slug>` o `manual`.
+    /// `trabajo:<id>`, `rutina:<slug>` o `manual`.
     pub origen: &'a str,
     /// Permite reemplazar una nota existente de la propia región.
     pub sobrescribir: bool,
@@ -164,12 +164,12 @@ fn escribir_atomico(destino: &Path, contenido: &str) -> Resultado<()> {
     Ok(())
 }
 
-fn evento(store: &Store, actor: &str, accion: &str, tarea: Option<i64>, ok: bool, detalle: Value, inicio: Instant) -> Result<(), String> {
+fn evento(store: &Store, actor: &str, accion: &str, trabajo: Option<&str>, ok: bool, detalle: Value, inicio: Instant) -> Result<(), String> {
     store
         .append_event(NewEvent {
             actor: actor.to_string(),
             action: accion.to_string(),
-            task_id: tarea.filter(|id| store.get_task(*id).is_ok()),
+            trabajo: trabajo.map(str::to_string),
             outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
             duration_ms: Some(inicio.elapsed().as_millis() as i64),
             detail: Some(detalle.to_string()),
@@ -319,7 +319,7 @@ impl Boveda {
         cabecera::tags_validos(n.tags)?;
         if !cabecera::origen_valido(n.origen) {
             return Err(ErrorBoveda::Cabecera(format!(
-                "origen '{}' no válido (tarea:<id>, rutina:<slug> o manual)",
+                "origen '{}' no válido (trabajo:<id>, rutina:<slug> o manual)",
                 n.origen
             )));
         }
@@ -444,12 +444,12 @@ impl Boveda {
             creada,
             huella: huella(&texto),
         };
-        let tarea = n.origen.strip_prefix("tarea:").and_then(|id| id.parse::<i64>().ok());
+        let trabajo = n.origen.strip_prefix("trabajo:");
         evento(
             store,
             autor,
             "boveda_escritura",
-            tarea,
+            trabajo,
             true,
             json!({
                 "ruta": ruta_final, "region": region, "bytes": texto.len(),

@@ -20,23 +20,19 @@ pub const MAX_PENDIENTES_CON_ACCION: usize = 30;
 #[derive(Debug, Clone)]
 pub struct Resultado {
     pub texto: String,
-    pub tarea: Option<i64>,
+    pub trabajo: Option<String>,
     pub datos: Value,
 }
 
-fn evento(store: &Store, actor: &str, action: &str, tarea: Option<i64>, ok: bool, detalle: Value) {
+fn evento(store: &Store, actor: &str, action: &str, trabajo: Option<&str>, ok: bool, detalle: Value) {
     let _ = store.append_event(NewEvent {
         actor: actor.to_string(),
         action: action.to_string(),
-        task_id: tarea,
+        trabajo: trabajo.map(str::to_string),
         outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
         duration_ms: None,
         detail: Some(detalle.to_string()),
     });
-}
-
-fn tarea_de(args: &Value) -> Option<i64> {
-    args["id"].as_i64()
 }
 
 /// Encola una propuesta con acción estructurada. La simulación se hace aquí
@@ -49,7 +45,6 @@ pub fn proponer<C: Consulta>(
     consulta: &C,
     hechos: &Hechos,
     proponente: &str,
-    routine_run_id: Option<i64>,
     descripcion: Option<&str>,
     herramienta: &str,
     args: &Value,
@@ -79,7 +74,6 @@ pub fn proponer<C: Consulta>(
         _ => sim.texto.clone(),
     };
     let propuesta = store.crear_propuesta(NuevaPropuesta {
-        routine_run_id,
         proponente: proponente.to_string(),
         descripcion,
         accion: Some(AccionPropuesta {
@@ -94,7 +88,7 @@ pub fn proponer<C: Consulta>(
         store,
         proponente,
         "propuesta_encolada",
-        tarea_de(&sim.argumentos),
+        None,
         true,
         json!({
             "propuesta": propuesta.id, "herramienta": herramienta, "riesgo": sim.riesgo.as_str(),
@@ -152,18 +146,18 @@ pub async fn ejecutar<S: Sistema>(
                 store,
                 actor,
                 "accion_ejecutada",
-                a.tarea.or_else(|| tarea_de(args)),
+                a.trabajo.as_deref(),
                 true,
                 contexto(json!({ "resultado": a.datos, "texto": a.texto })),
             );
-            Ok(Resultado { texto: a.texto, tarea: a.tarea, datos: a.datos })
+            Ok(Resultado { texto: a.texto, trabajo: a.trabajo, datos: a.datos })
         }
         Err(e) => {
             evento(
                 store,
                 actor,
                 "accion_fallida",
-                tarea_de(args),
+                None,
                 false,
                 contexto(json!({ "error": e.to_string() })),
             );
@@ -189,7 +183,7 @@ pub async fn ejecutar_directo<S: Sistema>(
             store,
             actor,
             "accion_fallida",
-            tarea_de(args),
+            None,
             false,
             json!({
                 "herramienta": herramienta, "riesgo": h.riesgo.as_str(), "canal": canal.nombre(),
@@ -206,7 +200,7 @@ pub async fn ejecutar_directo<S: Sistema>(
                 store,
                 actor,
                 "accion_fallida",
-                tarea_de(args),
+                None,
                 false,
                 json!({
                     "herramienta": herramienta, "riesgo": h.riesgo.as_str(), "canal": canal.nombre(),
@@ -225,8 +219,7 @@ fn riesgo_de(p: &Propuesta, a: &AccionPropuesta) -> Result<Riesgo, ErrorAccion> 
         .ok_or_else(|| ErrorAccion::NoAplica(format!("propuesta #{} con riesgo inválido '{}'", p.id, a.riesgo)))
 }
 
-/// El usuario acepta una propuesta. Sin acción (las antiguas, de texto
-/// libre): solo constancia. Con acción: se reclama de forma atómica (aceptar
+/// El usuario acepta una propuesta. Sin acción (de texto libre): solo constancia. Con acción: se reclama de forma atómica (aceptar
 /// dos veces no ejecuta dos veces), se ejecuta por la capa interna con
 /// revalidación y se anota el resultado en la propuesta. Una acción que
 /// falla no es un `Err`: la propuesta queda aceptada con ejecución
@@ -260,7 +253,7 @@ pub async fn aceptar_propuesta<S: Sistema>(
             store,
             actor,
             "accion_fallida",
-            tarea_de(&accion.argumentos),
+            None,
             false,
             json!({
                 "propuesta": id, "herramienta": accion.herramienta, "riesgo": accion.riesgo,

@@ -17,8 +17,8 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 /// Servicios que se pueden reiniciar: lista cerrada.
-pub const SERVICIOS_REINICIABLES: [&str; 5] =
-    ["llama-server", "ea-mcp", "ea-proxy", "ea-orchestrator", "ea-web"];
+pub const SERVICIOS_REINICIABLES: [&str; 4] =
+    ["llama-server", "ea-mcp", "ea-orchestrator", "ea-web"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EstadoServicio {

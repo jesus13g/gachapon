@@ -1,0 +1,125 @@
+//! Semáforo del worktree: `flock` exclusivo sobre un `.lock` por worktree.
+//! Dentro del lock se escribe quién lo tiene, para poder monitorizarlo.
+
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use serde::{Deserialize, Serialize};
+
+use crate::bus::{raiz_estado, ahora_rfc3339};
+use crate::error::{ErrorBus, Resultado};
+use crate::fs_atomico::fnv;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ocupante {
+    pub agente: String,
+    pub trabajo: String,
+    pub pid: u32,
+    pub desde: String,
+}
+
+#[derive(Debug)]
+pub struct CandadoWorktree {
+    fichero: File,
+    ruta_lock: PathBuf,
+}
+
+fn dir_semaforos(raiz: &Path) -> PathBuf {
+    raiz.join("semaforos")
+}
+
+/// Ruta del `.lock` de un worktree: hash corto de su ruta canónica.
+pub fn ruta_lock(raiz: &Path, worktree: &Path) -> PathBuf {
+    let canonica = fs::canonicalize(worktree).unwrap_or_else(|_| worktree.to_path_buf());
+    let h = fnv(&canonica.to_string_lossy()) & 0xffff_ffff;
+    dir_semaforos(raiz).join(format!("worktree-{h:08x}.lock"))
+}
+
+impl CandadoWorktree {
+    /// Con la raíz de estado estándar y sin identificar al ocupante.
+    pub fn adquirir(ruta_worktree: &Path, espera: Duration) -> Resultado<Self> {
+        let o = Ocupante { agente: "desconocido".into(), trabajo: String::new(), pid: std::process::id(), desde: ahora_rfc3339() };
+        Self::adquirir_en(&raiz_estado(), ruta_worktree, o, espera)
+    }
+
+    pub fn adquirir_en(raiz: &Path, ruta_worktree: &Path, mut ocupante: Ocupante, espera: Duration) -> Resultado<Self> {
+        let ruta = ruta_lock(raiz, ruta_worktree);
+        fs::create_dir_all(ruta.parent().unwrap())?;
+        let mut f = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&ruta)?;
+        let limite = Instant::now() + espera;
+        loop {
+            match f.try_lock() {
+                Ok(()) => break,
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    if Instant::now() >= limite {
+                        return Err(ErrorBus::Ocupado);
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
+            }
+        }
+        ocupante.pid = std::process::id();
+        f.set_len(0)?;
+        f.write_all(&serde_json::to_vec(&ocupante)?)?;
+        f.sync_all()?;
+        Ok(Self { fichero: f, ruta_lock: ruta })
+    }
+
+    pub fn ruta(&self) -> &Path {
+        &self.ruta_lock
+    }
+
+    /// Quién tiene el worktree en la raíz estándar (solo lectura).
+    pub fn ocupante(ruta_worktree: &Path) -> Option<Ocupante> {
+        Self::ocupante_en(&raiz_estado(), ruta_worktree)
+    }
+
+    pub fn ocupante_en(raiz: &Path, ruta_worktree: &Path) -> Option<Ocupante> {
+        leer_ocupante(&ruta_lock(raiz, ruta_worktree))
+    }
+}
+
+/// `None` si el lock no existe o nadie lo tiene (el contenido sería residuo).
+fn leer_ocupante(ruta: &Path) -> Option<Ocupante> {
+    let f = File::open(ruta).ok()?;
+    match f.try_lock_shared() {
+        Ok(()) => {
+            let _ = f.unlock();
+            None
+        }
+        Err(std::fs::TryLockError::WouldBlock) => {
+            let texto = fs::read_to_string(ruta).ok()?;
+            serde_json::from_str(&texto).ok()
+        }
+        Err(_) => None,
+    }
+}
+
+/// Semáforos ocupados ahora mismo en la raíz dada: (fichero, ocupante).
+pub fn listar_semaforos() -> Vec<(PathBuf, Ocupante)> {
+    listar_semaforos_en(&raiz_estado())
+}
+
+/// Igual que [`listar_semaforos`] sobre una raíz explícita.
+pub fn listar_semaforos_en(raiz: &Path) -> Vec<(PathBuf, Ocupante)> {
+    let mut v: Vec<_> = fs::read_dir(dir_semaforos(raiz))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "lock"))
+        .filter_map(|p| leer_ocupante(&p).map(|o| (p, o)))
+        .collect();
+    v.sort_by(|a, b| a.0.cmp(&b.0));
+    v
+}
+
+impl Drop for CandadoWorktree {
+    fn drop(&mut self) {
+        let _ = self.fichero.set_len(0);
+        let _ = self.fichero.unlock();
+    }
+}

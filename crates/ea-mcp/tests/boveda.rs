@@ -30,6 +30,10 @@ struct Entorno {
 }
 
 async fn entorno() -> Entorno {
+    // Estado del bus en un directorio temporal, nunca el real.
+    static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
+    unsafe { std::env::set_var("EA_ESTADO_DIR", estado.path()) };
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("t.db");
     let rutinas = dir.path().join("rutinas");
@@ -89,25 +93,25 @@ fn acciones(e: &Entorno) -> Vec<String> {
 #[tokio::test]
 async fn cada_agente_escribe_en_su_region_y_el_otro_la_puede_leer() {
     let e = entorno().await;
-    let local = conectar(&e.url, "ea-proxy").await;
+    let local = conectar(&e.url, "qwen-code-mcp-client").await;
     let claude = conectar(&e.url, "claude-code").await;
 
     let r = llamar(&local, "ea_escribir_nota", json!({ "titulo": "Puerto del MCP", "contenido": "ea-mcp escucha en el 8765." }))
         .await
         .unwrap();
     assert_eq!(r["ruta"], "modelo-local/puerto-del-mcp.md");
-    let r = llamar(&claude, "ea_escribir_nota", json!({ "titulo": "Puerto del proxy", "contenido": "ea-proxy escucha en el 8090.", "etiquetas": ["puertos"], "tarea": 1 }))
+    let r = llamar(&claude, "ea_escribir_nota", json!({ "titulo": "Puerto de la web", "contenido": "ea-web escucha en el 8092.", "etiquetas": ["puertos"], "trabajo": "m-1" }))
         .await
         .unwrap();
-    assert_eq!(r["ruta"], "claude-code/puerto-del-proxy.md");
+    assert_eq!(r["ruta"], "claude-code/puerto-de-la-web.md");
 
     // Cada uno busca y lee lo del otro.
     let b = llamar(&local, "ea_buscar_notas", json!({ "consulta": "puerto" })).await.unwrap();
     assert_eq!(b["total"], 2);
-    let n = llamar(&local, "ea_leer_nota", json!({ "ruta": "claude-code/puerto-del-proxy.md" })).await.unwrap();
+    let n = llamar(&local, "ea_leer_nota", json!({ "ruta": "claude-code/puerto-de-la-web.md" })).await.unwrap();
     assert_eq!(n["autor"], "claude-code");
-    assert_eq!(n["origen"], "tarea:1");
-    assert!(n["contenido"].as_str().unwrap().contains("8090"));
+    assert_eq!(n["origen"], "trabajo:m-1");
+    assert!(n["contenido"].as_str().unwrap().contains("8092"));
 
     // Y todo queda en el diario atribuido a quien lo hizo.
     let s = Store::open_at(&e.db).unwrap();
@@ -120,7 +124,7 @@ async fn cada_agente_escribe_en_su_region_y_el_otro_la_puede_leer() {
 #[tokio::test]
 async fn un_agente_no_puede_escribir_en_la_region_compartida_ni_fuera_de_la_boveda() {
     let e = entorno().await;
-    for cliente in ["ea-proxy", "claude-code"] {
+    for cliente in ["qwen-code-mcp-client", "claude-code"] {
         let c = conectar(&e.url, cliente).await;
         for ruta in ["../compartida/x.md", "/tmp/ea-fuera.md", "a/../../compartida/x.md"] {
             let r = llamar(&c, "ea_escribir_nota", json!({ "titulo": "T", "contenido": "c", "ruta": ruta })).await;
@@ -137,7 +141,7 @@ async fn un_agente_no_puede_escribir_en_la_region_compartida_ni_fuera_de_la_bove
 }
 
 fn cliente_region(cliente: &str) -> &'static str {
-    if cliente == "ea-proxy" { "modelo-local/" } else { "claude-code/" }
+    if cliente == "qwen-code-mcp-client" { "modelo-local/" } else { "claude-code/" }
 }
 
 #[tokio::test]
@@ -158,7 +162,7 @@ async fn el_orquestador_desatendido_solo_lee() {
 #[tokio::test]
 async fn un_agente_solo_propone_la_promocion_y_no_llega_nada_a_la_compartida() {
     let e = entorno().await;
-    let c = conectar(&e.url, "ea-proxy").await;
+    let c = conectar(&e.url, "qwen-code-mcp-client").await;
     let n = llamar(&c, "ea_escribir_nota", json!({ "titulo": "Hallazgo", "contenido": "Algo útil." })).await.unwrap();
     let ruta = n["ruta"].as_str().unwrap().to_string();
 
@@ -189,7 +193,7 @@ async fn un_agente_solo_propone_la_promocion_y_no_llega_nada_a_la_compartida() {
 async fn lo_que_recibe_el_modelo_local_esta_acotado() {
     let e = entorno().await;
     let claude = conectar(&e.url, "claude-code").await;
-    let local = conectar(&e.url, "ea-proxy").await;
+    let local = conectar(&e.url, "qwen-code-mcp-client").await;
     let largo = "relleno de la nota ".repeat(1500); // ~28 KB
     for i in 0..12 {
         llamar(&claude, "ea_escribir_nota", json!({ "titulo": format!("Larga {i}"), "contenido": largo }))

@@ -1,0 +1,13 @@
+# Copiar a ~/.config/ecosistema-asistente/orquestador.toml.
+# Todo es opcional: lo que falte toma el valor por defecto que se ve aquí.
+
+# base_url = "http://127.0.0.1:8080/v1"
+# modelo = "qwen3-coder-30b"
+# qwen_bin = "qwen"
+# avisos_escritorio = true
+
+# [topes]
+# turnos = 30
+# tiempo_s = 900
+# llamadas_herramienta = 60
+# iteraciones = 5

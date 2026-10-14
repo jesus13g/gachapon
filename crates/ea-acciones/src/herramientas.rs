@@ -3,7 +3,7 @@
 //! Es la "capa interna" de §7.3; el catálogo y las definiciones MCP solo
 //! nombran estas herramientas.
 
-use ea_store::{NewTask, Store, Task, TaskFilter, TaskOrigin, TaskStatus};
+use ea_store::Store;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -28,17 +28,8 @@ pub struct Simulacion {
 #[derive(Debug, Clone)]
 pub struct Aplicada {
     pub texto: String,
-    pub tarea: Option<i64>,
+    pub trabajo: Option<String>,
     pub datos: Value,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CambiarEstado {
-    id: i64,
-    estado: String,
-    #[serde(default)]
-    resultado: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -96,23 +87,11 @@ fn huella(texto: &str) -> String {
     format!("{h:016x}")
 }
 
-fn tarea_activa_de_rutina(store: &Store, slug: &str) -> Result<Option<Task>, ErrorAccion> {
-    for estado in [TaskStatus::Pendiente, TaskStatus::EnProgreso] {
-        let tareas = store.list_tasks(&TaskFilter {
-            status: Some(estado),
-            assigned_to: Some("orquestador".into()),
-            limit: None,
-        })?;
-        for t in tareas {
-            let rutina = serde_json::from_str::<Value>(&t.request)
-                .ok()
-                .and_then(|v| v["rutina"].as_str().map(str::to_string));
-            if rutina.as_deref() == Some(slug) {
-                return Ok(Some(t));
-            }
-        }
-    }
-    Ok(None)
+/// Bus del orquestador sobre la raíz de estado estándar (o `EA_ESTADO_DIR`).
+fn bus_de(store: &Store, actor: &str) -> Result<ea_bus::Bus, ErrorAccion> {
+    let err = |e: &dyn std::fmt::Display| ErrorAccion::Sistema(e.to_string());
+    let bus = ea_bus::Bus::abrir().map_err(|e| err(&e))?;
+    Ok(bus.con_store(store.duplicar()?).con_actor(actor))
 }
 
 fn comprobar_servicio(nombre: &str) -> Result<(), ErrorAccion> {
@@ -141,17 +120,46 @@ fn comprobar_slug(slug: &str) -> Result<(), ErrorAccion> {
 pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion> {
     supervisada(nombre)?;
     match nombre {
-        "ea_cambiar_estado_tarea" => {
-            let a: CambiarEstado = parsear(args)?;
-            a.estado
-                .parse::<TaskStatus>()
-                .map(|_| ())
-                .map_err(|_| ErrorAccion::Argumentos(format!("estado '{}' inválido", a.estado)))
-        }
         "ea_encolar_rutina" | "ea_eliminar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
         "ea_reiniciar_servicio" => comprobar_servicio(&parsear::<PorServicio>(args)?.servicio),
         "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
+    }
+}
+
+/// Un argumento de una herramienta supervisada, descrito para quien tenga
+/// que pedírselo a una persona (el formulario de la web).
+#[derive(Debug, Clone, Copy)]
+pub struct Campo {
+    pub nombre: &'static str,
+    pub entero: bool,
+    pub obligatorio: bool,
+    /// Dominio cerrado de valores; vacío si es libre.
+    pub opciones: &'static [&'static str],
+    pub ayuda: &'static str,
+}
+
+const fn campo(nombre: &'static str, ayuda: &'static str) -> Campo {
+    Campo { nombre, entero: false, obligatorio: true, opciones: &[], ayuda }
+}
+
+const CAMPOS_SLUG: &[Campo] = &[campo("slug", "rutina")];
+const CAMPOS_SERVICIO: &[Campo] =
+    &[Campo { opciones: &SERVICIOS_REINICIABLES, ..campo("servicio", "servicio") }];
+const CAMPOS_PROMOVER: &[Campo] = &[
+    campo("ruta", "ruta de la nota (p. ej. claude-code/tema/nota.md)"),
+    Campo { obligatorio: false, ..campo("destino", "destino en «compartida» (opcional)") },
+];
+
+/// Los argumentos que acepta una herramienta supervisada, en el orden en que
+/// conviene pedirlos. Debe casar con las estructuras de arriba (lo vigila
+/// una prueba).
+pub fn campos(nombre: &str) -> &'static [Campo] {
+    match nombre {
+        "ea_encolar_rutina" | "ea_eliminar_rutina" => CAMPOS_SLUG,
+        "ea_reiniciar_servicio" => CAMPOS_SERVICIO,
+        "ea_promover_nota" => CAMPOS_PROMOVER,
+        _ => &[],
     }
 }
 
@@ -187,41 +195,6 @@ pub fn simular_con<C: Consulta>(
 ) -> Result<Simulacion, ErrorAccion> {
     let h = supervisada(nombre)?;
     let (argumentos, texto, precondicion) = match nombre {
-        "ea_cambiar_estado_tarea" => {
-            let a: CambiarEstado = parsear(args)?;
-            let nuevo: TaskStatus = a.estado.parse().map_err(|_| {
-                ErrorAccion::Argumentos(format!(
-                    "estado '{}' inválido (pendiente, en_progreso, completada, fallida, cancelada)",
-                    a.estado
-                ))
-            })?;
-            let tarea = store
-                .get_task(a.id)
-                .map_err(|_| ErrorAccion::NoAplica(format!("la tarea #{} no existe", a.id)))?;
-            if tarea.status == nuevo {
-                return Err(ErrorAccion::NoAplica(format!(
-                    "la tarea #{} ya está en estado '{}'",
-                    a.id,
-                    nuevo.as_str()
-                )));
-            }
-            let resultado = a.resultado.filter(|r| !r.trim().is_empty());
-            let mut texto = format!(
-                "Cambiaría la tarea #{} «{}» de '{}' a '{}'.",
-                tarea.id,
-                tarea.title,
-                tarea.status.as_str(),
-                nuevo.as_str()
-            );
-            if let Some(r) = &resultado {
-                texto.push_str(&format!(" Resultado que se anotaría: «{r}»."));
-            }
-            let mut norm = json!({ "id": a.id, "estado": nuevo.as_str() });
-            if let Some(r) = resultado {
-                norm["resultado"] = json!(r);
-            }
-            (norm, texto, json!({ "estado_actual": tarea.status.as_str() }))
-        }
         "ea_encolar_rutina" => {
             let a: PorSlug = parsear(args)?;
             comprobar_slug(&a.slug)?;
@@ -229,22 +202,29 @@ pub fn simular_con<C: Consulta>(
                 .rutina_contenido(&a.slug)
                 .map_err(ErrorAccion::Sistema)?
                 .ok_or_else(|| ErrorAccion::NoAplica(format!("la rutina '{}' no existe", a.slug)))?;
-            if let Some(t) = tarea_activa_de_rutina(store, &a.slug)? {
+            let version = store
+                .ultima_rutina(&a.slug)?
+                .ok_or_else(|| {
+                    ErrorAccion::NoAplica(format!("la rutina '{}' no está registrada (ea rutina registrar)", a.slug))
+                })?
+                .version;
+            let bus = bus_de(store, "simulacion")?;
+            let activos = bus.trabajos_activos_de_rutina(&a.slug).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
+            if let Some(t) = activos.first() {
                 return Err(ErrorAccion::NoAplica(format!(
-                    "la rutina '{}' ya tiene una ejecución en cola (tarea #{}, {})",
-                    a.slug,
-                    t.id,
-                    t.status.as_str()
+                    "la rutina '{}' ya tiene una ejecución en curso (trabajo {t})",
+                    a.slug
                 )));
             }
             (
                 json!({ "slug": a.slug }),
                 format!(
-                    "Crearía una tarea para el orquestador que ejecuta la rutina '{}' (de solo \
-                     lectura; lo que necesite mutar quedará como propuestas).",
+                    "Lanzaría la rutina '{}' (versión {version}) por el bus del orquestador: crea un \
+                     trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla \
+                     y tú lo confirmas.",
                     a.slug
                 ),
-                json!({ "tareas_activas": 0 }),
+                json!({ "trabajos_activos": 0, "version": version }),
             )
         }
         "ea_reiniciar_servicio" => {
@@ -260,7 +240,7 @@ pub fn simular_con<C: Consulta>(
             (
                 json!({ "servicio": a.servicio }),
                 format!(
-                    "Reiniciaría {}.service (ahora: {}). Las conexiones y tareas en curso de ese \
+                    "Reiniciaría {}.service (ahora: {}). Las conexiones y trabajos en curso de ese \
                      servicio se interrumpirían unos segundos.",
                     a.servicio, estado.activo
                 ),
@@ -321,7 +301,7 @@ pub fn revalidar_con<C: Consulta>(
     args: &Value,
     precondicion: &Value,
 ) -> Result<(), ErrorAccion> {
-    // Primero la validación completa de la simulación (la tarea existe, la
+    // Primero la validación completa de la simulación (la
     // rutina existe, la unidad está instalada…), con el estado de ahora.
     let ahora = simular_con(store, consulta, hechos, nombre, args).map_err(|e| match e {
         ErrorAccion::NoAplica(m) => ErrorAccion::NoAplica(format!("el estado cambió desde la simulación: {m}")),
@@ -349,35 +329,15 @@ pub fn aplicar_en_store(
     args: &Value,
 ) -> Result<Option<Aplicada>, ErrorAccion> {
     match nombre {
-        "ea_cambiar_estado_tarea" => {
-            let a: CambiarEstado = parsear(args)?;
-            let nuevo: TaskStatus = a.estado.parse().map_err(|_| ErrorAccion::Argumentos(a.estado.clone()))?;
-            let resultado = a.resultado.filter(|r| !r.trim().is_empty());
-            let t = store.update_task_status(a.id, nuevo, actor, resultado)?;
-            Ok(Some(Aplicada {
-                texto: format!("Tarea #{} ahora '{}'.", t.id, t.status.as_str()),
-                tarea: Some(t.id),
-                datos: json!({ "tarea": t.id, "estado": t.status.as_str() }),
-            }))
-        }
         "ea_encolar_rutina" => {
             let a: PorSlug = parsear(args)?;
-            let origin = match canal {
-                Canal::Web => TaskOrigin::Boton,
-                Canal::Terminal => TaskOrigin::Manual,
-            };
-            let t = store.create_task(NewTask {
-                created_by: actor.to_string(),
-                assigned_to: "orquestador".into(),
-                origin,
-                parent_task_id: None,
-                title: format!("Ejecutar rutina: {}", a.slug),
-                request: json!({ "rutina": a.slug }).to_string(),
-            })?;
+            let bus = bus_de(store, actor)?;
+            let id = bus.lanzar_rutina(&a.slug, &[]).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
+            let _ = canal;
             Ok(Some(Aplicada {
-                texto: format!("Tarea #{} encolada para la rutina '{}'.", t.id, a.slug),
-                tarea: Some(t.id),
-                datos: json!({ "tarea": t.id, "rutina": a.slug }),
+                texto: format!("Rutina '{}' lanzada: trabajo {id} en la cola del agente local.", a.slug),
+                trabajo: Some(id.to_string()),
+                datos: json!({ "trabajo": id, "rutina": a.slug }),
             }))
         }
         "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" => Ok(None),
@@ -403,7 +363,7 @@ pub async fn aplicar_en_sistema<S: Sistema>(
             let plan = sistema.nota_promover(store, &a.ruta, destino, huella, actor, canal.nombre())?;
             Ok(Aplicada {
                 texto: format!("Nota {} promovida a {}.", plan.origen, plan.destino),
-                tarea: None,
+                trabajo: None,
                 datos: json!({ "origen": plan.origen, "destino": plan.destino }),
             })
         }
@@ -413,7 +373,7 @@ pub async fn aplicar_en_sistema<S: Sistema>(
             let ahora = sistema.servicio_estado(&a.servicio).await.map_err(ErrorAccion::Sistema)?;
             Ok(Aplicada {
                 texto: format!("{}.service reiniciado (ahora: {}).", a.servicio, ahora.activo),
-                tarea: None,
+                trabajo: None,
                 datos: json!({ "servicio": a.servicio, "activo": ahora.activo }),
             })
         }
@@ -422,7 +382,7 @@ pub async fn aplicar_en_sistema<S: Sistema>(
             sistema.rutina_eliminar(&a.slug).map_err(ErrorAccion::Sistema)?;
             Ok(Aplicada {
                 texto: format!("Rutina '{}' eliminada.", a.slug),
-                tarea: None,
+                trabajo: None,
                 datos: json!({ "rutina": a.slug }),
             })
         }

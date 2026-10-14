@@ -12,7 +12,7 @@
 //! region: modelo-local                # modelo-local | claude-code | compartida
 //! creada: 2026-10-10T12:00:00Z        # RFC 3339, UTC
 //! actualizada: 2026-10-10T12:00:00Z
-//! origen: "tarea:12"                  # tarea:<id> | rutina:<slug> | manual
+//! origen: "trabajo:m-12"                 # trabajo:<id> | rutina:<slug> | manual
 //! promocion: ninguna                  # ninguna | promovida
 //! tags: [servicios, mcp]              # opcional
 //! # solo tras promover:
@@ -79,19 +79,22 @@ fn fecha_valida(s: &str) -> bool {
     OffsetDateTime::parse(s, &Rfc3339).is_ok()
 }
 
+fn id_simple(s: &str, max: usize) -> bool {
+    !s.is_empty() && s.len() <= max && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// Origen que se admite al escribir: `trabajo:<id>`, `rutina:<slug>` o `manual`.
 pub fn origen_valido(o: &str) -> bool {
-    if o == "manual" {
-        return true;
-    }
-    if let Some(id) = o.strip_prefix("tarea:") {
-        return !id.is_empty() && id.len() <= 18 && id.bytes().all(|b| b.is_ascii_digit());
-    }
-    if let Some(slug) = o.strip_prefix("rutina:") {
-        return !slug.is_empty()
-            && slug.len() <= 64
-            && slug.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    }
-    false
+    o == "manual"
+        || o.strip_prefix("trabajo:").is_some_and(|id| id_simple(id, 64))
+        || o.strip_prefix("rutina:").is_some_and(|slug| id_simple(slug, 64))
+}
+
+/// Origen que se tolera al leer: además, el `tarea:<n>` de notas antiguas.
+pub fn origen_legible(o: &str) -> bool {
+    origen_valido(o)
+        || o.strip_prefix("tarea:")
+            .is_some_and(|id| !id.is_empty() && id.len() <= 18 && id.bytes().all(|b| b.is_ascii_digit()))
 }
 
 pub fn titulo_valido(t: &str) -> Resultado<()> {
@@ -144,9 +147,9 @@ impl Cabecera {
                 return mal(format!("{campo} '{valor}' no es una fecha RFC 3339"));
             }
         }
-        if !origen_valido(&self.origen) {
+        if !origen_legible(&self.origen) {
             return mal(format!(
-                "origen '{}' no válido (tarea:<id>, rutina:<slug> o manual)",
+                "origen '{}' no válido (trabajo:<id>, rutina:<slug> o manual)",
                 self.origen
             ));
         }

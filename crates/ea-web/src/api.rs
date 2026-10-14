@@ -1,8 +1,7 @@
 //! Rutas HTTP: la página estática y la API JSON. Todo se apoya en la
-//! fachada `Store` y en `ea_orchestrator::rutina`; aquí solo se traduce a
+//! fachada `Store` y en los ficheros de rutina; aquí solo se traduce a
 //! JSON y se validan las entradas.
 
-use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, Request, State};
@@ -12,11 +11,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use ea_acciones::{Canal, ErrorAccion, SistemaReal};
-use ea_orchestrator::rutina::{self, Paso, Rutina, RutinaError};
-use ea_store::{
-    EstadoPropuesta, Event, EventFilter, Propuesta,
-    PropuestaFilter, RoutineRun, StoreError, NewTask, Task, TaskFilter, TaskOrigin, TaskStatus,
-};
+use ea_bus::{Agente, Bus, ErrorBus, Evento};
+use ea_store::{EstadoPropuesta, Event, EventFilter, Propuesta, PropuestaFilter, StoreError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
@@ -26,14 +22,6 @@ use time::OffsetDateTime;
 use crate::{estado, tema, AppState};
 
 const ACTOR: &str = "usuario";
-const ESTADOS: [TaskStatus; 5] = [
-    TaskStatus::Pendiente,
-    TaskStatus::EnProgreso,
-    TaskStatus::Completada,
-    TaskStatus::Fallida,
-    TaskStatus::Cancelada,
-];
-
 type Estado = State<Arc<AppState>>;
 type ApiResult<T> = Result<T, ApiError>;
 
@@ -58,13 +46,8 @@ impl IntoResponse for ApiError {
 impl From<StoreError> for ApiError {
     fn from(e: StoreError) -> Self {
         let status = match e {
-            StoreError::TaskNotFound(_)
-            | StoreError::EventNotFound(_)
-            | StoreError::RoutineRunNotFound(_)
-            | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
-            StoreError::InvalidStatus(_)
-            | StoreError::InvalidOrigin(_)
-            | StoreError::InvalidOutcome(_) => StatusCode::BAD_REQUEST,
+            StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
+            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self(status, e.to_string())
@@ -89,10 +72,7 @@ impl From<ErrorAccion> for ApiError {
 impl ApiError {
     fn from_store_ref(se: &StoreError, msg: String) -> Self {
         let status = match se {
-            StoreError::TaskNotFound(_)
-            | StoreError::EventNotFound(_)
-            | StoreError::RoutineRunNotFound(_)
-            | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
+            StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self(status, msg)
@@ -109,14 +89,13 @@ fn sistema(s: &AppState) -> SistemaReal {
     }
 }
 
-impl From<RutinaError> for ApiError {
-    fn from(e: RutinaError) -> Self {
+impl From<ErrorBus> for ApiError {
+    fn from(e: ErrorBus) -> Self {
         let status = match &e {
-            RutinaError::Io(_, io) if io.kind() == std::io::ErrorKind::NotFound => {
-                StatusCode::NOT_FOUND
-            }
-            RutinaError::Io(..) => StatusCode::INTERNAL_SERVER_ERROR,
-            _ => StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBus::NoExiste(_) => StatusCode::NOT_FOUND,
+            ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado => StatusCode::CONFLICT,
+            ErrorBus::Argumentos(_) => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self(status, e.to_string())
     }
@@ -127,21 +106,33 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/", get(index))
         .route("/app.css", get(app_css))
         .route("/app.js", get(app_js))
+        .route("/gashapon.css", get(gashapon_css))
+        .route("/gashapon.js", get(gashapon_js))
         .route("/tema.css", get(tema_css))
         .route("/api/estado", get(estado_general))
-        .route("/api/tareas", get(tareas_listar).post(tareas_crear))
-        .route("/api/tareas/{id}", get(tarea_ver))
-        .route("/api/tareas/{id}/estado", post(tarea_estado))
+        .route("/api/inicio", get(inicio))
         .route("/api/diario", get(diario))
         .route("/api/rutinas", get(rutinas_listar))
         .route("/api/rutinas/{slug}", get(rutina_ver))
-        .route("/api/rutinas/{slug}/encolar", post(rutina_encolar))
+        .route("/api/rutinas/{slug}/lanzar", post(rutina_lanzar))
+        .route("/api/trabajos", get(trabajos_listar))
+        .route("/api/trabajos/{id}", get(trabajo_ver))
+        .route("/api/trabajos/{id}/diff", get(trabajo_diff))
+        .route("/api/trabajos/{id}/cerrar", post(trabajo_cerrar))
+        .route("/api/trabajos/{id}/cancelar", post(trabajo_cancelar))
+        .route("/api/trabajos/{id}/continuar", post(trabajo_continuar))
+        .route("/api/trabajos/{id}/reformular", post(trabajo_reformular))
+        .route("/api/trabajos/{id}/confirmar", post(trabajo_confirmar))
+        .route("/api/colas", get(colas))
+        .route("/api/semaforos", get(semaforos))
         .route("/api/propuestas", get(propuestas_listar))
         .route("/api/propuestas/{id}/decidir", post(propuesta_decidir))
+        .route("/api/acciones", get(acciones_listar))
+        .route("/api/acciones/simular", post(accion_simular))
+        .route("/api/acciones/ejecutar", post(accion_ejecutar))
         .route("/api/boveda", get(boveda_listar))
         .route("/api/boveda/nota", get(boveda_leer))
         .route("/api/boveda/promover", post(boveda_promover))
-        .route("/api/voz/hablar", post(voz_hablar))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
         .layer(middleware::from_fn(guardia))
         .with_state(state)
@@ -204,6 +195,14 @@ async fn app_js() -> Response {
     estatico("text/javascript; charset=utf-8", include_str!("../static/app.js").into())
 }
 
+async fn gashapon_css() -> Response {
+    estatico("text/css; charset=utf-8", include_str!("../static/gashapon.css").into())
+}
+
+async fn gashapon_js() -> Response {
+    estatico("text/javascript; charset=utf-8", include_str!("../static/gashapon.js").into())
+}
+
 async fn tema_css(State(s): Estado) -> Response {
     estatico("text/css; charset=utf-8", tema::css(&s.config.tema_path))
 }
@@ -247,53 +246,22 @@ fn texto_no_vacio(valor: &str, campo: &str, max: usize) -> ApiResult<String> {
     Ok(v.to_string())
 }
 
-fn tarea_json(t: &Task) -> Value {
-    json!({
-        "id": t.id,
-        "creada": ts(t.created_at),
-        "actualizada": ts(t.updated_at),
-        "creado_por": t.created_by,
-        "asignado_a": t.assigned_to,
-        "origen": t.origin.as_str(),
-        "padre": t.parent_task_id,
-        "titulo": t.title,
-        "peticion": t.request,
-        "estado": t.status.as_str(),
-        "resultado": t.result,
-    })
-}
-
 fn evento_json(e: &Event) -> Value {
     json!({
         "id": e.id,
         "ts": ts(e.ts),
         "actor": e.actor,
         "accion": e.action,
-        "tarea": e.task_id,
+        "trabajo": e.trabajo,
         "resultado": e.outcome.map(|o| o.as_str()),
         "duracion_ms": e.duration_ms,
         "detalle": e.detail,
     })
 }
 
-fn run_json(r: &RoutineRun) -> Value {
-    json!({
-        "id": r.id,
-        "tarea": r.task_id,
-        "inicio": ts(r.started_at),
-        "fin": r.finished_at.map(ts),
-        "resultado": r.outcome.map(|o| o.as_str()),
-        "pasos": r.pasos_ejecutados,
-        "llamadas_modelo": r.llamadas_modelo,
-        "detalle": r.detalle,
-    })
-}
-
-fn propuesta_json(p: &Propuesta, rutina: Option<String>) -> Value {
+fn propuesta_json(p: &Propuesta) -> Value {
     json!({
         "id": p.id,
-        "ejecucion": p.routine_run_id,
-        "rutina": rutina,
         "proponente": p.proponente,
         "creada": ts(p.creado_en),
         "descripcion": p.descripcion,
@@ -313,27 +281,12 @@ fn propuesta_json(p: &Propuesta, rutina: Option<String>) -> Value {
     })
 }
 
-fn rutina_de(store: &ea_store::Store, p: &Propuesta) -> Option<String> {
-    p.routine_run_id
-        .and_then(|id| store.get_routine_run(id).ok())
-        .map(|r| r.routine_slug)
-}
-
 // ------------------------------------------------------------------ estado
 
 async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
     let servicios = estado::servicios(s.config.systemctl).await;
 
     let store = s.store.lock().await;
-    let tareas = store.list_tasks(&TaskFilter::default())?;
-    let por_estado: serde_json::Map<String, Value> = ESTADOS
-        .iter()
-        .map(|e| {
-            let n = tareas.iter().filter(|t| t.status == *e).count();
-            (e.as_str().to_string(), json!(n))
-        })
-        .collect();
-
     let orquestador = store.estado_orquestador(s.config.umbral_heartbeat_s)?;
 
     let agentes: Vec<Value> = store
@@ -342,7 +295,6 @@ async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
         .map(|a| {
             json!({
                 "nombre": a.nombre,
-                "tarea": a.tarea_en_curso.map(|t| json!({ "id": t.id, "titulo": t.title })),
                 "ultimo": a.ultimo_evento.map(|e| json!({ "ts": ts(e.ts), "accion": e.action })),
             })
         })
@@ -359,95 +311,45 @@ async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
         })).collect::<Vec<_>>(),
         "orquestador": { "vivo": orquestador.vivo, "ultimo_latido": orquestador.ultimo_latido.map(ts) },
         "agentes": agentes,
-        "tareas": por_estado,
+        "trabajos": trabajos_por_estado(),
         "propuestas_pendientes": propuestas_pendientes,
         "db": ea_store::resolve_db_path().ok().map(|p| p.display().to_string()),
     })))
 }
 
-// ------------------------------------------------------------------ tareas
-
-#[derive(Deserialize)]
-struct TareasQuery {
-    estado: Option<String>,
-    asignado_a: Option<String>,
-    limite: Option<i64>,
-}
-
-async fn tareas_listar(State(s): Estado, Query(q): Query<TareasQuery>) -> ApiResult<Json<Value>> {
-    let filter = TaskFilter {
-        status: q.estado.as_deref().map(str::parse::<TaskStatus>).transpose()?,
-        assigned_to: q.asignado_a.filter(|a| !a.is_empty()),
-        limit: Some(limite(q.limite, 100, 500)),
-    };
+/// Las propuestas pendientes. Los trabajos del orquestador van por
+/// `/api/trabajos`, `/api/colas` y `/api/semaforos`.
+async fn inicio(State(s): Estado) -> ApiResult<Json<Value>> {
     let store = s.store.lock().await;
-    let tareas = store.list_tasks(&filter)?;
-    Ok(Json(json!(tareas.iter().map(tarea_json).collect::<Vec<_>>())))
+    let propuestas = store
+        .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: Some(20) })?
+        .iter()
+        .map(propuesta_json)
+        .collect::<Vec<_>>();
+    Ok(Json(json!({ "propuestas": propuestas })))
 }
 
-async fn tarea_ver(State(s): Estado, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
-    let store = s.store.lock().await;
-    let tarea = store.get_task(id)?;
-    let mut eventos = store.list_events_by_task(id)?;
-    eventos.reverse(); // cronológico: la historia de la tarea
-    Ok(Json(json!({
-        "tarea": tarea_json(&tarea),
-        "eventos": eventos.iter().map(evento_json).collect::<Vec<_>>(),
-    })))
-}
-
-#[derive(Deserialize)]
-struct NuevaTarea {
-    titulo: String,
-    asignado_a: String,
-    solicita: String,
-}
-
-async fn tareas_crear(
-    State(s): Estado,
-    Json(body): Json<NuevaTarea>,
-) -> ApiResult<(StatusCode, Json<Value>)> {
-    let nueva = NewTask {
-        created_by: ACTOR.into(),
-        assigned_to: texto_no_vacio(&body.asignado_a, "asignado_a", 64)?,
-        origin: TaskOrigin::Boton,
-        parent_task_id: None,
-        title: texto_no_vacio(&body.titulo, "titulo", 200)?,
-        request: texto_no_vacio(&body.solicita, "solicita", 10_000)?,
-    };
-    let mut store = s.store.lock().await;
-    let tarea = store.create_task(nueva)?;
-    Ok((StatusCode::CREATED, Json(tarea_json(&tarea))))
-}
-
-#[derive(Deserialize)]
-struct CambioEstado {
-    estado: String,
-    resultado: Option<String>,
-}
-
-async fn tarea_estado(
-    State(s): Estado,
-    Path(id): Path<i64>,
-    Json(body): Json<CambioEstado>,
-) -> ApiResult<Json<Value>> {
-    let mut args = json!({ "id": id, "estado": body.estado });
-    if let Some(r) = body.resultado.filter(|r| !r.trim().is_empty()) {
-        args["resultado"] = json!(r);
+/// Trabajos del bus por estado; vacío si el bus no se puede leer.
+fn trabajos_por_estado() -> Value {
+    const ESTADOS: [&str; 6] = ["en_cola", "ejecutando", "en_revision", "en_espera", "cerrado", "cancelado"];
+    let mut cuenta: std::collections::HashMap<&'static str, usize> = std::collections::HashMap::new();
+    if let Ok(bus) = Bus::abrir() {
+        for id in bus.listar_trabajos().unwrap_or_default() {
+            if let Ok(e) = bus.leer_estado(&id) {
+                *cuenta.entry(e.estado.as_str()).or_default() += 1;
+            }
+        }
     }
-    let sis = sistema(&s);
-    let mut store = s.acciones.lock().await;
-    store.get_task(id)?; // 404 si no existe
-    ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_cambiar_estado_tarea", &args)
-        .await?;
-    Ok(Json(tarea_json(&store.get_task(id)?)))
+    let m: serde_json::Map<String, Value> =
+        ESTADOS.iter().map(|e| (e.to_string(), json!(cuenta.get(e).copied().unwrap_or(0)))).collect();
+    Value::Object(m)
 }
 
 // ------------------------------------------------------------------ diario
 
 #[derive(Deserialize)]
 struct DiarioQuery {
-    tarea: Option<i64>,
+    trabajo: Option<String>,
     actor: Option<String>,
     desde: Option<String>,
     hasta: Option<String>,
@@ -458,7 +360,7 @@ struct DiarioQuery {
 
 async fn diario(State(s): Estado, Query(q): Query<DiarioQuery>) -> ApiResult<Json<Value>> {
     let filter = EventFilter {
-        task_id: q.tarea,
+        trabajo: q.trabajo.filter(|t| !t.is_empty()),
         actor: q.actor.filter(|a| !a.is_empty()),
         since: q.desde.as_deref().map(parse_fecha).transpose()?,
         until: q.hasta.as_deref().map(parse_fecha).transpose()?,
@@ -473,130 +375,249 @@ async fn diario(State(s): Estado, Query(q): Query<DiarioQuery>) -> ApiResult<Jso
 // ----------------------------------------------------------------- rutinas
 
 async fn rutinas_listar(State(s): Estado) -> ApiResult<Json<Value>> {
-    let dir = &s.config.rutinas_dir;
-    let slugs = rutina::listar_slugs(dir)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let mut filas = Vec::with_capacity(slugs.len());
-    for slug in slugs {
-        let (descripcion, error) = match rutina::cargar(dir, &slug) {
-            Ok(r) => (Some(r.descripcion), None),
-            Err(e) => (None, Some(e.to_string())),
-        };
-        let (ultima, ultimo_exito) = {
-            let store = s.store.lock().await;
-            (
-                store.list_routine_runs(&slug, Some(1))?.into_iter().next(),
-                store.last_successful_run(&slug)?,
-            )
-        };
-        let proxima = if s.config.systemctl && slug_valido(&slug).is_ok() {
-            estado::proxima_ejecucion(&slug).await
+    let filas = s.store.lock().await.listar_rutinas()?;
+    let mut out = Vec::with_capacity(filas.len());
+    for f in filas {
+        let r = ea_bus::Rutina::parsear(&f.definicion).ok();
+        let proxima = if s.config.systemctl && ea_bus::slug_valido(&f.slug) {
+            estado::proxima_ejecucion(&f.slug).await
         } else {
             None
         };
-        filas.push(json!({
-            "slug": slug,
-            "descripcion": descripcion,
-            "error": error,
-            "ultima": ultima.as_ref().map(run_json),
-            "ultimo_exito": ultimo_exito.map(|r| ts(r.started_at)),
+        out.push(json!({
+            "slug": f.slug,
+            "version": f.version,
+            "descripcion": r.as_ref().map(|r| r.rutina.descripcion.clone()),
+            "worktree": r.as_ref().map(|r| r.rutina.worktree.clone()),
+            "criterio_exito": r.as_ref().map(|r| r.rutina.criterio_exito.clone()),
+            "entradas": r.as_ref().map(|r| r.entradas.clone()),
+            "error": if r.is_none() { Some("definición ilegible") } else { None },
+            "registrada": f.creada_en,
             "proxima": proxima,
         }));
     }
-    Ok(Json(json!(filas)))
-}
-
-/// Pasos en orden de recorrido desde `inicio`, y al final los inalcanzables.
-fn pasos_json(r: &Rutina) -> Vec<Value> {
-    fn destinos(p: &Paso) -> Vec<String> {
-        match p {
-            Paso::Accion { siguiente, .. } => vec![siguiente.clone()],
-            Paso::Decision { ramas, .. } => {
-                let mut v: Vec<_> = ramas.iter().collect();
-                v.sort();
-                v.into_iter().map(|(_, d)| d.clone()).collect()
-            }
-            Paso::Propuesta { siguiente, .. } => siguiente.iter().cloned().collect(),
-            Paso::Fin => vec![],
-        }
-    }
-
-    let mut orden = Vec::new();
-    let mut vistos = HashSet::new();
-    let mut cola = VecDeque::from([r.inicio.clone()]);
-    while let Some(id) = cola.pop_front() {
-        if !vistos.insert(id.clone()) {
-            continue;
-        }
-        if let Some(p) = r.pasos.get(&id) {
-            cola.extend(destinos(p));
-            orden.push(id);
-        }
-    }
-    let mut sueltos: Vec<_> = r.pasos.keys().filter(|k| !vistos.contains(*k)).cloned().collect();
-    sueltos.sort();
-    orden.extend(sueltos);
-
-    orden
-        .into_iter()
-        .map(|id| {
-            let paso = &r.pasos[&id];
-            let mut v = match paso {
-                Paso::Accion { herramienta, argumentos, .. } => {
-                    json!({ "tipo": "accion", "herramienta": herramienta, "argumentos": argumentos })
-                }
-                Paso::Decision { contexto, ramas } => {
-                    let ramas: std::collections::BTreeMap<_, _> = ramas.iter().collect();
-                    json!({ "tipo": "decision", "contexto": contexto, "ramas": ramas })
-                }
-                Paso::Propuesta { descripcion, .. } => {
-                    json!({ "tipo": "propuesta", "descripcion": descripcion })
-                }
-                Paso::Fin => json!({ "tipo": "fin" }),
-            };
-            v["id"] = json!(id);
-            v["destinos"] = json!(destinos(paso));
-            v
-        })
-        .collect()
+    Ok(Json(json!(out)))
 }
 
 async fn rutina_ver(State(s): Estado, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     slug_valido(&slug)?;
-    let r = rutina::cargar(&s.config.rutinas_dir, &slug)?;
-    let ejecuciones = s.store.lock().await.list_routine_runs(&slug, Some(20))?;
-    Ok(Json(json!({
-        "slug": slug,
-        "descripcion": r.descripcion,
-        "inicio": r.inicio,
-        "max_duracion_s": r.max_duracion_s,
-        "max_pasos": r.max_pasos,
-        "max_llamadas_modelo": r.max_llamadas_modelo,
-        "ventana_inicial_dias": r.ventana_inicial_dias,
-        "pasos": pasos_json(&r),
-        "ejecuciones": ejecuciones.iter().map(run_json).collect::<Vec<_>>(),
-    })))
+    let fila = s
+        .store
+        .lock()
+        .await
+        .ultima_rutina(&slug)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, format!("la rutina '{slug}' no está registrada")))?;
+    Ok(Json(json!({ "slug": slug, "version": fila.version, "contenido": fila.definicion })))
 }
 
-/// Lo mismo que hace el disparador de systemd (`ea rutinas encolar`): no
-/// ejecuta la rutina, solo encola la tarea que el orquestador recogerá.
-async fn rutina_encolar(
+/// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`): crea el
+/// trabajo en el bus y el orquestador lo recoge. `{ "trabajo": id, "rutina": slug }`.
+async fn rutina_lanzar(
     State(s): Estado,
     Path(slug): Path<String>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     slug_valido(&slug)?;
-    // Falla pronto si la rutina no existe o es inválida.
-    rutina::cargar(&s.config.rutinas_dir, &slug)?;
+    let bus = bus_con_store(&s).await?;
+    bus.rutina(&slug).map_err(|_| ApiError::new(StatusCode::NOT_FOUND, format!("la rutina '{slug}' no está registrada")))?;
+    if !bus.trabajos_activos_de_rutina(&slug)?.is_empty() {
+        return Err(ApiError::new(StatusCode::CONFLICT, format!("la rutina '{slug}' ya tiene una ejecución en curso")));
+    }
+    let id = bus.lanzar_rutina(&slug, &[])?;
+    Ok((StatusCode::CREATED, Json(json!({ "trabajo": id, "rutina": slug }))))
+}
 
-    let sis = sistema(&s);
-    let mut store = s.acciones.lock().await;
-    let r = ea_acciones::ejecutar_directo(
-        &mut store, &sis, ACTOR, Canal::Web, "ea_encolar_rutina", &json!({ "slug": slug }),
-    )
-    .await?;
-    let tarea = store.get_task(r.tarea.ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "sin tarea"))?)?;
-    Ok((StatusCode::CREATED, Json(tarea_json(&tarea))))
+// --------------------------------------------------------------- orquestador
+
+/// Bus de solo lectura, sobre la raíz de estado estándar.
+fn bus_lectura() -> ApiResult<Bus> {
+    Ok(Bus::abrir()?)
+}
+
+/// Bus con el historial y el diario de SQLite, para las acciones del usuario.
+async fn bus_con_store(s: &AppState) -> ApiResult<Bus> {
+    let store = s.acciones.lock().await.duplicar()?;
+    Ok(Bus::abrir()?.con_actor(ACTOR).con_store(store))
+}
+
+fn trabajo_resumen(bus: &Bus, id: &str) -> Option<Value> {
+    let orden = bus.leer_orden(id).ok()?;
+    let estado = bus.leer_estado(id).ok()?;
+    let informe = bus.leer_informe(id).ok().flatten();
+    Some(json!({
+        "id": id,
+        "modo": orden.modo.as_str(),
+        "titulo": orden.titulo,
+        "estado": estado.estado.as_str(),
+        "fase_actual": estado.fase_actual,
+        "fases_total": orden.fases.len(),
+        "iteracion": estado.iteracion,
+        "detalle": estado.detalle,
+        "resultado": informe.as_ref().map(|i| match i.resultado {
+            ea_bus::ResultadoInforme::Terminado => "terminado",
+            ea_bus::ResultadoInforme::Bloqueado => "bloqueado",
+        }),
+        "obra_completa": informe.as_ref().map(|i| i.obra_completa),
+        "rutina": orden.rutina,
+        "creado": orden.creada_en,
+        "actualizado": estado.actualizado_en,
+    }))
+}
+
+async fn trabajos_listar() -> ApiResult<Json<Value>> {
+    let bus = bus_lectura()?;
+    let mut v: Vec<Value> = bus.listar_trabajos()?.iter().filter_map(|id| trabajo_resumen(&bus, id)).collect();
+    v.reverse(); // el más reciente primero
+    Ok(Json(json!(v)))
+}
+
+async fn trabajo_ver(Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let bus = bus_lectura()?;
+    let orden = bus.leer_orden(&id)?;
+    let estado = bus.leer_estado(&id)?;
+    let mut informe = serde_json::to_value(bus.leer_informe(&id)?)
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if let Some(o) = informe.as_object_mut() {
+        o.remove("diff"); // el diff va aparte, bajo demanda
+    }
+    let dir = bus.raiz().join("trabajos").join(&id);
+    let historial: Vec<Value> = std::fs::read_to_string(dir.join("historial.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let paquete = std::fs::read_to_string(dir.join("paquete-correccion.md")).ok();
+    Ok(Json(json!({
+        "id": id,
+        "orden": orden,
+        "estado": estado,
+        "informe": informe,
+        "historial": historial,
+        "paquete": paquete,
+    })))
+}
+
+const DIFF_MAX: usize = 200_000;
+
+async fn git(wt: &str, args: &[&str]) -> ApiResult<String> {
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.arg("-C").arg(wt).args(args).kill_on_drop(true);
+    let o = tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output())
+        .await
+        .map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "git no respondió"))?
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if !o.status.success() {
+        return Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&o.stderr).trim()),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// Lo mismo que `ea trabajo diff`: lo cambiado desde `commit_inicio` más los
+/// ficheros nuevos sin seguimiento. Recortado a `DIFF_MAX` bytes.
+async fn trabajo_diff(Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let bus = bus_lectura()?;
+    let orden = bus.leer_orden(&id)?;
+    let inicio = bus
+        .leer_informe(&id)?
+        .and_then(|i| i.commit_inicio)
+        .ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "el trabajo aún no tiene informe con commit_inicio"))?;
+    let wt = orden.worktree.as_str();
+    let mut texto = git(wt, &["diff", &inicio, "--", ".", ":(exclude,glob)**/__pycache__/**"]).await?;
+    let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"]).await?;
+    for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {
+        match std::fs::read(std::path::Path::new(wt).join(f)) {
+            Ok(b) if std::str::from_utf8(&b).is_ok() => {
+                texto.push_str(&format!("\n=== fichero nuevo sin seguimiento: {f} ===\n{}", String::from_utf8_lossy(&b)))
+            }
+            _ => texto.push_str(&format!("\n=== fichero nuevo sin seguimiento: {f} (binario o ilegible) ===\n")),
+        }
+    }
+    let truncado = texto.len() > DIFF_MAX;
+    if truncado {
+        let mut fin = DIFF_MAX;
+        while !texto.is_char_boundary(fin) {
+            fin -= 1;
+        }
+        texto.truncate(fin);
+    }
+    Ok(Json(json!({ "id": id, "commit_inicio": inicio, "diff": texto, "truncado": truncado })))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct NotaUsuario {
+    nota: String,
+    contexto: String,
+}
+
+fn estado_json(id: &str, e: &ea_bus::Estado) -> Json<Value> {
+    Json(json!({ "id": id, "estado": e.estado.as_str() }))
+}
+
+async fn trabajo_cerrar(State(s): Estado, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let e = bus_con_store(&s).await?.aplicar(&id, Evento::Cerrar)?;
+    Ok(estado_json(&id, &e))
+}
+
+async fn trabajo_cancelar(State(s): Estado, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let e = bus_con_store(&s).await?.aplicar(&id, Evento::Cancelar)?;
+    Ok(estado_json(&id, &e))
+}
+
+/// Aprueba una revisión intermedia: reformular sin nota (como `ea trabajo continuar`).
+async fn trabajo_continuar(State(s): Estado, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let e = bus_con_store(&s).await?.reformular(&id, "")?;
+    Ok(estado_json(&id, &e))
+}
+
+async fn trabajo_reformular(
+    State(s): Estado,
+    Path(id): Path<String>,
+    Json(b): Json<NotaUsuario>,
+) -> ApiResult<Json<Value>> {
+    let nota = texto_no_vacio(&b.nota, "nota", 10_000)?;
+    let e = bus_con_store(&s).await?.reformular(&id, &nota)?;
+    Ok(estado_json(&id, &e))
+}
+
+/// El usuario confirma el paquete de corrección de una rutina en espera.
+async fn trabajo_confirmar(
+    State(s): Estado,
+    Path(id): Path<String>,
+    Json(b): Json<NotaUsuario>,
+) -> ApiResult<Json<Value>> {
+    if b.contexto.chars().count() > 10_000 {
+        return Err(ApiError::bad("'contexto' supera 10000 caracteres"));
+    }
+    let e = bus_con_store(&s).await?.confirmar(&id, &b.contexto)?;
+    Ok(estado_json(&id, &e))
+}
+
+async fn colas() -> ApiResult<Json<Value>> {
+    let bus = bus_lectura()?;
+    let mut m = serde_json::Map::new();
+    for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+        let v: Vec<Value> = bus
+            .listar_cola(a)?
+            .into_iter()
+            .map(|e| {
+                let titulo = bus.leer_orden(&e.trabajo).map(|o| o.titulo).ok();
+                json!({ "id": e.id, "trabajo": e.trabajo, "titulo": titulo, "motivo": e.motivo, "encolado_en": e.encolado_en })
+            })
+            .collect();
+        m.insert(a.as_str().into(), v.into());
+    }
+    Ok(Json(Value::Object(m)))
+}
+
+async fn semaforos() -> ApiResult<Json<Value>> {
+    let v: Vec<Value> = ea_bus::listar_semaforos()
+        .into_iter()
+        .map(|(_, o)| json!({ "agente": o.agente, "trabajo": o.trabajo, "pid": o.pid, "desde": o.desde }))
+        .collect();
+    Ok(Json(json!(v)))
 }
 
 // -------------------------------------------------------------- propuestas
@@ -618,9 +639,7 @@ async fn propuestas_listar(
     let filas = store
         .list_propuestas(&filter)?
         .iter()
-        .map(|p| {
-            propuesta_json(p, rutina_de(&store, p))
-        })
+        .map(propuesta_json)
         .collect::<Vec<_>>();
     Ok(Json(json!(filas)))
 }
@@ -652,7 +671,97 @@ async fn propuesta_decidir(
     } else {
         ea_acciones::rechazar_propuesta(&store, id, ACTOR, Canal::Web)?
     };
-    Ok(Json(propuesta_json(&p, rutina_de(&store, &p))))
+    Ok(Json(propuesta_json(&p)))
+}
+
+// ---------------------------------------------------------------- acciones
+
+/// El catálogo completo, para verlo; ejecutables desde aquí solo las
+/// supervisadas (las directas son de los agentes o ya tienen su sección).
+async fn acciones_listar(State(s): Estado) -> ApiResult<Json<Value>> {
+    let slugs: Vec<String> = s.store.lock().await.listar_rutinas()?.into_iter().map(|r| r.slug).collect();
+    let filas: Vec<Value> = ea_acciones::CATALOGO
+        .iter()
+        .map(|h| {
+            let supervisada = h.ejecucion == ea_acciones::Ejecucion::Supervisada;
+            let campos: Vec<Value> = ea_acciones::campos(h.nombre)
+                .iter()
+                .map(|c| {
+                    // Las rutinas no son un dominio fijo: las que hay ahora.
+                    let opciones: Vec<&str> = if c.nombre == "slug" {
+                        slugs.iter().map(String::as_str).collect()
+                    } else {
+                        c.opciones.to_vec()
+                    };
+                    json!({
+                        "nombre": c.nombre, "entero": c.entero, "obligatorio": c.obligatorio,
+                        "opciones": opciones, "ayuda": c.ayuda,
+                    })
+                })
+                .collect();
+            json!({
+                "nombre": h.nombre,
+                "riesgo": h.riesgo.as_str(),
+                "supervisada": supervisada,
+                "local": h.local,
+                "resumen": h.resumen,
+                "campos": campos,
+                "confirmable": supervisada && Canal::Web.puede_confirmar(h.riesgo).is_ok(),
+            })
+        })
+        .collect();
+    Ok(Json(json!(filas)))
+}
+
+#[derive(Deserialize)]
+struct AccionBody {
+    herramienta: String,
+    #[serde(default)]
+    argumentos: Value,
+    /// Lo que devolvió la simulación; al ejecutar se revalida contra ello.
+    #[serde(default)]
+    precondicion: Value,
+}
+
+impl AccionBody {
+    /// Sin `systemctl` no hay ni estado que simular ni forma de reiniciar.
+    fn comprobar(&self, s: &AppState) -> ApiResult<()> {
+        if self.herramienta == "ea_reiniciar_servicio" && !s.config.systemctl {
+            return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "systemctl desactivado"));
+        }
+        Ok(())
+    }
+}
+
+/// Describe lo que haría la herramienta ahora, sin hacer nada.
+async fn accion_simular(State(s): Estado, Json(b): Json<AccionBody>) -> ApiResult<Json<Value>> {
+    b.comprobar(&s)?;
+    let sis = sistema(&s);
+    let hechos = ea_acciones::observar(&sis, &b.herramienta, &b.argumentos).await?;
+    let store = s.store.lock().await;
+    let sim = ea_acciones::simular_con(&store, &sis, &hechos, &b.herramienta, &b.argumentos)?;
+    Ok(Json(json!({
+        "herramienta": sim.herramienta,
+        "riesgo": sim.riesgo.as_str(),
+        "argumentos": sim.argumentos,
+        "texto": sim.texto,
+        "precondicion": sim.precondicion,
+        "confirmable": Canal::Web.puede_confirmar(sim.riesgo).is_ok(),
+    })))
+}
+
+/// Ejecuta lo que se acaba de simular. Si el mundo ha cambiado desde la
+/// simulación, la revalidación falla (409) y no se hace nada; las
+/// irreversibles no se confirman desde la web (403). Todo queda en el diario.
+async fn accion_ejecutar(State(s): Estado, Json(b): Json<AccionBody>) -> ApiResult<Json<Value>> {
+    b.comprobar(&s)?;
+    let sis = sistema(&s);
+    let mut store = s.acciones.lock().await;
+    let r = ea_acciones::ejecutar(
+        &mut store, &sis, ACTOR, Canal::Web, &b.herramienta, &b.argumentos, &b.precondicion, None,
+    )
+    .await?;
+    Ok(Json(json!({ "texto": r.texto, "trabajo": r.trabajo, "datos": r.datos })))
 }
 
 // ------------------------------------------------------------------ bóveda
@@ -739,31 +848,6 @@ async fn boveda_promover(State(s): Estado, Json(b): Json<PromoverBody>) -> ApiRe
     let mut store = s.acciones.lock().await;
     let r = ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_promover_nota", &args).await?;
     Ok(Json(json!({ "texto": r.texto, "datos": r.datos })))
-}
-
-// --------------------------------------------------------------------- voz
-
-/// Reenvía al orquestador, que es quien posee el dispositivo de audio
-/// (§6.3); la web no captura ni reproduce nada.
-async fn voz_hablar(State(s): Estado) -> ApiResult<Json<Value>> {
-    let url = format!("http://127.0.0.1:{}/v1/voz/hablar", s.config.voz_puerto);
-    let resp = s.http.post(&url).send().await.map_err(|e| {
-        ApiError::new(StatusCode::BAD_GATEWAY, format!("ea-orchestrator no responde: {e}"))
-    })?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let texto = resp.text().await.unwrap_or_default();
-        return Err(ApiError::new(
-            StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
-            texto,
-        ));
-    }
-    let cuerpo: Value = resp
-        .json()
-        .await
-        .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, format!("respuesta no válida: {e}")))?;
-    Ok(Json(cuerpo))
 }
 
 // ---------------------------------------------------------------- servicios

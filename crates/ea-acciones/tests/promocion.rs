@@ -57,7 +57,7 @@ impl Entorno {
 async fn proponer_(e: &Entorno, quien: &str, args: &Value) -> Result<ea_store::Propuesta, ErrorAccion> {
     let c = e.consulta();
     let h = observar(&c, "ea_promover_nota", args).await?;
-    Ok(proponer(&e.store, &c, &h, quien, None, None, "ea_promover_nota", args)?.0)
+    Ok(proponer(&e.store, &c, &h, quien, None, "ea_promover_nota", args)?.0)
 }
 
 #[tokio::test]
@@ -169,7 +169,7 @@ async fn con_el_sistema_simulado_la_promocion_pasa_por_el_mismo_flujo() {
     let sis = SistemaSimulado::default().con_nota("claude-code/a.md", "contenido");
     let args = json!({ "ruta": "claude-code/a.md", "destino": "x/b.md" });
     let h = observar(&sis, "ea_promover_nota", &args).await.unwrap();
-    let (p, _) = proponer(&s, &sis, &h, "claude-code", None, None, "ea_promover_nota", &args).unwrap();
+    let (p, _) = proponer(&s, &sis, &h, "claude-code", None, "ea_promover_nota", &args).unwrap();
     assert!(sis.mutaciones().is_empty());
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
     assert_eq!(p.ejecucion.unwrap().estado, EstadoEjecucion::Ejecutada);

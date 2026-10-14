@@ -9,7 +9,7 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 /// Los únicos servicios que la interfaz puede consultar y reiniciar.
-pub const SERVICIOS: [&str; 4] = ["llama-server", "ea-mcp", "ea-proxy", "ea-orchestrator"];
+pub const SERVICIOS: [&str; 3] = ["llama-server", "ea-mcp", "ea-orchestrator"];
 
 const LIMITE: Duration = Duration::from_secs(3);
 

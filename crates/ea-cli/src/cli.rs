@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use ea_store::{EstadoPropuesta, TaskOrigin, TaskStatus};
+use ea_store::EstadoPropuesta;
 
 #[derive(Parser)]
 #[command(name = "ea", about = "Interfaz de terminal del ecosistema de asistente", version)]
@@ -12,20 +12,16 @@ pub struct Cli {
 pub enum Command {
     /// Resumen no interactivo del estado del sistema (apto para login banner)
     Status,
-    /// Gestión de tareas
-    Tareas {
-        #[command(subcommand)]
-        accion: TareasAccion,
-    },
     /// Diario de eventos
     Diario {
         #[command(subcommand)]
         accion: DiarioAccion,
     },
-    /// Rutinas programadas
-    Rutinas {
+    /// Rutinas versionadas (registrar, listar, ver, lanzar)
+    #[command(alias = "rutinas")]
+    Rutina {
         #[command(subcommand)]
-        accion: RutinasAccion,
+        accion: RutinaAccion,
     },
     /// Propuestas pendientes de rutinas desatendidas
     Propuestas {
@@ -42,61 +38,89 @@ pub enum Command {
         #[command(subcommand)]
         accion: BovedaAccion,
     },
-    /// Voz (activación manual y palabra de activación)
-    Voz {
+    /// Trabajos del bus del orquestador (crear, ver, reformular, cerrar)
+    Trabajo {
         #[command(subcommand)]
-        accion: VozAccion,
+        accion: TrabajoAccion,
     },
+    /// Entradas de una cola del bus (por defecto, las dos)
+    Cola {
+        /// modelo-local o claude-code
+        agente: Option<String>,
+        /// Salida en JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Semáforos de worktree ocupados ahora mismo
+    Semaforos,
     /// Interfaz interactiva
     Tui,
 }
 
 #[derive(Subcommand)]
-pub enum TareasAccion {
-    /// Crea una tarea nueva
+pub enum TrabajoAccion {
+    /// Crea un trabajo y lo encola en modelo-local
     Crear {
+        /// Orden completa en JSON (el resto de opciones se ignora)
         #[arg(long)]
-        titulo: String,
-        #[arg(long = "asignado-a")]
-        asignado_a: String,
+        orden: Option<std::path::PathBuf>,
+        /// mision, obra o rutina
+        #[arg(long, default_value = "mision")]
+        modo: String,
         #[arg(long)]
-        solicita: String,
-        #[arg(long, default_value = "manual")]
-        origen: TaskOrigin,
-        #[arg(long = "creado-por", default_value = "usuario")]
-        creado_por: String,
-        #[arg(long = "tarea-padre")]
-        tarea_padre: Option<i64>,
+        titulo: Option<String>,
+        #[arg(long)]
+        worktree: Option<String>,
+        #[arg(long)]
+        objetivo: Option<String>,
+        /// Comando de shell que decide si está hecho
+        #[arg(long)]
+        criterio: Option<String>,
     },
-    /// Lista tareas, con filtros opcionales
-    Listar {
+    /// Lista los trabajos con su estado
+    Listar,
+    /// Orden, estado e informe de un trabajo
+    Ver {
+        id: String,
+        /// Salida completa en JSON (orden, estado e informe)
         #[arg(long)]
-        estado: Option<TaskStatus>,
-        #[arg(long = "asignado-a")]
-        asignado_a: Option<String>,
-        #[arg(long, default_value_t = 20)]
-        limite: i64,
+        json: bool,
     },
-    /// Muestra el detalle de una tarea y su historial de eventos
-    Ver { id: i64 },
-    /// Actualiza el estado de una tarea (registra el evento correspondiente)
-    Actualizar {
-        id: i64,
+    /// Diff completo del trabajo desde commit_inicio, más los ficheros nuevos sin seguimiento
+    Diff {
+        id: String,
+        /// Solo el diff de esa fase de una obra (usa las instantáneas de árbol)
         #[arg(long)]
-        estado: TaskStatus,
-        #[arg(long)]
-        resultado: Option<String>,
-        #[arg(long, default_value = "usuario")]
-        actor: String,
+        fase: Option<u32>,
     },
+    /// Da por bueno un trabajo en revisión
+    Cerrar { id: String },
+    /// Aprueba una revisión intermedia: la obra sigue en la fase actual
+    Continuar { id: String },
+    /// Confirma el paquete de corrección de una rutina en espera y lo encola en claude-code
+    Confirmar {
+        id: String,
+        /// Contexto que se añade al paquete antes de encolarlo
+        #[arg(long)]
+        contexto: Option<String>,
+    },
+    /// Devuelve un trabajo en revisión al modelo local, con una nota
+    Reformular {
+        id: String,
+        #[arg(long)]
+        nota: String,
+    },
+    /// Cancela un trabajo
+    Cancelar { id: String },
 }
 
 #[derive(Subcommand)]
 pub enum DiarioAccion {
     /// Lista eventos del diario, con filtros opcionales
     Listar {
+        /// Solo los eventos asociados a este trabajo
         #[arg(long)]
-        tarea: Option<i64>,
+        trabajo: Option<String>,
         #[arg(long)]
         actor: Option<String>,
         /// Fecha/hora mínima (RFC3339 o AAAA-MM-DD)
@@ -113,13 +137,21 @@ pub enum DiarioAccion {
 }
 
 #[derive(Subcommand)]
-pub enum RutinasAccion {
-    /// Lista las rutinas dadas de alta, con su última ejecución
+pub enum RutinaAccion {
+    /// Valida un fichero de rutina y lo registra (la versión debe subir)
+    Registrar { fichero: std::path::PathBuf },
+    /// Lista las rutinas registradas, con su última ejecución
     Listar,
-    /// Muestra la definición de una rutina y su historial de ejecuciones
+    /// Muestra la definición registrada de una rutina y su historial
     Ver { slug: String },
-    /// Encola una ejecución de la rutina (lo que hace el disparador `systemd`)
-    Encolar { slug: String },
+    /// Crea un trabajo de la rutina en el bus (lo que hace el disparador `systemd`)
+    #[command(alias = "encolar")]
+    Lanzar {
+        slug: String,
+        /// Entrada `clave=valor` que sustituye al valor por defecto
+        #[arg(long = "entrada")]
+        entrada: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -180,17 +212,6 @@ pub enum BovedaAccion {
     },
     /// Reconstruye el índice de búsqueda desde los ficheros
     Reindexar,
-}
-
-#[derive(Subcommand)]
-pub enum VozAccion {
-    /// Escucha una frase (activación manual), la transcribe, pregunta al
-    /// modelo local y habla la respuesta. La captura y la reproducción de
-    /// audio ocurren en el proceso `ea-orchestrator` (dueño del
-    /// dispositivo), no en esta CLI.
-    Hablar,
-    /// Estado del motor de voz y de la palabra de activación.
-    Estado,
 }
 
 #[derive(Subcommand)]

@@ -6,14 +6,14 @@ use super::{fmt_ts, parse_flexible_date};
 
 pub fn listar(
     store: &Store,
-    tarea: Option<i64>,
+    trabajo: Option<String>,
     actor: Option<String>,
     desde: Option<String>,
     hasta: Option<String>,
     limite: i64,
 ) -> Result<()> {
     let filter = EventFilter {
-        task_id: tarea,
+        trabajo,
         actor,
         since: desde.as_deref().map(parse_flexible_date).transpose()?,
         until: hasta.as_deref().map(parse_flexible_date).transpose()?,
@@ -28,14 +28,14 @@ pub fn listar(
     }
 
     let mut table = Table::new();
-    table.set_header(vec!["ID", "Cuándo", "Actor", "Acción", "Tarea", "Resultado"]);
+    table.set_header(vec!["ID", "Cuándo", "Actor", "Acción", "Trabajo", "Resultado"]);
     for e in events {
         table.add_row(vec![
             e.id.to_string(),
             fmt_ts(e.ts),
             e.actor,
             e.action,
-            e.task_id.map(|t| format!("#{t}")).unwrap_or_default(),
+            e.trabajo.unwrap_or_default(),
             e.outcome.map(|o| o.as_str().to_string()).unwrap_or_default(),
         ]);
     }
@@ -49,8 +49,8 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
     println!("  Cuándo:    {}", fmt_ts(e.ts));
     println!("  Actor:     {}", e.actor);
     println!("  Acción:    {}", e.action);
-    if let Some(task_id) = e.task_id {
-        println!("  Tarea:     #{task_id}");
+    if let Some(trabajo) = &e.trabajo {
+        println!("  Trabajo:   {trabajo}");
     }
     if let Some(outcome) = e.outcome {
         println!("  Resultado: {}", outcome.as_str());

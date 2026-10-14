@@ -40,6 +40,7 @@ pub fn open_at(path: &std::path::Path) -> StoreResult<Connection> {
     loop {
         match abrir_una_vez(path) {
             Ok(conn) => return Ok(conn),
+            Err(StoreError::EsquemaAntiguo) => return Err(StoreError::EsquemaAntiguo),
             Err(_) if intento < INTENTOS => {
                 std::thread::sleep(std::time::Duration::from_millis(100 * u64::from(intento)));
                 intento += 1;
@@ -63,7 +64,7 @@ fn abrir_una_vez(path: &std::path::Path) -> StoreResult<Connection> {
 }
 
 fn apply_pragmas(conn: &Connection) -> StoreResult<()> {
-    // Varios procesos (CLI, ea-mcp, ea-proxy, ea-orchestrator) abren esta
+    // Varios procesos (CLI, ea-mcp, ea-orchestrator) abren esta
     // misma base de datos de forma concurrente; sin esto, dos aperturas
     // simultáneas durante una migración (p. ej. el sondeo y el heartbeat
     // de ea-orchestrator arrancando a la vez) fallan con "database is

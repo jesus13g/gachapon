@@ -1,16 +1,14 @@
-//! Catálogo de herramientas MCP: cuatro verbos de consulta y uno de
-//! creación de tarea, todos envolviendo la fachada `Store` de `ea-store`
-//! sin añadirle lógica. Cada invocación queda registrada en el diario de
+//! Catálogo de herramientas MCP: consultas de solo lectura sobre el diario y
+//! el bus de trabajos, la bóveda y las mutaciones supervisadas. Crear o
+//! decidir trabajo se hace con la CLI y las skills, no desde aquí. Cada invocación queda registrada en el diario de
 //! eventos (§11.3 de la especificación), independientemente de si tuvo
 //! éxito o de su nivel de riesgo.
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use ea_store::{
-    Event, EventFilter, EventOutcome, NewEvent, NewTask, Store, Task, TaskFilter, TaskOrigin,
-    TaskStatus,
-};
+use ea_bus::{Agente, Bus};
+use ea_store::{Event, EventFilter, EventOutcome, NewEvent, Store};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
@@ -25,13 +23,11 @@ use ea_acciones::{autorizar_mcp, buscar, observar, proponer, simular_con, Riesgo
 use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
-    BuscarNotasArgs, CambiarEstadoTareaArgs, CrearTareaArgs, EscribirNotaArgs, LeerNotaArgs,
-    ListarDiarioArgs, ListarTareasArgs, PromoverNotaArgs, ReiniciarServicioArgs, RutinaArgs,
-    VerTareaArgs,
+    BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
+    PromoverNotaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
 };
 
-/// Deriva el actor que este servidor escribe en el diario y en las tareas
-/// que crea, a partir del nombre que el cliente MCP declaró al conectar
+/// Deriva el actor que este servidor escribe en el diario, a partir del nombre que el cliente MCP declaró al conectar
 /// (`Implementation::name`, capturado en el handshake `initialize`). Nunca
 /// es un argumento de ninguna herramienta: el modelo no debe poder declarar
 /// que actúa en nombre de otro (§7.3). Por defecto cae en "claude-code" —
@@ -41,7 +37,8 @@ use crate::args::{
 /// existió).
 fn actor_for(client_name: Option<&str>) -> &'static str {
     match client_name {
-        Some("ea-proxy") => "modelo-local",
+        // Nombre con que Qwen Code (agente local) se identifica como cliente MCP.
+        Some("qwen-code-mcp-client" | "qwen-code") => "modelo-local",
         Some("ea-orchestrator") => "orquestador",
         _ => "claude-code",
     }
@@ -71,20 +68,21 @@ fn fmt_ts(dt: time::OffsetDateTime) -> String {
         .unwrap_or_else(|_| dt.to_string())
 }
 
-fn task_to_json(t: &Task) -> serde_json::Value {
-    json!({
-        "id": t.id,
-        "creada": fmt_ts(t.created_at),
-        "actualizada": fmt_ts(t.updated_at),
-        "creada_por": t.created_by,
-        "asignada_a": t.assigned_to,
-        "origen": t.origin.as_str(),
-        "tarea_padre": t.parent_task_id,
-        "titulo": t.title,
-        "solicita": t.request,
-        "estado": t.status.as_str(),
-        "resultado": t.result,
-    })
+/// Resumen de un trabajo del bus, o `None` si sus ficheros no se pueden leer.
+fn trabajo_resumen(bus: &Bus, id: &str) -> Option<serde_json::Value> {
+    let orden = bus.leer_orden(id).ok()?;
+    let estado = bus.leer_estado(id).ok()?;
+    Some(json!({
+        "id": id,
+        "modo": orden.modo.as_str(),
+        "titulo": orden.titulo,
+        "estado": estado.estado.as_str(),
+        "fase_actual": estado.fase_actual,
+        "fases": orden.fases.len(),
+        "iteracion": estado.iteracion,
+        "actualizado": estado.actualizado_en,
+        "creado_por": orden.creada_por,
+    }))
 }
 
 fn event_to_json(e: &Event) -> serde_json::Value {
@@ -93,11 +91,35 @@ fn event_to_json(e: &Event) -> serde_json::Value {
         "cuando": fmt_ts(e.ts),
         "actor": e.actor,
         "accion": e.action,
-        "tarea": e.task_id,
+        "trabajo": e.trabajo,
         "resultado": e.outcome.map(|o| o.as_str()),
         "duracion_ms": e.duration_ms,
         "detalle": e.detail,
     })
+}
+
+/// Trabajos por estado, colas y semáforos del bus. Si el bus no se puede
+/// leer (aún no existe), todo vacío: un `ea_status` no debe fallar por eso.
+fn resumen_bus() -> (serde_json::Value, serde_json::Value, serde_json::Value) {
+    let mut por_estado = serde_json::Map::new();
+    let mut colas = serde_json::Map::new();
+    if let Ok(bus) = Bus::abrir() {
+        for id in bus.listar_trabajos().unwrap_or_default() {
+            if let Ok(e) = bus.leer_estado(&id) {
+                let n = por_estado.entry(e.estado.as_str()).or_insert(json!(0));
+                *n = json!(n.as_i64().unwrap_or(0) + 1);
+            }
+        }
+        for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+            let ids: Vec<_> = bus.listar_cola(a).unwrap_or_default().into_iter().map(|e| e.trabajo).collect();
+            colas.insert(a.as_str().into(), json!(ids));
+        }
+    }
+    let semaforos: Vec<_> = ea_bus::listar_semaforos()
+        .into_iter()
+        .map(|(_, o)| json!({ "agente": o.agente, "trabajo": o.trabajo, "pid": o.pid, "desde": o.desde }))
+        .collect();
+    (json!(por_estado), json!(colas), json!(semaforos))
 }
 
 fn respond(body: ToolBody) -> Result<CallToolResult, McpError> {
@@ -165,7 +187,7 @@ impl EaTools {
                               propuesta que el usuario decide.",
                 }));
             }
-            let (p, nueva) = proponer(&store, &*self.consulta, &hechos, actor, None, None, nombre, &args)
+            let (p, nueva) = proponer(&store, &*self.consulta, &hechos, actor, None, nombre, &args)
                 .map_err(|e| e.to_string())?;
             let a = p.accion.as_ref().ok_or("propuesta sin acción")?;
             let donde = if a.riesgo == Riesgo::Irreversible.as_str() {
@@ -185,13 +207,12 @@ impl EaTools {
         }
         .await;
 
-        let tarea = args["id"].as_i64();
         let accion = format!(
             "mcp_{}{}",
             nombre.trim_start_matches("ea_"),
             if simular { "_simulada" } else { "" }
         );
-        self.log_invocation(actor, &accion, tarea, started, args_log, &body).await;
+        self.log_invocation(actor, &accion, None, started, args_log, &body).await;
         respond(body)
     }
 
@@ -202,7 +223,7 @@ impl EaTools {
         &self,
         actor: &str,
         action: &str,
-        task_id: Option<i64>,
+        trabajo: Option<&str>,
         started: Instant,
         args: serde_json::Value,
         body: &ToolBody,
@@ -221,7 +242,7 @@ impl EaTools {
         let _ = store.append_event(NewEvent {
             actor: actor.to_string(),
             action: action.to_string(),
-            task_id,
+            trabajo: trabajo.map(str::to_string),
             outcome: Some(outcome),
             duration_ms: Some(duration_ms),
             detail: Some(detail.to_string()),
@@ -229,8 +250,8 @@ impl EaTools {
     }
 
     #[tool(
-        description = "Resumen del estado del ecosistema: cuántas tareas hay en \
-            cada estado y los últimos eventos del diario. Primer vistazo antes \
+        description = "Resumen del estado del ecosistema: orquestador, trabajos \
+            del bus por estado, colas, semáforos de worktree y los últimos eventos del diario. Primer vistazo antes \
             de profundizar con las otras herramientas.",
         annotations(title = "Estado del ecosistema", read_only_hint = true)
     )]
@@ -242,25 +263,8 @@ impl EaTools {
         let started = Instant::now();
 
         let body: ToolBody = async {
-            const ESTADOS: [TaskStatus; 5] = [
-                TaskStatus::Pendiente,
-                TaskStatus::EnProgreso,
-                TaskStatus::Completada,
-                TaskStatus::Fallida,
-                TaskStatus::Cancelada,
-            ];
             let store = self.store.lock().await;
-            let mut counts = serde_json::Map::new();
-            for status in ESTADOS {
-                let n = store
-                    .list_tasks(&TaskFilter {
-                        status: Some(status),
-                        ..Default::default()
-                    })
-                    .map_err(|e| e.to_string())?
-                    .len();
-                counts.insert(status.as_str().to_string(), json!(n));
-            }
+            let (por_estado, colas, semaforos) = resumen_bus();
             let events = store
                 .list_events(&EventFilter {
                     limit: Some(5),
@@ -281,7 +285,9 @@ impl EaTools {
                         (false, None) => "sin señal (ningún heartbeat registrado todavía)",
                     },
                 },
-                "tareas_por_estado": counts,
+                "trabajos_por_estado": por_estado,
+                "colas": colas,
+                "semaforos": semaforos,
                 "ultimos_eventos": events.iter().map(event_to_json).collect::<Vec<_>>(),
             }))
         }
@@ -293,78 +299,81 @@ impl EaTools {
     }
 
     #[tool(
-        description = "Lista tareas, opcionalmente filtradas por estado o por a \
-            quién están asignadas. Las más recientes primero.",
-        annotations(title = "Listar tareas", read_only_hint = true)
+        description = "Lista trabajos del bus (misiones, obras y rutinas), \
+            opcionalmente filtrados por estado o modo. Los más recientes primero. \
+            Solo lectura: crear o decidir trabajo se hace con la CLI (`ea trabajo`) \
+            y las skills /mision, /obra, /rutina y /revisar.",
+        annotations(title = "Listar trabajos", read_only_hint = true)
     )]
-    async fn ea_listar_tareas(
+    async fn ea_listar_trabajos(
         &self,
         context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<ListarTareasArgs>,
+        Parameters(args): Parameters<ListarTrabajosArgs>,
     ) -> Result<CallToolResult, McpError> {
         let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
         let started = Instant::now();
-        let args_json = json!({
-            "estado": args.estado, "asignado_a": args.asignado_a, "limite": args.limite,
-        });
+        let args_json = json!({ "estado": args.estado, "modo": args.modo, "limite": args.limite });
 
         let body: ToolBody = async {
-            let status = match &args.estado {
-                Some(s) => Some(s.parse::<TaskStatus>().map_err(|e| e.to_string())?),
-                None => None,
-            };
-            let filter = TaskFilter {
-                status,
-                assigned_to: args.asignado_a.clone(),
-                limit: Some(args.limite.unwrap_or(20)),
-            };
-            let store = self.store.lock().await;
-            let tasks = store.list_tasks(&filter).map_err(|e| e.to_string())?;
-            Ok(json!({ "tareas": tasks.iter().map(task_to_json).collect::<Vec<_>>() }))
+            let bus = Bus::abrir().map_err(|e| e.to_string())?;
+            let mut ids = bus.listar_trabajos().map_err(|e| e.to_string())?;
+            ids.reverse();
+            let limite = args.limite.filter(|n| *n > 0).unwrap_or(20) as usize;
+            let trabajos: Vec<_> = ids
+                .iter()
+                .filter_map(|id| trabajo_resumen(&bus, id))
+                .filter(|t| args.estado.as_deref().is_none_or(|e| t["estado"] == e))
+                .filter(|t| args.modo.as_deref().is_none_or(|m| t["modo"] == m))
+                .take(limite)
+                .collect();
+            Ok(json!({ "trabajos": trabajos }))
         }
         .await;
 
-        self.log_invocation(actor, "mcp_listar_tareas", None, started, args_json, &body)
+        self.log_invocation(actor, "mcp_listar_trabajos", None, started, args_json, &body)
             .await;
         respond(body)
     }
 
     #[tool(
-        description = "Muestra el detalle de una tarea junto con su historial \
-            completo de eventos.",
-        annotations(title = "Ver tarea", read_only_hint = true)
+        description = "Muestra el detalle de un trabajo del bus: orden (objetivo, \
+            criterio, fases), estado actual e informe si ya lo hay. Solo lectura.",
+        annotations(title = "Ver trabajo", read_only_hint = true)
     )]
-    async fn ea_ver_tarea(
+    async fn ea_ver_trabajo(
         &self,
         context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<VerTareaArgs>,
+        Parameters(args): Parameters<VerTrabajoArgs>,
     ) -> Result<CallToolResult, McpError> {
         let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
         let started = Instant::now();
         let args_json = json!({ "id": args.id });
 
         let body: ToolBody = async {
+            let bus = Bus::abrir().map_err(|e| e.to_string())?;
+            let orden = bus.leer_orden(&args.id).map_err(|e| e.to_string())?;
+            let estado = bus.leer_estado(&args.id).map_err(|e| e.to_string())?;
+            let informe = bus.leer_informe(&args.id).map_err(|e| e.to_string())?;
             let store = self.store.lock().await;
-            let task = store.get_task(args.id).map_err(|e| e.to_string())?;
-            let mut events = store
-                .list_events_by_task(args.id)
-                .map_err(|e| e.to_string())?;
-            events.reverse();
+            let mut eventos = store.list_events_by_trabajo(&args.id).map_err(|e| e.to_string())?;
+            eventos.reverse();
             Ok(json!({
-                "tarea": task_to_json(&task),
-                "eventos": events.iter().map(event_to_json).collect::<Vec<_>>(),
+                "orden": orden,
+                "estado": estado,
+                "informe": informe,
+                "eventos": eventos.iter().map(event_to_json).collect::<Vec<_>>(),
             }))
         }
         .await;
 
-        self.log_invocation(actor, "mcp_ver_tarea", Some(args.id), started, args_json, &body)
+        self.log_invocation(actor, "mcp_ver_trabajo", Some(&args.id), started, args_json, &body)
             .await;
         respond(body)
     }
 
     #[tool(
         description = "Lista eventos del diario, opcionalmente filtrados por \
-            tarea, actor o rango de fechas. Los más recientes primero.",
+            trabajo, actor o rango de fechas. Los más recientes primero.",
         annotations(title = "Listar diario", read_only_hint = true)
     )]
     async fn ea_listar_diario(
@@ -375,7 +384,7 @@ impl EaTools {
         let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
         let started = Instant::now();
         let args_json = json!({
-            "tarea": args.tarea, "actor": args.actor,
+            "trabajo": args.trabajo, "actor": args.actor,
             "desde": args.desde, "hasta": args.hasta, "limite": args.limite,
         });
 
@@ -389,7 +398,7 @@ impl EaTools {
                 None => None,
             };
             let filter = EventFilter {
-                task_id: args.tarea,
+                trabajo: args.trabajo.clone(),
                 actor: args.actor.clone(),
                 since,
                 until,
@@ -402,94 +411,8 @@ impl EaTools {
         }
         .await;
 
-        self.log_invocation(actor, "mcp_listar_diario", args.tarea, started, args_json, &body)
+        self.log_invocation(actor, "mcp_listar_diario", args.trabajo.as_deref(), started, args_json, &body)
             .await;
-        respond(body)
-    }
-
-    #[tool(
-        description = "Crea una tarea dirigida a un actor del ecosistema (p. ej. \
-            'usuario', 'modelo-local', o esta misma sesión para \
-            autoseguimiento). El origen queda fijado como 'agente' y quien la \
-            crea como el actor que invoca esta herramienta. Usa simular=true \
-            para ver qué tarea se crearía sin escribir nada.",
-        annotations(
-            title = "Crear tarea",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
-    )]
-    async fn ea_crear_tarea(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<CrearTareaArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
-        let started = Instant::now();
-        let simular = args.simular.unwrap_or(false);
-        let args_json = json!({
-            "titulo": args.titulo, "solicita": args.solicita,
-            "asignado_a": args.asignado_a, "tarea_padre": args.tarea_padre,
-            "simular": simular,
-        });
-
-        if let Err(msg) = autorizar_mcp(actor, buscar("ea_crear_tarea").expect("en el catálogo")) {
-            let body: ToolBody = Err(msg);
-            self.log_invocation(actor, "mcp_crear_tarea_denegada", None, started, args_json, &body)
-                .await;
-            return respond(body);
-        }
-
-        if simular {
-            let body: ToolBody = Ok(json!({
-                "simulado": true,
-                "tarea_que_se_crearia": {
-                    "creada_por": actor,
-                    "asignada_a": args.asignado_a,
-                    "origen": TaskOrigin::Agente.as_str(),
-                    "tarea_padre": args.tarea_padre,
-                    "titulo": args.titulo,
-                    "solicita": args.solicita,
-                }
-            }));
-            self.log_invocation(
-                actor,
-                "mcp_crear_tarea_simulada",
-                None,
-                started,
-                args_json,
-                &body,
-            )
-            .await;
-            return respond(body);
-        }
-
-        let body: ToolBody = async {
-            let mut store = self.store.lock().await;
-            store
-                .create_task(NewTask {
-                    created_by: actor.to_string(),
-                    assigned_to: args.asignado_a.clone(),
-                    origin: TaskOrigin::Agente,
-                    parent_task_id: args.tarea_padre,
-                    title: args.titulo.clone(),
-                    request: args.solicita.clone(),
-                })
-                .map(|task| json!({ "tarea": task_to_json(&task) }))
-                .map_err(|e| e.to_string())
-        }
-        .await;
-
-        // Si tuvo éxito, `create_task` ya insertó el evento `tarea_creada`
-        // (actor=claude-code) en la misma transacción: duplicarlo aquí
-        // violaría "una sola fuente de verdad" para el mismo hecho. Si
-        // falló, no hay evento (la transacción no se comitió), así que se
-        // registra explícitamente para no perder la traza (§11.3).
-        if body.is_err() {
-            self.log_invocation(actor, "mcp_crear_tarea", None, started, args_json, &body)
-                .await;
-        }
         respond(body)
     }
 
@@ -611,11 +534,11 @@ impl EaTools {
         let simular = args.simular.unwrap_or(false);
         let args_json = json!({
             "titulo": args.titulo, "bytes": args.contenido.len(), "ruta": args.ruta,
-            "etiquetas": args.etiquetas, "tarea": args.tarea, "sobrescribir": args.sobrescribir,
+            "etiquetas": args.etiquetas, "trabajo": args.trabajo, "sobrescribir": args.sobrescribir,
             "simular": simular,
         });
         self.autorizar(actor, "ea_escribir_nota", "mcp_escribir_nota", started, &args_json).await?;
-        let origen = args.tarea.map(|t| format!("tarea:{t}")).unwrap_or_else(|| "manual".into());
+        let origen = args.trabajo.as_ref().map(|t| format!("trabajo:{t}")).unwrap_or_else(|| "manual".into());
         let etiquetas = args.etiquetas.clone().unwrap_or_default();
         let nota = NuevaNota {
             titulo: &args.titulo,
@@ -637,7 +560,7 @@ impl EaTools {
                     })
                 })
                 .map_err(|e| e.to_string());
-            self.log_invocation(actor, "mcp_escribir_nota_simulada", args.tarea, started, args_json, &body).await;
+            self.log_invocation(actor, "mcp_escribir_nota_simulada", args.trabajo.as_deref(), started, args_json, &body).await;
             return respond(body);
         }
         let body: ToolBody = {
@@ -654,11 +577,11 @@ impl EaTools {
                 })
                 .map_err(|e| e.to_string())
         };
-        // Como `ea_crear_tarea`: si tuvo éxito, el escritor ya dejó su evento
+        // Si tuvo éxito, el escritor ya dejó su evento
         // `boveda_escritura` (actor, ruta, bytes, huella); duplicarlo aquí
         // contradiría "una sola fuente de verdad". Si falló, se anota.
         if body.is_err() {
-            self.log_invocation(actor, "mcp_escribir_nota", args.tarea, started, args_json, &body).await;
+            self.log_invocation(actor, "mcp_escribir_nota", args.trabajo.as_deref(), started, args_json, &body).await;
         }
         respond(body)
     }
@@ -688,29 +611,6 @@ impl EaTools {
     }
 
     #[tool(
-        description = "[Riesgo: mutación reversible] Cambia el estado de una tarea. \
-            NO lo ejecuta: con simular=true describe el cambio; sin él encola una \
-            propuesta que el usuario debe aceptar (el usuario confirma, nunca un agente).",
-        annotations(
-            title = "Cambiar estado de tarea",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
-    )]
-    async fn ea_cambiar_estado_tarea(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<CambiarEstadoTareaArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        let mut a = json!({ "id": args.id, "estado": args.estado });
-        if let Some(r) = args.resultado {
-            a["resultado"] = json!(r);
-        }
-        self.mutante(context, "ea_cambiar_estado_tarea", a, args.simular.unwrap_or(false)).await
-    }
-
-    #[tool(
         description = "[Riesgo: mutación reversible] Encola la ejecución de una rutina \
             (se ejecuta de solo lectura). NO lo ejecuta: con simular=true lo describe; \
             sin él encola una propuesta que el usuario debe aceptar.",
@@ -731,7 +631,7 @@ impl EaTools {
 
     #[tool(
         description = "[Riesgo: mutación reversible] Reinicia un servicio del ecosistema \
-            (lista cerrada: llama-server, ea-mcp, ea-proxy, ea-orchestrator, ea-web). \
+            (lista cerrada: llama-server, ea-mcp, ea-orchestrator, ea-web). \
             NO lo ejecuta: con simular=true lo describe; sin él encola una propuesta \
             que el usuario debe aceptar.",
         annotations(
@@ -776,11 +676,11 @@ impl ServerHandler for EaTools {
             .with_server_info(Implementation::from_build_env())
             .with_instructions(
                 "Herramientas del ecosistema de asistente personal. ea_status da \
-                 una vista general; ea_listar_tareas y ea_ver_tarea inspeccionan \
-                 tareas; ea_listar_diario consulta el historial de eventos; \
-                 ea_crear_tarea (con simular=true para previsualizar) delega \
-                 trabajo a otro actor del ecosistema. Las herramientas que cambian \
-                 el sistema (ea_cambiar_estado_tarea, ea_encolar_rutina, \
+                 una vista general (orquestador, trabajos, colas y semáforos); \
+                 ea_listar_trabajos y ea_ver_trabajo inspeccionan los trabajos del \
+                 bus (solo lectura: crear o decidir trabajo se hace con la CLI y las \
+                 skills); ea_listar_diario consulta el historial de eventos. Las \
+                 herramientas que cambian el sistema (ea_encolar_rutina, \
                  ea_reiniciar_servicio, ea_eliminar_rutina, ea_promover_nota) nunca se \
                  ejecutan desde aquí: con simular=true describen lo que harían; sin él \
                  encolan una propuesta que solo el usuario puede aceptar. Las \
