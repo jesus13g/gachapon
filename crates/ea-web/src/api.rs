@@ -12,10 +12,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use ea_acciones::{Canal, ErrorAccion, SistemaReal};
 use ea_bus::{Agente, Bus, ErrorBus, Evento};
-use ea_store::{
-    EstadoPropuesta, Event, EventFilter, Propuesta,
-    PropuestaFilter, RoutineRun, StoreError, NewTask, Task, TaskFilter, TaskOrigin, TaskStatus,
-};
+use ea_store::{EstadoPropuesta, Event, EventFilter, Propuesta, PropuestaFilter, StoreError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
@@ -25,14 +22,6 @@ use time::OffsetDateTime;
 use crate::{estado, tema, AppState};
 
 const ACTOR: &str = "usuario";
-const ESTADOS: [TaskStatus; 5] = [
-    TaskStatus::Pendiente,
-    TaskStatus::EnProgreso,
-    TaskStatus::Completada,
-    TaskStatus::Fallida,
-    TaskStatus::Cancelada,
-];
-
 type Estado = State<Arc<AppState>>;
 type ApiResult<T> = Result<T, ApiError>;
 
@@ -57,13 +46,8 @@ impl IntoResponse for ApiError {
 impl From<StoreError> for ApiError {
     fn from(e: StoreError) -> Self {
         let status = match e {
-            StoreError::TaskNotFound(_)
-            | StoreError::EventNotFound(_)
-            | StoreError::RoutineRunNotFound(_)
-            | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
-            StoreError::InvalidStatus(_)
-            | StoreError::InvalidOrigin(_)
-            | StoreError::InvalidOutcome(_) => StatusCode::BAD_REQUEST,
+            StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
+            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self(status, e.to_string())
@@ -88,10 +72,7 @@ impl From<ErrorAccion> for ApiError {
 impl ApiError {
     fn from_store_ref(se: &StoreError, msg: String) -> Self {
         let status = match se {
-            StoreError::TaskNotFound(_)
-            | StoreError::EventNotFound(_)
-            | StoreError::RoutineRunNotFound(_)
-            | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
+            StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_) => StatusCode::NOT_FOUND,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self(status, msg)
@@ -128,10 +109,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/tema.css", get(tema_css))
         .route("/api/estado", get(estado_general))
         .route("/api/inicio", get(inicio))
-        .route("/api/tareas", get(tareas_listar).post(tareas_crear))
-        .route("/api/tareas/{id}", get(tarea_ver))
-        .route("/api/tareas/{id}/estado", post(tarea_estado))
-        .route("/api/tareas/{id}/repetir", post(tarea_repetir))
         .route("/api/diario", get(diario))
         .route("/api/rutinas", get(rutinas_listar))
         .route("/api/rutinas/{slug}", get(rutina_ver))
@@ -259,53 +236,22 @@ fn texto_no_vacio(valor: &str, campo: &str, max: usize) -> ApiResult<String> {
     Ok(v.to_string())
 }
 
-fn tarea_json(t: &Task) -> Value {
-    json!({
-        "id": t.id,
-        "creada": ts(t.created_at),
-        "actualizada": ts(t.updated_at),
-        "creado_por": t.created_by,
-        "asignado_a": t.assigned_to,
-        "origen": t.origin.as_str(),
-        "padre": t.parent_task_id,
-        "titulo": t.title,
-        "peticion": t.request,
-        "estado": t.status.as_str(),
-        "resultado": t.result,
-    })
-}
-
 fn evento_json(e: &Event) -> Value {
     json!({
         "id": e.id,
         "ts": ts(e.ts),
         "actor": e.actor,
         "accion": e.action,
-        "tarea": e.task_id,
+        "trabajo": e.trabajo,
         "resultado": e.outcome.map(|o| o.as_str()),
         "duracion_ms": e.duration_ms,
         "detalle": e.detail,
     })
 }
 
-fn run_json(r: &RoutineRun) -> Value {
-    json!({
-        "id": r.id,
-        "tarea": r.task_id,
-        "inicio": ts(r.started_at),
-        "fin": r.finished_at.map(ts),
-        "resultado": r.outcome.map(|o| o.as_str()),
-        "pasos": r.pasos_ejecutados,
-        "llamadas_modelo": r.llamadas_modelo,
-        "detalle": r.detalle,
-    })
-}
-
-fn propuesta_json(p: &Propuesta, rutina: Option<String>) -> Value {
+fn propuesta_json(p: &Propuesta) -> Value {
     json!({
         "id": p.id,
-        "ejecucion": p.routine_run_id,
-        "rutina": rutina,
         "proponente": p.proponente,
         "creada": ts(p.creado_en),
         "descripcion": p.descripcion,
@@ -325,27 +271,12 @@ fn propuesta_json(p: &Propuesta, rutina: Option<String>) -> Value {
     })
 }
 
-fn rutina_de(store: &ea_store::Store, p: &Propuesta) -> Option<String> {
-    p.routine_run_id
-        .and_then(|id| store.get_routine_run(id).ok())
-        .map(|r| r.routine_slug)
-}
-
 // ------------------------------------------------------------------ estado
 
 async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
     let servicios = estado::servicios(s.config.systemctl).await;
 
     let store = s.store.lock().await;
-    let tareas = store.list_tasks(&TaskFilter::default())?;
-    let por_estado: serde_json::Map<String, Value> = ESTADOS
-        .iter()
-        .map(|e| {
-            let n = tareas.iter().filter(|t| t.status == *e).count();
-            (e.as_str().to_string(), json!(n))
-        })
-        .collect();
-
     let orquestador = store.estado_orquestador(s.config.umbral_heartbeat_s)?;
 
     let agentes: Vec<Value> = store
@@ -354,7 +285,6 @@ async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
         .map(|a| {
             json!({
                 "nombre": a.nombre,
-                "tarea": a.tarea_en_curso.map(|t| json!({ "id": t.id, "titulo": t.title })),
                 "ultimo": a.ultimo_evento.map(|e| json!({ "ts": ts(e.ts), "accion": e.action })),
             })
         })
@@ -371,200 +301,45 @@ async fn estado_general(State(s): Estado) -> ApiResult<Json<Value>> {
         })).collect::<Vec<_>>(),
         "orquestador": { "vivo": orquestador.vivo, "ultimo_latido": orquestador.ultimo_latido.map(ts) },
         "agentes": agentes,
-        "tareas": por_estado,
+        "trabajos": trabajos_por_estado(),
         "propuestas_pendientes": propuestas_pendientes,
         "db": ea_store::resolve_db_path().ok().map(|p| p.display().to_string()),
     })))
 }
 
-/// Las propuestas pendientes y las tareas del sistema antiguo. Los trabajos
-/// del orquestador van por `/api/trabajos`, `/api/colas` y `/api/semaforos`. Una sola petición por refresco.
+/// Las propuestas pendientes. Los trabajos del orquestador van por
+/// `/api/trabajos`, `/api/colas` y `/api/semaforos`.
 async fn inicio(State(s): Estado) -> ApiResult<Json<Value>> {
-    const RECIENTES: usize = 8;
-
     let store = s.store.lock().await;
     let propuestas = store
         .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: Some(20) })?
         .iter()
-        .map(|p| propuesta_json(p, rutina_de(&store, p)))
+        .map(propuesta_json)
         .collect::<Vec<_>>();
-
-    let tareas = store.list_tasks(&TaskFilter::default())?;
-    let activa = |t: &&Task| matches!(t.status, TaskStatus::Pendiente | TaskStatus::EnProgreso);
-    let mut recientes: Vec<&Task> = tareas.iter().filter(|t| !activa(t)).collect();
-    recientes.sort_by_key(|t| std::cmp::Reverse(t.updated_at));
-
-    Ok(Json(json!({
-        "propuestas": propuestas,
-        "activas": tareas.iter().filter(activa).map(tarea_json).collect::<Vec<_>>(),
-        "recientes": recientes.into_iter().take(RECIENTES).map(tarea_json).collect::<Vec<_>>(),
-    })))
+    Ok(Json(json!({ "propuestas": propuestas })))
 }
 
-// ------------------------------------------------------------------ tareas
-
-#[derive(Deserialize)]
-struct TareasQuery {
-    estado: Option<String>,
-    asignado_a: Option<String>,
-    limite: Option<i64>,
-}
-
-async fn tareas_listar(State(s): Estado, Query(q): Query<TareasQuery>) -> ApiResult<Json<Value>> {
-    let filter = TaskFilter {
-        status: q.estado.as_deref().map(str::parse::<TaskStatus>).transpose()?,
-        assigned_to: q.asignado_a.filter(|a| !a.is_empty()),
-        limit: Some(limite(q.limite, 100, 500)),
-    };
-    let store = s.store.lock().await;
-    let tareas = store.list_tasks(&filter)?;
-    Ok(Json(json!(tareas.iter().map(tarea_json).collect::<Vec<_>>())))
-}
-
-async fn tarea_ver(State(s): Estado, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
-    let store = s.store.lock().await;
-    let tarea = store.get_task(id)?;
-    let mut eventos = store.list_events_by_task(id)?;
-    eventos.reverse(); // cronológico: la historia de la tarea
-
-    // Si la tarea es la ejecución de una rutina, su ejecución y lo que propuso.
-    let ejecucion = match rutina_de_tarea(&tarea) {
-        Some(slug) => store
-            .list_routine_runs(&slug, Some(100))?
-            .into_iter()
-            .find(|r| r.task_id == Some(id)),
-        None => None,
-    };
-    let propuestas: Vec<Value> = match &ejecucion {
-        Some(run) => store
-            .list_propuestas(&PropuestaFilter::default())?
-            .iter()
-            .filter(|p| p.routine_run_id == Some(run.id))
-            .map(|p| json!({ "id": p.id, "descripcion": p.descripcion, "estado": p.estado.as_str() }))
-            .collect(),
-        None => Vec::new(),
-    };
-    let hijas: Vec<Value> = store
-        .list_tasks(&TaskFilter::default())?
-        .iter()
-        .filter(|t| t.parent_task_id == Some(id))
-        .map(|t| json!({ "id": t.id, "titulo": t.title, "estado": t.status.as_str() }))
-        .collect();
-
-    Ok(Json(json!({
-        "tarea": tarea_json(&tarea),
-        "eventos": eventos.iter().map(evento_json).collect::<Vec<_>>(),
-        "ejecucion": ejecucion.as_ref().map(|r| {
-            let mut v = run_json(r);
-            v["rutina"] = json!(r.routine_slug);
-            v
-        }),
-        "propuestas": propuestas,
-        "hijas": hijas,
-    })))
-}
-
-/// El slug, si la petición de la tarea es la de ejecutar una rutina
-/// (`{"rutina": "<slug>"}`, lo que encola `ea_encolar_rutina`).
-fn rutina_de_tarea(t: &Task) -> Option<String> {
-    if t.assigned_to != "orquestador" {
-        return None;
-    }
-    let v: Value = serde_json::from_str(&t.request).ok()?;
-    v.get("rutina")?.as_str().map(str::to_string)
-}
-
-#[derive(Deserialize)]
-struct NuevaTarea {
-    titulo: String,
-    asignado_a: String,
-    solicita: String,
-}
-
-async fn tareas_crear(
-    State(s): Estado,
-    Json(body): Json<NuevaTarea>,
-) -> ApiResult<(StatusCode, Json<Value>)> {
-    let nueva = NewTask {
-        created_by: ACTOR.into(),
-        assigned_to: texto_no_vacio(&body.asignado_a, "asignado_a", 64)?,
-        origin: TaskOrigin::Boton,
-        parent_task_id: None,
-        title: texto_no_vacio(&body.titulo, "titulo", 200)?,
-        request: texto_no_vacio(&body.solicita, "solicita", 10_000)?,
-    };
-    let mut store = s.store.lock().await;
-    let tarea = store.create_task(nueva)?;
-    Ok((StatusCode::CREATED, Json(tarea_json(&tarea))))
-}
-
-/// Vuelve a lanzar una tarea ya terminada: una tarea nueva con la misma
-/// petición y la original como padre. La de una rutina se encola por la
-/// herramienta de siempre, que rechaza duplicar una ejecución en cola.
-async fn tarea_repetir(
-    State(s): Estado,
-    Path(id): Path<i64>,
-) -> ApiResult<(StatusCode, Json<Value>)> {
-    let sis = sistema(&s);
-    let mut store = s.acciones.lock().await;
-    let original = store.get_task(id)?;
-    if matches!(original.status, TaskStatus::Pendiente | TaskStatus::EnProgreso) {
-        return Err(ApiError::new(
-            StatusCode::CONFLICT,
-            format!("la tarea #{id} sigue {}", original.status.as_str()),
-        ));
-    }
-
-    let nueva = match rutina_de_tarea(&original) {
-        Some(slug) => {
-            slug_valido(&slug)?;
-            // Tarea antigua de una rutina: ahora se relanza por el bus.
-            let r = ea_acciones::ejecutar_directo(
-                &mut store, &sis, ACTOR, Canal::Web, "ea_encolar_rutina", &json!({ "slug": slug }),
-            )
-            .await?;
-            return Ok((StatusCode::CREATED, Json(r.datos)));
+/// Trabajos del bus por estado; vacío si el bus no se puede leer.
+fn trabajos_por_estado() -> Value {
+    const ESTADOS: [&str; 6] = ["en_cola", "ejecutando", "en_revision", "en_espera", "cerrado", "cancelado"];
+    let mut cuenta: std::collections::HashMap<&'static str, usize> = std::collections::HashMap::new();
+    if let Ok(bus) = Bus::abrir() {
+        for id in bus.listar_trabajos().unwrap_or_default() {
+            if let Ok(e) = bus.leer_estado(&id) {
+                *cuenta.entry(e.estado.as_str()).or_default() += 1;
+            }
         }
-        None => store.create_task(NewTask {
-            created_by: ACTOR.into(),
-            assigned_to: original.assigned_to.clone(),
-            origin: TaskOrigin::Boton,
-            parent_task_id: Some(id),
-            title: original.title.clone(),
-            request: original.request.clone(),
-        })?,
-    };
-    Ok((StatusCode::CREATED, Json(tarea_json(&nueva))))
-}
-
-#[derive(Deserialize)]
-struct CambioEstado {
-    estado: String,
-    resultado: Option<String>,
-}
-
-async fn tarea_estado(
-    State(s): Estado,
-    Path(id): Path<i64>,
-    Json(body): Json<CambioEstado>,
-) -> ApiResult<Json<Value>> {
-    let mut args = json!({ "id": id, "estado": body.estado });
-    if let Some(r) = body.resultado.filter(|r| !r.trim().is_empty()) {
-        args["resultado"] = json!(r);
     }
-    let sis = sistema(&s);
-    let mut store = s.acciones.lock().await;
-    store.get_task(id)?; // 404 si no existe
-    ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_cambiar_estado_tarea", &args)
-        .await?;
-    Ok(Json(tarea_json(&store.get_task(id)?)))
+    let m: serde_json::Map<String, Value> =
+        ESTADOS.iter().map(|e| (e.to_string(), json!(cuenta.get(e).copied().unwrap_or(0)))).collect();
+    Value::Object(m)
 }
 
 // ------------------------------------------------------------------ diario
 
 #[derive(Deserialize)]
 struct DiarioQuery {
-    tarea: Option<i64>,
+    trabajo: Option<String>,
     actor: Option<String>,
     desde: Option<String>,
     hasta: Option<String>,
@@ -575,7 +350,7 @@ struct DiarioQuery {
 
 async fn diario(State(s): Estado, Query(q): Query<DiarioQuery>) -> ApiResult<Json<Value>> {
     let filter = EventFilter {
-        task_id: q.tarea,
+        trabajo: q.trabajo.filter(|t| !t.is_empty()),
         actor: q.actor.filter(|a| !a.is_empty()),
         since: q.desde.as_deref().map(parse_fecha).transpose()?,
         until: q.hasta.as_deref().map(parse_fecha).transpose()?,
@@ -854,9 +629,7 @@ async fn propuestas_listar(
     let filas = store
         .list_propuestas(&filter)?
         .iter()
-        .map(|p| {
-            propuesta_json(p, rutina_de(&store, p))
-        })
+        .map(propuesta_json)
         .collect::<Vec<_>>();
     Ok(Json(json!(filas)))
 }
@@ -888,7 +661,7 @@ async fn propuesta_decidir(
     } else {
         ea_acciones::rechazar_propuesta(&store, id, ACTOR, Canal::Web)?
     };
-    Ok(Json(propuesta_json(&p, rutina_de(&store, &p))))
+    Ok(Json(propuesta_json(&p)))
 }
 
 // ---------------------------------------------------------------- acciones
@@ -978,7 +751,7 @@ async fn accion_ejecutar(State(s): Estado, Json(b): Json<AccionBody>) -> ApiResu
         &mut store, &sis, ACTOR, Canal::Web, &b.herramienta, &b.argumentos, &b.precondicion, None,
     )
     .await?;
-    Ok(Json(json!({ "texto": r.texto, "tarea": r.tarea, "datos": r.datos })))
+    Ok(Json(json!({ "texto": r.texto, "trabajo": r.trabajo, "datos": r.datos })))
 }
 
 // ------------------------------------------------------------------ bóveda

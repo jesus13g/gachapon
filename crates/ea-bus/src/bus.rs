@@ -36,20 +36,22 @@ pub(crate) fn ahora_rfc3339() -> String {
     OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_default()
 }
 
-/// Id ordenable por tiempo: `20261014T193000-ab12`.
+/// Id ordenable por tiempo: `20261014T193000-0003ab12`. El contador evita que
+/// dos ids del mismo segundo se ordenen al azar (las colas son FIFO).
 fn nuevo_id() -> String {
     let t = OffsetDateTime::now_utc();
     let n = CONTADOR_ID.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
     let h = fnv(&format!("{}-{n}-{nanos}", std::process::id())) & 0xffff;
     format!(
-        "{:04}{:02}{:02}T{:02}{:02}{:02}-{h:04x}",
+        "{:04}{:02}{:02}T{:02}{:02}{:02}-{:04x}{h:04x}",
         t.year(),
         u8::from(t.month()),
         t.day(),
         t.hour(),
         t.minute(),
-        t.second()
+        t.second(),
+        n & 0xffff
     )
 }
 
@@ -310,6 +312,9 @@ impl Bus {
                 self.retirar_de_colas(id)?;
             }
             Evento::Reformular => {
+                // Sin entradas rancias (p. ej. el «terminado» en claude-code si
+                // se reformula sin haberlo tomado, como hace el panel web).
+                self.retirar_de_colas(id)?;
                 self.encolar(Agente::ModeloLocal, id, "reformulado")?;
             }
             _ => {}
@@ -446,6 +451,18 @@ impl Bus {
         Ok(v)
     }
 
+    /// Trabajos de una rutina, del más reciente al más antiguo, con su estado.
+    pub fn trabajos_de_rutina(&self, slug: &str) -> Resultado<Vec<(String, Estado)>> {
+        let mut v = Vec::new();
+        for id in self.listar_trabajos()?.into_iter().rev() {
+            let (Ok(o), Ok(e)) = (self.leer_orden(&id), self.leer_estado(&id)) else { continue };
+            if o.rutina.is_some_and(|r| r.slug == slug) {
+                v.push((id, e));
+            }
+        }
+        Ok(v)
+    }
+
     /// Reformula un trabajo en revisión: añade las notas de la revisión a
     /// `orden.json` (`notas_revision`) y aplica `Reformular`, que lo vuelve
     /// a encolar en `modelo-local`.
@@ -550,7 +567,7 @@ impl Bus {
         let _ = s.append_event(NewEvent {
             actor: self.actor.clone(),
             action: accion.into(),
-            task_id: None,
+            trabajo: None,
             outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
             duration_ms: None,
             detail: Some(detalle.to_string()),

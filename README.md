@@ -106,10 +106,20 @@ systemctl --user restart llama-server
 Después ajusta `modelo` (y `base_url` si cambia) en `orquestador.toml` y reinicia
 `ea-orchestrator`. No hay que tocar código.
 
+## Actualizar desde una versión anterior
+
+El esquema de la base de datos se ha reiniciado (una sola migración,
+`0001_inicial.sql`; sin tareas ni `routine_runs`). Una base antigua **no se
+migra**: `ea` y los servicios se niegan a abrirla con el mensaje «base de datos
+del esquema antiguo» y no tocan nada. Tras actualizar hay que empezar con una
+base nueva: parar los servicios, copiar `~/.local/share/ecosistema-asistente/ecosistema.db*`
+a un lugar seguro, borrarlos, vaciar `~/.local/state/ecosistema-asistente/` y
+volver a arrancar los servicios.
+
 ## Estructura
 
 - `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
-  tareas, propuestas, índice de la bóveda, trabajos, fases y rutinas.
+  propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
   del worktree, rutinas versionadas y `orquestador.toml`.
 - `crates/ea-orchestrator`: binario `ea-orchestrator`, el ejecutor del agente
@@ -165,9 +175,8 @@ ea rutina listar|ver <slug>
 ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus
 
 # Resto del ecosistema
-ea status                                    # resumen no interactivo
-ea tareas crear|listar|ver|actualizar        # tareas entre actores (claude-code, usuario)
-ea diario listar|ver <id>
+ea status                                    # orquestador, trabajos por estado, colas y semáforos
+ea diario listar|ver <id>                    # listar acepta --trabajo <id>
 ea propuestas listar|ver|decidir <id> --aceptar|--rechazar
 ea acciones listar|simular|ejecutar          # catálogo de herramientas
 ea boveda estado|listar|buscar|leer|promover|reindexar
@@ -191,18 +200,16 @@ riesgo (§7.3):
 
 | Herramienta | Riesgo | Desde un agente |
 |---|---|---|
-| `ea_status`, `ea_listar_tareas`, `ea_ver_tarea`, `ea_listar_diario` | lectura | se ejecuta |
+| `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
 | `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta |
 | `ea_escribir_nota` | mutación reversible | se ejecuta, solo en la región propia del agente |
 | `ea_promover_nota` | mutación reversible | solo simula o propone |
-| `ea_crear_tarea` (con `simular: true`) | mutación reversible | se ejecuta (solo escribe una fila) |
-| `ea_cambiar_estado_tarea` | mutación reversible | solo simula o propone |
 | `ea_encolar_rutina` (crea el trabajo en el bus) | mutación reversible | solo simula o propone |
 | `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone |
 | `ea_eliminar_rutina` | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
 Toda invocación queda registrada en el diario, atribuida al cliente que la hizo
-(`claude-code` por defecto, `orquestador` si se identifica como `ea-orchestrator`).
+(`claude-code` por defecto, `modelo-local` si se identifica como Qwen Code —`qwen-code-mcp-client`—, `orquestador` si se identifica como `ea-orchestrator`).
 La autorización es del servidor, no del prompt: lo desatendido solo puede leer.
 
 Instalación como servicio de sesión (`systemd --user`):
@@ -235,7 +242,7 @@ las operaciones que mutan el sistema.
 
 Flujo propuesta → aceptación → ejecución:
 
-1. Un agente propone (`ea_cambiar_estado_tarea` …). Una propuesta idéntica
+1. Un agente propone (`ea_encolar_rutina`, `ea_promover_nota` …). Una propuesta idéntica
    pendiente no se duplica y hay un tope de 30 con acción.
 2. El usuario la ve en `ea propuestas ver <id>`, en la TUI o en la sección ◇ de
    `ea-web`, con la simulación.
@@ -249,16 +256,15 @@ Flujo propuesta → aceptación → ejecución:
    `fallida`, con detalle) y en el diario (`propuesta_decidida` y
    `accion_ejecutada` / `accion_fallida`, con argumentos, resultado, proponente
    y canal).
-4. Las propuestas antiguas de solo texto siguen funcionando: aceptar = constancia.
+4. Las propuestas de solo texto (sin acción) siguen funcionando: aceptar = constancia.
 
 Política por canal (§11.1): lectura, automática; reversible, la confirma el
 usuario en la terminal o en `ea-web`; irreversible, **solo desde la terminal**
 (`ea-web` responde 403 y la propuesta sigue pendiente; MCP no tiene
 camino de confirmación). La terminal exige TTY real en stdin y stdout: un
 agente que lance `ea` como subproceso sin terminal no puede confirmar. Los
-botones de `ea-web` (reiniciar servicios, decidir propuestas) y
-`ea tareas actualizar` pasan por la misma capa y dejan el mismo
-`accion_ejecutada` en el diario. `ea acciones listar|simular|ejecutar` es la
+botones de `ea-web` (reiniciar servicios, decidir propuestas) pasan por la
+misma capa y dejan el mismo `accion_ejecutada` en el diario. `ea acciones listar|simular|ejecutar` es la
 vía directa del usuario en terminal.
 
 Límite honesto: el modelo de seguridad delega en el sistema operativo la
@@ -330,7 +336,7 @@ autor: modelo-local                 # modelo-local | claude-code | usuario
 region: modelo-local                # modelo-local | claude-code | compartida
 creada: 2026-10-10T12:00:00Z        # RFC 3339, UTC
 actualizada: 2026-10-10T12:00:00Z
-origen: "tarea:12"                  # tarea:<id> | rutina:<slug> | manual
+origen: "trabajo:m-12"              # trabajo:<id> | rutina:<slug> | manual
 promocion: ninguna                  # ninguna | promovida
 tags: [servicios, mcp]              # opcional, hasta 10
 # solo tras promover:

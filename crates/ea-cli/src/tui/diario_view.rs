@@ -6,7 +6,7 @@ use ratatui::Frame;
 use crate::commands::fmt_ts;
 
 pub fn render(frame: &mut Frame, area: Rect, events: &[Event]) {
-    let header = Row::new(vec!["Cuándo", "Actor", "Acción", "Tarea", "Resultado"]);
+    let header = Row::new(vec!["Cuándo", "Actor", "Acción", "Trabajo", "Resultado"]);
     let rows: Vec<Row> = events
         .iter()
         .map(|e| {
@@ -14,7 +14,7 @@ pub fn render(frame: &mut Frame, area: Rect, events: &[Event]) {
                 fmt_ts(e.ts),
                 e.actor.clone(),
                 e.action.clone(),
-                e.task_id.map(|t| format!("#{t}")).unwrap_or_default(),
+                e.trabajo.clone().unwrap_or_default(),
                 e.outcome
                     .map(|o| o.as_str().to_string())
                     .unwrap_or_default(),

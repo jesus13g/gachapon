@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use ea_store::{EstadoPropuesta, TaskOrigin, TaskStatus};
+use ea_store::EstadoPropuesta;
 
 #[derive(Parser)]
 #[command(name = "ea", about = "Interfaz de terminal del ecosistema de asistente", version)]
@@ -12,11 +12,6 @@ pub struct Cli {
 pub enum Command {
     /// Resumen no interactivo del estado del sistema (apto para login banner)
     Status,
-    /// Gestión de tareas
-    Tareas {
-        #[command(subcommand)]
-        accion: TareasAccion,
-    },
     /// Diario de eventos
     Diario {
         #[command(subcommand)]
@@ -120,51 +115,12 @@ pub enum TrabajoAccion {
 }
 
 #[derive(Subcommand)]
-pub enum TareasAccion {
-    /// Crea una tarea nueva
-    Crear {
-        #[arg(long)]
-        titulo: String,
-        #[arg(long = "asignado-a")]
-        asignado_a: String,
-        #[arg(long)]
-        solicita: String,
-        #[arg(long, default_value = "manual")]
-        origen: TaskOrigin,
-        #[arg(long = "creado-por", default_value = "usuario")]
-        creado_por: String,
-        #[arg(long = "tarea-padre")]
-        tarea_padre: Option<i64>,
-    },
-    /// Lista tareas, con filtros opcionales
-    Listar {
-        #[arg(long)]
-        estado: Option<TaskStatus>,
-        #[arg(long = "asignado-a")]
-        asignado_a: Option<String>,
-        #[arg(long, default_value_t = 20)]
-        limite: i64,
-    },
-    /// Muestra el detalle de una tarea y su historial de eventos
-    Ver { id: i64 },
-    /// Actualiza el estado de una tarea (registra el evento correspondiente)
-    Actualizar {
-        id: i64,
-        #[arg(long)]
-        estado: TaskStatus,
-        #[arg(long)]
-        resultado: Option<String>,
-        #[arg(long, default_value = "usuario")]
-        actor: String,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum DiarioAccion {
     /// Lista eventos del diario, con filtros opcionales
     Listar {
+        /// Solo los eventos asociados a este trabajo
         #[arg(long)]
-        tarea: Option<i64>,
+        trabajo: Option<String>,
         #[arg(long)]
         actor: Option<String>,
         /// Fecha/hora mínima (RFC3339 o AAAA-MM-DD)

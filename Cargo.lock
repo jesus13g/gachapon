@@ -546,6 +546,7 @@ dependencies = [
  "axum",
  "ea-acciones",
  "ea-boveda",
+ "ea-bus",
  "ea-orchestrator",
  "ea-store",
  "rmcp",

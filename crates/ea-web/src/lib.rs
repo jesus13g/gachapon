@@ -1,7 +1,7 @@
 //! Interfaz web del ecosistema de asistente: una API JSON local y una
 //! página única que la consume. Respeta el invariante de §12.2 de la
-//! especificación — para leer consulta el diario y las tareas, para actuar
-//! crea tareas o decide propuestas — y nunca habla con Claude Code ni con el
+//! especificación — para leer consulta el diario y el bus de trabajos, para
+//! actuar decide propuestas y gestiona trabajos — y nunca habla con Claude Code ni con el
 //! modelo local. La única ruta que sale de la base de datos es el reinicio de
 //! servicios.
 

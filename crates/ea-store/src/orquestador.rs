@@ -5,9 +5,8 @@
 use time::{Duration, OffsetDateTime};
 
 use crate::error::StoreResult;
-use crate::models::{Event, Task, TaskStatus};
+use crate::models::Event;
 use crate::repository::events::EventFilter;
-use crate::repository::tasks::TaskFilter;
 use crate::store::Store;
 
 /// Cuántos eventos recientes del orquestador se miran para hallar el latido.
@@ -59,21 +58,15 @@ impl Store {
 /// Actores de IA que las interfaces muestran como agentes.
 pub const AGENTES: [&str; 2] = ["claude-code", "modelo-local"];
 
-/// Qué está haciendo un agente según el diario y las tareas, nunca
-/// preguntándole a él (§12.2): su tarea en curso y su último evento.
+/// Qué hizo por última vez un agente según el diario, nunca preguntándole a él.
 #[derive(Clone, Debug)]
 pub struct ResumenAgente {
     pub nombre: &'static str,
-    pub tarea_en_curso: Option<Task>,
     pub ultimo_evento: Option<Event>,
 }
 
 impl Store {
     pub fn resumen_agentes(&self) -> StoreResult<Vec<ResumenAgente>> {
-        let tareas = self.list_tasks(&TaskFilter {
-            status: Some(TaskStatus::EnProgreso),
-            ..Default::default()
-        })?;
         AGENTES
             .iter()
             .map(|&nombre| {
@@ -86,11 +79,7 @@ impl Store {
                     })?
                     .into_iter()
                     .next();
-                Ok(ResumenAgente {
-                    nombre,
-                    tarea_en_curso: tareas.iter().find(|t| t.assigned_to == nombre).cloned(),
-                    ultimo_evento,
-                })
+                Ok(ResumenAgente { nombre, ultimo_evento })
             })
             .collect()
     }
@@ -106,7 +95,7 @@ mod tests {
             ts,
             actor: "orquestador".into(),
             action: "heartbeat".into(),
-            task_id: None,
+            trabajo: None,
             outcome: None,
             duration_ms: None,
             detail: None,

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store, TaskFilter, TaskStatus};
+use ea_bus::{Agente, Bus};
+use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 
 use super::fmt_ts;
 
@@ -20,14 +21,6 @@ pub fn estado_orquestador(store: &Store) -> Result<String> {
     })
 }
 
-const ALL_STATUSES: [TaskStatus; 5] = [
-    TaskStatus::Pendiente,
-    TaskStatus::EnProgreso,
-    TaskStatus::Completada,
-    TaskStatus::Fallida,
-    TaskStatus::Cancelada,
-];
-
 /// Resumen no interactivo del estado del sistema: una sola invocación,
 /// apta para mostrarse al iniciar sesión (§12.4 de la especificación).
 pub fn mostrar(store: &Store) -> Result<()> {
@@ -41,19 +34,7 @@ pub fn mostrar(store: &Store) -> Result<()> {
     println!("Base de datos: {}", ea_store::resolve_db_path()?.display());
     println!();
 
-    println!("Tareas por estado:");
-    let mut table = Table::new();
-    table.set_header(vec!["Estado", "Cantidad"]);
-    for status in ALL_STATUSES {
-        let count = store
-            .list_tasks(&TaskFilter {
-                status: Some(status),
-                ..Default::default()
-            })?
-            .len();
-        table.add_row(vec![status.as_str().to_string(), count.to_string()]);
-    }
-    println!("{table}");
+    mostrar_bus();
 
     println!("\nÚltimos eventos:");
     let events = store.list_events(&EventFilter {
@@ -64,17 +45,52 @@ pub fn mostrar(store: &Store) -> Result<()> {
         println!("  (sin eventos todavía)");
     } else {
         let mut table = Table::new();
-        table.set_header(vec!["Cuándo", "Actor", "Acción", "Tarea"]);
+        table.set_header(vec!["Cuándo", "Actor", "Acción", "Trabajo"]);
         for e in events {
             table.add_row(vec![
                 fmt_ts(e.ts),
                 e.actor,
                 e.action,
-                e.task_id.map(|t| format!("#{t}")).unwrap_or_default(),
+                e.trabajo.unwrap_or_default(),
             ]);
         }
         println!("{table}");
     }
 
     Ok(())
+}
+
+/// Trabajos por estado, colas y semáforos del bus. Si el bus no se puede
+/// leer, lo dice en vez de fallar: `ea status` es un banner de login.
+fn mostrar_bus() {
+    const ESTADOS: [&str; 6] = ["en_cola", "ejecutando", "en_revision", "en_espera", "cerrado", "cancelado"];
+    let Ok(bus) = Bus::abrir() else {
+        println!("Bus de trabajos: (no se puede leer el estado)");
+        return;
+    };
+    let mut cuenta = std::collections::HashMap::<&'static str, usize>::new();
+    for id in bus.listar_trabajos().unwrap_or_default() {
+        if let Ok(e) = bus.leer_estado(&id) {
+            *cuenta.entry(e.estado.as_str()).or_default() += 1;
+        }
+    }
+    println!("Trabajos por estado:");
+    let mut table = Table::new();
+    table.set_header(vec!["Estado", "Cantidad"]);
+    for estado in ESTADOS {
+        table.add_row(vec![estado.to_string(), cuenta.get(estado).copied().unwrap_or(0).to_string()]);
+    }
+    println!("{table}");
+
+    for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+        let n = bus.listar_cola(a).map(|c| c.len()).unwrap_or(0);
+        println!("Cola {}: {n}", a.as_str());
+    }
+    let semaforos = ea_bus::listar_semaforos();
+    if semaforos.is_empty() {
+        println!("Semáforos: ningún worktree ocupado");
+    }
+    for (_, o) in semaforos {
+        println!("Semáforo: {} ocupa un worktree con el trabajo {} (pid {}, desde {})", o.agente, o.trabajo, o.pid, o.desde);
+    }
 }

@@ -232,6 +232,7 @@ function pretty(txt) {
 
 // El trabajo del bus al que se refiere un evento del diario, si lo hay.
 function trabajoDe(e) {
+  if (e.trabajo) return e.trabajo;
   try { return JSON.parse(e.detalle)?.trabajo || null; } catch { return null; }
 }
 
@@ -241,11 +242,11 @@ function filasDiario(evs) {
     const row = `<span class="m">${hora(e.ts)}</span>` +
       `<i class="${e.resultado === 'error' ? 'hot' : 'm'}">${e.resultado === 'ok' ? '✓' : e.resultado === 'error' ? '✕' : '·'}</i>` +
       `<span class="m w">${esc(e.actor)}</span><span class="x">${esc(e.accion)}</span>` +
-      `<span class="n">${e.tarea != null ? '#' + e.tarea : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
+      `<span class="n" title="${esc(e.trabajo ?? '')}">${e.trabajo ? esc(e.trabajo.slice(-8)) : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
     const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${new Date(e.ts).toLocaleString()}</p>` +
       (e.detalle ? `<pre>${esc(pretty(e.detalle))}</pre>` : '') +
       (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '');
-    return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.tarea != null ? '#' + e.tarea : ''} ${e.detalle ?? ''}`, det);
+    return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
   });
 }
 
@@ -280,7 +281,7 @@ function filasPropuestas(ps) {
       else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' });
       acc += btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
     }
-    const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : (p.rutina ?? '');
+    const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : '';
     const row = `<i class="${pend || falla ? 'hot' : 'm'}" title="${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${glifo}</i><span class="n">#${p.id}</span>` +
       `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${reloj(p.creada)}</span><span class="bs">${acc}</span>`;
     let det = `<p class="tx">${esc(p.descripcion)}</p>`;
@@ -290,7 +291,7 @@ function filasPropuestas(ps) {
       if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>.</p>`;
     }
     if (p.ejecutada) det += `<p class="${falla ? 'hot' : 'tx'}">Ejecución ${esc(p.ejecutada.estado)}: ${esc(p.ejecutada.detalle ?? '')}</p>`;
-    det += `<p class="m">${esc(p.rutina ?? '')}${p.ejecucion ? ' · ejecución #' + p.ejecucion : ''}${p.decidida ? ' · ' + hora(p.decidida) : ''}</p>`;
+    if (p.decidida) det += `<p class="m">${hora(p.decidida)}</p>`;
     return fila(k, 'p', row, `${p.descripcion} ${quien} ${p.estado}`, det, pend ? '' : ' fin');
   });
 }
@@ -334,10 +335,9 @@ function filasSistema(e, plano = false) {
   const o = e.orquestador;
   out.push(fila('sorq', 's', `<i class="${o.vivo ? 'm' : 'hot'}">♥</i><span class="x">orquestador</span><span class="${o.vivo ? 'm' : 'hot'}">${o.vivo ? 'con latido' : 'sin latido: no se ejecutará nada'}</span><span class="m">${reloj(o.ultimo_latido)}</span><span></span>`, 'orquestador latido', '', plano ? '' : ' g'));
   e.agentes.forEach((a, i) => {
-    const tarea = a.tarea ? `<span class="x" title="${esc(a.tarea.titulo)}">ejecutando #${a.tarea.id} ${esc(a.tarea.titulo)}</span>` : '<span class="m">libre</span>';
-    const row = `<i class="${a.tarea ? '' : 'n'}">◈</i><span class="x">${esc(NOMBRE[a.nombre] ?? a.nombre)}</span>${tarea}` +
+    const row = `<i class="n">◈</i><span class="x">${esc(NOMBRE[a.nombre] ?? a.nombre)}</span><span class="m">${a.ultimo ? esc(a.ultimo.accion) : 'sin actividad'}</span>` +
       `<span class="m" title="${esc(a.ultimo?.accion ?? '')}">${reloj(a.ultimo?.ts)}</span><span></span>`;
-    out.push(fila('s' + a.nombre, 's', row, a.nombre + ' ' + (a.tarea?.titulo ?? ''), '', i === 0 && !plano ? ' g' : ''));
+    out.push(fila('s' + a.nombre, 's', row, a.nombre + ' ' + (a.ultimo?.accion ?? ''), '', i === 0 && !plano ? ' g' : ''));
   });
   return out;
 }
@@ -472,7 +472,7 @@ function construir() {
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
     case 'trabajos': return d ? con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'avance', 'hace'),
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d)) : [];
-    case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'tarea', 'duró'), filasDiario(d)) : [];
+    case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
     case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
     case 'boveda': return d ? con(columnas('b', '', 'nota', 'ruta', 'autor', 'hace'), filasBoveda(d)) : [];

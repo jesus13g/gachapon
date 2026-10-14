@@ -2,10 +2,7 @@
 //! nunca se toca `systemd` ni el disco.
 
 use ea_acciones::*;
-use ea_store::{
-    EstadoEjecucion, EstadoPropuesta, EventFilter, NewTask, Store, StoreError, TaskFilter,
-    TaskOrigin, TaskStatus,
-};
+use ea_store::{EstadoEjecucion, EstadoPropuesta, EventFilter, NuevaPropuesta, Store, StoreError};
 use serde_json::{json, Value};
 
 fn store() -> (Store, tempfile::TempDir) {
@@ -38,19 +35,6 @@ fn sistema() -> SistemaSimulado {
         .con_rutina("nocturna", "[rutina]\ndescripcion = \"z\"\n")
 }
 
-fn tarea(s: &mut Store) -> i64 {
-    s.create_task(NewTask {
-        created_by: "usuario".into(),
-        assigned_to: "claude-code".into(),
-        origin: TaskOrigin::Manual,
-        parent_task_id: None,
-        title: "Prueba".into(),
-        request: "x".into(),
-    })
-    .unwrap()
-    .id
-}
-
 fn acciones(s: &Store) -> Vec<String> {
     let mut v: Vec<_> = s
         .list_events(&EventFilter { limit: Some(500), ..Default::default() })
@@ -69,12 +53,11 @@ async fn simular(s: &Store, sis: &SistemaSimulado, nombre: &str, args: &Value) -
 
 async fn proponer_(s: &Store, sis: &SistemaSimulado, prop: &str, nombre: &str, args: &Value) -> Result<(ea_store::Propuesta, bool), ErrorAccion> {
     let h = observar(sis, nombre, args).await?;
-    proponer(s, sis, &h, prop, None, None, nombre, args)
+    proponer(s, sis, &h, prop, None, nombre, args)
 }
 
-fn todas_las_llamadas(t: i64) -> Vec<(&'static str, Value)> {
+fn todas_las_llamadas() -> Vec<(&'static str, Value)> {
     vec![
-        ("ea_cambiar_estado_tarea", json!({ "id": t, "estado": "completada", "resultado": "ok" })),
         ("ea_encolar_rutina", json!({ "slug": "revision-diaria" })),
         ("ea_reiniciar_servicio", json!({ "servicio": "ea-mcp" })),
         ("ea_eliminar_rutina", json!({ "slug": "vieja" })),
@@ -83,37 +66,30 @@ fn todas_las_llamadas(t: i64) -> Vec<(&'static str, Value)> {
 
 #[tokio::test]
 async fn simular_describe_sin_ningun_efecto() {
-    let (mut s, _d) = store();
-    let t = tarea(&mut s);
+    let (s, _d) = store();
     let sis = sistema();
     let eventos_antes = acciones(&s).len();
-    for (nombre, args) in todas_las_llamadas(t) {
+    for (nombre, args) in todas_las_llamadas() {
         let sim = simular(&s, &sis, nombre, &args).await.unwrap();
         assert!(!sim.texto.is_empty(), "{nombre}");
         assert_eq!(sim.riesgo, buscar(nombre).unwrap().riesgo);
     }
     assert_eq!(acciones(&s).len(), eventos_antes, "simular no escribe en el diario ni en ningún sitio");
     assert!(sis.mutaciones().is_empty());
-    assert_eq!(s.get_task(t).unwrap().status, TaskStatus::Pendiente);
-    assert_eq!(s.list_tasks(&TaskFilter::default()).unwrap().len(), 1);
     assert!(sis.rutina_contenido("vieja").unwrap().is_some());
 }
 
 #[tokio::test]
 async fn argumentos_invalidos_y_fuera_de_lista_se_rechazan() {
-    let (mut s, _d) = store();
-    let t = tarea(&mut s);
+    let (s, _d) = store();
     let sis = sistema();
     for (nombre, args) in [
         ("ea_reiniciar_servicio", json!({ "servicio": "sshd" })),
         ("ea_reiniciar_servicio", json!({ "servicio": "ea-mcp; rm -rf /" })),
         ("ea_eliminar_rutina", json!({ "slug": "../../etc/passwd" })),
-        ("ea_cambiar_estado_tarea", json!({ "id": t, "estado": "inventado" })),
-        ("ea_cambiar_estado_tarea", json!({ "id": t, "estado": "completada", "extra": 1 })),
-        ("ea_cambiar_estado_tarea", json!({ "id": 999, "estado": "completada" })),
-        ("ea_cambiar_estado_tarea", json!({ "id": t, "estado": "pendiente" })), // ya lo está
         ("ea_eliminar_rutina", json!({ "slug": "no-existe" })),
-        ("ea_crear_tarea", json!({})), // no es supervisada
+        ("ea_eliminar_rutina", json!({ "slug": "vieja", "extra": 1 })),
+        ("ea_listar_trabajos", json!({})), // no es supervisada
         ("ea_inexistente", json!({})),
     ] {
         assert!(simular(&s, &sis, nombre, &args).await.is_err(), "{nombre} {args}");
@@ -122,23 +98,22 @@ async fn argumentos_invalidos_y_fuera_de_lista_se_rechazan() {
 
 #[tokio::test]
 async fn proponer_encola_pero_no_ejecuta_y_no_duplica() {
-    let (mut s, _d) = store();
-    let t = tarea(&mut s);
+    let (s, _d) = store();
     let sis = sistema();
-    let args = json!({ "id": t, "estado": "completada" });
+    let args = json!({ "servicio": "ea-mcp" });
 
-    let (p, nueva) = proponer_(&s, &sis, "claude-code", "ea_cambiar_estado_tarea", &args).await
+    let (p, nueva) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &args).await
         .unwrap();
     assert!(nueva);
     assert_eq!(p.estado, EstadoPropuesta::Pendiente);
     assert_eq!(p.proponente.as_deref(), Some("claude-code"));
     let a = p.accion.as_ref().unwrap();
     assert_eq!(a.riesgo, "reversible");
-    assert!(a.simulacion.contains("completada"));
+    assert!(a.simulacion.contains("ea-mcp"));
     assert!(p.ejecucion.is_none());
-    assert_eq!(s.get_task(t).unwrap().status, TaskStatus::Pendiente, "proponer no ejecuta");
+    assert!(sis.mutaciones().is_empty(), "proponer no ejecuta");
 
-    let (p2, nueva2) = proponer_(&s, &sis, "modelo-local", "ea_cambiar_estado_tarea", &args).await
+    let (p2, nueva2) = proponer_(&s, &sis, "modelo-local", "ea_reiniciar_servicio", &args).await
         .unwrap();
     assert!(!nueva2);
     assert_eq!(p2.id, p.id);
@@ -165,18 +140,16 @@ const MAX_PEND: usize = ea_acciones::flujo::MAX_PENDIENTES_CON_ACCION;
 #[tokio::test]
 async fn aceptar_ejecuta_y_registra_en_propuesta_y_diario() {
     let (mut s, _d) = store();
-    let t = tarea(&mut s);
     let sis = sistema();
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_cambiar_estado_tarea", &json!({ "id": t, "estado": "completada", "resultado": "hecho" })).await
-    .unwrap();
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await
+        .unwrap();
 
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
     assert_eq!(p.estado, EstadoPropuesta::Aceptada);
     let ej = p.ejecucion.unwrap();
     assert_eq!(ej.estado, EstadoEjecucion::Ejecutada);
-    assert!(ej.detalle.unwrap().contains("completada"));
-    assert_eq!(s.get_task(t).unwrap().status, TaskStatus::Completada);
-    assert_eq!(s.get_task(t).unwrap().result.as_deref(), Some("hecho"));
+    assert!(ej.detalle.unwrap().contains("reiniciado"));
+    assert_eq!(sis.mutaciones(), vec!["reiniciar:ea-mcp"]);
 
     let ev = s
         .list_events(&EventFilter { limit: Some(50), ..Default::default() })
@@ -185,10 +158,9 @@ async fn aceptar_ejecuta_y_registra_en_propuesta_y_diario() {
         .find(|e| e.action == "accion_ejecutada")
         .expect("evento accion_ejecutada");
     assert_eq!(ev.actor, "usuario");
-    assert_eq!(ev.task_id, Some(t));
     let d: Value = serde_json::from_str(&ev.detail.unwrap()).unwrap();
-    assert_eq!(d["herramienta"], "ea_cambiar_estado_tarea");
-    assert_eq!(d["argumentos"]["resultado"], "hecho");
+    assert_eq!(d["herramienta"], "ea_reiniciar_servicio");
+    assert_eq!(d["argumentos"]["servicio"], "ea-mcp");
     assert_eq!(d["proponente"], "claude-code");
     assert_eq!(d["canal"], "web");
     assert_eq!(d["propuesta"], p.id);
@@ -222,19 +194,7 @@ async fn el_almacen_impide_aceptar_sin_ejecutar_una_propuesta_con_accion() {
 #[tokio::test]
 async fn revalida_antes_de_ejecutar_si_el_estado_cambio() {
     let (mut s, _d) = store();
-    let t = tarea(&mut s);
     let sis = sistema();
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_cambiar_estado_tarea", &json!({ "id": t, "estado": "completada" })).await
-        .unwrap();
-    // Mientras tanto, alguien inicia la tarea.
-    s.update_task_status(t, TaskStatus::EnProgreso, "usuario", None).unwrap();
-
-    let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
-    let ej = p.ejecucion.unwrap();
-    assert_eq!(ej.estado, EstadoEjecucion::Fallida);
-    assert!(ej.detalle.unwrap().contains("cambió desde la simulación"));
-    assert_eq!(s.get_task(t).unwrap().status, TaskStatus::EnProgreso, "no hizo otra cosa");
-    assert!(acciones(&s).contains(&"accion_fallida".to_string()));
 
     // Rutina que cambia de contenido entre la simulación y la ejecución.
     let (p, _) = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": "vieja" })).await
@@ -298,8 +258,13 @@ async fn un_irreversible_no_se_confirma_desde_la_web_y_la_propuesta_sigue_pendie
 async fn las_propuestas_de_texto_libre_siguen_siendo_constancia() {
     let (mut s, _d) = store();
     let sis = sistema();
-    let run = s.start_routine_run("revision-diaria", None).unwrap();
-    let p = s.create_propuesta(run.id, "Revisar a mano").unwrap();
+    let p = s
+        .crear_propuesta(NuevaPropuesta {
+            proponente: "claude-code".into(),
+            descripcion: "Revisar a mano".into(),
+            accion: None,
+        })
+        .unwrap();
     assert!(p.accion.is_none());
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
     assert_eq!(p.estado, EstadoPropuesta::Aceptada);
@@ -311,24 +276,17 @@ async fn las_propuestas_de_texto_libre_siguen_siendo_constancia() {
 #[tokio::test]
 async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
     let (mut s, _d) = store();
-    let t = tarea(&mut s);
     let sis = sistema();
-    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_cambiar_estado_tarea", &json!({ "id": t, "estado": "en_progreso" }))
-        .await
-        .unwrap();
-    assert_eq!(r.tarea, Some(t));
-    let acc = acciones(&s);
-    assert!(acc.contains(&"tarea_iniciada".to_string()));
-    assert!(acc.contains(&"accion_ejecutada".to_string()));
-
     ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" }))
         .await
         .unwrap();
     assert_eq!(sis.mutaciones(), vec!["reiniciar:ea-mcp"]);
+    assert!(acciones(&s).contains(&"accion_ejecutada".to_string()));
 
     let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" }))
         .await
         .unwrap();
+    assert_eq!(r.trabajo.as_deref(), r.datos["trabajo"].as_str());
     let trabajo = r.datos["trabajo"].as_str().unwrap().to_string();
     let bus = ea_bus::Bus::abrir().unwrap();
     assert_eq!(bus.leer_orden(&trabajo).unwrap().rutina.unwrap().slug, "nocturna");
@@ -341,14 +299,14 @@ async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
 
 #[test]
 fn invariantes_del_catalogo() {
-    // Solo ea_crear_tarea y ea_escribir_nota (la región propia de cada agente)
-    // son mutantes de ejecución directa (excepciones razonadas).
+    // Solo ea_escribir_nota (la región propia de cada agente) es mutante de
+    // ejecución directa (excepción razonada).
     let directas_mutantes: Vec<_> = CATALOGO
         .iter()
         .filter(|h| h.riesgo.es_mutante() && h.ejecucion == Ejecucion::Directa)
         .map(|h| h.nombre)
         .collect();
-    assert_eq!(directas_mutantes, ["ea_crear_tarea", "ea_escribir_nota"]);
+    assert_eq!(directas_mutantes, ["ea_escribir_nota"]);
     // Los irreversibles son siempre supervisados y nunca van al modelo local.
     for h in CATALOGO.iter().filter(|h| h.riesgo == Riesgo::Irreversible) {
         assert_eq!(h.ejecucion, Ejecucion::Supervisada);
@@ -374,10 +332,11 @@ fn autorizacion_por_actor() {
             herr.nombre
         );
     }
-    // El modelo local: lecturas y como mucho proponer cambios de estado.
+    // El modelo local: lecturas y como mucho proponer promover notas.
     assert!(autorizar_mcp("modelo-local", h("ea_status")).is_ok());
-    assert!(autorizar_mcp("modelo-local", h("ea_cambiar_estado_tarea")).is_ok());
-    for n in ["ea_eliminar_rutina", "ea_reiniciar_servicio", "ea_encolar_rutina", "ea_crear_tarea"] {
+    assert!(autorizar_mcp("modelo-local", h("ea_ver_trabajo")).is_ok());
+    assert!(autorizar_mcp("modelo-local", h("ea_promover_nota")).is_ok());
+    for n in ["ea_eliminar_rutina", "ea_reiniciar_servicio", "ea_encolar_rutina"] {
         assert!(autorizar_mcp("modelo-local", h(n)).is_err(), "{n}");
     }
     assert!(autorizar_mcp("claude-code", h("ea_eliminar_rutina")).is_ok());

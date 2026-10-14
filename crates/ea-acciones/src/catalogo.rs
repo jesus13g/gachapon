@@ -10,7 +10,7 @@ use crate::error::ErrorAccion;
 pub enum Riesgo {
     Lectura,
     /// Se puede deshacer o repetir sin pérdida (cambiar un estado, reiniciar
-    /// un servicio, encolar una tarea).
+    /// un servicio, lanzar una rutina).
     Reversible,
     /// No se puede deshacer (borrar un fichero del usuario).
     Irreversible,
@@ -42,8 +42,8 @@ impl Riesgo {
 /// Cómo se ejecuta una herramienta cuando la invoca un agente.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ejecucion {
-    /// Se ejecuta al invocarla (lecturas; y `ea_crear_tarea`, la excepción
-    /// razonada: ver su entrada).
+    /// Se ejecuta al invocarla (lecturas, y la escritura en la región propia
+    /// de la bóveda: ver su entrada).
     Directa,
     /// El agente solo obtiene la simulación y puede encolar una propuesta;
     /// ejecutarla requiere la confirmación del usuario.
@@ -58,7 +58,7 @@ pub struct Herramienta {
     /// Si forma parte de la proyección reducida del modelo local.
     pub local: bool,
     /// Resumen de una línea (la descripción rica de cada agente vive en la
-    /// definición MCP; la corta del modelo local, en `ea-proxy`).
+    /// definición MCP; la del agente local, en el cliente MCP de Qwen Code).
     pub resumen: &'static str,
 }
 
@@ -71,18 +71,18 @@ pub const CATALOGO: &[Herramienta] = &[
         resumen: "Resumen del estado del ecosistema",
     },
     Herramienta {
-        nombre: "ea_listar_tareas",
+        nombre: "ea_listar_trabajos",
         riesgo: Riesgo::Lectura,
         ejecucion: Ejecucion::Directa,
         local: true,
-        resumen: "Lista tareas",
+        resumen: "Lista trabajos del bus (misiones, obras y rutinas)",
     },
     Herramienta {
-        nombre: "ea_ver_tarea",
+        nombre: "ea_ver_trabajo",
         riesgo: Riesgo::Lectura,
         ejecucion: Ejecucion::Directa,
         local: true,
-        resumen: "Detalle de una tarea y su historial",
+        resumen: "Detalle de un trabajo del bus: orden, estado, fases e informe",
     },
     Herramienta {
         nombre: "ea_listar_diario",
@@ -90,24 +90,6 @@ pub const CATALOGO: &[Herramienta] = &[
         ejecucion: Ejecucion::Directa,
         local: true,
         resumen: "Lista eventos del diario",
-    },
-    // Excepción razonada a §11.1: crear una tarea es la primitiva con la que
-    // los agentes se comunican (§9.1, §7.4); solo escribe una fila que nadie
-    // ejecuta hasta que el usuario activa al destinatario (principio 2).
-    // Conserva su `simular`. No se proyecta al modelo local.
-    Herramienta {
-        nombre: "ea_crear_tarea",
-        riesgo: Riesgo::Reversible,
-        ejecucion: Ejecucion::Directa,
-        local: false,
-        resumen: "Crea una tarea dirigida a un actor",
-    },
-    Herramienta {
-        nombre: "ea_cambiar_estado_tarea",
-        riesgo: Riesgo::Reversible,
-        ejecucion: Ejecucion::Supervisada,
-        local: true,
-        resumen: "Cambia el estado de una tarea",
     },
     Herramienta {
         nombre: "ea_encolar_rutina",
@@ -147,7 +129,7 @@ pub const CATALOGO: &[Herramienta] = &[
         local: true,
         resumen: "Lee una nota de la bóveda (por trozos)",
     },
-    // Segunda excepción razonada a §11.1, junto a `ea_crear_tarea`: la región
+    // Excepción razonada a §11.1: la región
     // propia de cada agente es de libertad total (decisión 8), así que
     // escribir ahí no pide confirmación. No puede nombrar otra región, no
     // borra nada y deja un evento en el diario. El orquestador (lo

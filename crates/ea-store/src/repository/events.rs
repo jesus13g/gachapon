@@ -5,7 +5,7 @@ use crate::models::{Event, EventOutcome, NewEvent};
 
 use super::{fmt_ts, now_str, parse_ts};
 
-fn map_row(row: &Row) -> rusqlite::Result<(i64, String, String, String, Option<i64>, Option<String>, Option<i64>, Option<String>)> {
+fn map_row(row: &Row) -> rusqlite::Result<(i64, String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>)> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -24,13 +24,13 @@ fn to_event(
         String,
         String,
         String,
-        Option<i64>,
+        Option<String>,
         Option<String>,
         Option<i64>,
         Option<String>,
     ),
 ) -> StoreResult<Event> {
-    let (id, ts, actor, action, task_id, outcome, duration_ms, detail) = raw;
+    let (id, ts, actor, action, trabajo, outcome, duration_ms, detail) = raw;
     let outcome = outcome
         .map(|o| o.parse::<EventOutcome>())
         .transpose()?;
@@ -39,29 +39,26 @@ fn to_event(
         ts: parse_ts(&ts)?,
         actor,
         action,
-        task_id,
+        trabajo,
         outcome,
         duration_ms,
         detail,
     })
 }
 
-const SELECT_COLUMNS: &str = "id, ts, actor, action, task_id, outcome, duration_ms, detail";
+const SELECT_COLUMNS: &str = "id, ts, actor, action, trabajo, outcome, duration_ms, detail";
 
-/// Añade un evento al diario. Uso independiente de tarea alguna (p. ej. un
-/// futuro heartbeat del orquestador); para eventos ligados al ciclo de vida
-/// de una tarea, `tasks::create_task` y `tasks::update_status` ya emiten el
-/// evento correspondiente en la misma transacción.
+/// Añade un evento al diario, opcionalmente asociado a un trabajo.
 pub fn append_event(conn: &Connection, new_event: NewEvent) -> StoreResult<Event> {
     let ts = now_str()?;
     conn.execute(
-        "INSERT INTO events (ts, actor, action, task_id, outcome, duration_ms, detail)
+        "INSERT INTO events (ts, actor, action, trabajo, outcome, duration_ms, detail)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             ts,
             new_event.actor,
             new_event.action,
-            new_event.task_id,
+            new_event.trabajo,
             new_event.outcome.map(|o| o.as_str()),
             new_event.duration_ms,
             new_event.detail,
@@ -86,7 +83,7 @@ pub fn get_event(conn: &Connection, id: i64) -> StoreResult<Event> {
 
 #[derive(Debug, Default, Clone)]
 pub struct EventFilter {
-    pub task_id: Option<i64>,
+    pub trabajo: Option<String>,
     pub actor: Option<String>,
     pub since: Option<time::OffsetDateTime>,
     pub until: Option<time::OffsetDateTime>,
@@ -101,9 +98,9 @@ pub fn list_events(conn: &Connection, filter: &EventFilter) -> StoreResult<Vec<E
     let mut sql = format!("SELECT {SELECT_COLUMNS} FROM events WHERE 1 = 1");
     let mut sql_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-    if let Some(task_id) = filter.task_id {
-        sql.push_str(" AND task_id = ?");
-        sql_params.push(Box::new(task_id));
+    if let Some(trabajo) = &filter.trabajo {
+        sql.push_str(" AND trabajo = ?");
+        sql_params.push(Box::new(trabajo.clone()));
     }
     if let Some(actor) = &filter.actor {
         sql.push_str(" AND actor = ?");
@@ -138,11 +135,11 @@ pub fn list_events(conn: &Connection, filter: &EventFilter) -> StoreResult<Vec<E
     Ok(events)
 }
 
-pub fn list_events_by_task(conn: &Connection, task_id: i64) -> StoreResult<Vec<Event>> {
+pub fn list_events_by_trabajo(conn: &Connection, trabajo: &str) -> StoreResult<Vec<Event>> {
     list_events(
         conn,
         &EventFilter {
-            task_id: Some(task_id),
+            trabajo: Some(trabajo.to_string()),
             ..Default::default()
         },
     )

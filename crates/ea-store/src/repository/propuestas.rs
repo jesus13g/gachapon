@@ -8,13 +8,12 @@ use crate::models::{
 
 use super::{now_str, parse_ts};
 
-const SELECT_COLUMNS: &str = "id, routine_run_id, creado_en, descripcion, estado, decidido_en, \
+const SELECT_COLUMNS: &str = "id, creado_en, descripcion, estado, decidido_en, \
     proponente, accion_herramienta, accion_argumentos, accion_riesgo, accion_simulacion, \
     accion_precondicion, ejecucion_estado, ejecucion_detalle, ejecutada_en";
 
 struct Raw {
     id: i64,
-    routine_run_id: Option<i64>,
     creado_en: String,
     descripcion: String,
     estado: String,
@@ -33,20 +32,19 @@ struct Raw {
 fn map_row(row: &Row) -> rusqlite::Result<Raw> {
     Ok(Raw {
         id: row.get(0)?,
-        routine_run_id: row.get(1)?,
-        creado_en: row.get(2)?,
-        descripcion: row.get(3)?,
-        estado: row.get(4)?,
-        decidido_en: row.get(5)?,
-        proponente: row.get(6)?,
-        herramienta: row.get(7)?,
-        argumentos: row.get(8)?,
-        riesgo: row.get(9)?,
-        simulacion: row.get(10)?,
-        precondicion: row.get(11)?,
-        ejecucion_estado: row.get(12)?,
-        ejecucion_detalle: row.get(13)?,
-        ejecutada_en: row.get(14)?,
+        creado_en: row.get(1)?,
+        descripcion: row.get(2)?,
+        estado: row.get(3)?,
+        decidido_en: row.get(4)?,
+        proponente: row.get(5)?,
+        herramienta: row.get(6)?,
+        argumentos: row.get(7)?,
+        riesgo: row.get(8)?,
+        simulacion: row.get(9)?,
+        precondicion: row.get(10)?,
+        ejecucion_estado: row.get(11)?,
+        ejecucion_detalle: row.get(12)?,
+        ejecutada_en: row.get(13)?,
     })
 }
 
@@ -77,7 +75,6 @@ fn to_propuesta(raw: Raw) -> StoreResult<Propuesta> {
     };
     Ok(Propuesta {
         id: raw.id,
-        routine_run_id: raw.routine_run_id,
         proponente: raw.proponente,
         creado_en: parse_ts(&raw.creado_en)?,
         descripcion: raw.descripcion,
@@ -86,24 +83,6 @@ fn to_propuesta(raw: Raw) -> StoreResult<Propuesta> {
         accion,
         ejecucion,
     })
-}
-
-/// Encola una propuesta de texto libre: la acción mutante que una rutina
-/// desatendida no ejecuta (§11.2), a la espera de que el usuario decida.
-pub fn create_propuesta(
-    conn: &Connection,
-    routine_run_id: i64,
-    descripcion: &str,
-) -> StoreResult<Propuesta> {
-    crear(
-        conn,
-        NuevaPropuesta {
-            routine_run_id: Some(routine_run_id),
-            proponente: "orquestador".to_string(),
-            descripcion: descripcion.to_string(),
-            accion: None,
-        },
-    )
 }
 
 /// Encola una propuesta, con o sin acción estructurada.
@@ -120,11 +99,10 @@ pub fn crear(conn: &Connection, nueva: NuevaPropuesta) -> StoreResult<Propuesta>
         None => (None, None, None, None, None),
     };
     conn.execute(
-        "INSERT INTO propuestas (routine_run_id, creado_en, descripcion, estado, proponente,
+        "INSERT INTO propuestas (creado_en, descripcion, estado, proponente,
             accion_herramienta, accion_argumentos, accion_riesgo, accion_simulacion, accion_precondicion)
-         VALUES (?1, ?2, ?3, 'pendiente', ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, 'pendiente', ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            nueva.routine_run_id,
             now,
             nueva.descripcion,
             nueva.proponente,

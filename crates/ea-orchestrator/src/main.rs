@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
                     if let Err(e) = store.append_event(NewEvent {
                         actor: ACTOR.to_string(),
                         action: "heartbeat".to_string(),
-                        task_id: None,
+                        trabajo: None,
                         outcome: Some(EventOutcome::Ok),
                         duration_ms: None,
                         detail: None,

@@ -204,7 +204,7 @@ fn la_escritura_valida_la_cabecera() {
     assert!(matches!(mal(nueva("", "c", None)), Err(ErrorBoveda::Cabecera(_))));
     assert!(matches!(mal(nueva("dos\nlíneas", "c", None)), Err(ErrorBoveda::Cabecera(_))));
     assert!(matches!(mal(nueva(&"x".repeat(201), "c", None)), Err(ErrorBoveda::Cabecera(_))));
-    assert!(matches!(mal(NuevaNota { origen: "tarea:abc", ..nueva("T", "c", None) }), Err(ErrorBoveda::Cabecera(_))));
+    assert!(matches!(mal(NuevaNota { origen: "trabajo:a/b", ..nueva("T", "c", None) }), Err(ErrorBoveda::Cabecera(_))));
     assert!(matches!(mal(NuevaNota { origen: "yo", ..nueva("T", "c", None) }), Err(ErrorBoveda::Cabecera(_))));
     let tags = vec!["con espacios".to_string()];
     assert!(matches!(mal(NuevaNota { tags: &tags, ..nueva("T", "c", None) }), Err(ErrorBoveda::Cabecera(_))));
@@ -375,7 +375,7 @@ fn la_promocion_copia_la_nota_a_la_compartida_y_deja_evento() {
         .escribir_nota(
             &mut s,
             "claude-code",
-            &NuevaNota { tags: &tags, origen: "tarea:7", ..nueva("Hallazgo", "El puerto es 8765.", Some("servicios/mcp.md")) },
+            &NuevaNota { tags: &tags, origen: "trabajo:m-7", ..nueva("Hallazgo", "El puerto es 8765.", Some("servicios/mcp.md")) },
             &Limites::AMPLIOS,
         )
         .unwrap();
@@ -391,7 +391,7 @@ fn la_promocion_copia_la_nota_a_la_compartida_y_deja_evento() {
     assert_eq!((c.region.as_str(), c.autor.as_str(), c.promocion.as_str()), ("compartida", "claude-code", "promovida"));
     assert_eq!(c.promovida_de.as_deref(), Some("claude-code/servicios/mcp.md"));
     assert_eq!(c.promovida_por.as_deref(), Some("usuario"));
-    assert_eq!(c.origen, "tarea:7");
+    assert_eq!(c.origen, "trabajo:m-7");
     assert_eq!(copia.contenido, "El puerto es 8765.\n");
     // El original se conserva, marcado.
     let orig = e.boveda.leer(&n.ruta, 0, &Limites::AMPLIOS).unwrap();

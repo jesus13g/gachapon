@@ -1,297 +1,78 @@
 use std::path::Path;
 
 use ea_store::{
-    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, NewEvent, NewTask, NuevaPropuesta,
-    PropuestaFilter, RunOutcome, Store, StoreError,
-    TaskFilter, TaskOrigin, TaskStatus,
+    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, NewEvent, NuevaPropuesta,
+    PropuestaFilter, Store, StoreError,
 };
 
 fn open_test_store() -> Store {
     Store::open_at(Path::new(":memory:")).expect("abrir store en memoria")
 }
 
-#[test]
-fn create_task_registers_creation_event() {
-    let mut store = open_test_store();
-
-    let task = store
-        .create_task(NewTask {
-            created_by: "cli-test".into(),
-            assigned_to: "claude-code".into(),
-            origin: TaskOrigin::Manual,
-            parent_task_id: None,
-            title: "Probar mecanismo".into(),
-            request: "Verificar el diario".into(),
-        })
-        .expect("crear tarea");
-
-    assert_eq!(task.status, TaskStatus::Pendiente);
-    assert_eq!(task.assigned_to, "claude-code");
-
-    let events = store
-        .list_events_by_task(task.id)
-        .expect("listar eventos de la tarea");
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].action, "tarea_creada");
-    assert_eq!(events[0].task_id, Some(task.id));
+fn evento(actor: &str, action: &str, trabajo: Option<&str>) -> NewEvent {
+    NewEvent {
+        actor: actor.into(),
+        action: action.into(),
+        trabajo: trabajo.map(Into::into),
+        outcome: Some(ea_store::EventOutcome::Ok),
+        duration_ms: None,
+        detail: None,
+    }
 }
 
 #[test]
-fn update_task_status_appends_event_and_computes_duration() {
-    let mut store = open_test_store();
-
-    let task = store
-        .create_task(NewTask {
-            created_by: "cli-test".into(),
-            assigned_to: "claude-code".into(),
-            origin: TaskOrigin::Manual,
-            parent_task_id: None,
-            title: "Probar mecanismo".into(),
-            request: "Verificar el diario".into(),
-        })
-        .expect("crear tarea");
-
-    store
-        .update_task_status(task.id, TaskStatus::EnProgreso, "orquestador", None)
-        .expect("marcar en progreso");
-
-    let completed = store
-        .update_task_status(
-            task.id,
-            TaskStatus::Completada,
-            "orquestador",
-            Some("Ciclo verificado".into()),
-        )
-        .expect("marcar completada");
-
-    assert_eq!(completed.status, TaskStatus::Completada);
-    assert_eq!(completed.result.as_deref(), Some("Ciclo verificado"));
-
-    let events = store
-        .list_events_by_task(task.id)
-        .expect("listar eventos de la tarea");
-    assert_eq!(events.len(), 3);
-
-    let completion_event = events
-        .iter()
-        .find(|e| e.action == "tarea_completada")
-        .expect("evento de finalización");
-    assert!(completion_event.duration_ms.is_some());
-    assert_eq!(completion_event.outcome, Some(ea_store::EventOutcome::Ok));
-}
-
-#[test]
-fn append_event_without_task_is_listed() {
+fn un_evento_suelto_se_lista_por_actor() {
     let store = open_test_store();
-
-    store
-        .append_event(NewEvent {
-            actor: "orquestador".into(),
-            action: "heartbeat".into(),
-            task_id: None,
-            outcome: Some(ea_store::EventOutcome::Ok),
-            duration_ms: None,
-            detail: None,
-        })
-        .expect("registrar evento suelto");
+    store.append_event(evento("orquestador", "heartbeat", None)).unwrap();
+    store.append_event(evento("otro", "x", None)).unwrap();
 
     let events = store
         .list_events(&EventFilter {
             actor: Some("orquestador".into()),
             ..Default::default()
         })
-        .expect("listar eventos por actor");
+        .unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].action, "heartbeat");
+    assert_eq!(events[0].trabajo, None);
+}
+
+#[test]
+fn los_eventos_se_asocian_y_filtran_por_trabajo() {
+    let store = open_test_store();
+    store.append_event(evento("orquestador", "trabajo_iniciado", Some("m-001"))).unwrap();
+    store.append_event(evento("orquestador", "trabajo_iniciado", Some("m-002"))).unwrap();
+    store.append_event(evento("orquestador", "heartbeat", None)).unwrap();
+
+    let del_trabajo = store.list_events_by_trabajo("m-001").unwrap();
+    assert_eq!(del_trabajo.len(), 1);
+    assert_eq!(del_trabajo[0].trabajo.as_deref(), Some("m-001"));
 }
 
 #[test]
 fn list_events_can_exclude_an_action() {
     let store = open_test_store();
-
     for action in ["heartbeat", "heartbeat", "voz_escucha_iniciada"] {
-        store
-            .append_event(NewEvent {
-                actor: "orquestador".into(),
-                action: action.into(),
-                task_id: None,
-                outcome: Some(ea_store::EventOutcome::Ok),
-                duration_ms: None,
-                detail: None,
-            })
-            .expect("registrar evento suelto");
+        store.append_event(evento("orquestador", action, None)).unwrap();
     }
-
     let events = store
         .list_events(&EventFilter {
             exclude_action: Some("heartbeat".into()),
             ..Default::default()
         })
-        .expect("listar eventos sin latidos");
+        .unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].action, "voz_escucha_iniciada");
 }
 
 #[test]
-fn list_tasks_filters_by_status() {
-    let mut store = open_test_store();
-
-    let t1 = store
-        .create_task(NewTask {
-            created_by: "cli-test".into(),
-            assigned_to: "modelo-local".into(),
-            origin: TaskOrigin::Manual,
-            parent_task_id: None,
-            title: "Tarea 1".into(),
-            request: "Solicitud 1".into(),
-        })
-        .expect("crear tarea 1");
-    store
-        .create_task(NewTask {
-            created_by: "cli-test".into(),
-            assigned_to: "modelo-local".into(),
-            origin: TaskOrigin::Manual,
-            parent_task_id: None,
-            title: "Tarea 2".into(),
-            request: "Solicitud 2".into(),
-        })
-        .expect("crear tarea 2");
-
-    store
-        .update_task_status(t1.id, TaskStatus::Completada, "cli-test", None)
-        .expect("completar tarea 1");
-
-    let pendientes = store
-        .list_tasks(&TaskFilter {
-            status: Some(TaskStatus::Pendiente),
-            ..Default::default()
-        })
-        .expect("listar pendientes");
-    assert_eq!(pendientes.len(), 1);
-    assert_eq!(pendientes[0].title, "Tarea 2");
-}
-
-#[test]
-fn events_table_rejects_update_and_delete() {
-    let store = open_test_store();
-    let event = store
-        .append_event(NewEvent {
-            actor: "cli-test".into(),
-            action: "evento_suelto".into(),
-            task_id: None,
-            outcome: None,
-            duration_ms: None,
-            detail: None,
-        })
-        .expect("registrar evento");
-
-    // No hay API pública para editar/borrar eventos porque el diario es
-    // append-only por contrato; aquí solo confirmamos que sigue siendo
-    // consultable (el trigger a nivel de motor se verifica manualmente con
-    // sqlite3, ver README).
-    let fetched = store.get_event(event.id).expect("recuperar evento");
-    assert_eq!(fetched.action, "evento_suelto");
-}
-
-#[test]
-fn last_successful_run_ignores_failed_runs() {
-    let store = open_test_store();
-
-    let fallida = store
-        .start_routine_run("revision-diaria", None)
-        .expect("abrir ejecución fallida");
-    store
-        .finish_routine_run(fallida.id, RunOutcome::Fallida, 2, 1, Some("presupuesto agotado".into()))
-        .expect("cerrar ejecución fallida");
-
-    assert!(store
-        .last_successful_run("revision-diaria")
-        .expect("consultar última ejecución")
-        .is_none());
-
-    let ok = store
-        .start_routine_run("revision-diaria", None)
-        .expect("abrir ejecución ok");
-    store
-        .finish_routine_run(ok.id, RunOutcome::Ok, 3, 2, None)
-        .expect("cerrar ejecución ok");
-
-    let ultima = store
-        .last_successful_run("revision-diaria")
-        .expect("consultar última ejecución")
-        .expect("debe existir una ejecución exitosa");
-    assert_eq!(ultima.id, ok.id);
-
-    let historial = store
-        .list_routine_runs("revision-diaria", None)
-        .expect("listar historial");
-    assert_eq!(historial.len(), 2);
-}
-
-#[test]
-fn propuesta_lifecycle_pendiente_to_decidida() {
-    let store = open_test_store();
-
-    let run = store
-        .start_routine_run("revision-diaria", None)
-        .expect("abrir ejecución");
-    let propuesta = store
-        .create_propuesta(run.id, "Se detectaron errores en el diario")
-        .expect("crear propuesta");
-    assert_eq!(propuesta.estado, EstadoPropuesta::Pendiente);
-
-    let pendientes = store
-        .list_propuestas(&PropuestaFilter {
-            estado: Some(EstadoPropuesta::Pendiente),
-            ..Default::default()
-        })
-        .expect("listar pendientes");
-    assert_eq!(pendientes.len(), 1);
-
-    let decidida = store
-        .decidir_propuesta(propuesta.id, EstadoPropuesta::Aceptada)
-        .expect("aceptar propuesta");
-    assert_eq!(decidida.estado, EstadoPropuesta::Aceptada);
-    assert!(decidida.decidido_en.is_some());
-
-    let pendientes = store
-        .list_propuestas(&PropuestaFilter {
-            estado: Some(EstadoPropuesta::Pendiente),
-            ..Default::default()
-        })
-        .expect("listar pendientes tras decidir");
-    assert!(pendientes.is_empty());
-}
-
-#[test]
-fn la_migracion_0003_conserva_las_propuestas_existentes() {
+fn el_diario_es_append_only_a_nivel_de_motor() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("vieja.db");
-    {
-        // Una base tal como la dejó la fase 5 (migraciones 1 y 2).
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        conn.execute_batch(include_str!("../migrations/0001_initial.sql")).unwrap();
-        conn.execute_batch(include_str!("../migrations/0002_routine_runs.sql")).unwrap();
-        conn.execute_batch(
-            "INSERT INTO routine_runs (routine_slug, started_at) VALUES ('r', '2026-01-01T00:00:00Z');
-             INSERT INTO propuestas (routine_run_id, creado_en, descripcion, estado, decidido_en)
-               VALUES (1, '2026-01-01T00:00:01Z', 'vieja aceptada', 'aceptada', '2026-01-02T00:00:00Z');
-             INSERT INTO propuestas (routine_run_id, creado_en, descripcion, estado)
-               VALUES (1, '2026-01-01T00:00:02Z', 'vieja pendiente', 'pendiente');
-             INSERT INTO events (ts, actor, action) VALUES ('2026-01-01T00:00:00Z', 'a', 'x');
-             PRAGMA user_version = 2;",
-        )
-        .unwrap();
-    }
-    let store = Store::open_at(&path).expect("migrar");
-    let todas = store.list_propuestas(&PropuestaFilter::default()).unwrap();
-    assert_eq!(todas.len(), 2);
-    let vieja = store.get_propuesta(1).unwrap();
-    assert_eq!(vieja.descripcion, "vieja aceptada");
-    assert_eq!(vieja.estado, EstadoPropuesta::Aceptada);
-    assert_eq!(vieja.routine_run_id, Some(1));
-    assert!(vieja.accion.is_none() && vieja.ejecucion.is_none() && vieja.proponente.is_none());
-    // El diario sigue siendo append-only tras migrar.
+    let path = dir.path().join("diario.db");
+    let store = Store::open_at(&path).unwrap();
+    let e = store.append_event(evento("cli-test", "evento_suelto", None)).unwrap();
+    assert_eq!(store.get_event(e.id).unwrap().action, "evento_suelto");
+
     let conn = rusqlite::Connection::open(&path).unwrap();
     assert!(conn.execute("DELETE FROM events", []).is_err());
     assert!(conn.execute("UPDATE events SET actor = 'b'", []).is_err());
@@ -307,12 +88,46 @@ fn accion() -> AccionPropuesta {
     }
 }
 
+fn texto(descripcion: &str) -> NuevaPropuesta {
+    NuevaPropuesta {
+        proponente: "claude-code".into(),
+        descripcion: descripcion.into(),
+        accion: None,
+    }
+}
+
 #[test]
-fn propuesta_con_accion_sin_rutina_se_reclama_una_sola_vez() {
+fn propuesta_lifecycle_pendiente_to_decidida() {
+    let store = open_test_store();
+    let propuesta = store.crear_propuesta(texto("Se detectaron errores")).unwrap();
+    assert_eq!(propuesta.estado, EstadoPropuesta::Pendiente);
+
+    let pendientes = store
+        .list_propuestas(&PropuestaFilter {
+            estado: Some(EstadoPropuesta::Pendiente),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(pendientes.len(), 1);
+
+    let decidida = store.decidir_propuesta(propuesta.id, EstadoPropuesta::Aceptada).unwrap();
+    assert_eq!(decidida.estado, EstadoPropuesta::Aceptada);
+    assert!(decidida.decidido_en.is_some());
+
+    let pendientes = store
+        .list_propuestas(&PropuestaFilter {
+            estado: Some(EstadoPropuesta::Pendiente),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(pendientes.is_empty());
+}
+
+#[test]
+fn propuesta_con_accion_se_reclama_una_sola_vez() {
     let store = open_test_store();
     let p = store
         .crear_propuesta(NuevaPropuesta {
-            routine_run_id: None,
             proponente: "claude-code".into(),
             descripcion: "reiniciar".into(),
             accion: Some(accion()),
@@ -342,10 +157,9 @@ fn propuesta_con_accion_sin_rutina_se_reclama_una_sola_vez() {
 }
 
 #[test]
-fn una_propuesta_de_texto_no_se_puede_reclamar_y_decidir_dos_veces_falla() {
+fn una_propuesta_de_texto_no_se_puede_reclamar_ni_decidir_dos_veces() {
     let store = open_test_store();
-    let run = store.start_routine_run("r", None).unwrap();
-    let p = store.create_propuesta(run.id, "texto").unwrap();
+    let p = store.crear_propuesta(texto("texto")).unwrap();
     assert!(matches!(store.reclamar_propuesta(p.id), Err(StoreError::PropuestaSinAccion(_))));
     store.decidir_propuesta(p.id, EstadoPropuesta::Rechazada).unwrap();
     assert!(matches!(
@@ -379,28 +193,37 @@ fn aperturas_simultaneas_de_una_base_nueva_no_fallan() {
 }
 
 #[test]
-fn la_migracion_0004_añade_el_indice_sin_tocar_lo_anterior_y_fts5_funciona() {
+fn una_base_del_esquema_antiguo_se_rechaza_sin_tocarla() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("v3.db");
-    {
-        // Una base tal como la dejó la fase 6 (migraciones 1 a 3).
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        for m in [
-            include_str!("../migrations/0001_initial.sql"),
-            include_str!("../migrations/0002_routine_runs.sql"),
-            include_str!("../migrations/0003_propuestas_acciones.sql"),
-        ] {
-            conn.execute_batch(m).unwrap();
+    // Con la tabla `tasks` y versión 1, y con versión mayor que la conocida.
+    for (nombre, sql) in [
+        ("con_tasks.db", "CREATE TABLE tasks (id INTEGER PRIMARY KEY); PRAGMA user_version = 1;"),
+        ("version_5.db", "CREATE TABLE otra (id INTEGER); PRAGMA user_version = 5;"),
+    ] {
+        let path = dir.path().join(nombre);
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(sql).unwrap();
+            conn.execute_batch("INSERT INTO tasks DEFAULT VALUES;").ok();
         }
-        conn.execute_batch(
-            "INSERT INTO events (ts, actor, action) VALUES ('2026-01-01T00:00:00Z', 'a', 'previo');
-             PRAGMA user_version = 3;",
-        )
-        .unwrap();
+        let antes = std::fs::read(&path).unwrap();
+        let err = Store::open_at(&path).err().expect("debe fallar");
+        assert!(matches!(err, StoreError::EsquemaAntiguo), "{nombre}: {err}");
+        assert!(err.to_string().contains("esquema antiguo"));
+        // Intacta: ni migrada ni borrada.
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let tablas: i64 = conn
+            .query_row("SELECT count(*) FROM sqlite_master WHERE name = 'events'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tablas, 0);
+        drop(conn);
+        assert_eq!(std::fs::read(&path).unwrap().len(), antes.len());
     }
-    let mut store = Store::open_at(&path).expect("migrar de 3 a 4");
-    assert_eq!(store.list_events(&Default::default()).unwrap().len(), 1);
+}
 
+#[test]
+fn el_indice_de_la_boveda_busca_sin_acentos_ni_mayusculas() {
+    let mut store = open_test_store();
     let e = |ruta: &str, titulo: &str| ea_store::EntradaIndice {
         ruta: ruta.into(),
         region: "compartida".into(),
@@ -416,7 +239,6 @@ fn la_migracion_0004_añade_el_indice_sin_tocar_lo_anterior_y_fts5_funciona() {
     };
     store.boveda_indexar(&e("compartida/a.md", "Café"), "Una reunión muy larga").unwrap();
     store.boveda_indexar(&e("compartida/b.md", "Otra"), "nada").unwrap();
-    // Sin acentos ni mayúsculas, con fragmento marcado.
     let r = store.boveda_buscar("\"CAFE\" \"reunion\"", None, 10, 8).unwrap();
     assert_eq!(r.len(), 1);
     assert_eq!(r[0].ruta, "compartida/a.md");
@@ -428,7 +250,4 @@ fn la_migracion_0004_añade_el_indice_sin_tocar_lo_anterior_y_fts5_funciona() {
     store.boveda_olvidar("compartida/a.md").unwrap();
     assert!(store.boveda_buscar("\"te\"", None, 10, 8).unwrap().is_empty());
     assert_eq!(store.boveda_contar_por_region().unwrap(), vec![("compartida".to_string(), 1)]);
-    // El diario sigue siendo append-only tras migrar.
-    let conn = rusqlite::Connection::open(&path).unwrap();
-    assert!(conn.execute("DELETE FROM events", []).is_err());
 }

@@ -5,7 +5,6 @@ mod orquestador_view;
 mod propuestas_view;
 mod rutinas_view;
 mod servicios_view;
-mod tareas_view;
 
 use std::io::{self, Stdout};
 
@@ -13,14 +12,13 @@ use anyhow::Result;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
-use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, ResultadoBusqueda, Store, Task, TaskFilter};
+use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, ResultadoBusqueda, Store};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Tabs};
 use ratatui::Terminal;
 
-use crate::commands::fmt_ts;
 
 /// Resumen de una rutina para la pestaña `Rutinas`: solo lo que hace falta
 /// para listar.
@@ -41,7 +39,6 @@ pub struct ServicioResumen {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Orquestador,
-    Tareas,
     Diario,
     Servicios,
     Agentes,
@@ -51,9 +48,8 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Tab; 8] = [
+    const ALL: [Tab; 7] = [
         Tab::Orquestador,
-        Tab::Tareas,
         Tab::Diario,
         Tab::Servicios,
         Tab::Agentes,
@@ -65,7 +61,6 @@ impl Tab {
     fn title(self) -> &'static str {
         match self {
             Tab::Orquestador => "Orquestador",
-            Tab::Tareas => "Tareas",
             Tab::Diario => "Diario",
             Tab::Servicios => "Servicios",
             Tab::Agentes => "Agentes",
@@ -81,7 +76,6 @@ impl Tab {
 }
 
 struct AppData {
-    tasks: Vec<Task>,
     events: Vec<EaEvent>,
     rutinas: Vec<RutinaResumen>,
     propuestas: Vec<Propuesta>,
@@ -104,7 +98,8 @@ pub fn run(store: &mut Store) -> Result<()> {
     let store: &Store = store;
     let mut rutinas = Vec::new();
     for r in store.listar_rutinas().unwrap_or_default() {
-        let ultima_ejecucion = store.last_successful_run(&r.slug).ok().flatten().map(|x| fmt_ts(x.started_at));
+        let ultima_ejecucion = crate::commands::rutinas::ultimo_trabajo(&r.slug)
+            .map(|(_, e)| format!("{} ({})", e.actualizado_en, e.estado.as_str()));
         rutinas.push(RutinaResumen { slug: r.slug, version: r.version, ultima_ejecucion });
     }
 
@@ -122,10 +117,6 @@ pub fn run(store: &mut Store) -> Result<()> {
         servicios,
         orquestador: crate::commands::status::estado_orquestador(store)?,
         agentes: store.resumen_agentes()?,
-        tasks: store.list_tasks(&TaskFilter {
-            limit: Some(100),
-            ..Default::default()
-        })?,
         events: store.list_events(&EventFilter {
             limit: Some(200),
             ..Default::default()
@@ -247,7 +238,6 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
 
             match current {
                 Tab::Orquestador => orquestador_view::render(frame, chunks[1], &data.orquestador_bus, sel, detalle),
-                Tab::Tareas => tareas_view::render(frame, chunks[1], &data.tasks),
                 Tab::Diario => diario_view::render(frame, chunks[1], &data.events),
                 Tab::Servicios => servicios_view::render(frame, chunks[1], &data.servicios, &data.orquestador),
                 Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes),

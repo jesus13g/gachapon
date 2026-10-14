@@ -47,10 +47,6 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
     let p = store.get_propuesta(id)?;
 
     println!("Propuesta #{}", p.id);
-    if let Some(run) = p.routine_run_id.and_then(|r| store.get_routine_run(r).ok()) {
-        println!("  Rutina:      {}", run.routine_slug);
-        println!("  Ejecución:   #{}", run.id);
-    }
     if let Some(origen) = &p.proponente {
         println!("  Propuesta por: {origen}");
     }

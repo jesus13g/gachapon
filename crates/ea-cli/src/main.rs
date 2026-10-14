@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinaAccion, TareasAccion, TrabajoAccion};
+use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinaAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -14,44 +14,14 @@ fn main() -> Result<()> {
 
     match args.command {
         Command::Status => commands::status::mostrar(&store)?,
-        Command::Tareas { accion } => match accion {
-            TareasAccion::Crear {
-                titulo,
-                asignado_a,
-                solicita,
-                origen,
-                creado_por,
-                tarea_padre,
-            } => commands::tareas::crear(
-                &mut store,
-                titulo,
-                asignado_a,
-                solicita,
-                origen,
-                creado_por,
-                tarea_padre,
-            )?,
-            TareasAccion::Listar {
-                estado,
-                asignado_a,
-                limite,
-            } => commands::tareas::listar(&store, estado, asignado_a, limite)?,
-            TareasAccion::Ver { id } => commands::tareas::ver(&store, id)?,
-            TareasAccion::Actualizar {
-                id,
-                estado,
-                resultado,
-                actor,
-            } => commands::tareas::actualizar(&mut store, id, estado, resultado, actor)?,
-        },
         Command::Diario { accion } => match accion {
             DiarioAccion::Listar {
-                tarea,
+                trabajo,
                 actor,
                 desde,
                 hasta,
                 limite,
-            } => commands::diario::listar(&store, tarea, actor, desde, hasta, limite)?,
+            } => commands::diario::listar(&store, trabajo, actor, desde, hasta, limite)?,
             DiarioAccion::Ver { id } => commands::diario::ver(&store, id)?,
         },
         Command::Rutina { accion } => match accion {

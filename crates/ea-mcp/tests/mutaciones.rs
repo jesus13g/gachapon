@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use ea_acciones::{Riesgo, CATALOGO};
 use ea_mcp::EaTools;
-use ea_store::{EstadoPropuesta, EventFilter, NewTask, PropuestaFilter, Store, TaskOrigin, TaskStatus};
+use ea_boveda::Boveda;
+use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 use rmcp::model::{
     CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams,
     ProtocolVersion,
@@ -29,6 +30,10 @@ struct Entorno {
 }
 
 async fn entorno() -> Entorno {
+    // Estado del bus y bóveda en directorios temporales, nunca los reales.
+    static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
+    unsafe { std::env::set_var("EA_ESTADO_DIR", estado.path()) };
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("t.db");
     let rutinas = dir.path().join("rutinas");
@@ -36,8 +41,9 @@ async fn entorno() -> Entorno {
     std::fs::write(rutinas.join("vieja.toml"), "[rutina]\n").unwrap();
     let store = Arc::new(Mutex::new(Store::open_at(&db).unwrap()));
     let r = rutinas.clone();
+    let boveda = dir.path().join("boveda");
     let service = StreamableHttpService::new(
-        move || Ok(EaTools::con_rutinas_dir(store.clone(), r.clone())),
+        move || Ok(EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()))),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig::default(),
     );
@@ -76,20 +82,6 @@ async fn llamar(c: &Client, nombre: &str, args: Value) -> Result<Value, String> 
     Ok(serde_json::from_str(t).unwrap_or(Value::String(t.clone())))
 }
 
-fn tarea(e: &Entorno) -> i64 {
-    let mut s = Store::open_at(&e.db).unwrap();
-    s.create_task(NewTask {
-        created_by: "usuario".into(),
-        assigned_to: "claude-code".into(),
-        origin: TaskOrigin::Manual,
-        parent_task_id: None,
-        title: "T".into(),
-        request: "r".into(),
-    })
-    .unwrap()
-    .id
-}
-
 fn propuestas(e: &Entorno) -> Vec<ea_store::Propuesta> {
     Store::open_at(&e.db).unwrap().list_propuestas(&PropuestaFilter::default()).unwrap()
 }
@@ -124,75 +116,66 @@ async fn el_catalogo_mcp_coincide_con_el_catalogo_y_no_hay_forma_de_confirmar() 
 #[tokio::test]
 async fn simular_no_escribe_nada_pero_queda_en_el_diario() {
     let e = entorno().await;
-    let t = tarea(&e);
     let c = conectar(&e.url, "claude-code").await;
-    let r = llamar(&c, "ea_cambiar_estado_tarea", json!({ "id": t, "estado": "completada", "simular": true }))
-        .await
-        .unwrap();
-    assert_eq!(r["simulado"], true);
-    assert_eq!(r["riesgo"], "reversible");
-    assert!(r["simulacion"].as_str().unwrap().contains("completada"));
+    let r = llamar(&c, "ea_promover_nota", json!({ "ruta": "claude-code/inexistente.md", "simular": true })).await;
+    assert!(r.is_err(), "una nota inexistente no se simula");
     let r = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "vieja", "simular": true })).await.unwrap();
     assert_eq!(r["riesgo"], "irreversible");
 
     assert!(propuestas(&e).is_empty());
     assert!(e.rutinas.join("vieja.toml").exists());
     let s = Store::open_at(&e.db).unwrap();
-    assert_eq!(s.get_task(t).unwrap().status, TaskStatus::Pendiente);
     let ev = s.list_events(&EventFilter { limit: Some(50), ..Default::default() }).unwrap();
-    let sim = ev.iter().find(|x| x.action == "mcp_cambiar_estado_tarea_simulada").expect("diario");
+    let sim = ev.iter().find(|x| x.action == "mcp_eliminar_rutina_simulada").expect("diario");
     assert_eq!(sim.actor, "claude-code");
-    assert!(sim.detail.as_ref().unwrap().contains("completada"));
+    assert!(sim.detail.as_ref().unwrap().contains("vieja"));
     assert!(ev.iter().any(|x| x.action == "mcp_eliminar_rutina_simulada"));
 }
 
 #[tokio::test]
 async fn un_agente_que_pide_ejecutar_solo_consigue_una_propuesta_pendiente() {
     let e = entorno().await;
-    let t = tarea(&e);
     let c = conectar(&e.url, "claude-code").await;
     // Aunque el agente intente "confirmarse" con argumentos de su cosecha.
     let r = llamar(
         &c,
-        "ea_cambiar_estado_tarea",
-        json!({ "id": t, "estado": "completada", "confirmar": true, "confirmacion": "si", "token": "x" }),
+        "ea_eliminar_rutina",
+        json!({ "slug": "vieja", "confirmar": true, "confirmacion": "si", "token": "x" }),
     )
     .await
     .unwrap();
     assert_eq!(r["ejecutado"], false);
     assert_eq!(r["propuesta"]["estado"], "pendiente");
+    assert_eq!(r["riesgo"], "irreversible");
     assert!(r.get("token").is_none() && r.get("confirmacion").is_none());
     assert!(r["aviso"].as_str().unwrap().contains("NO se ha ejecutado"));
+    assert!(r["aviso"].as_str().unwrap().contains("terminal"));
 
     let ps = propuestas(&e);
     assert_eq!(ps.len(), 1);
     assert_eq!(ps[0].estado, EstadoPropuesta::Pendiente);
     assert_eq!(ps[0].proponente.as_deref(), Some("claude-code"));
     let a = ps[0].accion.as_ref().unwrap();
-    assert_eq!(a.herramienta, "ea_cambiar_estado_tarea");
+    assert_eq!(a.herramienta, "ea_eliminar_rutina");
     assert!(a.argumentos.get("confirmar").is_none());
     assert!(ps[0].ejecucion.is_none());
-    assert_eq!(Store::open_at(&e.db).unwrap().get_task(t).unwrap().status, TaskStatus::Pendiente);
+    assert!(e.rutinas.join("vieja.toml").exists(), "el fichero sigue ahí");
 
     // Repetir no duplica.
-    let r2 = llamar(&c, "ea_cambiar_estado_tarea", json!({ "id": t, "estado": "completada" })).await.unwrap();
+    let r2 = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "vieja" })).await.unwrap();
     assert_eq!(r2["propuesta"]["id"], r["propuesta"]["id"]);
     assert_eq!(r2["propuesta"]["nueva"], false);
     assert_eq!(propuestas(&e).len(), 1);
-
-    // Una irreversible también solo se encola; el fichero sigue ahí.
-    let r3 = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "vieja" })).await.unwrap();
-    assert_eq!(r3["riesgo"], "irreversible");
-    assert!(r3["aviso"].as_str().unwrap().contains("terminal"));
-    assert!(e.rutinas.join("vieja.toml").exists());
 }
 
 #[tokio::test]
 async fn el_modelo_local_como_mucho_propone_reversibles_de_su_proyeccion() {
     let e = entorno().await;
-    let t = tarea(&e);
-    let c = conectar(&e.url, "ea-proxy").await;
-    let r = llamar(&c, "ea_cambiar_estado_tarea", json!({ "id": t, "estado": "cancelada" })).await.unwrap();
+    let c = conectar(&e.url, "qwen-code-mcp-client").await;
+    // Una nota suya (en una bóveda temporal) que propone promover.
+    let r = llamar(&c, "ea_escribir_nota", json!({ "titulo": "Hallazgo", "contenido": "algo" })).await.unwrap();
+    let ruta = r["ruta"].as_str().unwrap().to_string();
+    let r = llamar(&c, "ea_promover_nota", json!({ "ruta": ruta })).await.unwrap();
     assert_eq!(r["ejecutado"], false);
     assert_eq!(propuestas(&e)[0].proponente.as_deref(), Some("modelo-local"));
 
@@ -200,7 +183,6 @@ async fn el_modelo_local_como_mucho_propone_reversibles_de_su_proyeccion() {
         ("ea_eliminar_rutina", json!({ "slug": "vieja", "simular": true })),
         ("ea_reiniciar_servicio", json!({ "servicio": "ea-mcp", "simular": true })),
         ("ea_encolar_rutina", json!({ "slug": "vieja", "simular": true })),
-        ("ea_crear_tarea", json!({ "titulo": "a", "solicita": "b", "asignado_a": "usuario" })),
     ] {
         let err = llamar(&c, n, a).await.unwrap_err();
         assert!(err.contains("no está disponible"), "{n}: {err}");
@@ -210,17 +192,14 @@ async fn el_modelo_local_como_mucho_propone_reversibles_de_su_proyeccion() {
 }
 
 #[tokio::test]
-async fn lo_desatendido_no_puede_ni_simular_ni_proponer_ni_crear() {
+async fn lo_desatendido_no_puede_ni_simular_ni_proponer() {
     let e = entorno().await;
-    let t = tarea(&e);
     let c = conectar(&e.url, "ea-orchestrator").await;
     // Las lecturas siguen funcionando.
     llamar(&c, "ea_status", json!({})).await.unwrap();
     for h in CATALOGO.iter().filter(|h| h.riesgo != Riesgo::Lectura) {
         let args = match h.nombre {
-            "ea_cambiar_estado_tarea" => json!({ "id": t, "estado": "completada" }),
             "ea_reiniciar_servicio" => json!({ "servicio": "ea-mcp" }),
-            "ea_crear_tarea" => json!({ "titulo": "a", "solicita": "b", "asignado_a": "usuario" }),
             // Denegadas antes de tocar nada, así que no llegan a la bóveda configurada.
             "ea_escribir_nota" => json!({ "titulo": "a", "contenido": "b" }),
             "ea_promover_nota" => json!({ "ruta": "modelo-local/a.md" }),
@@ -230,8 +209,6 @@ async fn lo_desatendido_no_puede_ni_simular_ni_proponer_ni_crear() {
         assert!(err.contains("no está disponible"), "{}: {err}", h.nombre);
     }
     assert!(propuestas(&e).is_empty());
-    let s = Store::open_at(&e.db).unwrap();
-    assert_eq!(s.list_tasks(&Default::default()).unwrap().len(), 1, "no se creó ninguna tarea");
     assert!(e.rutinas.join("vieja.toml").exists());
 }
 
@@ -243,7 +220,6 @@ async fn argumentos_fuera_de_la_lista_cerrada_se_rechazan() {
         ("ea_reiniciar_servicio", json!({ "servicio": "sshd" })),
         ("ea_eliminar_rutina", json!({ "slug": "../vieja" })),
         ("ea_eliminar_rutina", json!({ "slug": "no-existe" })),
-        ("ea_cambiar_estado_tarea", json!({ "id": 99, "estado": "completada" })),
     ] {
         assert!(llamar(&c, n, a).await.is_err(), "{n}");
     }

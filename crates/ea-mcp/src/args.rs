@@ -1,36 +1,34 @@
 //! Argumentos de las herramientas MCP, con esquema JSON derivado vía
 //! `schemars` para que el cliente (Claude Code) sepa qué forma aceptan.
-//! Los enums de dominio (`TaskStatus`, `TaskOrigin`) se reciben como texto
-//! y se parsean con su `FromStr` ya existente en `ea-store`, para no tener
-//! que añadir `schemars` como dependencia de esa capa.
+//! Los enums de dominio se reciben como texto, para no tener que añadir
+//! `schemars` como dependencia de las capas de dominio.
 
 use schemars::JsonSchema;
 use serde::Deserialize;
 use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct ListarTareasArgs {
-    /// Filtra por estado: pendiente, en_progreso, completada, fallida o
-    /// cancelada. Sin este argumento, devuelve tareas en cualquier estado.
+pub struct ListarTrabajosArgs {
+    /// Filtra por estado: en_cola, ejecutando, en_revision, en_espera,
+    /// cerrado o cancelado. Sin este argumento, trabajos en cualquier estado.
     pub estado: Option<String>,
-    /// Filtra por el actor al que está asignada la tarea (p. ej.
-    /// "claude-code", "modelo-local", "usuario").
-    pub asignado_a: Option<String>,
-    /// Número máximo de tareas a devolver, las más recientes primero.
+    /// Filtra por modo: mision, obra o rutina.
+    pub modo: Option<String>,
+    /// Número máximo de trabajos a devolver, los más recientes primero.
     /// Por defecto 20.
     pub limite: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct VerTareaArgs {
-    /// Identificador numérico de la tarea.
-    pub id: i64,
+pub struct VerTrabajoArgs {
+    /// Identificador del trabajo (el que devuelve ea_listar_trabajos).
+    pub id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListarDiarioArgs {
-    /// Limita el diario a los eventos de una tarea concreta.
-    pub tarea: Option<i64>,
+    /// Limita el diario a los eventos asociados a un trabajo concreto.
+    pub trabajo: Option<String>,
     /// Limita el diario a los eventos de un actor concreto.
     pub actor: Option<String>,
     /// Fecha/hora desde la que listar (RFC3339 o AAAA-MM-DD, UTC).
@@ -40,34 +38,6 @@ pub struct ListarDiarioArgs {
     /// Número máximo de eventos a devolver, los más recientes primero.
     /// Por defecto 20.
     pub limite: Option<i64>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct CrearTareaArgs {
-    /// Título breve de la tarea.
-    pub titulo: String,
-    /// Descripción de qué se solicita.
-    pub solicita: String,
-    /// Actor al que se delega la tarea (p. ej. "usuario", "modelo-local",
-    /// o "claude-code" para autoseguimiento).
-    pub asignado_a: String,
-    /// Id de una tarea existente de la que esta es subtarea, si aplica.
-    pub tarea_padre: Option<i64>,
-    /// Si es true, no escribe nada: devuelve la tarea que se crearía.
-    pub simular: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct CambiarEstadoTareaArgs {
-    /// Identificador numérico de la tarea.
-    pub id: i64,
-    /// Nuevo estado: pendiente, en_progreso, completada, fallida o cancelada.
-    pub estado: String,
-    /// Texto de resultado que se anota en la tarea (opcional).
-    pub resultado: Option<String>,
-    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
-    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
-    pub simular: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -121,8 +91,9 @@ pub struct EscribirNotaArgs {
     pub ruta: Option<String>,
     /// Etiquetas (letras, cifras, '-', '_' o '/').
     pub etiquetas: Option<Vec<String>>,
-    /// Id de la tarea en cuyo marco se escribe la nota (queda en la cabecera).
-    pub tarea: Option<i64>,
+    /// Id del trabajo en cuyo marco se escribe la nota (queda en la cabecera
+    /// como origen `trabajo:<id>`).
+    pub trabajo: Option<String>,
     /// Reemplazar la nota si ya existe (por defecto falla).
     pub sobrescribir: Option<bool>,
     /// Si es true, valida y dice dónde caería la nota, sin escribir.

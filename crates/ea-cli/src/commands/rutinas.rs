@@ -4,7 +4,6 @@ use anyhow::Result;
 use comfy_table::Table;
 use ea_store::Store;
 
-use super::fmt_ts;
 
 fn rutinas_dir() -> PathBuf {
     ea_orchestrator::config::load().rutinas_dir
@@ -41,9 +40,8 @@ pub fn listar(store: &Store) -> Result<()> {
     let mut table = Table::new();
     table.set_header(vec!["Rutina", "Versión", "Última ejecución", "Próxima (systemd)"]);
     for r in rutinas {
-        let ultima = store
-            .last_successful_run(&r.slug)?
-            .map(|x| fmt_ts(x.started_at))
+        let ultima = ultimo_trabajo(&r.slug)
+            .map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str()))
             .unwrap_or_else(|| "nunca".to_string());
         let proxima = proxima_ejecucion_systemd(&r.slug).unwrap_or_else(|| "—".to_string());
         table.add_row(vec![r.slug, r.version.to_string(), ultima, proxima]);
@@ -61,26 +59,25 @@ pub fn ver(store: &Store, slug: &str) -> Result<()> {
         println!("  Próxima (systemd):      {proxima}");
     }
 
-    let historial = store.list_routine_runs(slug, Some(20))?;
+    let historial = super::trabajo::bus()?.trabajos_de_rutina(slug).unwrap_or_default();
     if historial.is_empty() {
         println!("\nSin ejecuciones todavía.");
         return Ok(());
     }
 
-    println!("\nHistorial de ejecuciones:");
+    println!("\nÚltimos trabajos de la rutina:");
     let mut table = Table::new();
-    table.set_header(vec!["Cuándo", "Resultado", "Pasos", "Llamadas modelo", "Detalle"]);
-    for run in historial {
-        table.add_row(vec![
-            fmt_ts(run.started_at),
-            run.outcome.map(|o| o.as_str().to_string()).unwrap_or_else(|| "en curso".to_string()),
-            run.pasos_ejecutados.to_string(),
-            run.llamadas_modelo.to_string(),
-            run.detalle.unwrap_or_default(),
-        ]);
+    table.set_header(vec!["Trabajo", "Estado", "Actualizado", "Detalle"]);
+    for (id, e) in historial.into_iter().take(20) {
+        table.add_row(vec![id, e.estado.as_str().to_string(), e.actualizado_en, e.detalle.unwrap_or_default()]);
     }
     println!("{table}");
     Ok(())
+}
+
+/// Trabajo más reciente de una rutina en el bus (cualquiera que sea su estado).
+pub fn ultimo_trabajo(slug: &str) -> Option<(String, ea_bus::Estado)> {
+    super::trabajo::bus().ok()?.trabajos_de_rutina(slug).ok()?.into_iter().next()
 }
 
 pub fn registrar(fichero: &std::path::Path) -> Result<()> {

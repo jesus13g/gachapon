@@ -2,14 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
-    #[error("tarea #{0} no encontrada")]
-    TaskNotFound(i64),
-
     #[error("evento #{0} no encontrado")]
     EventNotFound(i64),
-
-    #[error("ejecución de rutina #{0} no encontrada")]
-    RoutineRunNotFound(i64),
 
     #[error("propuesta #{0} no encontrada")]
     PropuestaNotFound(i64),
@@ -26,11 +20,11 @@ pub enum StoreError {
     #[error("valor de estado inválido: {0}")]
     InvalidStatus(String),
 
-    #[error("valor de origen inválido: {0}")]
-    InvalidOrigin(String),
-
     #[error("valor de resultado inválido: {0}")]
     InvalidOutcome(String),
+
+    #[error("base de datos del esquema antiguo: haz copia y bórrala (ecosistema.db*) para empezar de cero")]
+    EsquemaAntiguo,
 
     #[error("error de base de datos: {0}")]
     Database(#[from] rusqlite::Error),
