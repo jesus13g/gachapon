@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, bail, Result};
 use ea_bus::{Agente, Bus, Evento, Modo, Orden, Topes};
 
-fn bus() -> Result<Bus> {
+pub(super) fn bus() -> Result<Bus> {
     let b = Bus::abrir()?.con_actor("ea-cli");
     Ok(match ea_store::Store::open() {
         Ok(s) => b.con_store(s),
@@ -82,6 +82,12 @@ pub fn evento(id: &str, ev: Evento) -> Result<()> {
 pub fn reformular(id: &str, nota: &str) -> Result<()> {
     let e = bus()?.reformular(id, nota)?;
     println!("{id}: reformular -> {}", e.estado.as_str());
+    Ok(())
+}
+
+pub fn confirmar(id: &str, contexto: &str) -> Result<()> {
+    let e = bus()?.confirmar(id, contexto)?;
+    println!("{id}: confirmar -> {} (encolado en claude-code)", e.estado.as_str());
     Ok(())
 }
 

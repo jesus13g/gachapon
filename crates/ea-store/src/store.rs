@@ -75,6 +75,14 @@ impl Store {
         trabajos::obtener_rutina(&self.conn, slug, version)
     }
 
+    pub fn ultima_rutina(&self, slug: &str) -> StoreResult<Option<FilaRutina>> {
+        trabajos::ultima_rutina(&self.conn, slug)
+    }
+
+    pub fn listar_rutinas(&self) -> StoreResult<Vec<FilaRutina>> {
+        trabajos::listar_rutinas(&self.conn)
+    }
+
     pub fn create_task(&mut self, new_task: NewTask) -> StoreResult<Task> {
         tasks::create_task(&mut self.conn, new_task)
     }

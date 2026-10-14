@@ -3,6 +3,6 @@ Description=Dispara la rutina '%i' del ecosistema de asistente
 
 [Service]
 Type=oneshot
-# No ejecuta la rutina: solo encola una tarea (§10.1 de la especificación).
+# No ejecuta la rutina: solo crea el trabajo en el bus (§10.1 de la especificación).
 # El orquestador residente (ea-orchestrator.service) la recoge cuando puede.
-ExecStart=%h/Proyectos/ecosistema-asistente/target/release/ea rutinas encolar %i
+ExecStart=%h/Proyectos/ecosistema-asistente/target/release/ea rutina lanzar %i

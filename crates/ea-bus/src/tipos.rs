@@ -140,6 +140,17 @@ pub enum ResultadoInforme {
     Bloqueado,
 }
 
+/// Resultado de una fase en el informe de una obra.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FaseInforme {
+    pub numero: u32,
+    pub titulo: String,
+    /// `hecha` o `bloqueada`.
+    pub resultado: String,
+    #[serde(default)]
+    pub diff_stat: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Informe {
     pub resultado: ResultadoInforme,
@@ -156,6 +167,16 @@ pub struct Informe {
     pub fases_hechas: u32,
     #[serde(default)]
     pub duracion_s: u64,
+    /// Obra: `true` si no queda ninguna fase; `false` si espera la revisión
+    /// intermedia (o quedó bloqueada). En misión y rutina, `true` al terminar.
+    #[serde(default)]
+    pub obra_completa: bool,
+    /// Obra: fases hechas hasta ahora, con su resultado.
+    #[serde(default)]
+    pub fases: Vec<FaseInforme>,
+    /// Obra: diff de las fases desde la última revisión (recortado).
+    #[serde(default)]
+    pub diff: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +187,8 @@ pub enum Evento {
     Cerrar,
     Cancelar,
     PonerEnEspera,
+    /// El usuario confirma el paquete de corrección de una rutina.
+    Confirmar,
 }
 
 impl Evento {
@@ -177,6 +200,7 @@ impl Evento {
             Evento::Cerrar => "cerrar",
             Evento::Cancelar => "cancelar",
             Evento::PonerEnEspera => "poner_en_espera",
+            Evento::Confirmar => "confirmar",
         }
     }
 }
@@ -190,6 +214,7 @@ pub fn transicion(estado: EstadoTrabajo, evento: &Evento) -> Resultado<EstadoTra
         (EnRevision | EnEspera, Evento::Reformular) => EnCola,
         (EnRevision | EnEspera, Evento::Cerrar) => Cerrado,
         (Ejecutando | EnRevision, Evento::PonerEnEspera) => EnEspera,
+        (EnEspera, Evento::Confirmar) => EnRevision,
         (EnCola | Ejecutando | EnRevision | EnEspera, Evento::Cancelar) => Cancelado,
         _ => {
             return Err(ErrorBus::TransicionInvalida {
@@ -199,4 +224,22 @@ pub fn transicion(estado: EstadoTrabajo, evento: &Evento) -> Resultado<EstadoTra
         }
     };
     Ok(nuevo)
+}
+
+impl Informe {
+    /// Informe vacío con el resultado dado; el resto se rellena a mano.
+    pub fn nuevo(resultado: ResultadoInforme) -> Self {
+        Self {
+            resultado,
+            evidencia: String::new(),
+            commit_inicio: None,
+            diff_stat: None,
+            motivo: None,
+            fases_hechas: 0,
+            duracion_s: 0,
+            obra_completa: false,
+            fases: vec![],
+            diff: None,
+        }
+    }
 }

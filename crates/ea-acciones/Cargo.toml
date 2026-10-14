@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 ea-store = { path = "../ea-store" }
 ea-boveda = { path = "../ea-boveda" }
+ea-bus = { path = "../ea-bus" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"

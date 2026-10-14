@@ -9,8 +9,24 @@ use ea_store::{
 use serde_json::{json, Value};
 
 fn store() -> (Store, tempfile::TempDir) {
+    // Una sola raíz de estado del bus para todo el proceso de pruebas.
+    static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
+    unsafe { std::env::set_var("EA_ESTADO_DIR", estado.path()) };
     let dir = tempfile::tempdir().unwrap();
     let s = Store::open_at(&dir.path().join("t.db")).unwrap();
+    for slug in ["revision-diaria", "vieja", "nocturna"] {
+        s.guardar_rutina(&ea_store::FilaRutina {
+            slug: slug.into(),
+            version: 1,
+            definicion: format!(
+                "[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+            ),
+            creada_en: "2026-01-01T00:00:00Z".into(),
+            creada_por: "test".into(),
+        })
+        .unwrap();
+    }
     (s, dir)
 }
 
@@ -19,6 +35,7 @@ fn sistema() -> SistemaSimulado {
         .con_servicio("ea-mcp", "active")
         .con_rutina("vieja", "[rutina]\ndescripcion = \"x\"\n")
         .con_rutina("revision-diaria", "[rutina]\ndescripcion = \"y\"\n")
+        .con_rutina("nocturna", "[rutina]\ndescripcion = \"z\"\n")
 }
 
 fn tarea(s: &mut Store) -> i64 {
@@ -309,13 +326,15 @@ async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
         .unwrap();
     assert_eq!(sis.mutaciones(), vec!["reiniciar:ea-mcp"]);
 
-    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "revision-diaria" }))
+    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" }))
         .await
         .unwrap();
-    let nueva = s.get_task(r.tarea.unwrap()).unwrap();
-    assert_eq!((nueva.assigned_to.as_str(), nueva.origin), ("orquestador", TaskOrigin::Boton));
-    // No se encola dos veces la misma rutina.
-    assert!(ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "revision-diaria" }))
+    let trabajo = r.datos["trabajo"].as_str().unwrap().to_string();
+    let bus = ea_bus::Bus::abrir().unwrap();
+    assert_eq!(bus.leer_orden(&trabajo).unwrap().rutina.unwrap().slug, "nocturna");
+    assert_eq!(bus.listar_cola(ea_bus::Agente::ModeloLocal).unwrap().iter().filter(|e| e.trabajo == trabajo).count(), 1);
+    // No se lanza dos veces la misma rutina mientras la anterior no termina.
+    assert!(ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" }))
         .await
         .is_err());
 }

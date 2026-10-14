@@ -51,8 +51,11 @@ ea tareas ver <id>
 ea tareas actualizar <id> --estado en_progreso
 ea diario listar
 ea diario ver <id>
-ea rutinas listar
-ea rutinas ver <slug>
+ea rutina registrar <fichero.toml>           # valida y registra (la versión debe subir)
+ea rutina listar|ver <slug>
+ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus
+ea trabajo continuar <id>                    # aprueba una revisión intermedia de una obra
+ea trabajo confirmar <id> [--contexto "..."] # paquete de corrección de una rutina -> claude-code
 ea propuestas listar [--estado pendiente]
 ea propuestas ver <id>                       # acción, riesgo, simulación, ejecución
 ea propuestas decidir <id> --aceptar|--rechazar   # aceptar una con acción la ejecuta

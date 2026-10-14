@@ -3,7 +3,7 @@
 //! Es la "capa interna" de §7.3; el catálogo y las definiciones MCP solo
 //! nombran estas herramientas.
 
-use ea_store::{NewTask, Store, Task, TaskFilter, TaskOrigin, TaskStatus};
+use ea_store::{Store, TaskStatus};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -96,23 +96,11 @@ fn huella(texto: &str) -> String {
     format!("{h:016x}")
 }
 
-fn tarea_activa_de_rutina(store: &Store, slug: &str) -> Result<Option<Task>, ErrorAccion> {
-    for estado in [TaskStatus::Pendiente, TaskStatus::EnProgreso] {
-        let tareas = store.list_tasks(&TaskFilter {
-            status: Some(estado),
-            assigned_to: Some("orquestador".into()),
-            limit: None,
-        })?;
-        for t in tareas {
-            let rutina = serde_json::from_str::<Value>(&t.request)
-                .ok()
-                .and_then(|v| v["rutina"].as_str().map(str::to_string));
-            if rutina.as_deref() == Some(slug) {
-                return Ok(Some(t));
-            }
-        }
-    }
-    Ok(None)
+/// Bus del orquestador sobre la raíz de estado estándar (o `EA_ESTADO_DIR`).
+fn bus_de(store: &Store, actor: &str) -> Result<ea_bus::Bus, ErrorAccion> {
+    let err = |e: &dyn std::fmt::Display| ErrorAccion::Sistema(e.to_string());
+    let bus = ea_bus::Bus::abrir().map_err(|e| err(&e))?;
+    Ok(bus.con_store(store.duplicar()?).con_actor(actor))
 }
 
 fn comprobar_servicio(nombre: &str) -> Result<(), ErrorAccion> {
@@ -273,22 +261,29 @@ pub fn simular_con<C: Consulta>(
                 .rutina_contenido(&a.slug)
                 .map_err(ErrorAccion::Sistema)?
                 .ok_or_else(|| ErrorAccion::NoAplica(format!("la rutina '{}' no existe", a.slug)))?;
-            if let Some(t) = tarea_activa_de_rutina(store, &a.slug)? {
+            let version = store
+                .ultima_rutina(&a.slug)?
+                .ok_or_else(|| {
+                    ErrorAccion::NoAplica(format!("la rutina '{}' no está registrada (ea rutina registrar)", a.slug))
+                })?
+                .version;
+            let bus = bus_de(store, "simulacion")?;
+            let activos = bus.trabajos_activos_de_rutina(&a.slug).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
+            if let Some(t) = activos.first() {
                 return Err(ErrorAccion::NoAplica(format!(
-                    "la rutina '{}' ya tiene una ejecución en cola (tarea #{}, {})",
-                    a.slug,
-                    t.id,
-                    t.status.as_str()
+                    "la rutina '{}' ya tiene una ejecución en curso (trabajo {t})",
+                    a.slug
                 )));
             }
             (
                 json!({ "slug": a.slug }),
                 format!(
-                    "Crearía una tarea para el orquestador que ejecuta la rutina '{}' (de solo \
-                     lectura; lo que necesite mutar quedará como propuestas).",
+                    "Lanzaría la rutina '{}' (versión {version}) por el bus del orquestador: crea un \
+                     trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla \
+                     y tú lo confirmas.",
                     a.slug
                 ),
-                json!({ "tareas_activas": 0 }),
+                json!({ "trabajos_activos": 0, "version": version }),
             )
         }
         "ea_reiniciar_servicio" => {
@@ -406,22 +401,13 @@ pub fn aplicar_en_store(
         }
         "ea_encolar_rutina" => {
             let a: PorSlug = parsear(args)?;
-            let origin = match canal {
-                Canal::Web => TaskOrigin::Boton,
-                Canal::Terminal => TaskOrigin::Manual,
-            };
-            let t = store.create_task(NewTask {
-                created_by: actor.to_string(),
-                assigned_to: "orquestador".into(),
-                origin,
-                parent_task_id: None,
-                title: format!("Ejecutar rutina: {}", a.slug),
-                request: json!({ "rutina": a.slug }).to_string(),
-            })?;
+            let bus = bus_de(store, actor)?;
+            let id = bus.lanzar_rutina(&a.slug, &[]).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
+            let _ = canal;
             Ok(Some(Aplicada {
-                texto: format!("Tarea #{} encolada para la rutina '{}'.", t.id, a.slug),
-                tarea: Some(t.id),
-                datos: json!({ "tarea": t.id, "rutina": a.slug }),
+                texto: format!("Rutina '{}' lanzada: trabajo {id} en la cola del agente local.", a.slug),
+                tarea: None,
+                datos: json!({ "trabajo": id, "rutina": a.slug }),
             }))
         }
         "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" => Ok(None),

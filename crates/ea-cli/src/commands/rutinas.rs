@@ -50,39 +50,30 @@ fn proxima_ejecucion_systemd(slug: &str) -> Option<String> {
 }
 
 pub fn listar(store: &Store) -> Result<()> {
-    let dir = rutinas_dir();
-    let slugs = listar_slugs(&dir)?;
-
-    if slugs.is_empty() {
-        println!(
-            "No hay rutinas en {} (copia un fichero .toml ahí para darla de alta).",
-            dir.display()
-        );
+    let rutinas = store.listar_rutinas()?;
+    if rutinas.is_empty() {
+        println!("No hay rutinas registradas (ea rutina registrar <fichero.toml>).");
         return Ok(());
     }
-
     let mut table = Table::new();
-    table.set_header(vec!["Rutina", "Última ejecución", "Próxima (systemd)"]);
-    for slug in slugs {
+    table.set_header(vec!["Rutina", "Versión", "Última ejecución", "Próxima (systemd)"]);
+    for r in rutinas {
         let ultima = store
-            .last_successful_run(&slug)?
-            .map(|r| fmt_ts(r.started_at))
+            .last_successful_run(&r.slug)?
+            .map(|x| fmt_ts(x.started_at))
             .unwrap_or_else(|| "nunca".to_string());
-        let proxima = proxima_ejecucion_systemd(&slug).unwrap_or_else(|| "—".to_string());
-        table.add_row(vec![slug, ultima, proxima]);
+        let proxima = proxima_ejecucion_systemd(&r.slug).unwrap_or_else(|| "—".to_string());
+        table.add_row(vec![r.slug, r.version.to_string(), ultima, proxima]);
     }
     println!("{table}");
     Ok(())
 }
 
 pub fn ver(store: &Store, slug: &str) -> Result<()> {
-    let dir = rutinas_dir();
-    let ruta = dir.join(format!("{slug}.toml"));
-    let contenido = std::fs::read_to_string(&ruta)
-        .map_err(|e| anyhow::anyhow!("no se pudo leer la rutina '{slug}' ({}): {e}", ruta.display()))?;
-
-    println!("Rutina '{slug}' ({}):
-{contenido}", ruta.display());
+    let fila = store
+        .ultima_rutina(slug)?
+        .ok_or_else(|| anyhow::anyhow!("la rutina '{slug}' no está registrada (ea rutina registrar <fichero>)"))?;
+    println!("Rutina '{slug}', versión {} (registrada {} por {}):\n{}", fila.version, fila.creada_en, fila.creada_por, fila.definicion);
     if let Some(proxima) = proxima_ejecucion_systemd(slug) {
         println!("  Próxima (systemd):      {proxima}");
     }
@@ -109,24 +100,27 @@ pub fn ver(store: &Store, slug: &str) -> Result<()> {
     Ok(())
 }
 
-/// El único comando que invoca el `.service` plantilla de un disparador
-/// temporal (§10.1: el disparador no ejecuta la rutina, solo encola una
-/// tarea que el orquestador recoge cuando puede).
-pub fn encolar(store: &mut Store, slug: &str) -> Result<()> {
-    // Falla pronto si el fichero de la rutina no existe.
-    let ruta = rutinas_dir().join(format!("{slug}.toml"));
-    if !ruta.is_file() {
-        anyhow::bail!("la rutina '{slug}' no existe ({})", ruta.display());
-    }
+pub fn registrar(fichero: &std::path::Path) -> Result<()> {
+    let texto = std::fs::read_to_string(fichero)
+        .map_err(|e| anyhow::anyhow!("no se pudo leer {}: {e}", fichero.display()))?;
+    let bus = super::trabajo::bus()?;
+    let r = bus.registrar_rutina(&texto, &rutinas_dir())?;
+    println!("rutina '{}' registrada en la versión {}", r.rutina.slug, r.rutina.version);
+    Ok(())
+}
 
-    let tarea = store.create_task(ea_store::NewTask {
-        created_by: "ea-rutina-timer".to_string(),
-        assigned_to: "orquestador".to_string(),
-        origin: ea_store::TaskOrigin::Programado,
-        parent_task_id: None,
-        title: format!("Ejecutar rutina: {slug}"),
-        request: serde_json::json!({ "rutina": slug }).to_string(),
-    })?;
-    println!("Tarea #{} encolada para la rutina '{slug}'", tarea.id);
+/// Lo que invoca el `.service` plantilla de un disparador temporal: crea el
+/// trabajo en el bus y vuelve; el orquestador lo ejecuta cuando puede.
+pub fn lanzar(slug: &str, entradas: &[String]) -> Result<()> {
+    let pares = entradas
+        .iter()
+        .map(|e| {
+            e.split_once('=')
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .ok_or_else(|| anyhow::anyhow!("entrada inválida {e:?} (clave=valor)"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let id = super::trabajo::bus()?.lanzar_rutina(slug, &pares)?;
+    println!("{id}");
     Ok(())
 }

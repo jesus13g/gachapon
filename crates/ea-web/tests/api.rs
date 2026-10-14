@@ -19,6 +19,18 @@ struct Fixture {
     _dir: TempDir,
 }
 
+const RUTINA_BUS: &str = "[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"revisa\"\n";
+
+/// Las pruebas que lanzan rutinas comparten la variable de entorno del
+/// directorio de estado del bus: una a una, cada cual con el suyo.
+static BUS_EXCLUSIVO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn aislar_bus(f: &Fixture) -> tokio::sync::MutexGuard<'static, ()> {
+    let g = BUS_EXCLUSIVO.lock().await;
+    unsafe { std::env::set_var("EA_ESTADO_DIR", f._dir.path().join("estado")) };
+    g
+}
+
 fn montar() -> Fixture {
     let dir = tempfile::tempdir().expect("directorio temporal");
     let rutinas_dir = dir.path().join("rutinas");
@@ -26,6 +38,15 @@ fn montar() -> Fixture {
     std::fs::write(rutinas_dir.join("revision-diaria.toml"), RUTINA_EJEMPLO).unwrap();
 
     let store = Store::open_at(&dir.path().join("test.db")).expect("abrir store");
+    store
+        .guardar_rutina(&ea_store::FilaRutina {
+            slug: "revision-diaria".into(),
+            version: 1,
+            definicion: RUTINA_BUS.into(),
+            creada_en: "2026-01-01T00:00:00Z".into(),
+            creada_por: "test".into(),
+        })
+        .unwrap();
     let config = WebConfig {
         puerto: 0,
         umbral_heartbeat_s: 60,
@@ -235,6 +256,7 @@ async fn decidir_una_propuesta() {
 #[tokio::test]
 async fn rutinas_listar_ver_y_encolar() {
     let f = montar();
+    let _g = aislar_bus(&f).await;
 
     let (_, lista) = get(&f, "/api/rutinas").await;
     assert_eq!(lista[0]["slug"], "revision-diaria");
@@ -246,9 +268,8 @@ async fn rutinas_listar_ver_y_encolar() {
 
     let (s, t) = post(&f, "/api/rutinas/revision-diaria/encolar", json!({})).await;
     assert_eq!(s, StatusCode::CREATED);
-    assert_eq!(t["asignado_a"], "orquestador");
-    let peticion: Value = serde_json::from_str(t["peticion"].as_str().unwrap()).unwrap();
-    assert_eq!(peticion, json!({ "rutina": "revision-diaria" }));
+    assert_eq!(t["rutina"], "revision-diaria");
+    assert!(!t["trabajo"].as_str().unwrap().is_empty());
 
     let (s, _) = get(&f, "/api/rutinas/no-existe").await;
     assert_eq!(s, StatusCode::NOT_FOUND);
@@ -529,7 +550,14 @@ async fn repetir_una_tarea_crea_otra_enlazada_a_la_original() {
 #[tokio::test]
 async fn la_ficha_de_una_rutina_enlaza_su_ejecucion_y_repetirla_la_encola() {
     let f = montar();
-    let (_, t) = post(&f, "/api/rutinas/revision-diaria/encolar", json!({})).await;
+    let _g = aislar_bus(&f).await;
+    // Tarea antigua de una rutina (de antes del bus).
+    let (_, t) = post(
+        &f,
+        "/api/tareas",
+        json!({ "titulo": "Ejecutar rutina: revision-diaria", "asignado_a": "orquestador", "solicita": "{\"rutina\":\"revision-diaria\"}" }),
+    )
+    .await;
     let id = t["id"].as_i64().unwrap();
     {
         let store = f.state.store.lock().await;
@@ -544,7 +572,7 @@ async fn la_ficha_de_una_rutina_enlaza_su_ejecucion_y_repetirla_la_encola() {
     post(&f, &format!("/api/tareas/{id}/estado"), json!({ "estado": "cancelada" })).await;
     let (s, nueva) = post(&f, &format!("/api/tareas/{id}/repetir"), json!({})).await;
     assert_eq!(s, StatusCode::CREATED);
-    assert_eq!(nueva["asignado_a"], "orquestador");
+    assert_eq!(nueva["rutina"], "revision-diaria");
     let (s, _) = post(&f, &format!("/api/tareas/{id}/repetir"), json!({})).await;
     assert_eq!(s, StatusCode::CONFLICT, "ya hay una ejecución en cola");
 }
@@ -552,6 +580,7 @@ async fn la_ficha_de_una_rutina_enlaza_su_ejecucion_y_repetirla_la_encola() {
 #[tokio::test]
 async fn la_consola_lista_simula_y_ejecuta_acciones() {
     let f = montar();
+    let _g = aislar_bus(&f).await;
 
     let (s, cat) = get(&f, "/api/acciones").await;
     assert_eq!(s, StatusCode::OK);
@@ -566,8 +595,7 @@ async fn la_consola_lista_simula_y_ejecuta_acciones() {
     let (s, sim) = post(&f, "/api/acciones/simular", cuerpo.clone()).await;
     assert_eq!(s, StatusCode::OK);
     assert!(sim["texto"].as_str().unwrap().contains("revision-diaria"));
-    let (_, e) = get(&f, "/api/estado").await;
-    assert_eq!(e["tareas"]["pendiente"], 0, "simular no hace nada");
+    assert!(!f._dir.path().join("estado/trabajos").exists() || std::fs::read_dir(f._dir.path().join("estado/trabajos")).unwrap().next().is_none());
 
     let ejecutar = json!({
         "herramienta": "ea_encolar_rutina",
@@ -576,9 +604,8 @@ async fn la_consola_lista_simula_y_ejecuta_acciones() {
     });
     let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar.clone()).await;
     assert_eq!(s, StatusCode::OK);
-    let tarea = r["tarea"].as_i64().unwrap();
-    let (_, ficha) = get(&f, &format!("/api/tareas/{tarea}")).await;
-    assert_eq!(ficha["tarea"]["asignado_a"], "orquestador");
+    let trabajo = r["datos"]["trabajo"].as_str().unwrap();
+    assert!(f._dir.path().join("estado/trabajos").join(trabajo).join("orden.json").exists());
 
     // El mundo ya no es el de la simulación: ni simular ni ejecutar de nuevo.
     let (s, _) = post(&f, "/api/acciones/ejecutar", ejecutar).await;

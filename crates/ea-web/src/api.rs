@@ -530,11 +530,12 @@ async fn tarea_repetir(
     let nueva = match rutina_de_tarea(&original) {
         Some(slug) => {
             slug_valido(&slug)?;
+            // Tarea antigua de una rutina: ahora se relanza por el bus.
             let r = ea_acciones::ejecutar_directo(
                 &mut store, &sis, ACTOR, Canal::Web, "ea_encolar_rutina", &json!({ "slug": slug }),
             )
             .await?;
-            store.get_task(r.tarea.ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "sin tarea"))?)?
+            return Ok((StatusCode::CREATED, Json(r.datos)));
         }
         None => store.create_task(NewTask {
             created_by: ACTOR.into(),
@@ -647,8 +648,9 @@ async fn rutina_ver(State(s): Estado, Path(slug): Path<String>) -> ApiResult<Jso
     })))
 }
 
-/// Lo mismo que hace el disparador de systemd (`ea rutinas encolar`): no
-/// ejecuta la rutina, solo encola la tarea que el orquestador recogerá.
+/// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`): no
+/// ejecuta la rutina, solo crea el trabajo en el bus, que el orquestador
+/// recogerá. Responde `{ "trabajo": id, "rutina": slug }`.
 async fn rutina_encolar(
     State(s): Estado,
     Path(slug): Path<String>,
@@ -663,8 +665,7 @@ async fn rutina_encolar(
         &mut store, &sis, ACTOR, Canal::Web, "ea_encolar_rutina", &json!({ "slug": slug }),
     )
     .await?;
-    let tarea = store.get_task(r.tarea.ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "sin tarea"))?)?;
-    Ok((StatusCode::CREATED, Json(tarea_json(&tarea))))
+    Ok((StatusCode::CREATED, Json(r.datos)))
 }
 
 // -------------------------------------------------------------- propuestas

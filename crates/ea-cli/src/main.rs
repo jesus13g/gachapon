@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinasAccion, TareasAccion, TrabajoAccion};
+use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinaAccion, TareasAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -54,10 +54,11 @@ fn main() -> Result<()> {
             } => commands::diario::listar(&store, tarea, actor, desde, hasta, limite)?,
             DiarioAccion::Ver { id } => commands::diario::ver(&store, id)?,
         },
-        Command::Rutinas { accion } => match accion {
-            RutinasAccion::Listar => commands::rutinas::listar(&store)?,
-            RutinasAccion::Ver { slug } => commands::rutinas::ver(&store, &slug)?,
-            RutinasAccion::Encolar { slug } => commands::rutinas::encolar(&mut store, &slug)?,
+        Command::Rutina { accion } => match accion {
+            RutinaAccion::Registrar { fichero } => commands::rutinas::registrar(&fichero)?,
+            RutinaAccion::Listar => commands::rutinas::listar(&store)?,
+            RutinaAccion::Ver { slug } => commands::rutinas::ver(&store, &slug)?,
+            RutinaAccion::Lanzar { slug, entrada } => commands::rutinas::lanzar(&slug, &entrada)?,
         },
         Command::Propuestas { accion } => match accion {
             PropuestasAccion::Listar { estado } => commands::propuestas::listar(&store, estado)?,
@@ -92,6 +93,8 @@ fn main() -> Result<()> {
             TrabajoAccion::Listar => commands::trabajo::listar()?,
             TrabajoAccion::Ver { id } => commands::trabajo::ver(&id)?,
             TrabajoAccion::Cerrar { id } => commands::trabajo::evento(&id, ea_bus::Evento::Cerrar)?,
+            TrabajoAccion::Continuar { id } => commands::trabajo::reformular(&id, "")?,
+            TrabajoAccion::Confirmar { id, contexto } => commands::trabajo::confirmar(&id, &contexto.unwrap_or_default())?,
             TrabajoAccion::Reformular { id, nota } => commands::trabajo::reformular(&id, &nota)?,
             TrabajoAccion::Cancelar { id } => commands::trabajo::evento(&id, ea_bus::Evento::Cancelar)?,
         },

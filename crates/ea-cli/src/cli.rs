@@ -22,10 +22,11 @@ pub enum Command {
         #[command(subcommand)]
         accion: DiarioAccion,
     },
-    /// Rutinas programadas
-    Rutinas {
+    /// Rutinas versionadas (registrar, listar, ver, lanzar)
+    #[command(alias = "rutinas")]
+    Rutina {
         #[command(subcommand)]
-        accion: RutinasAccion,
+        accion: RutinaAccion,
     },
     /// Propuestas pendientes de rutinas desatendidas
     Propuestas {
@@ -84,6 +85,15 @@ pub enum TrabajoAccion {
     Ver { id: String },
     /// Da por bueno un trabajo en revisión
     Cerrar { id: String },
+    /// Aprueba una revisión intermedia: la obra sigue en la fase actual
+    Continuar { id: String },
+    /// Confirma el paquete de corrección de una rutina en espera y lo encola en claude-code
+    Confirmar {
+        id: String,
+        /// Contexto que se añade al paquete antes de encolarlo
+        #[arg(long)]
+        contexto: Option<String>,
+    },
     /// Devuelve un trabajo en revisión al modelo local, con una nota
     Reformular {
         id: String,
@@ -156,13 +166,21 @@ pub enum DiarioAccion {
 }
 
 #[derive(Subcommand)]
-pub enum RutinasAccion {
-    /// Lista las rutinas dadas de alta, con su última ejecución
+pub enum RutinaAccion {
+    /// Valida un fichero de rutina y lo registra (la versión debe subir)
+    Registrar { fichero: std::path::PathBuf },
+    /// Lista las rutinas registradas, con su última ejecución
     Listar,
-    /// Muestra el fichero de una rutina y su historial de ejecuciones
+    /// Muestra la definición registrada de una rutina y su historial
     Ver { slug: String },
-    /// Encola una ejecución de la rutina (lo que hace el disparador `systemd`)
-    Encolar { slug: String },
+    /// Crea un trabajo de la rutina en el bus (lo que hace el disparador `systemd`)
+    #[command(alias = "encolar")]
+    Lanzar {
+        slug: String,
+        /// Entrada `clave=valor` que sustituye al valor por defecto
+        #[arg(long = "entrada")]
+        entrada: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]

@@ -5,15 +5,16 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ea_store::{EventOutcome, FilaFase, FilaTrabajo, NewEvent, Store};
+use ea_store::{EventOutcome, FilaFase, FilaRutina, FilaTrabajo, NewEvent, Store};
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::{escribir_json, fnv};
+use crate::rutina::Rutina;
 use crate::tipos::{
-    transicion, Agente, Estado, EstadoTrabajo, Evento, Informe, Orden, ResultadoInforme,
+    transicion, Agente, Estado, EstadoTrabajo, Evento, Informe, Modo, Orden, ResultadoInforme,
 };
 
 pub const ENV_ESTADO: &str = "EA_ESTADO_DIR";
@@ -112,6 +113,7 @@ impl Bus {
     /// Escribe `orden.json` y `estado.json` y encola en `modelo-local`. Si la
     /// orden trae el id vacío se le asigna uno nuevo.
     pub fn crear_trabajo(&self, mut orden: Orden) -> Resultado<String> {
+        validar_criterios(&orden)?;
         if orden.id.is_empty() {
             orden.id = nuevo_id();
         }
@@ -277,10 +279,9 @@ impl Bus {
         let nuevo_estado = transicion(actual.estado, &evento)?;
         let mut nuevo = Estado { estado: nuevo_estado, actualizado_en: ahora_rfc3339(), ..actual };
         match &evento {
-            Evento::Tomar => nuevo.iteracion += 1,
             Evento::Entregar(inf) => {
                 self.escribir_informe(id, inf)?;
-                if inf.resultado == ResultadoInforme::Terminado && inf.fases_hechas > 0 {
+                if inf.fases_hechas > 0 {
                     nuevo.fase_actual = Some(inf.fases_hechas + 1);
                 }
                 nuevo.detalle = inf.motivo.clone();
@@ -296,7 +297,17 @@ impl Bus {
                     ResultadoInforme::Terminado => "terminado",
                     ResultadoInforme::Bloqueado => "bloqueado",
                 };
-                self.encolar(Agente::ClaudeCode, id, motivo)?;
+                // Una rutina vuelve a Claude Code solo si falla y el usuario lo
+                // confirma (`Confirmar`); su informe no pasa por la cola.
+                if self.leer_orden(id)?.modo != Modo::Rutina {
+                    self.encolar(Agente::ClaudeCode, id, motivo)?;
+                }
+            }
+            Evento::Confirmar => {
+                self.encolar(Agente::ClaudeCode, id, "corrección de rutina")?;
+            }
+            Evento::Cerrar | Evento::Cancelar => {
+                self.retirar_de_colas(id)?;
             }
             Evento::Reformular => {
                 self.encolar(Agente::ModeloLocal, id, "reformulado")?;
@@ -309,6 +320,130 @@ impl Bus {
             self.diario(s, id, &format!("bus_{}", evento.nombre()), true, serde_json::json!({ "estado": nuevo.estado.as_str() }));
         }
         Ok(nuevo)
+    }
+
+    /// Sube el contador de iteraciones (una por llamada al agente).
+    pub fn anotar_iteracion(&self, id: &str) -> Resultado<u32> {
+        let mut e = self.leer_estado(id)?;
+        e.iteracion += 1;
+        e.actualizado_en = ahora_rfc3339();
+        escribir_json(&self.dir_trabajo(id)?.join("estado.json"), &e)?;
+        Ok(e.iteracion)
+    }
+
+    /// Quita de TODAS las colas las entradas de un trabajo.
+    pub fn retirar_de_colas(&self, id: &str) -> Resultado<usize> {
+        let mut n = 0;
+        for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+            for e in fs::read_dir(self.dir_cola(a))?.flatten() {
+                let p = e.path();
+                let nombre = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if nombre.starts_with('.') || !nombre.ends_with(".json") {
+                    continue;
+                }
+                let de_este = fs::read(&p)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<EntradaCola>(&b).ok())
+                    .is_some_and(|en| en.trabajo == id);
+                if de_este && fs::remove_file(&p).is_ok() {
+                    n += 1;
+                }
+            }
+        }
+        Ok(n)
+    }
+
+    /// Anota en SQLite el resultado de una fase de obra (`hecha`, `bloqueada`…).
+    pub fn registrar_fase(&self, id: &str, numero: u32, estado: &str, informe: &serde_json::Value) -> Resultado<()> {
+        let Some(s) = &self.store else { return Ok(()) };
+        if let Some(mut f) = s.listar_fases(id)?.into_iter().find(|f| f.numero == i64::from(numero)) {
+            f.estado = estado.into();
+            f.informe = Some(informe.to_string());
+            f.cerrado_en = Some(ahora_rfc3339());
+            s.guardar_fase(&f)?;
+        }
+        Ok(())
+    }
+
+    /// Confirma el paquete de corrección de una rutina en espera: añade el
+    /// contexto del usuario al paquete y lo encola en `claude-code`.
+    pub fn confirmar(&self, id: &str, contexto: &str) -> Resultado<Estado> {
+        let estado = self.leer_estado(id)?;
+        transicion(estado.estado, &Evento::Confirmar)?;
+        if !contexto.trim().is_empty() {
+            use std::io::Write;
+            let ruta = self.dir_trabajo(id)?.join("paquete-correccion.md");
+            let mut f = fs::OpenOptions::new().create(true).append(true).open(ruta)?;
+            writeln!(f, "\n## Contexto del usuario\n\n{}", contexto.trim())?;
+        }
+        self.aplicar(id, Evento::Confirmar)
+    }
+
+    // --- rutinas -----------------------------------------------------------
+
+    fn store_rutinas(&self) -> Resultado<&Store> {
+        self.store.as_ref().ok_or_else(|| ErrorBus::Argumentos("las rutinas necesitan la base de datos".into()))
+    }
+
+    /// Valida y registra una rutina; la versión debe ser mayor que la última
+    /// registrada. Copia el fichero a `dir` (`<slug>.toml`).
+    pub fn registrar_rutina(&self, texto: &str, dir: &Path) -> Resultado<Rutina> {
+        let r = Rutina::parsear(texto)?;
+        let s = self.store_rutinas()?;
+        if let Some(ult) = s.ultima_rutina(&r.rutina.slug)? {
+            if i64::from(r.rutina.version) <= ult.version {
+                return Err(ErrorBus::Argumentos(format!(
+                    "la rutina {} ya está en la versión {}; la nueva debe ser mayor (es la {})",
+                    r.rutina.slug, ult.version, r.rutina.version
+                )));
+            }
+        }
+        s.guardar_rutina(&FilaRutina {
+            slug: r.rutina.slug.clone(),
+            version: i64::from(r.rutina.version),
+            definicion: texto.into(),
+            creada_en: ahora_rfc3339(),
+            creada_por: self.actor.clone(),
+        })?;
+        fs::create_dir_all(dir)?;
+        crate::fs_atomico::escribir_atomico(&dir.join(format!("{}.toml", r.rutina.slug)), texto.as_bytes())?;
+        Ok(r)
+    }
+
+    /// Última versión registrada de una rutina.
+    pub fn rutina(&self, slug: &str) -> Resultado<Rutina> {
+        let fila = self
+            .store_rutinas()?
+            .ultima_rutina(slug)?
+            .ok_or_else(|| ErrorBus::Argumentos(format!("la rutina {slug:?} no está registrada")))?;
+        Rutina::parsear(&fila.definicion)
+    }
+
+    /// Texto TOML de una versión concreta.
+    pub fn definicion_rutina(&self, slug: &str, version: u32) -> Option<String> {
+        self.store.as_ref()?.obtener_rutina(slug, i64::from(version)).ok().flatten().map(|f| f.definicion)
+    }
+
+    /// Última versión de cada rutina registrada.
+    pub fn listar_rutinas(&self) -> Resultado<Vec<Rutina>> {
+        self.store_rutinas()?.listar_rutinas()?.iter().map(|f| Rutina::parsear(&f.definicion)).collect()
+    }
+
+    /// Crea un trabajo de modo rutina con la última versión registrada.
+    pub fn lanzar_rutina(&self, slug: &str, entradas: &[(String, String)]) -> Resultado<String> {
+        self.crear_trabajo(self.rutina(slug)?.a_orden(entradas)?)
+    }
+
+    /// Trabajos de una rutina que aún no han terminado.
+    pub fn trabajos_activos_de_rutina(&self, slug: &str) -> Resultado<Vec<String>> {
+        let mut v = Vec::new();
+        for id in self.listar_trabajos()? {
+            let (Ok(o), Ok(e)) = (self.leer_orden(&id), self.leer_estado(&id)) else { continue };
+            if o.rutina.is_some_and(|r| r.slug == slug) && matches!(e.estado, EstadoTrabajo::EnCola | EstadoTrabajo::Ejecutando) {
+                v.push(id);
+            }
+        }
+        Ok(v)
     }
 
     /// Reformula un trabajo en revisión: añade las notas de la revisión a
@@ -351,17 +486,16 @@ impl Bus {
                 let _ = fs::remove_file(&p);
             }
         }
+        // Entradas de trabajos ya cerrados o cancelados (restos de antes de
+        // que Cerrar y Cancelar limpiaran las colas).
+        for id in self.listar_trabajos()? {
+            if self.leer_estado(&id).is_ok_and(|s| matches!(s.estado, EstadoTrabajo::Cerrado | EstadoTrabajo::Cancelado)) {
+                self.retirar_de_colas(&id)?;
+            }
+        }
         for id in self.listar_trabajos()? {
             if self.leer_estado(&id).is_ok_and(|s| s.estado == EstadoTrabajo::Ejecutando) {
-                let inf = Informe {
-                    resultado: ResultadoInforme::Bloqueado,
-                    evidencia: String::new(),
-                    commit_inicio: None,
-                    diff_stat: None,
-                    motivo: Some("interrumpido".into()),
-                    fases_hechas: 0,
-                    duracion_s: 0,
-                };
+                let inf = Informe { motivo: Some("interrumpido".into()), ..Informe::nuevo(ResultadoInforme::Bloqueado) };
                 self.aplicar(&id, Evento::Entregar(inf))?;
                 recuperados.push(id);
             }
@@ -422,4 +556,23 @@ impl Bus {
             detail: Some(detalle.to_string()),
         });
     }
+}
+
+/// El criterio de éxito es obligatorio: sin él, nadie puede decir que algo
+/// está hecho. Misión y rutina lo llevan en la orden; la obra, en cada fase
+/// (o en la orden, si no tiene fases).
+fn validar_criterios(o: &Orden) -> Resultado<()> {
+    let vacio = |c: &Option<String>| c.as_deref().is_none_or(|c| c.trim().is_empty());
+    match o.modo {
+        Modo::Obra if !o.fases.is_empty() => {
+            if let Some(f) = o.fases.iter().find(|f| f.criterio.trim().is_empty()) {
+                return Err(ErrorBus::Argumentos(format!("la fase {} no tiene criterio", f.numero)));
+            }
+        }
+        _ if vacio(&o.criterio_exito) => {
+            return Err(ErrorBus::Argumentos("falta criterio_exito: es obligatorio".into()));
+        }
+        _ => {}
+    }
+    Ok(())
 }

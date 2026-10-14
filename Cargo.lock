@@ -479,6 +479,7 @@ name = "ea-acciones"
 version = "0.1.0"
 dependencies = [
  "ea-boveda",
+ "ea-bus",
  "ea-store",
  "serde",
  "serde_json",

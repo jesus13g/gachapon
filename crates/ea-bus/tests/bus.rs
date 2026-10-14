@@ -34,15 +34,7 @@ fn orden(wt: &Path) -> Orden {
 }
 
 fn informe() -> Informe {
-    Informe {
-        resultado: ResultadoInforme::Terminado,
-        evidencia: "ok".into(),
-        commit_inicio: None,
-        diff_stat: None,
-        motivo: None,
-        fases_hechas: 1,
-        duracion_s: 3,
-    }
+    Informe { evidencia: "ok".into(), fases_hechas: 1, duracion_s: 3, ..Informe::nuevo(ResultadoInforme::Terminado) }
 }
 
 fn yo(trabajo: &str) -> Ocupante {
@@ -60,13 +52,16 @@ fn crear_tomar_entregar_y_cerrar_con_historial_en_sqlite() {
     assert_eq!(bus.tomar(Agente::ModeloLocal).unwrap(), Some(id.clone()));
     assert_eq!(bus.tomar(Agente::ModeloLocal).unwrap(), None);
     let e = bus.aplicar(&id, Evento::Tomar).unwrap();
-    assert_eq!((e.estado, e.iteracion), (EstadoTrabajo::Ejecutando, 1));
+    assert_eq!((e.estado, e.iteracion), (EstadoTrabajo::Ejecutando, 0));
+    assert_eq!(bus.anotar_iteracion(&id).unwrap(), 1);
+    assert_eq!(bus.leer_estado(&id).unwrap().iteracion, 1);
     bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
     assert_eq!(bus.leer_informe(&id).unwrap().unwrap().evidencia, "ok");
     // entregar encola en claude-code por sí solo
     assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap()[0].motivo, "terminado");
-    assert_eq!(bus.tomar(Agente::ClaudeCode).unwrap(), Some(id.clone()));
     bus.aplicar(&id, Evento::Cerrar).unwrap();
+    // cerrar limpia la entrada de claude-code
+    assert!(bus.listar_cola(Agente::ClaudeCode).unwrap().is_empty());
     assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::Cerrado);
     assert_eq!(bus.listar_trabajos().unwrap(), vec![id.clone()]);
     let lineas = std::fs::read_to_string(d.path().join("estado/trabajos").join(&id).join("historial.jsonl")).unwrap();
@@ -219,4 +214,97 @@ fn recuperar_devuelve_huerfanos_y_bloquea_lo_interrumpido() {
     assert_eq!((inf.resultado, inf.motivo.as_deref()), (ResultadoInforme::Bloqueado, Some("interrumpido")));
     assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap()[0].motivo, "bloqueado");
     assert!(bus.recuperar().unwrap().is_empty());
+}
+
+#[test]
+fn cerrar_y_cancelar_retiran_el_trabajo_de_todas_las_colas() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(d.path()).unwrap();
+    let a = bus.crear_trabajo(orden(d.path())).unwrap();
+    let b = bus.crear_trabajo(orden(d.path())).unwrap();
+    bus.tomar(Agente::ModeloLocal).unwrap();
+    bus.tomar(Agente::ModeloLocal).unwrap();
+    for id in [&a, &b] {
+        bus.aplicar(id, Evento::Tomar).unwrap();
+        bus.aplicar(id, Evento::Entregar(informe())).unwrap();
+        bus.encolar(Agente::ModeloLocal, id, "extra").unwrap();
+    }
+    assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap().len(), 2);
+    bus.aplicar(&a, Evento::Cerrar).unwrap();
+    bus.aplicar(&b, Evento::Cancelar).unwrap();
+    assert!(bus.listar_cola(Agente::ClaudeCode).unwrap().is_empty());
+    assert!(bus.listar_cola(Agente::ModeloLocal).unwrap().is_empty());
+}
+
+#[test]
+fn el_criterio_es_obligatorio() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(d.path()).unwrap();
+    let mut m = orden(d.path());
+    m.modo = Modo::Mision;
+    m.fases.clear();
+    assert!(bus.crear_trabajo(m.clone()).is_err());
+    m.criterio_exito = Some("  ".into());
+    assert!(bus.crear_trabajo(m.clone()).is_err());
+    m.criterio_exito = Some("true".into());
+    assert!(bus.crear_trabajo(m).is_ok());
+    let mut o = orden(d.path());
+    o.fases[0].criterio = String::new();
+    assert!(bus.crear_trabajo(o).is_err());
+}
+
+const RUTINA: &str = r#"
+[rutina]
+slug = "prueba"
+version = 1
+descripcion = "d"
+worktree = "/tmp"
+criterio_exito = "test -f {fichero}"
+salida_esperada = "nada"
+[entradas]
+fichero = "a.txt"
+[[pasos]]
+texto = "crea {fichero}"
+"#;
+
+#[test]
+fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let dir = d.path().join("rutinas");
+    bus.registrar_rutina(RUTINA, &dir).unwrap();
+    assert!(dir.join("prueba.toml").exists());
+    assert!(bus.registrar_rutina(RUTINA, &dir).is_err()); // misma versión
+    assert!(bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 0"), &dir).is_err());
+    bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 2"), &dir).unwrap();
+    let id = bus.lanzar_rutina("prueba", &[("fichero".into(), "b.txt".into())]).unwrap();
+    let o = bus.leer_orden(&id).unwrap();
+    assert_eq!(o.modo, Modo::Rutina);
+    assert_eq!(o.criterio_exito.as_deref(), Some("test -f b.txt"));
+    assert_eq!(o.rutina.unwrap().version, 2);
+    assert!(o.objetivo.contains("crea b.txt"));
+    assert!(bus.lanzar_rutina("prueba", &[("otra".into(), "x".into())]).is_err());
+    assert!(bus.lanzar_rutina("no-existe", &[]).is_err());
+}
+
+#[test]
+fn confirmar_encola_en_claude_code_con_el_contexto() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(d.path()).unwrap();
+    let mut o = orden(d.path());
+    o.modo = Modo::Rutina;
+    o.fases.clear();
+    o.criterio_exito = Some("true".into());
+    let id = bus.crear_trabajo(o).unwrap();
+    bus.tomar(Agente::ModeloLocal).unwrap();
+    assert!(bus.confirmar(&id, "").is_err()); // no está en espera
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    bus.aplicar(&id, Evento::PonerEnEspera).unwrap();
+    std::fs::write(d.path().join("trabajos").join(&id).join("paquete-correccion.md"), "# paquete\n").unwrap();
+    assert_eq!(bus.confirmar(&id, "ojo con el disco").unwrap().estado, EstadoTrabajo::EnRevision);
+    let c = bus.listar_cola(Agente::ClaudeCode).unwrap();
+    assert_eq!((c.len(), c[0].motivo.as_str()), (1, "corrección de rutina"));
+    let p = std::fs::read_to_string(d.path().join("trabajos").join(&id).join("paquete-correccion.md")).unwrap();
+    assert!(p.contains("ojo con el disco"));
 }

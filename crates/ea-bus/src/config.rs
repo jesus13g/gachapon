@@ -27,7 +27,7 @@ impl Default for ConfigOrquestador {
             qwen_bin: "qwen".into(),
             topes: Topes::default(),
             avisos_escritorio: true,
-            sandbox: false,
+            sandbox: true,
         }
     }
 }
