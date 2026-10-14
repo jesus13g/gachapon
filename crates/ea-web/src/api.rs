@@ -1,8 +1,7 @@
 //! Rutas HTTP: la página estática y la API JSON. Todo se apoya en la
-//! fachada `Store` y en `ea_orchestrator::rutina`; aquí solo se traduce a
+//! fachada `Store` y en los ficheros de rutina; aquí solo se traduce a
 //! JSON y se validan las entradas.
 
-use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, Request, State};
@@ -12,7 +11,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use ea_acciones::{Canal, ErrorAccion, SistemaReal};
-use ea_orchestrator::rutina::{self, Paso, Rutina, RutinaError};
 use ea_store::{
     EstadoPropuesta, Event, EventFilter, Propuesta,
     PropuestaFilter, RoutineRun, StoreError, NewTask, Task, TaskFilter, TaskOrigin, TaskStatus,
@@ -109,17 +107,37 @@ fn sistema(s: &AppState) -> SistemaReal {
     }
 }
 
-impl From<RutinaError> for ApiError {
-    fn from(e: RutinaError) -> Self {
-        let status = match &e {
-            RutinaError::Io(_, io) if io.kind() == std::io::ErrorKind::NotFound => {
-                StatusCode::NOT_FOUND
+/// Slugs de los ficheros `.toml` del directorio de rutinas (ordenados).
+fn listar_slugs(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
+    let mut v = Vec::new();
+    match std::fs::read_dir(dir) {
+        Ok(it) => {
+            for e in it.flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "toml") {
+                    if let Some(n) = p.file_stem().and_then(|n| n.to_str()) {
+                        v.push(n.to_string());
+                    }
+                }
             }
-            RutinaError::Io(..) => StatusCode::INTERNAL_SERVER_ERROR,
-            _ => StatusCode::UNPROCESSABLE_ENTITY,
-        };
-        Self(status, e.to_string())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
     }
+    v.sort();
+    Ok(v)
+}
+
+/// El fichero de la rutina, o 404 si no existe.
+fn leer_rutina(dir: &std::path::Path, slug: &str) -> ApiResult<String> {
+    std::fs::read_to_string(dir.join(format!("{slug}.toml"))).map_err(|e| {
+        let status = if e.kind() == std::io::ErrorKind::NotFound {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        ApiError::new(status, format!("rutina '{slug}': {e}"))
+    })
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -146,7 +164,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/boveda", get(boveda_listar))
         .route("/api/boveda/nota", get(boveda_leer))
         .route("/api/boveda/promover", post(boveda_promover))
-        .route("/api/voz/hablar", post(voz_hablar))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
         .layer(middleware::from_fn(guardia))
         .with_state(state)
@@ -589,15 +606,12 @@ async fn rutinas_listar(State(s): Estado) -> ApiResult<Json<Value>> {
 
 async fn rutinas_resumen(s: &AppState) -> ApiResult<Vec<Value>> {
     let dir = &s.config.rutinas_dir;
-    let slugs = rutina::listar_slugs(dir)
+    let slugs = listar_slugs(dir)
         .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let mut filas = Vec::with_capacity(slugs.len());
     for slug in slugs {
-        let (descripcion, error) = match rutina::cargar(dir, &slug) {
-            Ok(r) => (Some(r.descripcion), None),
-            Err(e) => (None, Some(e.to_string())),
-        };
+        let (descripcion, error): (Option<String>, Option<String>) = (None, None);
         let (ultima, ultimo_exito) = {
             let store = s.store.lock().await;
             (
@@ -622,74 +636,13 @@ async fn rutinas_resumen(s: &AppState) -> ApiResult<Vec<Value>> {
     Ok(filas)
 }
 
-/// Pasos en orden de recorrido desde `inicio`, y al final los inalcanzables.
-fn pasos_json(r: &Rutina) -> Vec<Value> {
-    fn destinos(p: &Paso) -> Vec<String> {
-        match p {
-            Paso::Accion { siguiente, .. } => vec![siguiente.clone()],
-            Paso::Decision { ramas, .. } => {
-                let mut v: Vec<_> = ramas.iter().collect();
-                v.sort();
-                v.into_iter().map(|(_, d)| d.clone()).collect()
-            }
-            Paso::Propuesta { siguiente, .. } => siguiente.iter().cloned().collect(),
-            Paso::Fin => vec![],
-        }
-    }
-
-    let mut orden = Vec::new();
-    let mut vistos = HashSet::new();
-    let mut cola = VecDeque::from([r.inicio.clone()]);
-    while let Some(id) = cola.pop_front() {
-        if !vistos.insert(id.clone()) {
-            continue;
-        }
-        if let Some(p) = r.pasos.get(&id) {
-            cola.extend(destinos(p));
-            orden.push(id);
-        }
-    }
-    let mut sueltos: Vec<_> = r.pasos.keys().filter(|k| !vistos.contains(*k)).cloned().collect();
-    sueltos.sort();
-    orden.extend(sueltos);
-
-    orden
-        .into_iter()
-        .map(|id| {
-            let paso = &r.pasos[&id];
-            let mut v = match paso {
-                Paso::Accion { herramienta, argumentos, .. } => {
-                    json!({ "tipo": "accion", "herramienta": herramienta, "argumentos": argumentos })
-                }
-                Paso::Decision { contexto, ramas } => {
-                    let ramas: std::collections::BTreeMap<_, _> = ramas.iter().collect();
-                    json!({ "tipo": "decision", "contexto": contexto, "ramas": ramas })
-                }
-                Paso::Propuesta { descripcion, .. } => {
-                    json!({ "tipo": "propuesta", "descripcion": descripcion })
-                }
-                Paso::Fin => json!({ "tipo": "fin" }),
-            };
-            v["id"] = json!(id);
-            v["destinos"] = json!(destinos(paso));
-            v
-        })
-        .collect()
-}
-
 async fn rutina_ver(State(s): Estado, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     slug_valido(&slug)?;
-    let r = rutina::cargar(&s.config.rutinas_dir, &slug)?;
+    let contenido = leer_rutina(&s.config.rutinas_dir, &slug)?;
     let ejecuciones = s.store.lock().await.list_routine_runs(&slug, Some(20))?;
     Ok(Json(json!({
         "slug": slug,
-        "descripcion": r.descripcion,
-        "inicio": r.inicio,
-        "max_duracion_s": r.max_duracion_s,
-        "max_pasos": r.max_pasos,
-        "max_llamadas_modelo": r.max_llamadas_modelo,
-        "ventana_inicial_dias": r.ventana_inicial_dias,
-        "pasos": pasos_json(&r),
+        "contenido": contenido,
         "ejecuciones": ejecuciones.iter().map(run_json).collect::<Vec<_>>(),
     })))
 }
@@ -701,8 +654,8 @@ async fn rutina_encolar(
     Path(slug): Path<String>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     slug_valido(&slug)?;
-    // Falla pronto si la rutina no existe o es inválida.
-    rutina::cargar(&s.config.rutinas_dir, &slug)?;
+    // Falla pronto si la rutina no existe.
+    leer_rutina(&s.config.rutinas_dir, &slug)?;
 
     let sis = sistema(&s);
     let mut store = s.acciones.lock().await;
@@ -775,7 +728,7 @@ async fn propuesta_decidir(
 /// El catálogo completo, para verlo; ejecutables desde aquí solo las
 /// supervisadas (las directas son de los agentes o ya tienen su sección).
 async fn acciones_listar(State(s): Estado) -> ApiResult<Json<Value>> {
-    let slugs = rutina::listar_slugs(&s.config.rutinas_dir).unwrap_or_default();
+    let slugs = listar_slugs(&s.config.rutinas_dir).unwrap_or_default();
     let filas: Vec<Value> = ea_acciones::CATALOGO
         .iter()
         .map(|h| {
@@ -944,31 +897,6 @@ async fn boveda_promover(State(s): Estado, Json(b): Json<PromoverBody>) -> ApiRe
     let mut store = s.acciones.lock().await;
     let r = ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_promover_nota", &args).await?;
     Ok(Json(json!({ "texto": r.texto, "datos": r.datos })))
-}
-
-// --------------------------------------------------------------------- voz
-
-/// Reenvía al orquestador, que es quien posee el dispositivo de audio
-/// (§6.3); la web no captura ni reproduce nada.
-async fn voz_hablar(State(s): Estado) -> ApiResult<Json<Value>> {
-    let url = format!("http://127.0.0.1:{}/v1/voz/hablar", s.config.voz_puerto);
-    let resp = s.http.post(&url).send().await.map_err(|e| {
-        ApiError::new(StatusCode::BAD_GATEWAY, format!("ea-orchestrator no responde: {e}"))
-    })?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let texto = resp.text().await.unwrap_or_default();
-        return Err(ApiError::new(
-            StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
-            texto,
-        ));
-    }
-    let cuerpo: Value = resp
-        .json()
-        .await
-        .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, format!("respuesta no válida: {e}")))?;
-    Ok(Json(cuerpo))
 }
 
 // ---------------------------------------------------------------- servicios

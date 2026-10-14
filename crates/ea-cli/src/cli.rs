@@ -42,11 +42,6 @@ pub enum Command {
         #[command(subcommand)]
         accion: BovedaAccion,
     },
-    /// Voz (activación manual y palabra de activación)
-    Voz {
-        #[command(subcommand)]
-        accion: VozAccion,
-    },
     /// Interfaz interactiva
     Tui,
 }
@@ -116,7 +111,7 @@ pub enum DiarioAccion {
 pub enum RutinasAccion {
     /// Lista las rutinas dadas de alta, con su última ejecución
     Listar,
-    /// Muestra la definición de una rutina y su historial de ejecuciones
+    /// Muestra el fichero de una rutina y su historial de ejecuciones
     Ver { slug: String },
     /// Encola una ejecución de la rutina (lo que hace el disparador `systemd`)
     Encolar { slug: String },
@@ -180,17 +175,6 @@ pub enum BovedaAccion {
     },
     /// Reconstruye el índice de búsqueda desde los ficheros
     Reindexar,
-}
-
-#[derive(Subcommand)]
-pub enum VozAccion {
-    /// Escucha una frase (activación manual), la transcribe, pregunta al
-    /// modelo local y habla la respuesta. La captura y la reproducción de
-    /// audio ocurren en el proceso `ea-orchestrator` (dueño del
-    /// dispositivo), no en esta CLI.
-    Hablar,
-    /// Estado del motor de voz y de la palabra de activación.
-    Estado,
 }
 
 #[derive(Subcommand)]

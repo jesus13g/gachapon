@@ -2,11 +2,10 @@
 //! página única que la consume. Respeta el invariante de §12.2 de la
 //! especificación — para leer consulta el diario y las tareas, para actuar
 //! crea tareas o decide propuestas — y nunca habla con Claude Code ni con el
-//! modelo local. Las únicas rutas que salen de la base de datos son la voz
-//! (que reenvía al orquestador, dueño del audio) y el reinicio de servicios.
+//! modelo local. La única ruta que sale de la base de datos es el reinicio de
+//! servicios.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use ea_store::Store;
 use tokio::sync::Mutex;
@@ -20,8 +19,6 @@ const ENV_PORT: &str = "EA_WEB_PORT";
 
 pub struct WebConfig {
     pub puerto: u16,
-    /// Puerto de la superficie de voz de `ea-orchestrator`.
-    pub voz_puerto: u16,
     /// Antigüedad máxima del último heartbeat para considerar vivo al
     /// orquestador (el doble del intervalo, igual que `ea status`).
     pub umbral_heartbeat_s: i64,
@@ -47,7 +44,6 @@ impl WebConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(DEFAULT_PORT),
-            voz_puerto: orquestador.voz_puerto,
             umbral_heartbeat_s: (orquestador.intervalo_heartbeat_s * 2) as i64,
             tema_path,
             rutinas_dir: orquestador.rutinas_dir,
@@ -66,7 +62,6 @@ pub struct AppState {
     pub acciones: Mutex<Store>,
     pub boveda: ea_boveda::Boveda,
     pub config: WebConfig,
-    pub http: reqwest::Client,
 }
 
 impl AppState {
@@ -76,12 +71,6 @@ impl AppState {
             store: Mutex::new(store),
             boveda: config.boveda.clone(),
             config,
-            http: reqwest::Client::builder()
-                // El ciclo de voz completo (grabar, transcribir, preguntar,
-                // sintetizar) tarda mucho más que una petición normal.
-                .timeout(Duration::from_secs(60))
-                .build()
-                .expect("cliente HTTP"),
         })
     }
 }

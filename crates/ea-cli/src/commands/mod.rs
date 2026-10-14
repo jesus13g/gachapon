@@ -5,7 +5,6 @@ pub mod propuestas;
 pub mod rutinas;
 pub mod status;
 pub mod tareas;
-pub mod voz;
 
 use anyhow::{Context, Result};
 use time::format_description::well_known::Rfc3339;

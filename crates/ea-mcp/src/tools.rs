@@ -731,7 +731,7 @@ impl EaTools {
 
     #[tool(
         description = "[Riesgo: mutación reversible] Reinicia un servicio del ecosistema \
-            (lista cerrada: llama-server, ea-mcp, ea-proxy, ea-orchestrator, ea-web). \
+            (lista cerrada: llama-server, ea-mcp, ea-orchestrator, ea-web). \
             NO lo ejecuta: con simular=true lo describe; sin él encola una propuesta \
             que el usuario debe aceptar.",
         annotations(

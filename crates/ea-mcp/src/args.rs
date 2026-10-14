@@ -81,7 +81,7 @@ pub struct RutinaArgs {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReiniciarServicioArgs {
-    /// Servicio de la lista cerrada: llama-server, ea-mcp, ea-proxy,
+    /// Servicio de la lista cerrada: llama-server, ea-mcp,
     /// ea-orchestrator o ea-web.
     pub servicio: String,
     /// Si es true, solo describe lo que se haría. Si es false (por defecto),

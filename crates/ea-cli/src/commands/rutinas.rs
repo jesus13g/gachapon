@@ -2,13 +2,29 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use comfy_table::Table;
-use ea_orchestrator::rutina;
 use ea_store::Store;
 
 use super::fmt_ts;
 
 fn rutinas_dir() -> PathBuf {
     ea_orchestrator::config::load().rutinas_dir
+}
+
+/// Slugs de los ficheros `.toml` del directorio de rutinas (ordenados).
+pub fn listar_slugs(dir: &std::path::Path) -> Result<Vec<String>> {
+    let mut v = Vec::new();
+    if let Ok(it) = std::fs::read_dir(dir) {
+        for e in it.flatten() {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x == "toml") {
+                if let Some(n) = p.file_stem().and_then(|n| n.to_str()) {
+                    v.push(n.to_string());
+                }
+            }
+        }
+    }
+    v.sort();
+    Ok(v)
 }
 
 /// Próxima ejecución programada según `systemd --user`, si el timer de la
@@ -35,7 +51,7 @@ fn proxima_ejecucion_systemd(slug: &str) -> Option<String> {
 
 pub fn listar(store: &Store) -> Result<()> {
     let dir = rutinas_dir();
-    let slugs = rutina::listar_slugs(&dir)?;
+    let slugs = listar_slugs(&dir)?;
 
     if slugs.is_empty() {
         println!(
@@ -46,18 +62,14 @@ pub fn listar(store: &Store) -> Result<()> {
     }
 
     let mut table = Table::new();
-    table.set_header(vec!["Rutina", "Descripción", "Última ejecución", "Próxima (systemd)"]);
+    table.set_header(vec!["Rutina", "Última ejecución", "Próxima (systemd)"]);
     for slug in slugs {
-        let descripcion = match rutina::cargar(&dir, &slug) {
-            Ok(r) => r.descripcion,
-            Err(e) => format!("(inválida: {e})"),
-        };
         let ultima = store
             .last_successful_run(&slug)?
             .map(|r| fmt_ts(r.started_at))
             .unwrap_or_else(|| "nunca".to_string());
         let proxima = proxima_ejecucion_systemd(&slug).unwrap_or_else(|| "—".to_string());
-        table.add_row(vec![slug, descripcion, ultima, proxima]);
+        table.add_row(vec![slug, ultima, proxima]);
     }
     println!("{table}");
     Ok(())
@@ -65,14 +77,12 @@ pub fn listar(store: &Store) -> Result<()> {
 
 pub fn ver(store: &Store, slug: &str) -> Result<()> {
     let dir = rutinas_dir();
-    let rutina = rutina::cargar(&dir, slug)?;
+    let ruta = dir.join(format!("{slug}.toml"));
+    let contenido = std::fs::read_to_string(&ruta)
+        .map_err(|e| anyhow::anyhow!("no se pudo leer la rutina '{slug}' ({}): {e}", ruta.display()))?;
 
-    println!("Rutina '{slug}': {}", rutina.descripcion);
-    println!("  Inicio:                {}", rutina.inicio);
-    println!("  Presupuesto de tiempo:  {} s", rutina.max_duracion_s);
-    println!("  Presupuesto de pasos:   {}", rutina.max_pasos);
-    println!("  Presupuesto de modelo:  {} llamadas", rutina.max_llamadas_modelo);
-    println!("  Ventana inicial:        {} día(s) (si nunca se ha ejecutado)", rutina.ventana_inicial_dias);
+    println!("Rutina '{slug}' ({}):
+{contenido}", ruta.display());
     if let Some(proxima) = proxima_ejecucion_systemd(slug) {
         println!("  Próxima (systemd):      {proxima}");
     }
@@ -103,10 +113,11 @@ pub fn ver(store: &Store, slug: &str) -> Result<()> {
 /// temporal (§10.1: el disparador no ejecuta la rutina, solo encola una
 /// tarea que el orquestador recoge cuando puede).
 pub fn encolar(store: &mut Store, slug: &str) -> Result<()> {
-    // Falla pronto si la rutina no existe o es inválida, en vez de encolar
-    // una tarea que el orquestador tendría que rechazar de todas formas.
-    let dir = rutinas_dir();
-    rutina::cargar(&dir, slug)?;
+    // Falla pronto si el fichero de la rutina no existe.
+    let ruta = rutinas_dir().join(format!("{slug}.toml"));
+    if !ruta.is_file() {
+        anyhow::bail!("la rutina '{slug}' no existe ({})", ruta.display());
+    }
 
     let tarea = store.create_task(ea_store::NewTask {
         created_by: "ea-rutina-timer".to_string(),

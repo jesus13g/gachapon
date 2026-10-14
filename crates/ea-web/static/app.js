@@ -8,7 +8,6 @@ const SECCIONES = ['inicio', 'tareas', 'diario', 'rutinas', 'propuestas', 'accio
 const DETALLE = { inicio: 'tr', tareas: 't', rutinas: 'r', boveda: 'b' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
 const SIM = { pendiente: '○', en_progreso: '◐', completada: '●', fallida: '✕', cancelada: '⊘' };
-const PASO = { accion: '▸', decision: '¿', propuesta: '◇', fin: '■' };
 const ACCIONES = {
   pendiente: [['en_progreso', '▶ iniciar', 'marcarla como en curso (la llevas tú)'], ['cancelada', '⊘ cancelar', 'cancelarla']],
   en_progreso: [['completada', '✓ completar', 'darla por hecha, con el resultado escrito al lado'], ['fallida', '✕ fallar', 'darla por fallida'], ['cancelada', '⊘ cancelar', 'cancelarla']],
@@ -51,7 +50,6 @@ const st = {
   armado: null,        // { n, hasta }: reinicio de servicio pendiente de confirmar
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
-  voz: false,
   consola: {},         // por herramienta: { v: valores, sim, res, err }
 };
 
@@ -234,18 +232,10 @@ function filasRutinas(rs) {
     const d = st.detalle[k];
     let det = '';
     if (d) {
-      det = `<p class="m" title="tiempo · pasos · llamadas al modelo">◷ ${d.max_duracion_s}s · ▸ ${d.max_pasos} · ¿ ${d.max_llamadas_modelo}</p>` +
-        d.pasos.map(p => {
-          let info = '';
-          if (p.tipo === 'accion') info = `${p.herramienta} ${JSON.stringify(p.argumentos ?? {})}`;
-          else if (p.tipo === 'decision') info = `${p.contexto.split('\n')[0]} [${Object.keys(p.ramas).join(' | ')}]`;
-          else if (p.tipo === 'propuesta') info = p.descripcion;
-          return `<div class="pa"><i>${PASO[p.tipo]}</i><span class="x">${esc(p.id)}</span><span class="m">${esc(info)}</span>` +
-            `<span class="m">${p.destinos.length ? '→ ' + esc(p.destinos.join(', ')) : ''}</span></div>`;
-        }).join('') +
+      det = `<pre class="tx">${esc(d.contenido ?? '')}</pre>` +
         (d.ejecuciones.length ? `<div class="sep">↻</div>` + d.ejecuciones.map(x =>
           `<div class="ev"><span>${hora(x.inicio)}</span><i class="${x.resultado === 'fallida' ? 'hot' : ''}">${x.resultado === 'ok' ? '✓' : x.resultado === 'fallida' ? '✕' : '◐'}</i>` +
-          `<span>▸ ${x.pasos} · ¿ ${x.llamadas_modelo}</span><span>${esc(x.detalle ?? '')}</span><span></span></div>`).join('') : '');
+          `<span>▸ ${x.pasos}</span><span>${esc(x.detalle ?? '')}</span><span></span></div>`).join('') : '');
     }
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
@@ -411,7 +401,7 @@ function tablero(d) {
 function actores(d) {
   const e = st.estado;
   const quienes = [
-    ['orquestador', 'Orquestador', 'ejecuta las rutinas y pasa al modelo local sus tareas'],
+    ['orquestador', 'Orquestador', 'en reconstrucción: ejecutará las tareas del bus (Qwen Code)'],
     ['modelo-local', 'Modelo local', 'responde en el momento; puede consultar tareas, diario y notas'],
     ['claude-code', 'Claude Code', 'recoge sus tareas cuando hay una sesión suya abierta'],
   ];
@@ -750,27 +740,6 @@ async function accion(b) {
   await tick();
 }
 
-async function voz() {
-  if (st.voz) return;
-  st.voz = true;
-  const bv = $('#voz'), eco = $('#eco');
-  bv.classList.add('escuchando');
-  eco.hidden = true;
-  try {
-    const r = await post('/api/voz/hablar');
-    const lineas = r.aviso ? [r.aviso] : [`» ${r.transcripcion ?? ''}`, `« ${r.respuesta ?? ''}`];
-    eco.innerHTML = lineas.map(l => `<p>${esc(l)}</p>`).join('');
-    eco.hidden = false;
-    setTimeout(() => { eco.hidden = true; }, 15000);
-  } catch (e) {
-    avisa(e.message);
-  } finally {
-    st.voz = false;
-    bv.classList.remove('escuchando');
-    tick();
-  }
-}
-
 // El cuadro de tarea nueva: siempre a la vista en la portada; en el resto de
 // secciones se abre con «+ tarea» o la tecla n.
 function formulario(mostrar) {
@@ -798,7 +767,6 @@ document.addEventListener('click', ev => {
   const t = ev.target;
   const rail = t.closest('#rail button');
   if (rail) return ir(rail.dataset.s);
-  if (t.closest('#voz')) return voz();
   if (t.closest('#nueva')) return formulario($('#form').hidden || st.sec === 'inicio');
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
   if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }

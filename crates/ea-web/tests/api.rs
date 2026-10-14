@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
-const RUTINA_EJEMPLO: &str =
-    include_str!("../../ea-orchestrator/rutinas-ejemplo/revision-diaria.toml");
+const RUTINA_EJEMPLO: &str = "descripcion = \"Revisión diaria de ejemplo\"
+";
 
 struct Fixture {
     state: Arc<AppState>,
@@ -28,7 +28,6 @@ fn montar() -> Fixture {
     let store = Store::open_at(&dir.path().join("test.db")).expect("abrir store");
     let config = WebConfig {
         puerto: 0,
-        voz_puerto: 1, // nadie escucha ahí
         umbral_heartbeat_s: 60,
         tema_path: dir.path().join("no-existe.toml"),
         rutinas_dir,
@@ -175,7 +174,7 @@ async fn el_diario_oculta_los_latidos_salvo_que_se_pidan() {
     let f = montar();
     {
         let store = f.state.store.lock().await;
-        for accion in ["heartbeat", "heartbeat", "voz_escucha_iniciada"] {
+        for accion in ["heartbeat", "heartbeat", "tarea_creada"] {
             store
                 .append_event(NewEvent {
                     actor: "orquestador".into(),
@@ -191,7 +190,7 @@ async fn el_diario_oculta_los_latidos_salvo_que_se_pidan() {
 
     let (_, sin) = get(&f, "/api/diario").await;
     assert_eq!(sin.as_array().unwrap().len(), 1);
-    assert_eq!(sin[0]["accion"], "voz_escucha_iniciada");
+    assert_eq!(sin[0]["accion"], "tarea_creada");
 
     let (_, con) = get(&f, "/api/diario?latidos=1").await;
     assert_eq!(con.as_array().unwrap().len(), 3);
@@ -239,13 +238,11 @@ async fn rutinas_listar_ver_y_encolar() {
 
     let (_, lista) = get(&f, "/api/rutinas").await;
     assert_eq!(lista[0]["slug"], "revision-diaria");
-    assert!(lista[0]["descripcion"].is_string());
     assert!(lista[0]["ultima"].is_null());
 
     let (s, r) = get(&f, "/api/rutinas/revision-diaria").await;
     assert_eq!(s, StatusCode::OK);
-    assert_eq!(r["pasos"][0]["id"], r["inicio"]);
-    assert_eq!(r["pasos"].as_array().unwrap().len(), 4);
+    assert!(r["contenido"].as_str().unwrap().contains("Revisión diaria"));
 
     let (s, t) = post(&f, "/api/rutinas/revision-diaria/encolar", json!({})).await;
     assert_eq!(s, StatusCode::CREATED);
@@ -262,11 +259,11 @@ async fn rutinas_listar_ver_y_encolar() {
 }
 
 #[tokio::test]
-async fn servicios_y_voz_degradan_con_limpieza() {
+async fn servicios_degradan_con_limpieza() {
     let f = montar();
 
     let (_, e) = get(&f, "/api/estado").await;
-    assert_eq!(e["servicios"].as_array().unwrap().len(), 4);
+    assert_eq!(e["servicios"].as_array().unwrap().len(), 3);
     assert_eq!(e["servicios"][0]["activo"], "desconocido");
     assert_eq!(e["orquestador"]["vivo"], false);
 
@@ -274,9 +271,6 @@ async fn servicios_y_voz_degradan_con_limpieza() {
     assert_eq!(s, StatusCode::NOT_FOUND);
     let (s, _) = post(&f, "/api/servicios/ea-mcp/reiniciar", json!({})).await;
     assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
-
-    let (s, _) = post(&f, "/api/voz/hablar", json!({})).await;
-    assert_eq!(s, StatusCode::BAD_GATEWAY);
 }
 
 #[tokio::test]

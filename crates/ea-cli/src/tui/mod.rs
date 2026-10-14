@@ -12,7 +12,6 @@ use anyhow::Result;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
-use ea_orchestrator::rutina;
 use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, ResultadoBusqueda, Store, Task, TaskFilter};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout};
@@ -22,12 +21,10 @@ use ratatui::Terminal;
 
 use crate::commands::fmt_ts;
 
-/// Resumen de una rutina para la pestaña `Rutinas`: no es el tipo de
-/// dominio completo de `ea-orchestrator::rutina::Rutina` (eso viviría en
-/// disco, no en `ea-store`) — solo lo que hace falta para listar.
+/// Resumen de una rutina para la pestaña `Rutinas`: solo lo que hace falta
+/// para listar.
 pub struct RutinaResumen {
     pub slug: String,
-    pub descripcion: String,
     pub ultima_ejecucion: Option<String>,
 }
 
@@ -101,12 +98,9 @@ pub fn run(store: &mut Store) -> Result<()> {
     let store: &Store = store;
     let rutinas_dir = ea_orchestrator::config::load().rutinas_dir;
     let mut rutinas = Vec::new();
-    for slug in rutina::listar_slugs(&rutinas_dir).unwrap_or_default() {
-        let descripcion = rutina::cargar(&rutinas_dir, &slug)
-            .map(|r| r.descripcion)
-            .unwrap_or_else(|e| format!("(inválida: {e})"));
+    for slug in crate::commands::rutinas::listar_slugs(&rutinas_dir).unwrap_or_default() {
         let ultima_ejecucion = store.last_successful_run(&slug).ok().flatten().map(|r| fmt_ts(r.started_at));
-        rutinas.push(RutinaResumen { slug, descripcion, ultima_ejecucion });
+        rutinas.push(RutinaResumen { slug, ultima_ejecucion });
     }
 
     // Misma consulta a `systemd --user` que hace `ea-web`; es asíncrona, así
