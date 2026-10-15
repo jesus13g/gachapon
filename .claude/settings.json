@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ea qwen-skills *)",
+      "Bash(ea trabajo crear *)"
+    ]
+  }
+}

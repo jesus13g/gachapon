@@ -116,6 +116,7 @@ impl Rutina {
             topes: self.topes.unwrap_or_default(),
             rutina: Some(RutinaRef { slug: c.slug.clone(), version: c.version }),
             notas_revision: vec![],
+            skills: vec![],
             creada_en: String::new(),
             creada_por: "rutina".into(),
         })

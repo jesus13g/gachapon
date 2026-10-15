@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, RutinaAccion, TrabajoAccion};
+use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -56,9 +56,14 @@ fn main() -> Result<()> {
             BovedaAccion::Promover { ruta, destino } => commands::boveda::promover(&mut store, &ruta, destino)?,
             BovedaAccion::Reindexar => commands::boveda::reindexar(&mut store)?,
         },
+        Command::QwenSkills { accion } => match accion {
+            QwenSkillsAccion::Listar { json } => commands::qwen_skills::listar(json)?,
+            QwenSkillsAccion::Ver { nombre } => commands::qwen_skills::ver(&nombre)?,
+            QwenSkillsAccion::Probar { skills, por } => commands::qwen_skills::probar(&por, &skills)?,
+        },
         Command::Trabajo { accion } => match accion {
-            TrabajoAccion::Crear { orden, modo, titulo, worktree, objetivo, criterio } => {
-                commands::trabajo::crear(orden, &modo, titulo, worktree, objetivo, criterio)?
+            TrabajoAccion::Crear { orden, modo, titulo, worktree, objetivo, criterio, skills, por } => {
+                commands::trabajo::crear(orden, &modo, titulo, worktree, objetivo, criterio, skills, por)?
             }
             TrabajoAccion::Listar => commands::trabajo::listar()?,
             TrabajoAccion::Ver { id, json } => commands::trabajo::ver(&id, json)?,

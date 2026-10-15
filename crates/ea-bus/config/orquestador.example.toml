@@ -11,3 +11,13 @@
 # tiempo_s = 900
 # llamadas_herramienta = 60
 # iteraciones = 5
+
+# Skills propias de Qwen (`qwen/skills/` del repo, enlazado aquí). Ninguna va
+# activa por defecto: cada trabajo lleva solo las que elija quien tenga la
+# llave, y el orquestador las añade al system prompt de Qwen.
+# [skills]
+# dir = "~/.config/ecosistema-asistente/qwen-skills"
+# habilitadas = []                  # vacío: todas las del catálogo
+# max_por_trabajo = 3               # por trabajo o por fase de obra
+# max_caracteres = 6000             # suma de los cuerpos
+# pueden_elegir = ["claude-code"]   # la llave: valores de `creada_por`

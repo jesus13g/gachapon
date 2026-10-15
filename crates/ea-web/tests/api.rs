@@ -277,6 +277,7 @@ fn orden(modo: ea_bus::Modo, titulo: &str, worktree: &str) -> ea_bus::Orden {
         topes: Default::default(),
         rutina: None,
         notas_revision: vec![],
+        skills: vec![],
         creada_en: String::new(),
         creada_por: "test".into(),
     }

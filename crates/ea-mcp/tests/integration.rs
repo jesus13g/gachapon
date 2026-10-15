@@ -239,6 +239,7 @@ async fn los_trabajos_del_bus_se_leen_pero_no_se_crean_desde_mcp() {
             topes: ea_bus::Topes::default(),
             rutina: None,
             notas_revision: vec![],
+            skills: vec![],
             creada_en: String::new(),
             creada_por: "test".into(),
         })

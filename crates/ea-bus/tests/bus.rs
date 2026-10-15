@@ -23,11 +23,13 @@ fn orden(wt: &Path) -> Orden {
             instrucciones: "i".into(),
             entregable: "e".into(),
             criterio: "true".into(),
+            skills: vec![],
         }],
         revisar_cada: None,
         topes: Topes::default(),
         rutina: None,
         notas_revision: vec![],
+        skills: vec![],
         creada_en: String::new(),
         creada_por: "claude-code".into(),
     }

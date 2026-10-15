@@ -62,6 +62,9 @@ pub struct Fase {
     pub entregable: String,
     /// Comando de shell que decide si la fase está hecha.
     pub criterio: String,
+    /// Skills de Qwen para esta fase; si está vacío, las de la orden.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +96,9 @@ pub struct Orden {
     /// Notas que añade la revisión al reformular.
     #[serde(default)]
     pub notas_revision: Vec<String>,
+    /// Skills de Qwen que lleva el trabajo (las elige quien tenga la llave).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<String>,
     pub creada_en: String,
     pub creada_por: String,
 }

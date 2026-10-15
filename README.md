@@ -135,6 +135,7 @@ volver a arrancar los servicios.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
 - `claude/skills/`: las skills de Claude Code.
+- `qwen/skills/`: las skills propias del agente local.
 
 ## Skills de Claude Code
 
@@ -153,6 +154,38 @@ for s in mision obra rutina revisar; do
   ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
 done
 ```
+
+## Skills de Qwen
+
+Qwen corre con `--bare`, así que no carga nada por su cuenta. Tiene una batería
+propia de skills cortas (~150-250 tokens cada una) en `qwen/skills/<nombre>.md`:
+`explorar`, `rust`, `python`, `tests`, `depurar`, `refactor`, `shell`,
+`documentar` y `resumir`. Ninguna va activa por defecto. Cada trabajo lleva en su
+orden el campo `skills` (y cada fase de una obra puede llevar las suyas), y el
+orquestador inyecta solo esas en el system prompt de Qwen con
+`--append-system-prompt`. El texto inyectado queda en
+`trabajos/<id>/skills-qwen.md`.
+
+Las elige Claude Code al formalizar (`/mision`, `/obra`). La sección `[skills]`
+de `orquestador.toml` decide qué se puede elegir y quién:
+
+- `habilitadas`: lista blanca del catálogo (vacía = todas).
+- `max_por_trabajo` y `max_caracteres`: topes de contexto.
+- `pueden_elegir`: la llave, los valores de `creada_por` autorizados (por defecto
+  `claude-code`). Un trabajo con skills de otro origen se rechaza al crearlo y
+  vuelve a validarse al ejecutarse: si no pasa, se bloquea sin llamar a Qwen.
+
+```bash
+ln -sfn "$PWD/qwen/skills" ~/.config/ecosistema-asistente/qwen-skills
+ea qwen-skills listar              # catálogo, tamaños y descripciones
+ea qwen-skills ver tests           # lo que recibe Qwen
+ea qwen-skills probar rust,tests   # valida una selección (llave y topes)
+ea trabajo crear --modo mision … --skills rust,tests --por claude-code
+```
+
+`.claude/settings.json` da permiso a Claude Code para `ea qwen-skills` y
+`ea trabajo crear` sin preguntar. Una skill nueva es un `.md` más en
+`qwen/skills/` con una línea `descripcion:` entre dos `---` al principio. Mantenla corta.
 
 ## Uso
 

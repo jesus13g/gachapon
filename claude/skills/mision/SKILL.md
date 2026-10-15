@@ -17,6 +17,7 @@ Claude Code **formaliza y encola**. NO implementa el trabajo, ni siquiera "para 
 2. **Formaliza** y enséñale al usuario en pocas líneas:
    - `objetivo`: texto concreto para el agente: ficheros y funciones nombrados, firmas, comportamiento esperado. Sin ambigüedad.
    - `criterio_exito`: UN comando de shell que pase o falle, ejecutado desde el worktree: tests (`python test_x.py`, `cargo test -p x`), `test -f ruta`, `grep -q patrón fichero` o un script. Debe fallar ahora y pasar solo si el objetivo se cumple. Si no existe, el objetivo incluye crear el test, pero prefiere escribir tú el test antes (es formalizar, no implementar) si es corto.
+   - `skills`: las skills de Qwen que necesita la tarea (ver abajo).
    - `topes`: `iteraciones` 3-5 (por defecto 5); `tiempo_s` 900 por iteración; `turnos` 30; `llamadas_herramienta` 60. Sube solo con motivo.
 3. **Escribe la orden** en un temporal (`mktemp`) con este formato (`id`, `creada_en` vacíos; se rellenan solos):
 
@@ -28,6 +29,7 @@ Claude Code **formaliza y encola**. NO implementa el trabajo, ni siquiera "para 
   "worktree": "/ruta/absoluta",
   "objetivo": "…",
   "criterio_exito": "python test_calc.py",
+  "skills": ["python", "tests"],
   "topes": {"turnos": 30, "tiempo_s": 900, "llamadas_herramienta": 60, "iteraciones": 4},
   "creada_en": "",
   "creada_por": "claude-code"
@@ -37,4 +39,14 @@ Claude Code **formaliza y encola**. NO implementa el trabajo, ni siquiera "para 
 4. **Encola:** `ea trabajo crear --orden /tmp/…json` → imprime el **id**.
 5. **Informa** del id y de que llegará a la cola `claude-code` al terminar o bloquearse (`ea cola claude-code`). Revisión con `/revisar`. No esperes en bucle ni hagas el trabajo mientras tanto.
 
-Forma rápida sin JSON: `ea trabajo crear --modo mision --titulo T --worktree . --objetivo O --criterio C` (topes por defecto).
+Forma rápida sin JSON: `ea trabajo crear --modo mision --titulo T --worktree . --objetivo O --criterio C --skills python,tests --por claude-code` (topes por defecto).
+
+## Skills de Qwen
+
+Qwen no carga nada por su cuenta (`--bare`): solo las skills que pongas en la orden se añaden a su system prompt. Son suyas, no las de Claude Code. Tú tienes la llave para elegirlas (`creada_por: "claude-code"`).
+
+- Consulta el catálogo: `ea qwen-skills listar` (nombre, tamaño y descripción; las marcadas con `x` están deshabilitadas).
+- Elige **las mínimas** (0-2 normalmente; máximo el que diga el listado): el contexto del 30B es pequeño. Típico: lenguaje (`rust`, `python`, `shell`) + tipo de trabajo (`tests`, `depurar`, `refactor`, `documentar`, `resumir`); `explorar` solo si el objetivo no nombra los ficheros.
+- Si dudas de una, léela: `ea qwen-skills ver <nombre>`. Comprueba la selección con `ea qwen-skills probar a,b`.
+- Si no hay ninguna adecuada, no pongas ninguna: el objetivo bien escrito vale más que una skill genérica.
+

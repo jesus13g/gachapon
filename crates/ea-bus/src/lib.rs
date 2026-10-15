@@ -9,11 +9,13 @@ pub mod config;
 mod error;
 mod fs_atomico;
 mod rutina;
+pub mod skills;
 mod tipos;
 
 pub use bus::{Bus, EntradaCola, ENV_ESTADO, raiz_estado};
 pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
 pub use config::ConfigOrquestador;
+pub use skills::{bloque_prompt, ConfigSkills, Skill};
 pub use rutina::{slug_valido, CabeceraRutina, Paso, Rutina};
 pub use error::{ErrorBus, Resultado};
 pub use tipos::{

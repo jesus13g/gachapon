@@ -13,6 +13,7 @@ pub(super) fn bus() -> Result<Bus> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn crear(
     fichero: Option<PathBuf>,
     modo: &str,
@@ -20,6 +21,8 @@ pub fn crear(
     worktree: Option<String>,
     objetivo: Option<String>,
     criterio: Option<String>,
+    skills: Vec<String>,
+    por: String,
 ) -> Result<()> {
     let orden: Orden = if let Some(f) = fichero {
         serde_json::from_str(&std::fs::read_to_string(&f)?).map_err(|e| anyhow!("orden inválida ({}): {e}", f.display()))?
@@ -44,10 +47,12 @@ pub fn crear(
             topes: Topes::default(),
             rutina: None,
             notas_revision: vec![],
+            skills,
             creada_en: String::new(),
-            creada_por: "ea-cli".into(),
+            creada_por: por,
         }
     };
+    super::qwen_skills::validar_orden(&orden)?;
     println!("{}", bus()?.crear_trabajo(orden)?);
     Ok(())
 }
@@ -83,6 +88,9 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     println!("worktree  {}", orden.worktree);
     if let Some(c) = &orden.criterio_exito {
         println!("criterio  {c}");
+    }
+    if !orden.skills.is_empty() {
+        println!("skills    {}", orden.skills.join(", "));
     }
     if let Some(r) = orden.revisar_cada {
         println!("revisar_cada {r}");
