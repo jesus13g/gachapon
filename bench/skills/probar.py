@@ -61,6 +61,9 @@ def prompt(titulo, objetivo, criterio):
 
 
 def preparar(tarea, wt: Path):
+    # repetir con la misma --salida machaca la ejecución anterior en vez de fallar
+    if wt.parent.exists():
+        shutil.rmtree(wt.parent)
     wt.mkdir(parents=True)
     for ruta, contenido in tarea["ficheros"].items():
         p = wt / ruta
@@ -89,8 +92,14 @@ def qwen(prompt_txt, sistema, wt: Path):
     args += ["--max-session-turns", str(TOPES["turnos"]), "--max-wall-time", f"{TOPES['tiempo_s']}s",
              "--max-tool-calls", str(TOPES["llamadas"]), "--output-format", "json", prompt_txt]
     t0 = time.time()
-    p = subprocess.run(args, cwd=wt, capture_output=True, text=True, timeout=TOPES["tiempo_s"] + 120,
-                       env={**os.environ, "QWEN_CODE_SUPPRESS_YOLO_WARNING": "1"})
+    try:
+        p = subprocess.run(args, cwd=wt, capture_output=True, text=True, timeout=TOPES["tiempo_s"] + 120,
+                           env={**os.environ, "QWEN_CODE_SUPPRESS_YOLO_WARNING": "1"})
+    except subprocess.TimeoutExpired as e:
+        # un Qwen colgado cuenta como fallo de esa ejecución, no tumba la pasada
+        def txt(b):
+            return b.decode(errors="replace") if isinstance(b, bytes) else (b or "")
+        return "timeout", txt(e.stdout), txt(e.stderr), time.time() - t0
     return p.returncode, p.stdout, p.stderr, time.time() - t0
 
 
@@ -117,7 +126,10 @@ def metricas(salida: str):
 def comprobar(tarea, wt: Path):
     # la caché .pyc puede quedarse vieja si Qwen edita y prueba en el mismo segundo
     subprocess.run(["find", ".", "-name", "__pycache__", "-prune", "-exec", "rm", "-rf", "{}", "+"], cwd=wt)
-    p = subprocess.run(["sh", "-c", "exec 2>&1; " + tarea["comprobar"]], cwd=wt, capture_output=True, text=True, timeout=180)
+    try:
+        p = subprocess.run(["sh", "-c", "exec 2>&1; " + tarea["comprobar"]], cwd=wt, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        return False, "comprobador: timeout"
     return p.returncode == 0, p.stdout[-1500:]
 
 

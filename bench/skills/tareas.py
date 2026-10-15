@@ -149,8 +149,12 @@ TAREAS = {
         "la primera línea de ERROR completa y el componente (entre corchetes) con más errores.",
         "criterio": "test -s resumen.md",
         "ficheros": {"servidor.log": _LOG},
+        # el componente se busca fuera de la primera línea de ERROR (lleva el suyo entre corchetes), en una línea
+        # que diga "más/mayor" y que no nombre otro: un desglose de todos no basta para aprobar
         "comprobar": f"cat resumen.md; grep -q '\\b{_err}\\b' resumen.md && grep -q '\\b{_warn}\\b' resumen.md "
-        f"&& grep -qF '{_primero}' resumen.md && grep -q '{_PEOR}' resumen.md",
+        f"&& grep -qF '{_primero}' resumen.md && grep -vF '{_primero}' resumen.md | grep -iE 'más|mayor' | grep -q '\\b{_PEOR}\\b' "
+        f"&& ! grep -vF '{_primero}' resumen.md | grep -iE 'más|mayor' | grep -v '\\b{_PEOR}\\b' "
+        f"| grep -qE '\\b({'|'.join(c for c in _comp if c != _PEOR)})\\b'",
     },
     "documentar": {
         "skills": ["documentar"],
