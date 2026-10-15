@@ -53,6 +53,11 @@ pub enum Command {
     },
     /// Semáforos de worktree ocupados ahora mismo
     Semaforos,
+    /// Skills propias del agente local (Qwen): catálogo y contenido
+    QwenSkills {
+        #[command(subcommand)]
+        accion: QwenSkillsAccion,
+    },
     /// Interfaz interactiva
     Tui,
 }
@@ -76,6 +81,12 @@ pub enum TrabajoAccion {
         /// Comando de shell que decide si está hecho
         #[arg(long)]
         criterio: Option<String>,
+        /// Skills de Qwen para el trabajo, separadas por comas (ver `ea qwen-skills listar`)
+        #[arg(long, value_delimiter = ',')]
+        skills: Vec<String>,
+        /// Quién crea el trabajo; elegir skills exige que esté en `[skills].pueden_elegir`
+        #[arg(long, default_value = "ea-cli")]
+        por: String,
     },
     /// Lista los trabajos con su estado
     Listar,
@@ -112,6 +123,25 @@ pub enum TrabajoAccion {
     },
     /// Cancela un trabajo
     Cancelar { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum QwenSkillsAccion {
+    /// Catálogo: nombre, tamaño, si está habilitada y descripción
+    Listar {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Muestra el cuerpo de una skill tal como lo recibe Qwen
+    Ver { nombre: String },
+    /// Comprueba una selección (llave, existencia, topes) sin crear nada
+    Probar {
+        /// Skills separadas por comas
+        #[arg(value_delimiter = ',')]
+        skills: Vec<String>,
+        #[arg(long, default_value = "claude-code")]
+        por: String,
+    },
 }
 
 #[derive(Subcommand)]

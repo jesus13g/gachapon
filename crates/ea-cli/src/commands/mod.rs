@@ -2,6 +2,7 @@ pub mod acciones;
 pub mod boveda;
 pub mod diario;
 pub mod propuestas;
+pub mod qwen_skills;
 pub mod rutinas;
 pub mod status;
 pub mod trabajo;

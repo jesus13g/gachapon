@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::skills::ConfigSkills;
 use crate::tipos::Topes;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -17,6 +18,8 @@ pub struct ConfigOrquestador {
     pub avisos_escritorio: bool,
     /// Ejecuta qwen dentro de bubblewrap (solo el worktree es escribible).
     pub sandbox: bool,
+    /// Catálogo de skills de Qwen, cuáles se pueden usar y quién las elige.
+    pub skills: ConfigSkills,
 }
 
 impl Default for ConfigOrquestador {
@@ -28,6 +31,7 @@ impl Default for ConfigOrquestador {
             topes: Topes::default(),
             avisos_escritorio: true,
             sandbox: true,
+            skills: ConfigSkills::default(),
         }
     }
 }

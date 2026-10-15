@@ -19,6 +19,9 @@
 //! `--approval-mode yolo`: puede escribir y ejecutar en cualquier sitio donde
 //! escriba el usuario. Se limita además con los topes de la orden, el
 //! aislamiento por worktree y `--exclude-tools` para las herramientas web.
+//! También se excluyen las de objetivos y notebooks: no le sirven y cada
+//! herramienta declarada cuesta tokens en todos los turnos (~900 entre las
+//! tres, medido con `bench/skills`).
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -47,14 +50,15 @@ pub struct SalidaAgente {
 }
 
 pub trait AgenteLocal {
-    fn ejecutar(&self, prompt: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador) -> SalidaAgente;
+    /// `sistema` se añade al system prompt (las skills); vacío si no hay.
+    fn ejecutar(&self, prompt: &str, sistema: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador) -> SalidaAgente;
 }
 
 /// Qwen Code real, en modo headless.
 pub struct QwenCode;
 
 impl AgenteLocal for QwenCode {
-    fn ejecutar(&self, prompt: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador) -> SalidaAgente {
+    fn ejecutar(&self, prompt: &str, sistema: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador) -> SalidaAgente {
         let mut args: Vec<String> = Vec::new();
         let mut cmd = if config.sandbox {
             let home = std::env::var("HOME").unwrap_or_default();
@@ -74,11 +78,15 @@ impl AgenteLocal for QwenCode {
         // `--exclude-tools` es un array: va antes de las demás opciones para
         // que no se trague la orden, que va la última.
         for a in [
-            "--exclude-tools", "web_fetch", "web_search", "--bare", "--auth-type", "openai",
+            "--exclude-tools", "web_fetch", "web_search", "get_goal", "update_goal", "notebook_edit", "--bare", "--auth-type", "openai",
             "--openai-base-url", &config.base_url, "--openai-api-key", "local", "-m", &config.modelo,
             "--approval-mode", "yolo",
         ] {
             args.push(a.into());
+        }
+        if !sistema.is_empty() {
+            args.push("--append-system-prompt".into());
+            args.push(sistema.into());
         }
         args.push("--max-session-turns".into());
         args.push(topes.turnos.to_string());
@@ -193,6 +201,7 @@ fn construir_prompt(orden: &Orden, titulo: &str, cuerpo: &str, criterio: &str) -
         "\n## Reglas\n\
          - Trabaja SOLO dentro del directorio actual (el worktree); no toques nada fuera.\n\
          - No hagas commits.\n\
+         - Para crear un fichero nuevo usa run_shell_command con `cat > ruta <<'EOF'`: no hay herramienta para escribir ficheros. `edit` solo cambia ficheros que ya has leído con read_file.\n\
          - El criterio de éxito es el comando `{criterio}` y debe pasar.\n\
          - Cuando termines, explica en 3 líneas qué hiciste.\n"
     ));
@@ -332,7 +341,8 @@ fn correr_criterio(wt: &Path, criterio: &str) -> (bool, String) {
 
 /// Llama al agente hasta que el criterio pase, salgan los topes (55) o se
 /// agoten las iteraciones. El criterio lo ejecuta el SISTEMA, no el agente, y
-/// su ausencia nunca cuenta como éxito.
+/// su ausencia nunca cuenta como éxito. Las `skills` se vuelven a validar
+/// contra la configuración del momento: si ya no valen, no se llama a Qwen.
 #[allow(clippy::too_many_arguments)]
 fn bucle(
     bus: &Bus,
@@ -344,13 +354,21 @@ fn bucle(
     titulo: &str,
     cuerpo: &str,
     criterio: &str,
+    skills: &[String],
 ) -> Bucle {
     if criterio.trim().is_empty() {
         return Bucle { pasa: false, evidencia: "la orden no trae criterio de éxito".into(), motivo: Some("sin criterio de éxito".into()) };
     }
+    let dir = bus.raiz().join("trabajos").join(id);
+    let sistema = match config.skills.resolver(&orden.creada_por, skills) {
+        Ok(s) => ea_bus::bloque_prompt(&s),
+        Err(e) => return Bucle { pasa: false, evidencia: e.to_string(), motivo: Some(format!("skills: {e}")) },
+    };
+    if !sistema.is_empty() {
+        let _ = std::fs::write(dir.join("skills-qwen.md"), &sistema);
+    }
     let base = construir_prompt(orden, titulo, cuerpo, criterio);
     let max = orden.topes.iteraciones.max(1);
-    let dir = bus.raiz().join("trabajos").join(id);
     let mut previa: Option<String> = None;
     for it in 1..=max {
         let _ = bus.anotar_iteracion(id);
@@ -361,7 +379,7 @@ fn bucle(
                 it - 1
             ),
         };
-        let salida = agente.ejecutar(&prompt, wt, &orden.topes, config);
+        let salida = agente.ejecutar(&prompt, &sistema, wt, &orden.topes, config);
         let _ = std::fs::write(dir.join("salida-qwen.json"), &salida.bruta);
         let (pasa, ev) = correr_criterio(wt, criterio);
         let mut evidencia = ev.clone();
@@ -411,7 +429,7 @@ fn trabajar(
     }
 
     let criterio = orden.criterio_exito.clone().unwrap_or_default();
-    let r = bucle(bus, config, agente, id, orden, wt, &orden.titulo, &orden.objetivo, &criterio);
+    let r = bucle(bus, config, agente, id, orden, wt, &orden.titulo, &orden.objetivo, &criterio, &orden.skills);
 
     let mut diff = git(wt, &["diff", "--stat", &commit_inicio]).unwrap_or_default();
     let nuevos: Vec<String> = git(wt, &["ls-files", "--others", "--exclude-standard"])
@@ -487,7 +505,8 @@ fn trabajar_obra(
             "## Objetivo general (contexto)\n{}\n\n## Esta fase: {}\n{}\n\nEntregable: {}",
             orden.objetivo, f.titulo, f.instrucciones, f.entregable
         );
-        let r = bucle(bus, config, agente, id, orden, wt, &titulo, &cuerpo, &f.criterio);
+        let skills = if f.skills.is_empty() { &orden.skills } else { &f.skills };
+        let r = bucle(bus, config, agente, id, orden, wt, &titulo, &cuerpo, &f.criterio, skills);
         evidencia = r.evidencia.clone();
         if !r.pasa {
             let stat = instantanea(wt, &dir).map(|t| diff_entre(wt, &previo, &t, true)).unwrap_or_default();
@@ -577,16 +596,18 @@ mod tests {
         script: &'static str,
         codigo: i32,
         visto: Mutex<Vec<String>>,
+        sistemas: Mutex<Vec<String>>,
     }
     impl AgenteLocal for Doble {
-        fn ejecutar(&self, prompt: &str, wt: &Path, _: &Topes, _: &ConfigOrquestador) -> SalidaAgente {
+        fn ejecutar(&self, prompt: &str, sistema: &str, wt: &Path, _: &Topes, _: &ConfigOrquestador) -> SalidaAgente {
             self.visto.lock().unwrap().push(prompt.to_string());
+            self.sistemas.lock().unwrap().push(sistema.to_string());
             let _ = Command::new("sh").arg("-c").arg(self.script).current_dir(wt).status();
             SalidaAgente { codigo: Some(self.codigo), bruta: "[]".into(), resumen: "hecho".into() }
         }
     }
     fn doble(script: &'static str, codigo: i32) -> Doble {
-        Doble { script, codigo, visto: Mutex::new(vec![]) }
+        Doble { script, codigo, visto: Mutex::new(vec![]), sistemas: Mutex::new(vec![]) }
     }
 
     fn repo() -> tempfile::TempDir {
@@ -614,6 +635,7 @@ mod tests {
             topes: Topes::default(),
             rutina: None,
             notas_revision: vec!["usa mayúsculas".into()],
+            skills: vec![],
             creada_en: String::new(),
             creada_por: "test".into(),
         }
@@ -635,6 +657,7 @@ mod tests {
             instrucciones: format!("crea el fichero f{n}"),
             entregable: format!("f{n}"),
             criterio: format!("test -f f{n}"),
+            skills: vec![],
         };
         Orden {
             modo: Modo::Obra,
@@ -655,6 +678,7 @@ mod tests {
             titulo: "Rutina prueba".into(),
             rutina: Some(ea_bus::RutinaRef { slug: "prueba".into(), version: 1 }),
             notas_revision: vec![],
+            skills: vec![],
             topes: Topes { iteraciones: 1, ..Topes::default() },
             ..orden(wt, criterio)
         }
@@ -683,6 +707,69 @@ mod tests {
         assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap()[0].trabajo, id);
         assert!(e.path().join("trabajos").join(&id).join("salida-qwen.json").exists());
         assert_eq!(ejecutar_uno(&bus, &config(), &ag), None);
+    }
+
+    fn config_con_skills(dir: &Path) -> ConfigOrquestador {
+        std::fs::write(dir.join("rust.md"), "---\ndescripcion: Rust\n---\nUsa cargo test.\n").unwrap();
+        std::fs::write(dir.join("tests.md"), "---\ndescripcion: tests\n---\nPrueba primero.\n").unwrap();
+        let mut c = config();
+        c.skills.dir = dir.to_string_lossy().into();
+        c
+    }
+
+    #[test]
+    fn las_skills_elegidas_van_al_system_prompt_y_solo_esas() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let sk = tempfile::tempdir().unwrap();
+        let cfg = config_con_skills(sk.path());
+        let bus = Bus::abrir_en(e.path()).unwrap();
+        let o = Orden { skills: vec!["rust".into()], creada_por: "claude-code".into(), ..orden(wt.path(), "test -f ok.txt") };
+        let id = bus.crear_trabajo(o).unwrap();
+        let ag = doble("echo hola > ok.txt", 0);
+        ejecutar_uno(&bus, &cfg, &ag);
+        let s = &ag.sistemas.lock().unwrap()[0];
+        assert!(s.contains("Usa cargo test."));
+        assert!(!s.contains("Prueba primero."));
+        assert!(!ag.visto.lock().unwrap()[0].contains("Usa cargo test."));
+        assert!(e.path().join("trabajos").join(&id).join("skills-qwen.md").exists());
+        assert_eq!(bus.leer_informe(&id).unwrap().unwrap().resultado, ResultadoInforme::Terminado);
+    }
+
+    #[test]
+    fn sin_llave_las_skills_bloquean_sin_llamar_a_qwen() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let sk = tempfile::tempdir().unwrap();
+        let cfg = config_con_skills(sk.path());
+        let bus = Bus::abrir_en(e.path()).unwrap();
+        let o = Orden { skills: vec!["rust".into()], ..orden(wt.path(), "test -f ok.txt") };
+        let id = bus.crear_trabajo(o).unwrap();
+        let ag = doble("echo hola > ok.txt", 0);
+        ejecutar_uno(&bus, &cfg, &ag);
+        assert!(ag.visto.lock().unwrap().is_empty());
+        let inf = bus.leer_informe(&id).unwrap().unwrap();
+        assert_eq!(inf.resultado, ResultadoInforme::Bloqueado);
+        assert!(inf.motivo.unwrap().contains("llave"));
+    }
+
+    #[test]
+    fn cada_fase_de_obra_puede_llevar_sus_skills() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let sk = tempfile::tempdir().unwrap();
+        let cfg = config_con_skills(sk.path());
+        let bus = Bus::abrir_en(e.path()).unwrap();
+        let mut o = Orden { skills: vec!["rust".into()], creada_por: "claude-code".into(), ..fases3(wt.path(), None) };
+        o.fases[1].skills = vec!["tests".into()];
+        bus.crear_trabajo(o).unwrap();
+        let ag = doble(SIGUIENTE, 0);
+        ejecutar_uno(&bus, &cfg, &ag);
+        let s = ag.sistemas.lock().unwrap();
+        assert_eq!(s.len(), 3);
+        assert!(s[0].contains("cargo") && !s[0].contains("Prueba"));
+        assert!(s[1].contains("Prueba") && !s[1].contains("cargo"));
+        assert!(s[2].contains("cargo"));
     }
 
     #[test]
