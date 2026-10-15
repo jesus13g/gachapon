@@ -5,6 +5,10 @@ revisa) y un **agente local** (Qwen Code sobre `llama-server`, que ejecuta). Amb
 trabajan sobre el mismo worktree de git y se comunican por un bus de ficheros con
 colas y semáforos. Diseño y razones en `orquestador-claude-qwen.md`.
 
+[![Cómo funciona gachapon en 15 segundos](docs/media/gachapon-explicado.gif)](docs/media/gachapon-explicado.mp4)
+
+*Cómo funciona en 15 segundos, sobre la interfaz `ea-web` ([vídeo en MP4](docs/media/gachapon-explicado.mp4)).*
+
 ## Estado actual
 
 Funcionan el bus, el ejecutor, las skills de Claude Code, la CLI (`ea`), el
