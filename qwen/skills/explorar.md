@@ -1,10 +1,10 @@
 ---
-descripcion: Localizar código en un repo desconocido sin gastar contexto. Útil casi siempre que la tarea no nombre todos los ficheros.
+descripcion: Localizar código en un repo desconocido sin gastar contexto. Útil cuando la tarea no nombra los ficheros a tocar.
 ---
-Tu contexto es pequeño: cada fichero leído entero lo consume.
-- Empieza por la estructura: lista directorios con `ls` o `find . -maxdepth 2 -not -path '*/.git*'`.
-- Busca antes de leer: `grep -rn "nombre" --include=*.rs .` (o `rg -n` si existe). Busca el símbolo exacto que nombra la tarea.
-- Lee solo el fragmento útil: `sed -n '120,180p' fichero` en vez del fichero completo. Lee entero solo si tiene menos de 200 líneas.
-- No abras `target/`, `node_modules/`, `.venv/`, `dist/` ni ficheros generados o binarios.
-- Antes de cambiar una función, busca quién la llama (`grep -rn "funcion("`).
-- Deja de explorar en cuanto sepas qué fichero y qué líneas tocar.
+Cada turno y cada línea leída consumen tu contexto. Encuentra el sitio con pocos comandos:
+- Un solo comando para orientarte: `find . -name '*.py' -not -path './.git/*' | xargs wc -l | sort -n` (cambia la extensión). Ves ficheros y tamaños a la vez.
+- Busca el concepto antes de leer: `grep -rn -i 'palabra' --include='*.py' . | grep -v '^./ruta/ruidosa' | head -30`.
+- read_file solo con ficheros de menos de 200 líneas. Para los grandes: `sed -n '120,180p' fichero` o `grep -n patrón fichero`.
+- Ignora datos, fixtures, catálogos y ficheros generados: casi nunca contienen la lógica.
+- Agrupa: varias lecturas pequeñas en un comando (`cat a.py b.py`), varias comprobaciones con `&&`.
+- Para en cuanto sepas qué fichero y líneas cambiar.

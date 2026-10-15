@@ -19,6 +19,9 @@
 //! `--approval-mode yolo`: puede escribir y ejecutar en cualquier sitio donde
 //! escriba el usuario. Se limita además con los topes de la orden, el
 //! aislamiento por worktree y `--exclude-tools` para las herramientas web.
+//! También se excluyen las de objetivos y notebooks: no le sirven y cada
+//! herramienta declarada cuesta tokens en todos los turnos (~900 entre las
+//! tres, medido con `bench/skills`).
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -75,7 +78,7 @@ impl AgenteLocal for QwenCode {
         // `--exclude-tools` es un array: va antes de las demás opciones para
         // que no se trague la orden, que va la última.
         for a in [
-            "--exclude-tools", "web_fetch", "web_search", "--bare", "--auth-type", "openai",
+            "--exclude-tools", "web_fetch", "web_search", "get_goal", "update_goal", "notebook_edit", "--bare", "--auth-type", "openai",
             "--openai-base-url", &config.base_url, "--openai-api-key", "local", "-m", &config.modelo,
             "--approval-mode", "yolo",
         ] {
@@ -198,6 +201,7 @@ fn construir_prompt(orden: &Orden, titulo: &str, cuerpo: &str, criterio: &str) -
         "\n## Reglas\n\
          - Trabaja SOLO dentro del directorio actual (el worktree); no toques nada fuera.\n\
          - No hagas commits.\n\
+         - Para crear un fichero nuevo usa run_shell_command con `cat > ruta <<'EOF'`: no hay herramienta para escribir ficheros. `edit` solo cambia ficheros que ya has leído con read_file.\n\
          - El criterio de éxito es el comando `{criterio}` y debe pasar.\n\
          - Cuando termines, explica en 3 líneas qué hiciste.\n"
     ));
