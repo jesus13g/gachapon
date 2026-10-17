@@ -459,6 +459,7 @@ fn trabajo_resumen(bus: &Bus, id: &str) -> Option<Value> {
         }),
         "obra_completa": informe.as_ref().map(|i| i.obra_completa),
         "rutina": orden.rutina,
+        "worktree": orden.worktree,
         "creado": orden.creada_en,
         "actualizado": estado.actualizado_en,
     }))

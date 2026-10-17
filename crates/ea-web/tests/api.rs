@@ -299,6 +299,7 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     assert_eq!(v[0]["modo"], "mision");
     assert_eq!(v[0]["estado"], "en_cola");
     assert!(v[0]["resultado"].is_null());
+    assert!(v[0]["worktree"].as_str().unwrap().ends_with("tmp"));
 
     let (_, c) = get(&f, "/api/colas").await;
     assert_eq!(c["modelo-local"][0]["trabajo"], id.as_str());
