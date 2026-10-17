@@ -40,6 +40,9 @@ pub struct WebConfig {
     /// Dónde Claude Code deja un fichero por sesión abierta. `None` = no se
     /// leen sesiones (tests).
     pub sesiones_dir: Option<PathBuf>,
+    /// Dónde el hook `claude/hooks/ea-subagentes.sh` apunta los subagentes de
+    /// cada sesión. `None` = no se leen (tests).
+    pub subagentes_dir: Option<PathBuf>,
     /// Raíz de estado del bus de trabajos (colas, trabajos, semáforos).
     pub estado_dir: PathBuf,
 }
@@ -62,6 +65,8 @@ impl WebConfig {
             boveda: ea_boveda::Boveda::configurada(),
             systemctl: true,
             sesiones_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/sessions")),
+            subagentes_dir: directories::BaseDirs::new()
+                .and_then(|d| d.state_dir().map(|s| s.join("ecosistema-asistente/subagentes"))),
             estado_dir: ea_bus::raiz_estado(),
         }
     }

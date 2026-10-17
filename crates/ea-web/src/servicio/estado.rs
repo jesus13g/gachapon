@@ -73,5 +73,8 @@ pub async fn inicio(s: &AppState) -> Resultado<Inicio> {
 }
 
 pub fn sesiones(s: &AppState) -> Sesiones {
-    Sesiones { sesiones: s.config.sesiones_dir.as_deref().map(crate::sesiones::vivas).unwrap_or_default() }
+    let subagentes = s.config.subagentes_dir.as_deref();
+    Sesiones {
+        sesiones: s.config.sesiones_dir.as_deref().map(|d| crate::sesiones::vivas(d, subagentes)).unwrap_or_default(),
+    }
 }

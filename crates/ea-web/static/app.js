@@ -486,6 +486,20 @@ function tableroJ() {
     col('● Cerrados', 'los últimos, con su premio', cerrados) + '</div>');
 }
 
+// Las sesiones vivas de Claude Code (del proyecto elegido, o todas), cada una
+// con sus subagentes: los que siguen en marcha y los últimos terminados.
+function tableroCC(ss) {
+  const sub = a => `<p class="sa${a.hasta ? ' fin' : ''}">${capsula(CLAUDE, a.hasta ? '' : 'run', 12, true)}` +
+    `<span class="n">${esc(a.descripcion)}</span></p>` +
+    `<p class="pie">${esc([a.tipo, a.modelo].filter(Boolean).join(' · '))} · ${a.hasta ? 'acabó hace ' + reloj(a.hasta) : 'desde hace ' + reloj(a.desde)}</p>` +
+    (a.hasta ? '' : barraViva);
+  const tarjeta = s => `<article class="card sesion${s.ocupada ? ' ejecutando' : ''}">` +
+    `<header><span><i${s.ocupada ? ` style="color:${CLAUDE}"` : ''}>${s.ocupada ? '●' : '○'}</i>${s.ocupada ? 'trabajando' : 'libre'}</span><span>${reloj(s.actualizada)}</span></header>` +
+    `<p class="tit">${esc(s.nombre)}</p><p class="res">${esc(s.cwd.split('/').filter(Boolean).pop() ?? s.cwd)}</p>` +
+    (s.ocupada ? barraViva : '') + s.subagentes.map(sub).join('') + '</article>';
+  return suelto(`<div class="tablero cc">${ss.map(tarjeta).join('')}</div>`);
+}
+
 // Aviso destacado de un paquete de corrección: añadir contexto y confirmar.
 function avisoPaquete(t) {
   const motivo = (t.detalle ?? 'La rutina falló').replace(/[.\s]*$/, '.');
@@ -514,6 +528,8 @@ function filasInicio(d) {
     const mal = new Set(e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => 's' + s.nombre));
     if (mal.size) out.push(grupo('▦', 'Servicios parados'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
   }
+  const ss = st.sesiones.filter(s => !st.proyecto || s.cwd === st.proyecto);
+  if (ss.length) out.push(grupo('◆', 'Claude Code', ss.length, 'sesiones abiertas y sus subagentes'), tableroCC(ss));
   out.push(grupo('▤', 'Trabajos', st.trabajos.length, 'las cápsulas pasan de izquierda a derecha'), tableroJ());
   const abiertos = st.trabajos.filter(t => st.abiertos.has('j' + t.id));
   if (abiertos.length) out.push(grupo('▸', 'Ficha', 0, 'pulsa la fila para cerrarla'), ...filasTrabajos(abiertos));
