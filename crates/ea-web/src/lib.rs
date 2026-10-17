@@ -10,10 +10,16 @@ use std::path::PathBuf;
 use ea_store::Store;
 use tokio::sync::Mutex;
 
-pub mod api;
 pub mod estado;
+mod git;
+pub mod http;
+pub mod servicio;
 pub mod sesiones;
 pub mod tema;
+pub mod vistas;
+
+/// Nombre histórico de la capa HTTP (`ea_web::api::router`).
+pub use http as api;
 
 const DEFAULT_PORT: u16 = 8092;
 const ENV_PORT: &str = "EA_WEB_PORT";
@@ -34,6 +40,8 @@ pub struct WebConfig {
     /// Dónde Claude Code deja un fichero por sesión abierta. `None` = no se
     /// leen sesiones (tests).
     pub sesiones_dir: Option<PathBuf>,
+    /// Raíz de estado del bus de trabajos (colas, trabajos, semáforos).
+    pub estado_dir: PathBuf,
 }
 
 impl WebConfig {
@@ -54,6 +62,7 @@ impl WebConfig {
             boveda: ea_boveda::Boveda::configurada(),
             systemctl: true,
             sesiones_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/sessions")),
+            estado_dir: ea_bus::raiz_estado(),
         }
     }
 }

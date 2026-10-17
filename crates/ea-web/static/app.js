@@ -41,11 +41,11 @@ const VACIO = {
 
 const st = {
   sec: 'inicio',
-  estado: null,        // /api/estado
-  todos: [],           // /api/trabajos, siempre al día
+  estado: null,        // ea.estado()
+  todos: [],           // ea.trabajos(), siempre al día
   trabajos: [],        // los de todos que se ven: los del proyecto elegido, o todos
   proyecto: null,      // cwd del proyecto elegido en la barra (filtra trabajos, diario y escena)
-  sesiones: [],        // /api/sesiones: sesiones vivas de Claude Code
+  sesiones: [],        // ea.sesiones(): sesiones vivas de Claude Code
   proyectos: null,     // claves (cwd) de los proyectos de la barra, para detectar los nuevos
   nuevos: {},          // cwd -> instante hasta el que su tarjeta luce la clase nueva
   datos: null,         // datos de la sección visible
@@ -99,16 +99,6 @@ function hora(t) {
 }
 
 const dur = n => (n < 1000 ? n + 'ms' : n < 60000 ? (n / 1000).toFixed(1) + 's' : Math.round(n / 60000) + 'm');
-
-async function api(ruta, opts = {}) {
-  const r = await fetch(ruta, { headers: { 'Content-Type': 'application/json' }, ...opts });
-  const txt = await r.text();
-  let data = null;
-  try { data = JSON.parse(txt); } catch { /* cuerpo no JSON */ }
-  if (!r.ok) throw new Error((data && data.error) || txt || r.statusText);
-  return data;
-}
-const post = (ruta, cuerpo = {}) => api(ruta, { method: 'POST', body: JSON.stringify(cuerpo) });
 
 let avisoTimer;
 function avisa(msg, ok = false) {
@@ -733,8 +723,8 @@ function pintar() {
 
 async function cargaDetalle(k) {
   if (!(DETALLE[st.sec] || '').includes(k[0])) return;
-  const ruta = { j: '/api/trabajos/', r: '/api/rutinas/', b: '/api/boveda/nota?ruta=' }[k[0]];
-  try { st.detalle[k] = await api(ruta + encodeURIComponent(k.slice(1))); } catch { delete st.detalle[k]; }
+  const carga = { j: ea.trabajo, r: ea.rutina, b: ea.nota }[k[0]];
+  try { st.detalle[k] = await carga(k.slice(1)); } catch { delete st.detalle[k]; }
 }
 
 async function cargaSeccion() {
@@ -742,14 +732,14 @@ async function cargaSeccion() {
   let datos = null;
   if (sec === 'inicio') {
     const [propuestas, colas, semaforos, diario] = await Promise.all([
-      api('/api/propuestas?estado=pendiente'), api('/api/colas'), api('/api/semaforos'), api('/api/diario?limite=30')]);
+      ea.propuestas({ pendientes: true }), ea.colas(), ea.semaforos(), ea.diario({ limite: 30 })]);
     datos = { propuestas, colas, semaforos, diario, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
-  else if (sec === 'acciones') datos = await api('/api/acciones');
-  else if (sec === 'diario') datos = await api('/api/diario?limite=300' + (st.latidos ? '&latidos=1' : ''));
-  else if (sec === 'rutinas') datos = await api('/api/rutinas');
-  else if (sec === 'propuestas') datos = await api('/api/propuestas' + (st.propTodas ? '' : '?estado=pendiente'));
-  else if (sec === 'boveda') datos = await api('/api/boveda?q=' + encodeURIComponent(st.q.trim()));
+  else if (sec === 'acciones') datos = await ea.acciones();
+  else if (sec === 'diario') datos = await ea.diario({ limite: 300, latidos: st.latidos });
+  else if (sec === 'rutinas') datos = await ea.rutinas();
+  else if (sec === 'propuestas') datos = await ea.propuestas({ pendientes: !st.propTodas });
+  else if (sec === 'boveda') datos = await ea.boveda(st.q.trim());
   if (st.proyecto) {
     const ids = new Set(st.trabajos.map(t => t.id));
     const suyo = e => ids.has(trabajoDe(e));
@@ -768,7 +758,7 @@ async function tick() {
   st.ocupado = true;
   try {
     let ses;
-    [st.estado, st.todos, ses] = await Promise.all([api('/api/estado'), api('/api/trabajos'), api('/api/sesiones')]);
+    [st.estado, st.todos, ses] = await Promise.all([ea.estado(), ea.trabajos(), ea.sesiones()]);
     st.sesiones = ses.sesiones;
     filtra();
     $('#off').hidden = true;
@@ -868,11 +858,11 @@ async function accion(b) {
       }
       st.armado = null;
       const cuerpo = a === 'reformular' ? { nota: texto } : a === 'confirmar' ? { contexto: texto } : {};
-      await post(`/api/trabajos/${id}/${a}`, cuerpo);
+      await ea.accionTrabajo(id, a, cuerpo);
       avisa(`${id.slice(9, 15)}: ${a}`, true);
     } else if (a === 'diff') {
       if (st.diffs[id] !== undefined) delete st.diffs[id];
-      else st.diffs[id] = await api(`/api/trabajos/${id}/diff`).catch(e => ({ error: e.message }));
+      else st.diffs[id] = await ea.diff(id).catch(e => ({ error: e.message }));
     } else if (a === 'decidir') {
       const k = 'p' + id;
       if (v === 'aceptar' && b.dataset.ac && !(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
@@ -882,7 +872,7 @@ async function accion(b) {
         return;
       }
       st.armado = null;
-      const p = await post(`/api/propuestas/${id}/decidir`, { decision: v });
+      const p = await ea.decidir(id, v);
       if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
     } else if (a === 'promover') {
       const k = 'b' + ruta;
@@ -893,16 +883,16 @@ async function accion(b) {
         return;
       }
       st.armado = null;
-      const r = await post('/api/boveda/promover', { ruta });
+      const r = await ea.promover(ruta);
       avisa(r.texto, true);
     } else if (a === 'lanzar') {
-      const t = await post(`/api/rutinas/${encodeURIComponent(slug)}/lanzar`);
+      const t = await ea.lanzarRutina(slug);
       avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
       st.abiertos.add('j' + t.trabajo);
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;
-        await post(`/api/servicios/${n}/reiniciar`);
+        await ea.reiniciar(n);
         avisa('↻ ' + n, true);
       } else {
         st.armado = { n, hasta: Date.now() + 3000 };
@@ -925,9 +915,9 @@ async function accion(b) {
       c.sim = c.res = c.err = null;
       try {
         if (a === 'simular') {
-          c.sim = await post('/api/acciones/simular', { herramienta: h, argumentos: argumentos(h) });
+          c.sim = await ea.simular(h, argumentos(h));
         } else if (sim) {
-          c.res = await post('/api/acciones/ejecutar', { herramienta: h, argumentos: sim.argumentos, precondicion: sim.precondicion });
+          c.res = await ea.ejecutar(h, sim.argumentos, sim.precondicion);
         }
       } catch (e) {
         c.err = e.message;
