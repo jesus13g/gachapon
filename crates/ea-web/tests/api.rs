@@ -66,6 +66,7 @@ fn montar() -> Fixture {
         rutinas_dir,
         boveda: ea_boveda::Boveda::en(dir.path().join("boveda")),
         systemctl: false,
+        sesiones_dir: Some(dir.path().join("sesiones")),
     };
     let state = Arc::new(AppState::new(store, config).expect("estado"));
     Fixture { app: api::router(state.clone()), state, _dir: dir }
@@ -679,4 +680,30 @@ async fn la_consola_valida_y_no_ejecuta_irreversibles() {
     .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+}
+
+#[tokio::test]
+async fn las_sesiones_de_claude_code_solo_cuentan_si_el_proceso_vive() {
+    let f = montar();
+    let dir = f._dir.path().join("sesiones");
+    let (s, v) = get(&f, "/api/sesiones").await;
+    assert_eq!((s, v["sesiones"].as_array().unwrap().len()), (StatusCode::OK, 0), "sin directorio");
+
+    std::fs::create_dir_all(&dir).unwrap();
+    let propio = std::process::id();
+    let ses = |pid: u32, nombre: &str| {
+        json!({"pid": pid, "sessionId": "x", "cwd": "/tmp", "name": nombre, "status": "busy",
+               "startedAt": 1000, "updatedAt": 2000})
+        .to_string()
+    };
+    std::fs::write(dir.join(format!("{propio}.json")), ses(propio, "viva")).unwrap();
+    std::fs::write(dir.join("999999999.json"), ses(999_999_999, "muerta")).unwrap();
+    std::fs::write(dir.join("roto.json"), "no es json").unwrap();
+
+    let (_, v) = get(&f, "/api/sesiones").await;
+    let lista = v["sesiones"].as_array().unwrap();
+    assert_eq!(lista.len(), 1);
+    assert_eq!(lista[0]["nombre"], "viva");
+    assert_eq!(lista[0]["ocupada"], true);
+    assert_eq!(lista[0]["pid"], propio);
 }

@@ -125,6 +125,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/trabajos/{id}/confirmar", post(trabajo_confirmar))
         .route("/api/colas", get(colas))
         .route("/api/semaforos", get(semaforos))
+        .route("/api/sesiones", get(sesiones))
         .route("/api/propuestas", get(propuestas_listar))
         .route("/api/propuestas/{id}/decidir", post(propuesta_decidir))
         .route("/api/acciones", get(acciones_listar))
@@ -618,6 +619,11 @@ async fn semaforos() -> ApiResult<Json<Value>> {
         .map(|(_, o)| json!({ "agente": o.agente, "trabajo": o.trabajo, "pid": o.pid, "desde": o.desde }))
         .collect();
     Ok(Json(json!(v)))
+}
+
+async fn sesiones(State(s): Estado) -> ApiResult<Json<Value>> {
+    let v = s.config.sesiones_dir.as_deref().map(crate::sesiones::vivas).unwrap_or_default();
+    Ok(Json(json!({ "sesiones": v })))
 }
 
 // -------------------------------------------------------------- propuestas
