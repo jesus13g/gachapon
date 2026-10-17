@@ -16,6 +16,7 @@ pub mod acciones;
 pub mod boveda;
 pub mod diario;
 pub mod estado;
+pub mod memoria;
 pub mod propuestas;
 pub mod rutinas;
 pub mod servicios;

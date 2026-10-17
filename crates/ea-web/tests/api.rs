@@ -68,6 +68,7 @@ fn montar() -> Fixture {
         systemctl: false,
         sesiones_dir: Some(dir.path().join("sesiones")),
         subagentes_dir: Some(dir.path().join("subagentes")),
+        proyectos_claude_dir: Some(dir.path().join("proyectos")),
         estado_dir: dir.path().join("estado"),
     };
     let state = Arc::new(AppState::new(store, config).expect("estado"));
@@ -759,4 +760,140 @@ async fn cada_sesion_lleva_sus_subagentes_en_marcha_primero() {
     assert!(subs[0]["hasta"].is_null());
     assert_eq!(subs[1]["descripcion"], "Explore", "sin meta.json se usa el tipo");
     assert_eq!(subs[1]["hasta"], 300);
+}
+
+// ----------------------------------------------------------------- memoria
+
+const MEMORIA_EJEMPLO: &str = "---\nname: refactor\ndescription: \"Qué se refactorizó\"\nmetadata:\n  node_type: memory\n  type: project\n---\n\nCuerpo con [[otra]].\n";
+
+/// Un proyecto de Claude Code con dos memorias, el índice y una transcripción
+/// que cuenta su cwd. Además, uno sin `memory/` y otro con ella vacía.
+fn montar_memoria(f: &Fixture) -> std::path::PathBuf {
+    let raiz = f._dir.path().join("proyectos");
+    let mem = raiz.join("-home-u-proy/memory");
+    std::fs::create_dir_all(&mem).unwrap();
+    std::fs::write(mem.join("refactor.md"), MEMORIA_EJEMPLO).unwrap();
+    std::fs::write(mem.join("MEMORY.md"), "- [Refactor](refactor.md) — gancho\n").unwrap();
+    std::fs::write(mem.join("notas.txt"), "no es markdown").unwrap();
+    std::fs::write(
+        raiz.join("-home-u-proy/sesion.jsonl"),
+        "{\"type\":\"x\"}\nbasura\n{\"cwd\":\"/home/u/proy\",\"type\":\"user\"}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(raiz.join("-sin-memoria")).unwrap();
+    std::fs::create_dir_all(raiz.join("-vacia/memory")).unwrap();
+    mem
+}
+
+#[tokio::test]
+async fn la_memoria_lista_solo_proyectos_con_memorias() {
+    let f = montar();
+    let (_, v) = get(&f, "/api/memoria").await;
+    assert_eq!(v["proyectos"].as_array().unwrap().len(), 0, "sin directorio");
+    montar_memoria(&f);
+    let (s, v) = get(&f, "/api/memoria").await;
+    assert_eq!(s, StatusCode::OK);
+    let ps = v["proyectos"].as_array().unwrap();
+    assert_eq!(ps.len(), 1, "{v}");
+    assert_eq!((ps[0]["id"].as_str(), ps[0]["cwd"].as_str()), (Some("-home-u-proy"), Some("/home/u/proy")));
+    let fs = ps[0]["ficheros"].as_array().unwrap();
+    let nombres: Vec<_> = fs.iter().map(|x| x["nombre"].as_str().unwrap()).collect();
+    assert_eq!(nombres, ["MEMORY.md", "refactor.md"], "el índice primero y solo .md");
+    assert_eq!(fs[1]["titulo"], "refactor");
+    assert_eq!(fs[1]["descripcion"], "Qué se refactorizó");
+    assert_eq!(fs[1]["tipo"], "project");
+    assert!(fs[0]["titulo"].is_null());
+}
+
+#[tokio::test]
+async fn la_memoria_se_lee_con_su_version() {
+    let f = montar();
+    montar_memoria(&f);
+    let (s, v) = get(&f, "/api/memoria/-home-u-proy/refactor.md").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["contenido"], MEMORIA_EJEMPLO);
+    assert_eq!(v["version"].as_str().unwrap().len(), 16);
+}
+
+#[tokio::test]
+async fn guardar_la_memoria_cambia_el_disco_y_deja_rastro_en_el_diario() {
+    let f = montar();
+    let mem = montar_memoria(&f);
+    let (_, v) = get(&f, "/api/memoria/-home-u-proy/refactor.md").await;
+    let cuerpo = json!({ "contenido": "---\nname: nuevo\n---\ntexto\n", "version": v["version"] });
+    let (s, nueva) = post(&f, "/api/memoria/-home-u-proy/refactor.md", cuerpo).await;
+    assert_eq!(s, StatusCode::OK, "{nueva}");
+    assert_eq!(std::fs::read_to_string(mem.join("refactor.md")).unwrap(), "---\nname: nuevo\n---\ntexto\n");
+    assert_ne!(nueva["version"], v["version"]);
+    assert_eq!(nueva["contenido"], "---\nname: nuevo\n---\ntexto\n");
+    let temporales = std::fs::read_dir(&mem).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().contains(".tmp-")).count();
+    assert_eq!(temporales, 0, "sin temporales");
+    let (_, d) = get(&f, "/api/diario").await;
+    assert!(d.as_array().unwrap().iter().any(|e| e["accion"] == "memoria_editada" && e["actor"] == "usuario"), "{d}");
+    // Con la versión nueva se puede volver a guardar.
+    let (s, _) = post(&f, "/api/memoria/-home-u-proy/refactor.md", json!({ "contenido": "x", "version": nueva["version"] })).await;
+    assert_eq!(s, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn guardar_con_una_version_vieja_da_conflicto_y_no_toca_el_disco() {
+    let f = montar();
+    let mem = montar_memoria(&f);
+    let (_, v) = get(&f, "/api/memoria/-home-u-proy/refactor.md").await;
+    std::fs::write(mem.join("refactor.md"), "cambiada a mano").unwrap();
+    let (s, e) = post(&f, "/api/memoria/-home-u-proy/refactor.md", json!({ "contenido": "mío", "version": v["version"] })).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{e}");
+    assert_eq!(std::fs::read_to_string(mem.join("refactor.md")).unwrap(), "cambiada a mano");
+}
+
+#[tokio::test]
+async fn la_memoria_rechaza_nombres_maliciosos() {
+    let f = montar();
+    let mem = montar_memoria(&f);
+    let fuera = f._dir.path().join("secreto.md");
+    std::fs::write(&fuera, "fuera").unwrap();
+    std::os::unix::fs::symlink(&fuera, mem.join("enlace.md")).unwrap();
+    std::fs::write(mem.join(".oculto.md"), "oculto").unwrap();
+    let rutas = [
+        "/api/memoria/%2E%2E/refactor.md",
+        "/api/memoria/-home-u-proy/%2E%2E",
+        "/api/memoria/x%2F..%2Fy/refactor.md",
+        "/api/memoria/-home-u-proy/..%2F..%2Fsecreto.md",
+        "/api/memoria/-home-u-proy/notas.txt",
+        "/api/memoria/-home-u-proy/.oculto.md",
+        "/api/memoria/-home-u-proy/enlace.md",
+    ];
+    for r in rutas {
+        let (s, _) = get(&f, r).await;
+        assert!(matches!(s, StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND), "GET {r}: {s}");
+        let (s, _) = post(&f, r, json!({ "contenido": "pwned", "version": "0" })).await;
+        assert!(matches!(s, StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND), "POST {r}: {s}");
+    }
+    assert_eq!(std::fs::read_to_string(&fuera).unwrap(), "fuera");
+    assert_eq!(std::fs::read_to_string(mem.join(".oculto.md")).unwrap(), "oculto");
+    assert_eq!(std::fs::read_to_string(mem.join("notas.txt")).unwrap(), "no es markdown");
+}
+
+#[tokio::test]
+async fn no_se_crean_memorias_desde_la_web() {
+    let f = montar();
+    let mem = montar_memoria(&f);
+    let (s, _) = post(&f, "/api/memoria/-home-u-proy/nueva.md", json!({ "contenido": "x", "version": "0" })).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert!(!mem.join("nueva.md").exists());
+    let (s, _) = post(&f, "/api/memoria/-no-existe/refactor.md", json!({ "contenido": "x", "version": "0" })).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn guardar_la_memoria_exige_json_y_un_tamano_razonable() {
+    let f = montar();
+    let mem = montar_memoria(&f);
+    let (s, _) = enviar(&f, Method::POST, "/api/memoria/-home-u-proy/refactor.md", "localhost:8092", Some(json!({})), false).await;
+    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let (_, v) = get(&f, "/api/memoria/-home-u-proy/refactor.md").await;
+    let enorme = "a".repeat(256 * 1024 + 1);
+    let (s, _) = post(&f, "/api/memoria/-home-u-proy/refactor.md", json!({ "contenido": enorme, "version": v["version"] })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(std::fs::read_to_string(mem.join("refactor.md")).unwrap(), MEMORIA_EJEMPLO);
 }

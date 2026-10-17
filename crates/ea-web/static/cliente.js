@@ -8,7 +8,7 @@ const ea = (() => {
     const txt = await r.text();
     let data = null;
     try { data = JSON.parse(txt); } catch { /* cuerpo no JSON */ }
-    if (!r.ok) throw new Error((data && data.error) || txt || r.statusText);
+    if (!r.ok) throw Object.assign(new Error((data && data.error) || txt || r.statusText), { status: r.status });
     return data;
   }
   const post = (ruta, cuerpo = {}) => api(ruta, { method: 'POST', body: JSON.stringify(cuerpo) });
@@ -44,6 +44,11 @@ const ea = (() => {
     boveda: q => api('/api/boveda?q=' + c(q)),
     nota: ruta => api('/api/boveda/nota?ruta=' + c(ruta)),
     promover: ruta => post('/api/boveda/promover', { ruta }),
+
+    memoria: () => api('/api/memoria'),
+    memoriaFichero: (proyecto, fichero) => api(`/api/memoria/${c(proyecto)}/${c(fichero)}`),
+    guardarMemoria: (proyecto, fichero, contenido, version) =>
+      post(`/api/memoria/${c(proyecto)}/${c(fichero)}`, { contenido, version }),
 
     reiniciar: servicio => post(`/api/servicios/${c(servicio)}/reiniciar`),
   };

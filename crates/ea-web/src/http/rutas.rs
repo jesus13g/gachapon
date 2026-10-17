@@ -220,6 +220,31 @@ pub async fn boveda_promover(State(s): Estado, Json(b): Json<PromoverBody>) -> A
     ok(servicio::boveda::promover(&s, &b.ruta, b.destino.as_deref()).await)
 }
 
+// ----------------------------------------------------------------- memoria
+
+pub async fn memoria_listar(State(s): Estado) -> Api<ListadoMemoria> {
+    ok(servicio::memoria::listar(&s))
+}
+
+pub async fn memoria_leer(State(s): Estado, Path((proyecto, fichero)): Path<(String, String)>) -> Api<Memoria> {
+    ok(servicio::memoria::leer(&s, &proyecto, &fichero))
+}
+
+#[derive(Deserialize)]
+pub struct MemoriaBody {
+    contenido: String,
+    /// La versión con la que se abrió: si en disco ya es otra, 409.
+    version: String,
+}
+
+pub async fn memoria_guardar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(b): Json<MemoriaBody>,
+) -> Api<Memoria> {
+    ok(servicio::memoria::guardar(&s, &proyecto, &fichero, &b.contenido, &b.version).await)
+}
+
 // --------------------------------------------------------------- servicios
 
 pub async fn servicio_reiniciar(State(s): Estado, Path(nombre): Path<String>) -> Api<Hecho> {

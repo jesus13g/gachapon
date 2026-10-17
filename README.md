@@ -489,6 +489,7 @@ el mismo `Bus` que la CLI.
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
 | ▥ | Bóveda: listar, buscar, leer y promover | `8` |
+| ✎ | Memoria: la memoria de Claude Code de cada proyecto (`~/.claude/projects/*/memory/*.md`); se lee renderizada como markdown y se edita en un editor de texto (✓ guardar o `Ctrl+S`, ◐ vista previa, ✕ descartar). No crea ni borra memorias, solo reescribe las existentes, avisa si cambiaron en disco y apunta `memoria_editada` en el diario | `9` |
 
 `/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
 abre la ayuda y `t` abre el recorrido guiado, que va de vista en vista
@@ -498,7 +499,10 @@ API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`
 `/api/colas`, `/api/semaforos`, `/api/rutinas`; y, con `Content-Type:
 application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformular,confirmar}`
 (`reformular` lleva `{"nota": "..."}`, `confirmar` `{"contexto": "..."}`) y
-`POST /api/rutinas/<slug>/lanzar`. Solo atiende `Host: localhost|127.0.0.1`.
+`POST /api/rutinas/<slug>/lanzar`; la memoria de Claude Code va por
+`GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
+`POST /api/memoria/<proyecto>/<fichero>` (`{"contenido": "...", "version": "..."}`;
+409 si la versión ya no es la del disco). Solo atiende `Host: localhost|127.0.0.1`.
 Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 

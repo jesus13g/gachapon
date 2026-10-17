@@ -3,9 +3,9 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda'];
+const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria'];
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
-const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', boveda: 'b' };
+const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', boveda: 'b', memoria: 'm' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
 // Estados de un trabajo: glifo y palabra. El orden es el del recorrido.
 const EST = {
@@ -30,6 +30,7 @@ const TITULOS = {
   acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
   sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
   boveda: ['Bóveda', 'Las notas de los agentes y las compartidas. El buscador busca dentro de su contenido.'],
+  memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Abre una memoria para leerla; ✎ editar la abre en el editor.'],
 };
 const VACIO = {
   trabajos: 'No hay trabajos. Se lanzan desde Claude Code con /mision, /obra o /rutina.',
@@ -37,6 +38,7 @@ const VACIO = {
   rutinas: 'No hay rutinas registradas (ea rutina registrar).',
   propuestas: 'Nada espera tu decisión.',
   boveda: 'No hay notas.',
+  memoria: 'Ningún proyecto tiene memoria (~/.claude/projects/*/memory).',
 };
 
 const st = {
@@ -63,6 +65,7 @@ const st = {
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
   consola: {},         // por herramienta: { v: valores, sim, res, err }
+  memEdit: {},         // por memoria en edición: { texto, original, version, previa, error, conflicto }
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -370,6 +373,169 @@ function filasBoveda(d) {
     return fila(k, 'b', row, `${n.titulo} ${n.ruta}`, det, '');
   });
 }
+// -------------------------------------------------------------------- memoria
+
+// Markdown mínimo, propio y sin dependencias: todo el texto se escapa antes
+// de formatear y solo los enlaces http(s) y los internos llegan a ser enlaces.
+// `ctx`: { proyecto, existe(nombre) } para enlazar entre memorias del proyecto.
+function mdEnLinea(txt, ctx) {
+  const guardados = [];
+  const guarda = html => `\u0001${guardados.push(html) - 1}\u0002`;
+  let s = esc(txt.replace(/[\u0001\u0002]/g, ''));
+  s = s.replace(/`([^`]+)`/g, (_, c) => guarda(`<code>${c}</code>`));
+  s = s.replace(/\[\[([^\[\]\n]+)\]\]/g, (_, n) => {
+    const f = n.trim().replace(/\.md$/, '') + '.md';
+    return guarda(ctx.existe?.(f) ? `<a href="#" class="ml" data-ml="${f}">[[${n}]]</a>` : `<span class="roto" title="no hay esa memoria">[[${n}]]</span>`);
+  });
+  const enfasis = t => t
+    .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*(?=[^*\s])(.+?)(?<=[^*\s])\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/(^|[^\w])_(?=[^_\s])(.+?)(?<=[^_\s])_(?!\w)/g, '$1<em>$2</em>');
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, etiqueta, url) => {
+    const t = enfasis(etiqueta);
+    if (/^https?:\/\//i.test(url)) return guarda(`<a href="${url}" target="_blank" rel="noopener noreferrer">${t}</a>`);
+    const m = /^(?:\.\/)?([\w.-]+\.md)(?:#.*)?$/.exec(url);
+    if (m && ctx.existe?.(m[1])) return guarda(`<a href="#" class="ml" data-ml="${m[1]}">${t}</a>`);
+    return guarda(`<span class="roto" title="${url}">${t}</span>`); // relativo a otra cosa, javascript:… → sin enlace
+  });
+  s = enfasis(s);
+  for (let i = 0; i < 4 && s.includes('\u0001'); i++) s = s.replace(/\u0001(\d+)\u0002/g, (_, n) => guardados[n]);
+  return s;
+}
+
+function md(texto, ctx = {}) {
+  const lineas = texto.replace(/\r\n?/g, '\n').replace(/^---\n[\s\S]*?\n---[ \t]*(\n|$)/, '').split('\n');
+  const enLinea = t => mdEnLinea(t, ctx);
+  const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  const FENCE = /^\s*```/;
+  const HR = /^\s*([-*_])(\s*\1){2,}\s*$/;
+  const SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+  const celdas = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  const inicio = l => FENCE.test(l) || /^#{1,6}\s/.test(l) || HR.test(l) || /^\s*>/.test(l) || ITEM.test(l);
+  let out = '';
+  let i = 0;
+  while (i < lineas.length) {
+    const l = lineas[i];
+    if (!l.trim()) { i++; continue; }
+    if (FENCE.test(l)) {
+      const cod = [];
+      for (i++; i < lineas.length && !FENCE.test(lineas[i]); i++) cod.push(lineas[i]);
+      i++;
+      out += `<pre><code>${esc(cod.join('\n'))}</code></pre>`;
+    } else if (/^#{1,6}\s/.test(l)) {
+      const [, almohadillas, t] = /^(#+)\s+(.*?)\s*#*\s*$/.exec(l);
+      out += `<h${almohadillas.length}>${enLinea(t)}</h${almohadillas.length}>`;
+      i++;
+    } else if (HR.test(l)) {
+      out += '<hr>';
+      i++;
+    } else if (/^\s*>/.test(l)) {
+      const q = [];
+      for (; i < lineas.length && /^\s*>/.test(lineas[i]); i++) q.push(lineas[i].replace(/^\s*> ?/, ''));
+      out += `<blockquote>${md(q.join('\n'), ctx)}</blockquote>`;
+    } else if (l.includes('|') && i + 1 < lineas.length && SEP.test(lineas[i + 1])) {
+      const cab = celdas(l);
+      i += 2;
+      let cuerpo = '';
+      for (; i < lineas.length && lineas[i].trim() && lineas[i].includes('|'); i++) {
+        cuerpo += '<tr>' + celdas(lineas[i]).map(c => `<td>${enLinea(c)}</td>`).join('') + '</tr>';
+      }
+      out += `<table><thead><tr>${cab.map(c => `<th>${enLinea(c)}</th>`).join('')}</tr></thead><tbody>${cuerpo}</tbody></table>`;
+    } else if (ITEM.test(l)) {
+      // Lista: un nivel de anidamiento por sangría (lo más hondo se aplana).
+      const items = [];
+      const base = ITEM.exec(l)[1].length;
+      while (i < lineas.length) {
+        const m = ITEM.exec(lineas[i]);
+        if (m) {
+          const hijo = m[1].length >= base + 2 && items.length > 0;
+          const it = { ol: /^\d/.test(m[2]), txt: m[3] };
+          if (!hijo && items.length && it.ol !== items[0].ol) break; // otro tipo de lista: empieza una nueva
+          if (hijo) (items.at(-1).hijos ??= []).push(it); else items.push(it);
+        } else if (!lineas[i].trim()) {
+          // una línea en blanco no corta la lista si sigue otro elemento
+          if (!ITEM.test(lineas[i + 1] ?? '')) break;
+        } else if (/^\s+\S/.test(lineas[i]) && items.length && !inicio(lineas[i])) {
+          const it = items.at(-1).hijos?.at(-1) ?? items.at(-1);
+          it.txt += ' ' + lineas[i].trim();
+        } else break;
+        i++;
+      }
+      const lista = (xs, cuerpo) => `<${xs[0].ol ? 'ol' : 'ul'}>${xs.map(cuerpo).join('')}</${xs[0].ol ? 'ol' : 'ul'}>`;
+      out += lista(items, it => `<li>${enLinea(it.txt)}${it.hijos ? lista(it.hijos, h => `<li>${enLinea(h.txt)}</li>`) : ''}</li>`);
+    } else {
+      const p = [];
+      for (; i < lineas.length && lineas[i].trim() && (p.length === 0 || !inicio(lineas[i])); i++) p.push(lineas[i].trim());
+      out += `<p>${enLinea(p.join(' '))}</p>`;
+    }
+  }
+  return out;
+}
+
+// El cwd con el home abreviado: /home/ana/x → ~/x.
+const corto = cwd => cwd.replace(/^\/home\/[^/]+/, '~');
+const claveMem = (proyecto, fichero) => 'm' + proyecto + '/' + fichero;
+const sucio = e => !!e && e.texto !== e.original;
+
+// Descarta el borrador de una memoria al cerrar su fila; con cambios, antes pregunta.
+function cierraBorrador(k) {
+  const e = st.memEdit[k];
+  if (!e) return true;
+  if (sucio(e) && !confirm('Esta memoria tiene cambios sin guardar. ¿Descartarlos?')) return false;
+  delete st.memEdit[k];
+  return true;
+}
+
+// Al salir de la sección con borradores sin guardar.
+function sueltaBorradores() {
+  const n = Object.values(st.memEdit).filter(sucio).length;
+  if (n && !confirm(`Hay ${n} ${n === 1 ? 'memoria' : 'memorias'} con cambios sin guardar. ¿Descartarlos?`)) return false;
+  st.memEdit = {};
+  return true;
+}
+
+function filasMemoria(d) {
+  const out = [];
+  for (const p of d.proyectos) {
+    const existe = n => p.ficheros.some(f => f.nombre === n);
+    const donde = p.cwd ? corto(p.cwd) : p.id;
+    for (const f of p.ficheros) {
+      const k = claveMem(p.id, f.nombre);
+      const indice = f.nombre === 'MEMORY.md';
+      const titulo = f.titulo ?? f.nombre;
+      const row = `<i class="m" title="${indice ? 'índice de las memorias' : 'memoria'}">${indice ? '≡' : '◇'}</i>` +
+        `<span class="x">${esc(titulo)}${f.descripcion ? ` <span class="ds">${esc(f.descripcion)}</span>` : ''}</span>` +
+        `<span class="m w" title="${esc(p.cwd ?? p.id)}">${esc(donde)}</span><span class="m">${esc(f.tipo ?? '')}</span><span class="m">${reloj(f.modificada)}</span>`;
+      const x = st.detalle[k], e = st.memEdit[k];
+      let det = '';
+      if (e || x) {
+        const meta = [f.titulo, f.tipo, f.descripcion].filter(Boolean).join(' · ');
+        det = `<div class="mem"><p class="m">${esc(p.id)}/memory/${esc(f.nombre)} · ${f.bytes} bytes` +
+          `${e ? ' <span class="sin-guardar"' + (sucio(e) ? '' : ' hidden') + '>● sin guardar</span>' : ''}</p>` +
+          (meta ? `<p class="m">${esc(meta)}</p>` : '');
+        const ctx = { proyecto: p.id, existe };
+        if (e) {
+          if (e.error) det += `<p class="hot">✕ ${esc(e.error)}</p>`;
+          const cambiada = x && x.version !== e.version;
+          if (cambiada && !e.error) det += '<p class="hot">La memoria cambió en disco mientras la editabas: si guardas, se te pedirá recargarla.</p>';
+          det += e.previa ? `<div class="md previa">${md(e.texto, ctx)}</div>`
+            : `<textarea class="editor" data-mem="${esc(k)}" spellcheck="false" aria-label="Contenido de ${esc(f.nombre)}" rows="${Math.min(60, Math.max(24, e.original.split('\n').length + 2))}">\n${esc(e.texto)}</textarea>`;
+          det += '<div class="acc">' + btn('guardar-memoria', '✓ guardar', 'escribir la memoria en disco (Ctrl+S)', { k }, 'coin') +
+            btn('previa-memoria', e.previa ? '✎ seguir editando' : '◐ vista previa', 'alterna el editor y el borrador renderizado', { k }) +
+            btn('descartar-memoria', '✕ descartar', 'tirar el borrador (Esc solo sale del editor)', { k }, 'hot') +
+            ((e.conflicto || cambiada) ? btn('recargar-memoria', '↺ recargar', 'descartar el borrador y leer la versión del disco', { k }) : '') + '</div>';
+        } else {
+          det += `<div class="md">${md(x.contenido, ctx)}</div>` +
+            `<div class="acc">${btn('editar-memoria', '✎ editar', 'editar en el editor de texto', { k })}</div>`;
+        }
+        det += '</div>';
+      }
+      out.push(fila(k, 'mm', row, `${f.nombre} ${titulo} ${f.descripcion ?? ''} ${p.cwd ?? ''} ${p.id}`, det));
+    }
+  }
+  return out;
+}
+
 function filasSistema(e, plano = false) {
   const out = [];
   e.servicios.forEach(s => {
@@ -548,6 +714,7 @@ function construir() {
     case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
     case 'boveda': return d ? con(columnas('b', '', 'nota', 'ruta', 'autor', 'hace'), filasBoveda(d)) : [];
+    case 'memoria': return d ? con(columnas('mm', '', 'memoria', 'proyecto', 'tipo', 'hace'), filasMemoria(d)) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
   }
 }
@@ -739,6 +906,11 @@ function pintar() {
 
 async function cargaDetalle(k) {
   if (!(DETALLE[st.sec] || '').includes(k[0])) return;
+  if (k[0] === 'm') {
+    const i = k.indexOf('/');
+    try { st.detalle[k] = await ea.memoriaFichero(k.slice(1, i), k.slice(i + 1)); } catch { delete st.detalle[k]; }
+    return;
+  }
   const carga = { j: ea.trabajo, r: ea.rutina, b: ea.nota }[k[0]];
   try { st.detalle[k] = await carga(k.slice(1)); } catch { delete st.detalle[k]; }
 }
@@ -756,6 +928,13 @@ async function cargaSeccion() {
   else if (sec === 'rutinas') datos = await ea.rutinas();
   else if (sec === 'propuestas') datos = await ea.propuestas({ pendientes: !st.propTodas });
   else if (sec === 'boveda') datos = await ea.boveda(st.q.trim());
+  else if (sec === 'memoria') {
+    datos = await ea.memoria();
+    if (st.proyecto) {
+      const id = st.proyecto.replace(/[^A-Za-z0-9]/g, '-');
+      datos.proyectos = datos.proyectos.filter(p => p.cwd === st.proyecto || p.id === id);
+    }
+  }
   if (st.proyecto) {
     const ids = new Set(st.trabajos.map(t => t.id));
     const suyo = e => ids.has(trabajoDe(e));
@@ -804,6 +983,7 @@ function marco() {
 }
 
 function ir(sec) {
+  if (sec !== st.sec && !sueltaBorradores()) { location.hash = st.sec; return false; }
   st.sec = sec;
   st.datos = null;
   st.html = '';
@@ -818,7 +998,7 @@ function ir(sec) {
 }
 
 async function alterna(k) {
-  if (st.abiertos.has(k)) st.abiertos.delete(k);
+  if (st.abiertos.has(k)) { if (!cierraBorrador(k)) return; st.abiertos.delete(k); }
   else { st.abiertos.add(k); await cargaDetalle(k); }
   pintar();
   // Desde una tarjeta del tablero la ficha se abre más abajo: que se vea.
@@ -853,14 +1033,14 @@ function argumentos(h) {
 }
 
 function abre(sec, k) {
-  ir(sec);
+  if (ir(sec) === false) return;
   st.abiertos.add(k);
   st.sel = k;
 }
 
 
 async function accion(b) {
-  const { a, id, v, slug, n, ruta, h } = b.dataset;
+  const { a, id, v, slug, n, ruta, h, k: clave } = b.dataset;
   try {
     if (['cerrar', 'cancelar', 'continuar', 'reformular', 'confirmar'].includes(a)) {
       const caja = b.closest('[data-j]');
@@ -938,6 +1118,33 @@ async function accion(b) {
       } catch (e) {
         c.err = e.message;
       }
+    } else if (a === 'editar-memoria') {
+      const x = st.detalle[clave];
+      if (x) st.memEdit[clave] = { texto: x.contenido, original: x.contenido, version: x.version, previa: false, error: null, conflicto: false };
+    } else if (a === 'previa-memoria') {
+      const e = st.memEdit[clave];
+      if (e) e.previa = !e.previa;
+      st.html = '';
+      pintar();
+      if (e && !e.previa) $(`textarea[data-mem="${CSS.escape(clave)}"]`)?.focus();
+      return;
+    } else if (a === 'descartar-memoria') {
+      if (cierraBorrador(clave)) delete st.memEdit[clave];
+    } else if (a === 'recargar-memoria') {
+      delete st.memEdit[clave];
+    } else if (a === 'guardar-memoria') {
+      const e = st.memEdit[clave];
+      if (!e) return;
+      const i = clave.indexOf('/');
+      try {
+        st.detalle[clave] = await ea.guardarMemoria(clave.slice(1, i), clave.slice(i + 1), e.texto, e.version);
+        delete st.memEdit[clave];
+        avisa('✓ memoria guardada', true);
+      } catch (err) {
+        // El borrador se queda intacto; si el disco cambió, se ofrece recargar.
+        e.error = err.message;
+        e.conflicto = err.status === 409;
+      }
     } else if (a === 'latidos') {
       st.latidos = !st.latidos;
     } else if (a === 'prop') {
@@ -1000,7 +1207,14 @@ document.addEventListener('click', ev => {
   }
   const b = t.closest('button[data-a]');
   if (b) return accion(b);
-  if (t.closest('input, select, textarea, .acc')) return;
+  const enlace = t.closest('a.ml');
+  if (enlace) {
+    ev.preventDefault();
+    const k = enlace.closest('[data-k]')?.dataset.k;
+    if (k) abre('memoria', claveMem(k.slice(1, k.indexOf('/')), enlace.dataset.ml));
+    return;
+  }
+  if (t.closest('input, select, textarea, .acc, .mem')) return;
   const fila = t.closest('#lista [data-k]');
   if (fila) { st.sel = fila.dataset.k; alterna(fila.dataset.k); }
 });
@@ -1008,6 +1222,17 @@ document.addEventListener('click', ev => {
 // La consola de acciones guarda lo escrito en el estado (la lista se repinta
 // entera) y da por caducada la simulación en cuanto cambia un argumento.
 $('#lista').addEventListener('input', ev => {
+  // El borrador de una memoria vive en el estado: el sondeo no lo pierde. No se
+  // repinta al teclear; solo se actualiza el indicador «sin guardar».
+  const ed = ev.target.closest('textarea[data-mem]');
+  if (ed) {
+    const e = st.memEdit[ed.dataset.mem];
+    if (e) {
+      e.texto = ed.value;
+      $('.sin-guardar', ed.closest('.det'))?.toggleAttribute('hidden', !sucio(e));
+    }
+    return;
+  }
   const el = ev.target.closest('[data-campo]');
   if (!el) return;
   const c = (st.consola[el.dataset.h] ??= {});
@@ -1033,10 +1258,26 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape') {
     if (t.id === 'q') { t.value = ''; st.q = ''; }
     if (enCampo) t.blur();
-    else { st.abiertos.clear(); st.sel = null; }
+    else {
+      for (const k of [...st.abiertos]) if (cierraBorrador(k)) st.abiertos.delete(k);
+      st.sel = null;
+    }
     st.html = '';
     pintar();
     return;
+  }
+  if (t.matches('textarea[data-mem]')) {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
+      ev.preventDefault();
+      accion({ dataset: { a: 'guardar-memoria', k: t.dataset.mem } });
+      return;
+    }
+    if (ev.key === 'Tab' && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+      ev.preventDefault();
+      t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end');
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
   }
   if (ev.key === 'Enter' && t.matches('input[data-campo]')) {
     ev.preventDefault();
@@ -1057,6 +1298,9 @@ document.addEventListener('keydown', ev => {
 });
 
 document.addEventListener('visibilitychange', tick);
+addEventListener('beforeunload', ev => {
+  if (Object.values(st.memEdit).some(sucio)) { ev.preventDefault(); ev.returnValue = ''; }
+});
 addEventListener('hashchange', () => {
   const h = location.hash.slice(1);
   if (SECCIONES.includes(h) && h !== st.sec) ir(h);
