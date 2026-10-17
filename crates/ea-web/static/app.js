@@ -18,6 +18,8 @@ const MODO = { mision: 'misión', obra: 'obra', rutina: 'rutina' };
 const COLOR = { mision: '#e5484d', obra: '#3e8ed0', rutina: '#f2c94c', propuesta: '#f28cb1' };
 // Cómo luce la cápsula según el estado: gira, lleva halo, se apaga.
 const IC = { ejecutando: 'run', en_espera: 'hot', cerrado: 'cerrada', cancelado: 'cancelada' };
+const CLAUDE = '#d97757'; // el color de Claude Code (placa de la escena)
+const ACTIVOS = ['en_cola', 'ejecutando', 'en_revision', 'en_espera'];
 const NOMBRE = { 'modelo-local': 'modelo local', 'claude-code': 'Claude Code', orquestador: 'orquestador', usuario: 'tú' };
 const TITULOS = {
   inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
@@ -40,7 +42,12 @@ const VACIO = {
 const st = {
   sec: 'inicio',
   estado: null,        // /api/estado
-  trabajos: [],        // /api/trabajos, siempre al día (portada, lista y avisos)
+  todos: [],           // /api/trabajos, siempre al día
+  trabajos: [],        // los de todos que se ven: los del proyecto elegido, o todos
+  proyecto: null,      // cwd del proyecto elegido en la barra (filtra trabajos, diario y escena)
+  sesiones: [],        // /api/sesiones: sesiones vivas de Claude Code
+  proyectos: null,     // claves (cwd) de los proyectos de la barra, para detectar los nuevos
+  nuevos: {},          // cwd -> instante hasta el que su tarjeta luce la clase nueva
   datos: null,         // datos de la sección visible
   detalle: {},         // detalle cargado de las filas abiertas
   diffs: {},           // diff de los trabajos con el diff desplegado (id -> respuesta)
@@ -591,6 +598,103 @@ function cabecera() {
   document.title = esperan ? `! ${esperan}` : e.propuestas_pendientes ? `◇ ${e.propuestas_pendientes}` : 'ea';
 }
 
+// Barra de proyectos: un proyecto por cada cwd con sesiones vivas de Claude Code,
+// con sus sesiones y los trabajos activos del bus cuyo worktree cuelga de él.
+function barraProyectos() {
+  const grupos = new Map();
+  for (const s of st.sesiones) {
+    if (!grupos.has(s.cwd)) grupos.set(s.cwd, []);
+    grupos.get(s.cwd).push(s);
+  }
+  const partes = c => c.split('/').filter(Boolean);
+  const etiqueta = new Map([...grupos.keys()].map(c => [c, partes(c).pop() || c]));
+  for (const c of grupos.keys()) {
+    const igual = [...grupos.keys()].some(o => o !== c && etiqueta.get(o) === etiqueta.get(c));
+    if (igual) etiqueta.set(c, partes(c).slice(-2).join('/'));
+  }
+  if (st.proyecto && !grupos.has(st.proyecto)) elige(null); // se cerraron sus sesiones
+  const trabaja = ss => ss.some(s => s.ocupada);
+  const lista = [...grupos.entries()].sort(([, a], [, b]) =>
+    trabaja(b) - trabaja(a) || Math.min(...a.map(s => s.desde)) - Math.min(...b.map(s => s.desde)));
+
+  // Los proyectos que aparecen después de la primera carga destacan un momento.
+  const claves = lista.map(([c]) => c);
+  if (st.proyectos) claves.filter(c => !st.proyectos.includes(c)).forEach(c => { st.nuevos[c] = Date.now() + 3000; });
+  st.proyectos = claves;
+
+  const html = lista.map(([cwd, ss]) => {
+    const ts = st.todos.filter(t => ACTIVOS.includes(t.estado) && deProyecto(t, cwd));
+    const hot = ts.some(t => t.estado === 'en_espera');
+    const ocupada = trabaja(ss);
+    const resumen = `${ss.length} ${ss.length === 1 ? 'sesión' : 'sesiones'}` + (ts.length ? ` · ${ts.length} ${ts.length === 1 ? 'trabajo' : 'trabajos'}` : '');
+    const filas = ss.map(s =>
+      `<div class="ps"><i${s.ocupada ? ` style="color:${CLAUDE}"` : ''}>${s.ocupada ? '●' : '○'}</i>` +
+      `<span class="n">${esc(s.nombre)}</span><span class="m">${s.ocupada ? 'trabajando' : 'libre'} · ${reloj(s.actualizada)}</span></div>`).join('') +
+      ts.map(t => {
+        const fase = t.modo === 'obra' && t.fases_total ? ` ${t.fase_actual}/${t.fases_total}` : '';
+        return `<div class="pt${t.estado === 'en_espera' ? ' hot' : ''}" data-pt="${esc(t.id)}" role="button" tabindex="0" title="${esc(t.titulo)} · ${EST[t.estado][1]}">` +
+          `<i>${EST[t.estado][0]}</i><span class="n">${esc(t.titulo)}</span><span class="m">${fase.trim()}</span></div>`;
+      }).join('');
+    const titulo = `${cwd} · ${st.proyecto === cwd ? 'pulsa para ver todos los proyectos' : 'pulsa para ver solo este proyecto'}`;
+    return `<section class="pry${hot ? ' hot' : ''}${ocupada ? ' trab' : ''}${st.proyecto === cwd ? ' sel' : ''}${st.nuevos[cwd] > Date.now() ? ' nueva' : ''}" data-pry="${esc(cwd)}" title="${esc(titulo)}">` +
+      `<h3><i${ocupada ? ` style="color:${CLAUDE}"` : ''}>${ocupada ? '●' : '○'}</i><span class="n">${esc(etiqueta.get(cwd))}</span><span class="m">${resumen}</span></h3>${filas}</section>`;
+  }).join('') || '<p class="vacio">Sin sesiones de Claude Code abiertas.</p>';
+
+  const l = $('#proy-lista');
+  if (l.dataset.h !== html) { l.dataset.h = html; l.innerHTML = html; }
+  relojes();
+  const n = lista.length;
+  $('#proy-n').textContent = n || '';
+  $('#bproy b').textContent = n || '';
+  const f = $('#fproy');
+  f.hidden = !st.proyecto;
+  if (st.proyecto) {
+    $('span', f).textContent = etiqueta.get(st.proyecto);
+    f.title = `Solo se ve ${st.proyecto}: pulsa para ver todos los proyectos`;
+  }
+  $('#bproy').classList.toggle('trab', lista.some(([, ss]) => trabaja(ss)));
+}
+
+// ¿El trabajo es del proyecto? Su worktree es la carpeta del proyecto o cuelga de ella.
+const deProyecto = (t, cwd) => !!t.worktree && (t.worktree === cwd || t.worktree.startsWith(cwd + '/'));
+
+// Los trabajos que se ven: con un proyecto elegido, solo los suyos.
+function filtra() {
+  st.trabajos = st.proyecto ? st.todos.filter(t => deProyecto(t, st.proyecto)) : st.todos;
+}
+
+// Elegir un proyecto (o null para verlos todos) filtra toda la web.
+function elige(cwd) {
+  st.proyecto = st.proyecto === cwd ? null : cwd;
+  filtra();
+  st.html = '';
+  $('#proy-lista').dataset.h = '';
+}
+
+// Desplegada o plegada a una tira con el punto de cada proyecto (en el móvil,
+// plegada no se ve); se recuerda en el navegador. Sin elección guardada:
+// desplegada en pantallas anchas y plegada en estrechas.
+function proyectos(cambiar = false) {
+  const a = $('#proyectos');
+  let abierta;
+  try { const g = localStorage.getItem('ea-proyectos'); if (g) abierta = g === 'abierta'; } catch { /* sin almacenamiento */ }
+  if (st.proyAbierta === undefined) st.proyAbierta = abierta ?? matchMedia('(min-width: 1100px)').matches;
+  if (cambiar) {
+    st.proyAbierta = !st.proyAbierta;
+    try { localStorage.setItem('ea-proyectos', st.proyAbierta ? 'abierta' : 'plegada'); } catch { /* sin almacenamiento */ }
+  }
+  a.classList.toggle('plegada', !st.proyAbierta);
+  const titulo = st.proyAbierta ? 'Plegar la barra de proyectos (tecla p)' : 'Desplegar la barra de proyectos: sesiones de Claude Code y sus trabajos (tecla p)';
+  const b = $('#bproy');
+  b.classList.toggle('abierta', st.proyAbierta);
+  b.title = titulo;
+  b.setAttribute('aria-expanded', String(st.proyAbierta));
+  const p = $('[data-plegar-proy]');
+  p.textContent = st.proyAbierta ? '▸' : '◂';
+  p.title = titulo;
+  p.setAttribute('aria-label', titulo);
+}
+
 function pintar() {
   // No pisar lo que se está escribiendo dentro de un detalle.
   const foco = document.activeElement;
@@ -637,16 +741,21 @@ async function cargaSeccion() {
   const sec = st.sec;
   let datos = null;
   if (sec === 'inicio') {
-    const [propuestas, colas, semaforos, diario, ses] = await Promise.all([
-      api('/api/propuestas?estado=pendiente'), api('/api/colas'), api('/api/semaforos'), api('/api/diario?limite=30'),
-      api('/api/sesiones')]);
-    datos = { propuestas, colas, semaforos, diario, sesiones: ses.sesiones };
+    const [propuestas, colas, semaforos, diario] = await Promise.all([
+      api('/api/propuestas?estado=pendiente'), api('/api/colas'), api('/api/semaforos'), api('/api/diario?limite=30')]);
+    datos = { propuestas, colas, semaforos, diario, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await api('/api/acciones');
   else if (sec === 'diario') datos = await api('/api/diario?limite=300' + (st.latidos ? '&latidos=1' : ''));
   else if (sec === 'rutinas') datos = await api('/api/rutinas');
   else if (sec === 'propuestas') datos = await api('/api/propuestas' + (st.propTodas ? '' : '?estado=pendiente'));
   else if (sec === 'boveda') datos = await api('/api/boveda?q=' + encodeURIComponent(st.q.trim()));
+  if (st.proyecto) {
+    const ids = new Set(st.trabajos.map(t => t.id));
+    const suyo = e => ids.has(trabajoDe(e));
+    if (sec === 'diario') datos = datos.filter(suyo);
+    else if (sec === 'inicio') datos.diario = datos.diario.filter(suyo);
+  }
   await Promise.all([...st.abiertos].map(cargaDetalle));
   if (sec !== st.sec) return false; // el usuario cambió de sección mientras tanto
   st.datos = datos;
@@ -658,8 +767,12 @@ async function tick() {
   if (st.ocupado) { st.otra = true; return; }
   st.ocupado = true;
   try {
-    [st.estado, st.trabajos] = await Promise.all([api('/api/estado'), api('/api/trabajos')]);
+    let ses;
+    [st.estado, st.todos, ses] = await Promise.all([api('/api/estado'), api('/api/trabajos'), api('/api/sesiones')]);
+    st.sesiones = ses.sesiones;
+    filtra();
     $('#off').hidden = true;
+    barraProyectos();
     cabecera();
     if (await cargaSeccion()) pintar();
     if (st.sec === 'inicio' && st.datos) gasha.actualizar({ trabajos: st.trabajos, estado: st.estado, ...st.datos });
@@ -679,7 +792,7 @@ function marco() {
   $('#titulo h1').textContent = nombre;
   $('#titulo p').textContent = guia;
   $('#q').placeholder = st.sec === 'boveda' ? 'buscar en las notas ( / )' : 'filtrar ( / )';
-  $$('#rail button').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
+  $$('#rail button[data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
   $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
   $('#escena').hidden = st.sec !== 'inicio';
 }
@@ -859,10 +972,17 @@ function ayuda(mostrar) {
 
 document.addEventListener('click', ev => {
   const t = ev.target;
-  const rail = t.closest('#rail button');
+  const rail = t.closest('#rail button[data-s]');
   if (rail) return ir(rail.dataset.s);
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
   if (t.closest('#btema')) return tema(true);
+  if (t.closest('#bproy')) return proyectos(true);
+  if (t.closest('[data-plegar-proy]')) return proyectos(true);
+  const pt = t.closest('[data-pt]');
+  if (pt) return abre('trabajos', 'j' + pt.dataset.pt);
+  const pry = t.closest('[data-pry]');
+  if (pry) { elige(pry.dataset.pry); barraProyectos(); pintar(); return tick(); }
+  if (t.closest('#fproy')) { elige(null); barraProyectos(); pintar(); return tick(); }
   if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }
   const f = t.closest('button[data-f]');
   if (f) {
@@ -915,9 +1035,11 @@ document.addEventListener('keydown', ev => {
     return;
   }
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('trabajos', 'j' + t.dataset.pt); return; }
   const n = Number(ev.key);
   if (n >= 1 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
-  if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
+  if (ev.key === 'p') proyectos(true);
+  else if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);
@@ -938,6 +1060,7 @@ addEventListener('hashchange', () => {
   gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
   marco();
   tema();
+  proyectos();
   // La primera vez, la guía abierta.
   try { if (!localStorage.getItem('ea-ayuda-vista')) ayuda(true); } catch { /* sin almacenamiento */ }
   tick();
