@@ -19,7 +19,8 @@
 html, body { height: 100%; }
 body {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   background: var(--bg);
   color: var(--fg);
   font: 14px/1.5 "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace;
@@ -33,10 +34,10 @@ i { font-style: normal; text-align: center; }
 
 /* ---- carril ---- */
 #rail {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 12px 0; background: var(--bg0);
+  grid-row: 2; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;
+  padding: 4px 8px; background: var(--bg0);
 }
-#rail .marca { display: grid; place-items: center; width: 84px; height: 40px; margin-bottom: 8px; }
+#rail .marca { display: grid; place-items: center; width: 56px; height: 40px; margin-right: 8px; }
 #rail button {
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   width: 84px; height: 52px; padding: 0; color: var(--fg-lo); border-radius: 0;
@@ -46,8 +47,8 @@ i { font-style: normal; text-align: center; }
 #rail button:hover { color: var(--fg-hi); background: none; }
 #rail button.on { color: var(--fg-hi); }
 #rail button.on::before {
-  content: ""; position: absolute; left: 0; top: 10px; bottom: 10px;
-  width: 3px; border-radius: 0 3px 3px 0; background: var(--accent);
+  content: ""; position: absolute; top: 0; left: 10px; right: 10px;
+  height: 3px; border-radius: 0 0 3px 3px; background: var(--accent);
 }
 /* contador: pegatina azul, o roja si alguien espera */
 #rail b {
@@ -60,7 +61,7 @@ i { font-style: normal; text-align: center; }
 
 /* ---- zona principal ---- */
 main {
-  display: flex; flex-direction: column; min-width: 0; height: 100vh;
+  grid-row: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
   padding: 0 24px;
 }
 header, #titulo, #barra, #lista { width: 100%; max-width: 1200px; }
@@ -289,10 +290,10 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .diff .d-menos { color: var(--menos); }
 
 #aviso {
-  position: fixed; left: 100px; bottom: 16px; padding: 8px 14px; border-radius: 4px;
+  position: fixed; left: 24px; bottom: 80px; padding: 8px 14px; border-radius: 4px;
   background: var(--bg0); color: var(--hot); opacity: 0; pointer-events: none;
   box-shadow: 0 4px 18px rgba(0, 0, 0, .25);
-  transition: opacity .15s; max-width: calc(100vw - 132px);
+  transition: opacity .15s; max-width: calc(100vw - 48px);
 }
 #aviso.v { opacity: 1; }
 #aviso.ok { color: var(--fg-hi); }
@@ -312,11 +313,12 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .hoja dd { color: var(--fg-lo); }
 
 @media (max-width: 760px) {
-  body { grid-template-columns: 56px minmax(0, 1fr); }
-  #rail button, #rail .marca { width: 56px; }
+  #rail { gap: 0; padding: 4px 0; justify-content: space-around; }
+  #rail .marca { display: none; }
+  #rail button { width: 44px; }
   #rail span { display: none; }
   #rail b { right: 4px; }
-  #aviso { left: 68px; max-width: calc(100vw - 80px); }
+  #aviso { left: 12px; max-width: calc(100vw - 24px); }
   .actores, .tablero { grid-template-columns: 1fr; }
   .tablero.t5 { grid-template-columns: 1fr; }
   .actor .rol { min-height: 0; }
