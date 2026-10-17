@@ -637,9 +637,10 @@ async function cargaSeccion() {
   const sec = st.sec;
   let datos = null;
   if (sec === 'inicio') {
-    const [propuestas, colas, semaforos, diario] = await Promise.all([
-      api('/api/propuestas?estado=pendiente'), api('/api/colas'), api('/api/semaforos'), api('/api/diario?limite=30')]);
-    datos = { propuestas, colas, semaforos, diario };
+    const [propuestas, colas, semaforos, diario, ses] = await Promise.all([
+      api('/api/propuestas?estado=pendiente'), api('/api/colas'), api('/api/semaforos'), api('/api/diario?limite=30'),
+      api('/api/sesiones')]);
+    datos = { propuestas, colas, semaforos, diario, sesiones: ses.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await api('/api/acciones');
   else if (sec === 'diario') datos = await api('/api/diario?limite=300' + (st.latidos ? '&latidos=1' : ''));
