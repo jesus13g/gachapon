@@ -27,6 +27,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/cliente.js", get(cliente_js))
         .route("/gashapon.css", get(gashapon_css))
         .route("/gashapon.js", get(gashapon_js))
+        .route("/tour.js", get(tour_js))
         .route("/tema.css", get(tema_css))
         .route("/api/estado", get(estado_general))
         .route("/api/inicio", get(inicio))
@@ -125,6 +126,10 @@ async fn gashapon_css() -> Response {
 
 async fn gashapon_js() -> Response {
     estatico("text/javascript; charset=utf-8", include_str!("../../static/gashapon.js").into())
+}
+
+async fn tour_js() -> Response {
+    estatico("text/javascript; charset=utf-8", include_str!("../../static/tour.js").into())
 }
 
 async fn tema_css(State(s): State<Arc<AppState>>) -> Response {

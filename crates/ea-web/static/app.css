@@ -407,3 +407,25 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 @media (max-width: 1100px) and (min-width: 761px) { .tablero.t5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .tablero.t5 { grid-template-columns: 1fr; } }
 .hoja .nota-esc { color: var(--fg); margin-bottom: 8px; }
+
+/* ---- recorrido ---- */
+.tour-bot { display: flex; gap: 6px; margin: 4px 0 12px; clear: both; }
+#tour { position: fixed; inset: 0; z-index: 10; }
+#tour .velo { position: fixed; inset: 0; }
+#tour.sin-foco .velo { background: rgba(0, 0, 0, .55); }
+#tour .foco {
+  position: fixed; border-radius: 6px; pointer-events: none;
+  box-shadow: 0 0 0 200vmax rgba(0, 0, 0, .55), 0 0 0 2px var(--accent);
+  transition: top .2s, left .2s, width .2s, height .2s;
+}
+#tour .globo {
+  position: fixed; width: min(360px, calc(100vw - 24px)); padding: 14px 16px;
+  background: var(--bg0); color: var(--fg); border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+#tour .paso { color: var(--fg-dim); font-size: 12px; }
+#tour h2 { font: inherit; color: var(--fg-hi); margin: 2px 0 6px; }
+#tour .txt { color: var(--fg); }
+#tour .txt b { color: var(--fg-hi); font-weight: 400; }
+#tour .nav { display: flex; gap: 4px; margin-top: 12px; }
+#tour .nav button:disabled { opacity: .4; cursor: default; }
+@media (prefers-reduced-motion: reduce) { #tour .foco { transition: none; } }

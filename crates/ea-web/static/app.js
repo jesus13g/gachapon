@@ -973,6 +973,8 @@ document.addEventListener('click', ev => {
   const pry = t.closest('[data-pry]');
   if (pry) { elige(pry.dataset.pry); barraProyectos(); pintar(); return tick(); }
   if (t.closest('#fproy')) { elige(null); barraProyectos(); pintar(); return tick(); }
+  const tb = t.closest('[data-tour]');
+  if (tb) return tour.iniciar(tb.dataset.tour === 'vista' ? st.sec : null);
   if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }
   const f = t.closest('button[data-f]');
   if (f) {
@@ -1008,6 +1010,7 @@ $('#q').addEventListener('input', ev => {
 });
 
 document.addEventListener('keydown', ev => {
+  if (tour.activo()) return;
   const t = ev.target;
   const enCampo = t.matches('input, textarea, select');
   if (ev.key === 'Escape' && !$('#ayuda').hidden) return ayuda(false);
@@ -1030,6 +1033,7 @@ document.addEventListener('keydown', ev => {
   if (n >= 1 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
   if (ev.key === 'p') proyectos(true);
   else if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
+  else if (ev.key === 't') tour.iniciar();
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);
@@ -1048,11 +1052,12 @@ addEventListener('hashchange', () => {
   const h = location.hash.slice(1);
   if (SECCIONES.includes(h)) st.sec = h;
   gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
+  tour.montar({ ir, seccion: () => st.sec });
   marco();
   tema();
   proyectos();
-  // La primera vez, la guía abierta.
-  try { if (!localStorage.getItem('ea-ayuda-vista')) ayuda(true); } catch { /* sin almacenamiento */ }
+  // La primera vez, el recorrido guiado.
+  try { if (!localStorage.getItem('ea-tour-visto')) tour.iniciar(); } catch { /* sin almacenamiento */ }
   tick();
   setInterval(tick, 3000);
   setInterval(relojes, 1000);
