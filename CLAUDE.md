@@ -1,0 +1,109 @@
+# CLAUDE.md
+
+Orquestador en Rust (repo público `jesus13g/gachapon`) que reparte el trabajo
+entre Claude Code (formaliza y revisa) y un agente local, Qwen Code sobre
+`llama-server` (ejecuta). Se comunican por un bus de ficheros con colas y
+semáforos. Visión general en `README.md`; diseño original en
+`orquestador-claude-qwen.md`.
+
+## Fuente de verdad: la documentación SDD
+
+La documentación vigente está fuera del repo, en
+`~/Obsidian/Ecosistema/claude-code/ecosistema/`:
+
+- `estado-actual.md`: backlog priorizado, discrepancias y preguntas abiertas.
+  **Léelo primero al retomar.**
+- `constitucion.md`: principios no negociables (artículos I-XII).
+- `specs/NNN-*/{spec,plan,tareas}.md`: una spec por área (bus, ejecutor,
+  misión/obra, rutinas, skills, herramientas, bóveda, diario, monitor, banco…).
+
+Un cambio de comportamiento empieza editando la spec (y su `tareas.md`), no el
+código. Esas notas son de la bóveda: se escriben con `ea_escribir_nota` (escritor
+único, `ea-boveda`), no editando el fichero a mano.
+
+## Comandos
+
+```bash
+cargo build --release      # binarios en target/release/{ea,ea-mcp,ea-orchestrator,ea-web}
+cargo test --workspace     # toda la suite (unas 120 pruebas)
+cargo test -p ea-bus       # un solo crate
+systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en release
+```
+
+`ea` no está en el `PATH`: usa `./target/release/ea`. Los servicios `systemd
+--user` ejecutan directamente los binarios de `target/release/`, así que un
+`cargo build --release` cambia lo que corre en cuanto se reinician.
+
+## Mapa del workspace
+
+| Crate | Qué es |
+|---|---|
+| `ea-store` | SQLite: diario, propuestas, índice de la bóveda, trabajos, fases, rutinas. Una sola migración (`0001_inicial.sql`) |
+| `ea-bus` | Bus de ficheros: colas, estado de trabajos (máquina de estados pura), semáforo `flock`, rutinas TOML, `orquestador.toml` |
+| `ea-orchestrator` | Ejecutor: toma de la cola `modelo-local`, lanza Qwen en `bwrap`, corre el criterio y entrega el informe |
+| `ea-acciones` | Catálogo único de herramientas con riesgo, simulación, revalidación y flujo propuesta → aceptación → ejecución |
+| `ea-boveda` | La bóveda de notas; **único código que escribe en ella** |
+| `ea-cli` | Binario `ea`: CLI y TUI (`ratatui`) |
+| `ea-mcp` | Servidor MCP HTTP en `127.0.0.1:8765` |
+| `ea-web` | API JSON y panel en `127.0.0.1:8092`; `static/` va embebido con `include_str!` (recompilar para ver cambios) |
+
+Fuera de `crates/`: `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
+`/revisar`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
+vivas), `claude/hooks/` (hook de subagentes para `ea-web`), `qwen/skills/`
+(skills cortas de Qwen) y `bench/` (banco de pruebas en Python, ajeno a los
+binarios).
+
+Estado en ejecución: base de datos en `~/.local/share/ecosistema-asistente/`
+(`$EA_DB_PATH`), bus en `~/.local/state/ecosistema-asistente/`
+(`$EA_ESTADO_DIR`), bóveda según `$EA_BOVEDA_DIR` o `boveda.toml`.
+
+## Reglas que el código hace cumplir (no las rompas)
+
+- **Ningún agente se confirma a sí mismo.** Lo mutante se simula o se propone;
+  solo el usuario acepta. Lo irreversible exige una terminal real (TTY). `ea-mcp`
+  y el orquestador solo reciben la capa `SoloConsulta`. No añadas atajos.
+- **El criterio de éxito lo ejecuta el sistema**, nunca el agente; un criterio
+  vacío no es éxito.
+- **El modelo se nombra solo en `orquestador.toml`** (`ConfigOrquestador`).
+  Nada de nombres de modelo ni endpoints en el código.
+- **El diario es append-only a nivel de motor** (triggers): un error se corrige
+  con otro evento. El estado del bus se escribe con `fs_atomico`.
+- **Solo local**: todo escucha en `127.0.0.1`; `ea-web` filtra el `Host`.
+- **El agente local**: `bwrap`, topes duros, sin herramientas web y semáforo
+  exclusivo del worktree.
+- Si un cambio choca con un artículo de la constitución, se enmienda la
+  constitución primero; no se hace una excepción callada.
+
+## Convenciones
+
+- **Todo en español**: identificadores, mensajes, CLI, commits y documentación
+  (p. ej. `trabajo`, `orden`, `informe`, `semaforo`). Commits con frase
+  descriptiva en español, sin prefijos tipo `feat:`.
+- Rust edition 2024, toolchain stable. Las bibliotecas definen errores con
+  `thiserror` (`error.rs` por crate); los binarios (`ea-cli`, `ea-mcp`,
+  `ea-orchestrator`, `ea-web`) usan `anyhow`.
+- Las pruebas de integración aíslan el estado en directorios de `tempfile`
+  (bus vía `EA_ESTADO_DIR`, base de datos y bóveda temporales); nunca toques el
+  estado real del usuario desde una prueba.
+- Esquema de base de datos: no hay migración desde bases antiguas; una base del
+  esquema anterior se rechaza. Pregunta antes de añadir migraciones.
+- **`ea-web`**: app minimalista (raíl lateral, cabecera, filas con detalle en
+  línea) con el estilo de la escena gashapon. Los cambios visuales parten de
+  `app.css`/`gashapon.css`. **La escena de Inicio (`gashapon.js`) no se toca.**
+- Al cambiar comandos, API o comportamiento visible, actualiza el `README.md`.
+
+## Git
+
+- `main` estable (no se hacen commits directos), `desarrollo` de integración;
+  cada mejora sale de `desarrollo` en su rama y vuelve a ella.
+  `banco-de-pruebas` es la rama del banco de modelos (`bench/`).
+- El repo es público: no cambies `user.email` (es el noreply de GitHub) y revisa
+  que no haya secretos antes de cada push.
+- Pregunta antes de fusionar ramas o retirar piezas del sistema.
+
+## Trabajar dentro del ecosistema
+
+El propio repo se puede trabajar con el flujo que implementa: si una tarea se
+puede escribir como pasos con un criterio comprobable, se lanza al agente local
+con `/mision` u `/obra` y se revisa con `/revisar`. Úsalo cuando el usuario lo
+pida; por defecto, en este repo trabaja directamente.
