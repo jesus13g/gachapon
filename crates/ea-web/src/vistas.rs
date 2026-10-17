@@ -1,0 +1,301 @@
+//! Las respuestas de la API, con nombre y forma fijas: el contrato que
+//! consume la página. Solo datos; quien los rellena es `servicio` y quien
+//! los serializa, `http`.
+
+use std::collections::BTreeMap;
+
+use serde::Serialize;
+use serde_json::Value;
+
+pub use crate::sesiones::Sesion;
+
+// ------------------------------------------------------------------ estado
+
+#[derive(Serialize)]
+pub struct EstadoGeneral {
+    pub ahora: String,
+    pub servicios: Vec<ServicioVista>,
+    pub orquestador: Orquestador,
+    pub agentes: Vec<AgenteVista>,
+    pub trabajos: TrabajosPorEstado,
+    pub propuestas_pendientes: usize,
+    pub db: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ServicioVista {
+    pub nombre: &'static str,
+    pub activo: String,
+    pub activo_s: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct Orquestador {
+    pub vivo: bool,
+    pub ultimo_latido: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AgenteVista {
+    pub nombre: &'static str,
+    pub ultimo: Option<UltimoEvento>,
+}
+
+#[derive(Serialize)]
+pub struct UltimoEvento {
+    pub ts: String,
+    pub accion: String,
+}
+
+/// Trabajos del bus por estado; todo a cero si el bus no se puede leer.
+#[derive(Serialize, Default)]
+pub struct TrabajosPorEstado {
+    pub en_cola: usize,
+    pub ejecutando: usize,
+    pub en_revision: usize,
+    pub en_espera: usize,
+    pub cerrado: usize,
+    pub cancelado: usize,
+}
+
+#[derive(Serialize)]
+pub struct Inicio {
+    pub propuestas: Vec<PropuestaVista>,
+}
+
+#[derive(Serialize)]
+pub struct Sesiones {
+    pub sesiones: Vec<Sesion>,
+}
+
+// ------------------------------------------------------------------ diario
+
+#[derive(Serialize)]
+pub struct EventoVista {
+    pub id: i64,
+    pub ts: String,
+    pub actor: String,
+    pub accion: String,
+    pub trabajo: Option<String>,
+    pub resultado: Option<&'static str>,
+    pub duracion_ms: Option<i64>,
+    pub detalle: Option<String>,
+}
+
+// -------------------------------------------------------------- propuestas
+
+#[derive(Serialize)]
+pub struct PropuestaVista {
+    pub id: i64,
+    pub proponente: Option<String>,
+    pub creada: String,
+    pub descripcion: String,
+    pub estado: &'static str,
+    pub decidida: Option<String>,
+    pub accion: Option<AccionPropuesta>,
+    pub ejecutada: Option<Ejecucion>,
+}
+
+#[derive(Serialize)]
+pub struct AccionPropuesta {
+    pub herramienta: String,
+    pub argumentos: Value,
+    pub riesgo: String,
+    pub simulacion: String,
+}
+
+#[derive(Serialize)]
+pub struct Ejecucion {
+    pub estado: &'static str,
+    pub detalle: Option<String>,
+    pub cuando: Option<String>,
+}
+
+// ----------------------------------------------------------------- rutinas
+
+#[derive(Serialize)]
+pub struct RutinaFila {
+    pub slug: String,
+    pub version: i64,
+    pub descripcion: Option<String>,
+    pub worktree: Option<String>,
+    pub criterio_exito: Option<String>,
+    pub entradas: Option<BTreeMap<String, String>>,
+    pub error: Option<&'static str>,
+    pub registrada: String,
+    pub proxima: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct RutinaDetalle {
+    pub slug: String,
+    pub version: i64,
+    pub contenido: String,
+}
+
+#[derive(Serialize)]
+pub struct RutinaLanzada {
+    pub trabajo: String,
+    pub rutina: String,
+}
+
+// ---------------------------------------------------------------- trabajos
+
+#[derive(Serialize)]
+pub struct TrabajoResumen {
+    pub id: String,
+    pub modo: &'static str,
+    pub titulo: String,
+    pub estado: &'static str,
+    pub fase_actual: Option<u32>,
+    pub fases_total: usize,
+    pub iteracion: u32,
+    pub detalle: Option<String>,
+    pub resultado: Option<&'static str>,
+    pub obra_completa: Option<bool>,
+    pub rutina: Value,
+    pub worktree: String,
+    pub creado: String,
+    pub actualizado: String,
+}
+
+/// Lo que guarda el bus de un trabajo, tal cual (el informe sin el diff).
+#[derive(Serialize)]
+pub struct TrabajoDetalle {
+    pub id: String,
+    pub orden: Value,
+    pub estado: Value,
+    pub informe: Value,
+    pub historial: Vec<Value>,
+    pub paquete: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct Diff {
+    pub id: String,
+    pub commit_inicio: String,
+    pub diff: String,
+    pub truncado: bool,
+}
+
+#[derive(Serialize)]
+pub struct EstadoTrabajo {
+    pub id: String,
+    pub estado: &'static str,
+}
+
+/// Por agente (`modelo-local`, `claude-code`).
+pub type Colas = BTreeMap<&'static str, Vec<ColaEntrada>>;
+
+#[derive(Serialize)]
+pub struct ColaEntrada {
+    pub id: String,
+    pub trabajo: String,
+    pub titulo: Option<String>,
+    pub motivo: String,
+    pub encolado_en: String,
+}
+
+#[derive(Serialize)]
+pub struct Semaforo {
+    pub agente: String,
+    pub trabajo: String,
+    pub pid: u32,
+    pub desde: String,
+}
+
+// ---------------------------------------------------------------- acciones
+
+#[derive(Serialize)]
+pub struct AccionCatalogo {
+    pub nombre: &'static str,
+    pub riesgo: &'static str,
+    pub supervisada: bool,
+    pub local: bool,
+    pub resumen: &'static str,
+    pub campos: Vec<CampoVista>,
+    pub confirmable: bool,
+}
+
+#[derive(Serialize)]
+pub struct CampoVista {
+    pub nombre: &'static str,
+    pub entero: bool,
+    pub obligatorio: bool,
+    pub opciones: Vec<String>,
+    pub ayuda: &'static str,
+}
+
+#[derive(Serialize)]
+pub struct Simulacion {
+    pub herramienta: &'static str,
+    pub riesgo: &'static str,
+    pub argumentos: Value,
+    pub texto: String,
+    pub precondicion: Value,
+    pub confirmable: bool,
+}
+
+#[derive(Serialize)]
+pub struct ResultadoAccion {
+    pub texto: String,
+    pub trabajo: Option<String>,
+    pub datos: Value,
+}
+
+// ------------------------------------------------------------------ bóveda
+
+#[derive(Serialize)]
+pub struct ListadoBoveda {
+    pub raiz: String,
+    pub notas: Vec<NotaResumen>,
+}
+
+#[derive(Serialize)]
+pub struct NotaResumen {
+    pub ruta: String,
+    pub region: String,
+    pub autor: Option<String>,
+    pub titulo: String,
+    pub actualizada: Option<String>,
+    pub promocion: Option<String>,
+    pub fragmento: String,
+}
+
+#[derive(Serialize)]
+pub struct NotaVista {
+    pub ruta: String,
+    pub region: String,
+    pub cabecera: Option<CabeceraVista>,
+    pub aviso_cabecera: Option<String>,
+    pub contenido: String,
+    pub total_caracteres: usize,
+    pub truncado: bool,
+    pub siguiente_desde: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct CabeceraVista {
+    pub titulo: String,
+    pub autor: String,
+    pub creada: String,
+    pub actualizada: String,
+    pub origen: String,
+    pub promocion: String,
+    pub tags: Vec<String>,
+    pub promovida_de: Option<String>,
+    pub promovida_a: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct Promocion {
+    pub texto: String,
+    pub datos: Value,
+}
+
+// --------------------------------------------------------------- servicios
+
+#[derive(Serialize)]
+pub struct Hecho {
+    pub ok: bool,
+}

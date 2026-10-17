@@ -2,17 +2,24 @@
 //! página única que la consume. Respeta el invariante de §12.2 de la
 //! especificación — para leer consulta el diario y el bus de trabajos, para
 //! actuar decide propuestas y gestiona trabajos — y nunca habla con Claude Code ni con el
-//! modelo local. La única ruta que sale de la base de datos es el reinicio de
-//! servicios.
+//! modelo local (solo mira qué sesiones de Claude Code hay abiertas). La única
+//! ruta que sale de la base de datos es el reinicio de servicios.
 
 use std::path::PathBuf;
 
 use ea_store::Store;
 use tokio::sync::Mutex;
 
-pub mod api;
 pub mod estado;
+mod git;
+pub mod http;
+pub mod servicio;
+pub mod sesiones;
 pub mod tema;
+pub mod vistas;
+
+/// Nombre histórico de la capa HTTP (`ea_web::api::router`).
+pub use http as api;
 
 const DEFAULT_PORT: u16 = 8092;
 const ENV_PORT: &str = "EA_WEB_PORT";
@@ -30,6 +37,11 @@ pub struct WebConfig {
     /// Si es falso no se lanza ningún `systemctl` (tests, o una máquina sin
     /// `systemd --user`): los servicios se reportan como desconocidos.
     pub systemctl: bool,
+    /// Dónde Claude Code deja un fichero por sesión abierta. `None` = no se
+    /// leen sesiones (tests).
+    pub sesiones_dir: Option<PathBuf>,
+    /// Raíz de estado del bus de trabajos (colas, trabajos, semáforos).
+    pub estado_dir: PathBuf,
 }
 
 impl WebConfig {
@@ -49,6 +61,8 @@ impl WebConfig {
             rutinas_dir: orquestador.rutinas_dir,
             boveda: ea_boveda::Boveda::configurada(),
             systemctl: true,
+            sesiones_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/sessions")),
+            estado_dir: ea_bus::raiz_estado(),
         }
     }
 }

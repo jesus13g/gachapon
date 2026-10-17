@@ -66,6 +66,8 @@ fn montar() -> Fixture {
         rutinas_dir,
         boveda: ea_boveda::Boveda::en(dir.path().join("boveda")),
         systemctl: false,
+        sesiones_dir: Some(dir.path().join("sesiones")),
+        estado_dir: dir.path().join("estado"),
     };
     let state = Arc::new(AppState::new(store, config).expect("estado"));
     Fixture { app: api::router(state.clone()), state, _dir: dir }
@@ -298,6 +300,7 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     assert_eq!(v[0]["modo"], "mision");
     assert_eq!(v[0]["estado"], "en_cola");
     assert!(v[0]["resultado"].is_null());
+    assert!(v[0]["worktree"].as_str().unwrap().ends_with("tmp"));
 
     let (_, c) = get(&f, "/api/colas").await;
     assert_eq!(c["modelo-local"][0]["trabajo"], id.as_str());
@@ -405,7 +408,7 @@ async fn servicios_degradan_con_limpieza() {
 #[tokio::test]
 async fn sirve_la_pagina_y_el_tema() {
     let f = montar();
-    for ruta in ["/", "/app.css", "/app.js", "/gashapon.css", "/gashapon.js"] {
+    for ruta in ["/", "/app.css", "/app.js", "/cliente.js", "/gashapon.css", "/gashapon.js", "/tour.js"] {
         let (s, _) = enviar(&f, Method::GET, ruta, "localhost:8092", None, false).await;
         assert_eq!(s, StatusCode::OK, "{ruta}");
     }
@@ -679,4 +682,30 @@ async fn la_consola_valida_y_no_ejecuta_irreversibles() {
     .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+}
+
+#[tokio::test]
+async fn las_sesiones_de_claude_code_solo_cuentan_si_el_proceso_vive() {
+    let f = montar();
+    let dir = f._dir.path().join("sesiones");
+    let (s, v) = get(&f, "/api/sesiones").await;
+    assert_eq!((s, v["sesiones"].as_array().unwrap().len()), (StatusCode::OK, 0), "sin directorio");
+
+    std::fs::create_dir_all(&dir).unwrap();
+    let propio = std::process::id();
+    let ses = |pid: u32, nombre: &str| {
+        json!({"pid": pid, "sessionId": "x", "cwd": "/tmp", "name": nombre, "status": "busy",
+               "startedAt": 1000, "updatedAt": 2000})
+        .to_string()
+    };
+    std::fs::write(dir.join(format!("{propio}.json")), ses(propio, "viva")).unwrap();
+    std::fs::write(dir.join("999999999.json"), ses(999_999_999, "muerta")).unwrap();
+    std::fs::write(dir.join("roto.json"), "no es json").unwrap();
+
+    let (_, v) = get(&f, "/api/sesiones").await;
+    let lista = v["sesiones"].as_array().unwrap();
+    assert_eq!(lista.len(), 1);
+    assert_eq!(lista[0]["nombre"], "viva");
+    assert_eq!(lista[0]["ocupada"], true);
+    assert_eq!(lista[0]["pid"], propio);
 }

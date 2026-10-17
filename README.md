@@ -473,7 +473,8 @@ el mismo `Bus` que la CLI.
 | ▥ | Bóveda: listar, buscar, leer y promover | `8` |
 
 `/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
-abre la ayuda.
+abre la ayuda y `t` abre el recorrido guiado, que va de vista en vista
+iluminando cada zona (solo mira, nunca lanza nada; arranca solo la primera vez).
 
 API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`,
 `/api/colas`, `/api/semaforos`, `/api/rutinas`; y, con `Content-Type:

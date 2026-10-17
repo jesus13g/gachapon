@@ -18,6 +18,7 @@
 
 .esc { display: block; width: 100%; height: auto; max-height: 340px; }
 .esc .rot { fill: var(--fg-dim); font-size: 10px; text-anchor: middle; }
+.esc .ses { font-size: 9px; }
 .esc .suelo { stroke: var(--bg2); stroke-width: 2; }
 
 /* ---- la máquina ---- */
@@ -71,6 +72,10 @@
 .esc.sin-latido .engranaje { animation-play-state: paused; fill: var(--fg-dim); }
 .esc.sin-latido .led { fill: var(--fg-dim); }
 .esc.sin-latido .riel { opacity: .08; }
+/* Claude Code con sesiones trabajando: botón encendido y manivela girando suave. */
+.maq.trabajando .boton { fill: var(--ag); }
+.maq.trabajando .manivela { animation: gira 6s linear infinite; }
+
 @keyframes gira { to { transform: rotate(360deg); } }
 
 /* ---- worktree: mesa y semáforo ---- */
@@ -118,7 +123,7 @@
 .demo-et { fill: var(--accent); font-size: 11px; letter-spacing: 3px; text-anchor: end; }
 
 @media (prefers-reduced-motion: reduce) {
-  .engranaje, .cap.run .giro, .cap.hot .halo, .maq.alerta .adh rect { animation: none; }
+  .engranaje, .maq.trabajando .manivela, .cap.run .giro, .cap.hot .halo, .maq.alerta .adh rect { animation: none; }
 }
 @media (max-width: 760px) {
   .esc { max-height: 220px; }

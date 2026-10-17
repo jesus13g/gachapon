@@ -52,6 +52,10 @@ const gasha = (() => {
   const pilas = { cc: [], ml: [], tu: [], wt: [], bandeja: [] };
   let real = null;             // últimos datos del servidor
   let primera = true;
+  let sesOcupada = false;       // alguna sesión de Claude Code trabajando
+  const sesVistas = new Set();  // sesiones ya anunciadas (pid:inicio)
+  const sesProy = new Map();    // proyecto -> ¿trabajando? en el refresco anterior
+  let sesIniciadas = false;
   let maxDiario = null, ultimoLatido = null, semOcupado = null;
   let avisosPrevios = new Set();
   let corriendo = false;
@@ -165,6 +169,7 @@ const gasha = (() => {
       `<path class="riel" d="${riel}"/><path class="riel-in" d="${riel}"/>` +
       maquinaAtras('cc', MAQ.cc) + maquinaAtras('tu', MAQ.tu) + maquinaAtras('ml', MAQ.ml) +
       rol('cc') + rol('tu') + rol('ml') +
+      `<text class="rot ses" id="g-ses" x="${cima('cc')}" y="312"/>` +
       // el worktree: una mesa de trabajo con su semáforo
       '<rect class="mesa" x="625" y="258" width="130" height="7" rx="2"/>' +
       '<rect class="pata" x="633" y="265" width="5" height="19"/><rect class="pata" x="742" y="265" width="5" height="19"/>' +
@@ -661,6 +666,7 @@ const gasha = (() => {
     contadores();
     semaforo(d.semaforos);
     latido(d.estado);
+    sesionesCC(real.sesiones);
     chispas(d.diario || []);
     const av = avisos(d);
     resumen(d, av);
@@ -685,6 +691,52 @@ const gasha = (() => {
     }
     semOcupado = ocupado;
     el.wt.textContent = ocupado ? `worktree · ${NOM[AGENTE[s.agente]] ?? s.agente}` : 'worktree · libre';
+  }
+
+  // Sesiones de Claude Code abiertas en la máquina, usen o no el ecosistema.
+  function sesionesCC(lista) {
+    const ocupada = lista.some(x => x.ocupada);
+    svg.querySelectorAll('[data-m="cc"]').forEach(g => g.classList.toggle('trabajando', ocupada));
+    if (ocupada && !sesOcupada && sesIniciadas) { manivela('cc'); boton('cc'); chispa('cc'); }
+    sesOcupada = ocupada;
+    // Agrupa por proyecto (último segmento del cwd), el más antiguo primero.
+    const proy = x => x.cwd.split('/').filter(Boolean).pop() || x.cwd;
+    const grupos = new Map();
+    for (const x of [...lista].sort((p, q) => p.desde - q.desde)) {
+      const p = proy(x);
+      const g = grupos.get(p) || { n: 0, on: false };
+      g.n++; g.on = g.on || x.ocupada;
+      grupos.set(p, g);
+    }
+    el.ses.textContent = '';
+    [...grupos].slice(0, 3).forEach(([p, g], i) => {
+      const t = nodo('tspan', g.on ? { class: 'ses-on', fill: MAQ.cc.color } : {});
+      t.textContent = g.on ? '●' : '○';
+      const r = nodo('tspan', {});
+      r.textContent = ` ${corto(p, 16)}${g.n > 1 ? ' ×' + g.n : ''}`;
+      if (i) el.ses.append('  ');
+      el.ses.append(t, r);
+    });
+    if (grupos.size > 3) el.ses.append(`  +${grupos.size - 3}`);
+    if (lista.length) {
+      const t = nodo('title', {});
+      t.textContent = lista.map(x => `${proy(x)} · ${x.nombre || 'sin nombre'} · ${x.ocupada ? 'ocupada' : 'libre'} · ${x.cwd}`).join('\n');
+      el.ses.appendChild(t);
+    }
+    let aviso = null;
+    for (const x of lista) {
+      const k = x.pid + ':' + x.desde;
+      if (sesVistas.has(k)) continue;
+      sesVistas.add(k);
+      if (sesIniciadas && !aviso) aviso = `Claude Code · sesión abierta en ${proy(x)}`;
+    }
+    if (sesIniciadas && !aviso) {
+      for (const [p, g] of grupos) if (g.on && sesProy.get(p) === false) { aviso = `Claude Code trabaja en ${p}`; break; }
+    }
+    sesProy.clear();
+    for (const [p, g] of grupos) sesProy.set(p, g.on);
+    if (aviso) cuenta(aviso);
+    sesIniciadas = true;
   }
 
   function latido(e) {
@@ -802,6 +854,7 @@ const gasha = (() => {
       led: svg.querySelector('.led'),
       sem: svg.querySelector('.sem'),
       wt: svg.querySelector('#g-wt'),
+      ses: svg.querySelector('#g-ses'),
       ticker: svg.querySelector('.ticker'),
       demoEt: svg.querySelector('.demo-et'),
       botonDemo: cont.querySelector('[data-g=demo]'),
@@ -834,6 +887,7 @@ const gasha = (() => {
       semaforos: datos.semaforos || [],
       estado: datos.estado || null,
       diario: datos.diario || [],
+      sesiones: datos.sesiones || [],
     };
     aplicar();
   }
