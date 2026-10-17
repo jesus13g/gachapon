@@ -232,6 +232,12 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .card .res.pz { color: var(--premio); }
 .card.cerrado .tit, .card.cancelado .tit { color: var(--fg); }
 .col .nada { padding: 8px 0 2px; }
+.tablero.cc .card { margin-top: 0; cursor: default; background: var(--bg0); }
+.tablero.cc .card:hover { background: var(--bg0); }
+.card .sa { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; min-width: 0; }
+.card .sa .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .sa.fin { color: var(--fg-lo); }
+.card .sa + .pie { margin: 0 0 0 18px; font-size: 12px; color: var(--fg-dim); }
 
 /* lo que está en marcha se mueve */
 .bar { height: 3px; margin: 8px 0 2px; border-radius: 2px; background: var(--sel); overflow: hidden; }

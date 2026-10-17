@@ -67,6 +67,7 @@ fn montar() -> Fixture {
         boveda: ea_boveda::Boveda::en(dir.path().join("boveda")),
         systemctl: false,
         sesiones_dir: Some(dir.path().join("sesiones")),
+        subagentes_dir: Some(dir.path().join("subagentes")),
         estado_dir: dir.path().join("estado"),
     };
     let state = Arc::new(AppState::new(store, config).expect("estado"));
@@ -708,4 +709,54 @@ async fn las_sesiones_de_claude_code_solo_cuentan_si_el_proceso_vive() {
     assert_eq!(lista[0]["nombre"], "viva");
     assert_eq!(lista[0]["ocupada"], true);
     assert_eq!(lista[0]["pid"], propio);
+}
+
+#[tokio::test]
+async fn cada_sesion_lleva_sus_subagentes_en_marcha_primero() {
+    let f = montar();
+    let raiz = f._dir.path();
+    let dir = raiz.join("sesiones");
+    std::fs::create_dir_all(&dir).unwrap();
+    let propio = std::process::id();
+    let ses = |pid: u32, id: &str| {
+        json!({"pid": pid, "sessionId": id, "cwd": "/tmp", "name": id, "status": "idle",
+               "startedAt": 1000, "updatedAt": 2000})
+        .to_string()
+    };
+    std::fs::write(dir.join(format!("{propio}.json")), ses(propio, "viva")).unwrap();
+    std::fs::write(dir.join("999999999.json"), ses(999_999_999, "muerta")).unwrap();
+
+    // La transcripción del padre y el meta.json de un subagente.
+    let transcript = raiz.join("proyecto/viva.jsonl");
+    std::fs::create_dir_all(raiz.join("proyecto/viva/subagents")).unwrap();
+    std::fs::write(
+        raiz.join("proyecto/viva/subagents/agent-a1.meta.json"),
+        json!({"agentType": "Explore", "description": "Buscar el tablero", "model": "haiku"}).to_string(),
+    )
+    .unwrap();
+    let marca = |sesion: &str, id: &str, desde: u64, hasta: Option<u64>| {
+        let d = raiz.join("subagentes").join(sesion);
+        std::fs::create_dir_all(&d).unwrap();
+        let mut m = json!({"agente": id, "tipo": "Explore", "transcript": transcript, "desde": desde});
+        if let Some(h) = hasta {
+            m["hasta"] = json!(h);
+        }
+        std::fs::write(d.join(format!("{id}.json")), m.to_string()).unwrap();
+    };
+    marca("viva", "a0", 100, Some(200));
+    marca("viva", "a2", 150, Some(300));
+    marca("viva", "a1", 400, None);
+    marca("muerta", "a9", 100, None);
+
+    let (_, v) = get(&f, "/api/sesiones").await;
+    let lista = v["sesiones"].as_array().unwrap();
+    assert_eq!(lista.len(), 1);
+    let subs = lista[0]["subagentes"].as_array().unwrap();
+    let ids: Vec<_> = subs.iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["a1", "a2", "a0"], "en marcha primero, luego los terminados más recientes");
+    assert_eq!(subs[0]["descripcion"], "Buscar el tablero");
+    assert_eq!(subs[0]["modelo"], "haiku");
+    assert!(subs[0]["hasta"].is_null());
+    assert_eq!(subs[1]["descripcion"], "Explore", "sin meta.json se usa el tipo");
+    assert_eq!(subs[1]["hasta"], 300);
 }

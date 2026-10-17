@@ -135,6 +135,7 @@ volver a arrancar los servicios.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
 - `claude/skills/`: las skills de Claude Code.
+- `claude/hooks/`: los hooks de Claude Code que usa `ea-web`.
 - `qwen/skills/`: las skills propias del agente local.
 
 ## Skills de Claude Code
@@ -153,6 +154,23 @@ Claude Code solo formaliza y revisa; el trabajo lo hace el agente local.
 for s in mision obra rutina revisar; do
   ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
 done
+```
+
+## Hook de subagentes
+
+`ea-web` pinta en la portada cada sesión abierta de Claude Code con sus
+subagentes. Las sesiones las lee de `~/.claude/sessions/`; los subagentes los
+apunta `claude/hooks/ea-subagentes.sh` (`SubagentStart` / `SubagentStop`) en
+`~/.local/state/ecosistema-asistente/subagentes/<sesión>/<agente>.json`.
+Necesita `jq`.
+
+```bash
+ln -sfn "$PWD/claude/hooks/ea-subagentes.sh" ~/.claude/hooks/ea-subagentes.sh
+# y en ~/.claude/settings.json, dentro de "hooks":
+#   "SubagentStart": [{"matcher": "*", "hooks": [{"type": "command",
+#     "command": "sh \"$HOME/.claude/hooks/ea-subagentes.sh\" start", "timeout": 5}]}],
+#   "SubagentStop":  [{"matcher": "*", "hooks": [{"type": "command",
+#     "command": "sh \"$HOME/.claude/hooks/ea-subagentes.sh\" stop", "timeout": 5}]}]
 ```
 
 ## Skills de Qwen
