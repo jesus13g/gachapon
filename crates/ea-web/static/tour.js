@@ -7,7 +7,7 @@
 const tour = (() => {
   const NOMBRES = {
     inicio: 'Inicio', trabajos: 'Trabajos', diario: 'Diario', rutinas: 'Rutinas',
-    propuestas: 'Propuestas', acciones: 'Acciones', sistema: 'Sistema', boveda: 'Bóveda',
+    propuestas: 'Propuestas', acciones: 'Acciones', sistema: 'Sistema', boveda: 'Bóveda', memoria: 'Memoria',
   };
 
   // Cada paso: sección (opcional), anclas candidatas (la primera visible gana),
@@ -16,7 +16,7 @@ const tour = (() => {
     { titulo: 'Bienvenido a ea',
       texto: 'Este recorrido enseña cada vista en un par de minutos. <b>→</b> avanza, <b>←</b> vuelve, <b>Esc</b> sale. Solo mira: no lanza, cierra ni decide nada.' },
     { sec: 'inicio', ancla: ['#rail'], titulo: 'Las secciones',
-      texto: 'Cada símbolo es una vista; las teclas <b>1 – 8</b> también llevan a ellas. Las pegatinas cuentan lo que espera: azul si espera a Claude Code, roja si te espera a ti.' },
+      texto: 'Cada símbolo es una vista; las teclas <b>1 – 9</b> también llevan a ellas. Las pegatinas cuentan lo que espera: azul si espera a Claude Code, roja si te espera a ti.' },
     { sec: 'inicio', ancla: ['#servicios, #orq, #salud'], titulo: 'La salud del sistema',
       texto: 'Un punto por servicio: verde en marcha, rojo caído. El engranaje es el orquestador: gira mientras late y se pone rojo si deja de latir.' },
     { sec: 'inicio', ancla: ['#btema, #bayuda'], titulo: 'Tema y ayuda',
@@ -55,10 +55,14 @@ const tour = (() => {
       texto: 'Aquí el cuadro busca dentro del contenido de las notas, no solo en su nombre.' },
     { sec: 'boveda', ancla: ['#lista .f', '#lista'], titulo: 'Las notas',
       texto: 'Las de cada agente y las compartidas. Abre una para leerla; <b>promover</b> la lleva a la región compartida (pide confirmar).' },
+    { sec: 'memoria', ancla: ['#lista .f', '#lista'], titulo: 'La memoria de Claude Code',
+      texto: 'Lo que Claude Code recuerda de cada proyecto, un fichero por memoria; <b>≡</b> es el índice. Abre una fila para leerla ya renderizada; la barra de proyectos filtra por proyecto.' },
+    { sec: 'memoria', ancla: ['#lista .f', '#lista'], titulo: 'Editar una memoria',
+      texto: '<b>✎ editar</b> abre el texto en un editor; <b>✓ guardar</b> (o <b>Ctrl+S</b>) lo escribe en disco, <b>◐ vista previa</b> muestra el borrador y <b>✕ descartar</b> lo tira. Si la memoria cambió en disco, avisa antes de pisarla.' },
     { ancla: ['#proyectos:not(.plegada)', '#proyectos', '#bproy'], titulo: 'Proyectos',
       texto: 'Las sesiones de Claude Code abiertas, agrupadas por proyecto, con sus trabajos activos. Pulsa un proyecto para ver solo lo suyo en toda la web; <b>p</b> pliega o despliega la barra.' },
     { titulo: 'Eso es todo',
-      texto: 'Atajos: <b>1 – 8</b> secciones, <b>/</b> filtrar, <b>j / k</b> moverse, <b>Enter</b> abrir, <b>Esc</b> cerrar, <b>?</b> la chuleta y <b>t</b> este recorrido.' },
+      texto: 'Atajos: <b>1 – 9</b> secciones, <b>/</b> filtrar, <b>j / k</b> moverse, <b>Enter</b> abrir, <b>Esc</b> cerrar, <b>?</b> la chuleta y <b>t</b> este recorrido.' },
   ];
 
   const M = 12;          // margen del globo con la ventana y con el ancla

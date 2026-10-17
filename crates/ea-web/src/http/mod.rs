@@ -54,6 +54,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/boveda", get(boveda_listar))
         .route("/api/boveda/nota", get(boveda_leer))
         .route("/api/boveda/promover", post(boveda_promover))
+        .route("/api/memoria", get(memoria_listar))
+        .route("/api/memoria/{proyecto}/{fichero}", get(memoria_leer).post(memoria_guardar))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
         .layer(middleware::from_fn(guardia))
         .with_state(state)

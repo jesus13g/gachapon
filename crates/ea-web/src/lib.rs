@@ -2,8 +2,9 @@
 //! página única que la consume. Respeta el invariante de §12.2 de la
 //! especificación — para leer consulta el diario y el bus de trabajos, para
 //! actuar decide propuestas y gestiona trabajos — y nunca habla con Claude Code ni con el
-//! modelo local (solo mira qué sesiones de Claude Code hay abiertas). La única
-//! ruta que sale de la base de datos es el reinicio de servicios.
+//! modelo local (solo mira qué sesiones de Claude Code hay abiertas). Las únicas
+//! rutas que salen de la base de datos son el reinicio de servicios y la
+//! memoria de Claude Code, que el usuario edita a mano desde la página.
 
 use std::path::PathBuf;
 
@@ -13,6 +14,7 @@ use tokio::sync::Mutex;
 pub mod estado;
 mod git;
 pub mod http;
+pub mod memoria;
 pub mod servicio;
 pub mod sesiones;
 pub mod tema;
@@ -43,6 +45,9 @@ pub struct WebConfig {
     /// Dónde el hook `claude/hooks/ea-subagentes.sh` apunta los subagentes de
     /// cada sesión. `None` = no se leen (tests).
     pub subagentes_dir: Option<PathBuf>,
+    /// Dónde guarda Claude Code cada proyecto con su memoria
+    /// (`<id>/memory/*.md`). `None` = no se lee (tests sin fixture).
+    pub proyectos_claude_dir: Option<PathBuf>,
     /// Raíz de estado del bus de trabajos (colas, trabajos, semáforos).
     pub estado_dir: PathBuf,
 }
@@ -67,6 +72,7 @@ impl WebConfig {
             sesiones_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/sessions")),
             subagentes_dir: directories::BaseDirs::new()
                 .and_then(|d| d.state_dir().map(|s| s.join("ecosistema-asistente/subagentes"))),
+            proyectos_claude_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/projects")),
             estado_dir: ea_bus::raiz_estado(),
         }
     }

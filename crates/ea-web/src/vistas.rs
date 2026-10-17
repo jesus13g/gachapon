@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use serde_json::Value;
 
+pub use crate::memoria::{FicheroMemoria, Memoria, Proyecto as ProyectoMemoria};
 pub use crate::sesiones::Sesion;
 
 // ------------------------------------------------------------------ estado
@@ -298,4 +299,12 @@ pub struct Promocion {
 #[derive(Serialize)]
 pub struct Hecho {
     pub ok: bool,
+}
+
+// ----------------------------------------------------------------- memoria
+
+#[derive(Serialize)]
+pub struct ListadoMemoria {
+    pub raiz: String,
+    pub proyectos: Vec<ProyectoMemoria>,
 }
