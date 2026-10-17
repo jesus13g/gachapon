@@ -14,12 +14,16 @@ const EST = {
 };
 const FINAL = ['cerrado', 'cancelado'];
 const MODO = { mision: 'misión', obra: 'obra', rutina: 'rutina' };
+// La mitad de arriba de la cápsula es el modo (los colores de la escena).
+const COLOR = { mision: '#e5484d', obra: '#3e8ed0', rutina: '#f2c94c', propuesta: '#f28cb1' };
+// Cómo luce la cápsula según el estado: gira, lleva halo, se apaga.
+const IC = { ejecutando: 'run', en_espera: 'hot', cerrado: 'cerrada', cancelado: 'cancelada' };
 const NOMBRE = { 'modelo-local': 'modelo local', 'claude-code': 'Claude Code', orquestador: 'orquestador', usuario: 'tú' };
 const TITULOS = {
-  inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada trabajo: en cola → ejecutando → en revisión → en espera → cerrado.'],
-  trabajos: ['Trabajos', 'Misiones, obras y rutinas. Pulsa uno para ver su informe, el diff y las acciones que admite.'],
+  inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
+  trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su premio (el informe), el diff y lo que admite.'],
   diario: ['Diario', 'El registro de todo lo que ocurre en el ecosistema, lo más reciente arriba.'],
-  rutinas: ['Rutinas', 'Procesos versionados y registrados. Se pueden lanzar ahora sin esperar a su hora.'],
+  rutinas: ['Rutinas', 'Máquinas de cápsulas amarillas, versionadas y registradas. Echa una ficha para lanzar una ahora sin esperar a su hora.'],
   propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
   acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
   sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
@@ -108,6 +112,18 @@ function avisa(msg, ok = false) {
   avisoTimer = setTimeout(() => { a.className = ''; }, 5000);
 }
 
+// La cápsula de la escena, en pequeño. `cls`: run, hot, cerrada, cancelada,
+// averiada. Con halo (hot) necesita más margen alrededor.
+const capsula = (color, cls = '', tam = 18, rombo = false) =>
+  `<svg class="ic ${cls}" width="${tam}" height="${tam}" viewBox="${cls === 'hot' ? '-15 -15 30 30' : '-12 -12 24 24'}" aria-hidden="true"><g class="giro">` +
+  '<circle class="halo" r="13"/><path class="baja" d="M-10 0 A10 10 0 0 0 10 0 Z"/>' +
+  `<path class="alta" fill="${color}" d="M-10 0 A10 10 0 0 1 10 0 Z"/>` +
+  '<rect class="junta" x="-10.4" y="-1" width="20.8" height="2" rx="1"/><circle class="aguj" cx="-5" cy="-3.2" r="1"/>' +
+  '<circle class="aguj" cx="0" cy="-4.6" r="1"/><circle class="aguj" cx="5" cy="-3.2" r="1"/>' +
+  '<ellipse class="brillo" cx="-4" cy="-6" rx="3" ry="1.4" transform="rotate(-25 -4 -6)"/>' +
+  (rombo ? '<path class="rombo" d="M0 -8.5 L3.5 -5 L0 -1.5 L-3.5 -5 Z"/>' : '') + '</g></svg>';
+const capsulaJ = (t, tam) => capsula(COLOR[t.modo] ?? '#8f949c', IC[t.estado] ?? '', tam);
+
 // ---------------------------------------------------------------------- filas
 
 function fila(k, cls, row, txt, det = '', extra = '') {
@@ -147,7 +163,7 @@ function eventos(lista) {
 
 // ------------------------------------------------------------------- trabajos
 
-const estadoJ = e => `<span class="est ${e}"><i>${EST[e][0]}</i>${EST[e][1]}</span>`;
+const estadoJ = t => `<span class="est ${t.estado}">${capsulaJ(t)}${EST[t.estado][1]}</span>`;
 
 // «fase 2/5» o «iteración 3», lo que diga más del avance.
 function avance(t) {
@@ -155,55 +171,83 @@ function avance(t) {
   return t.iteracion ? `iteración ${t.iteracion}` : '';
 }
 
-const resultadoTxt = t => (t.resultado ? (t.resultado === 'bloqueado' ? '✕ bloqueado' : '✓ terminado') : '');
+// El informe es el premio del trabajo: [texto, clase]. En una tarjeta
+// (`largo`) dice además por qué falló.
+function premio(t, largo = false) {
+  const av = avance(t);
+  const con = (...xs) => xs.filter(Boolean).join(' · ');
+  if (t.estado === 'cancelado') return ['⊘ sin premio', ''];
+  if (t.resultado === 'bloqueado' || t.estado === 'en_espera') {
+    const roto = t.estado === 'cerrado' ? '✕ premio roto' : '✕ bloqueado';
+    return [largo && t.detalle ? '✕ ' + t.detalle.slice(0, 120) : roto, 'hot'];
+  }
+  if (t.resultado && t.estado === 'en_revision') return [con(largo ? '✓ trae premio' : '★ terminado', av), largo ? '' : 'pz'];
+  if (t.resultado) return [t.obra_completa && t.fases_total ? `★ obra completa · ${t.fases_total}/${t.fases_total}` : con('★ terminado', av), 'pz'];
+  return [av, ''];
+}
 
 // Los botones que admite un trabajo según su estado. `i` es el informe, si hay.
-function accionesTrabajo(t, i) {
+function accionesTrabajo(t, i, mas = '') {
   const id = esc(t.id);
   const b = (a, g, tt, cls = '') => btn(a, g, tt, { id: t.id }, cls);
   let h = '';
   if (t.estado === 'en_revision') {
-    h += b('cerrar', '✓ cerrar', 'darlo por bueno');
-    if (i && !i.obra_completa) h += b('continuar', '▶ continuar', 'la obra sigue con las fases que quedan');
-    h += `<input class="nota" placeholder="nota para reformular" aria-label="Nota" maxlength="10000">` +
-      b('reformular', '↺ reformular', 'devolverlo al modelo local con esta nota (obligatoria)');
+    h += b('cerrar', '★ canjear <span>cerrar</span>', 'cerrar: darlo por bueno', 'coin');
+    if (i && !i.obra_completa) h += b('continuar', '▶ seguir girando <span class="dd">continuar</span>', 'la obra sigue con las fases que quedan');
+    h += `<input class="nota" placeholder="nota para volver a girar" aria-label="Nota para reformular" maxlength="10000">` +
+      b('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al modelo local con esta nota (obligatoria)');
   } else if (t.estado === 'en_espera') {
     h += `<textarea class="nota" rows="2" placeholder="contexto que se añade al paquete (opcional)" aria-label="Contexto" maxlength="10000"></textarea>` +
-      b('confirmar', '✓ confirmar', 'pasa el paquete de corrección a Claude Code', 'hot');
+      b('confirmar', '✓ desatascar', 'pasa el paquete de corrección a Claude Code', 'coin hot');
   }
-  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ cancelar', 'cancelar el trabajo', 'hot');
+  h += mas;
+  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', 'cancelar el trabajo (segundo clic para confirmar)', 'hot');
   return h ? `<div class="acc" data-j="${id}">${h}</div>` : '';
 }
 
 function informeHtml(d) {
   const i = d.informe;
   if (!i) return '<p class="m">Todavía no hay informe.</p>';
-  let h = `<p class="et">informe</p><p class="${i.resultado === 'bloqueado' ? 'hot' : 'tx'}">${i.resultado === 'bloqueado' ? '✕ bloqueado' : '✓ terminado'}` +
-    ` · obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s</p>`;
+  const bloq = i.resultado === 'bloqueado';
+  let h = '';
   if (i.motivo) h += `<p class="et">motivo</p><pre class="tx">${esc(i.motivo)}</pre>`;
   if (i.evidencia) h += `<p class="et">evidencia</p><pre class="tx">${esc(i.evidencia)}</pre>`;
   if (i.diff_stat) h += `<p class="et">diff stat</p><pre class="tx">${esc(i.diff_stat)}</pre>`;
   if (i.fases?.length) {
     h += '<p class="et">fases</p>' + i.fases.map(f =>
-      `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="m">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}</span></p>`).join('');
+      `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="dd">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}</span></p>`).join('');
   }
-  return h;
+  return `<div class="caja-premio"><div class="cab-p"><span class="premio">★ PREMIO</span>` +
+    `<span class="${bloq ? 'hot' : 'x'}">${bloq ? '✕ bloqueado' : '✓ terminado'}</span>` +
+    `<span class="m">· obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s</span></div>` +
+    `<div class="cuerpo-p">${h}</div></div>`;
 }
 
 function diffHtml(id) {
   const abierto = st.diffs[id] !== undefined;
   let h = `<p>${btn('diff', (abierto ? '▾' : '▸') + ' diff', 'mostrar u ocultar el diff del trabajo', { id }, 'l')}</p>`;
   const x = st.diffs[id];
-  if (x) h += x.error ? `<p class="hot">${esc(x.error)}</p>` : `<pre class="diff">${esc(x.diff || '(sin cambios)')}${x.truncado ? '\n… (recortado)' : ''}</pre>`;
+  if (x) h += x.error ? `<p class="hot">${esc(x.error)}</p>` : `<pre class="diff">${colorDiff(x.diff || '(sin cambios)')}${x.truncado ? '\n… (recortado)' : ''}</pre>`;
   return h;
+}
+
+// Cada línea del diff con su color: cabeceras y stat apagados, hunks en el
+// acento, añadidos y borrados en verde y rojo.
+function colorDiff(txt) {
+  return esc(txt).split('\n').map(l => {
+    const c = /^(diff |index |\+\+\+ |--- | \S.*\|)/.test(l) ? 'd-st'
+      : l.startsWith('@@') ? 'd-h' : l[0] === '+' ? 'd-mas' : l[0] === '-' ? 'd-menos' : '';
+    return c ? `<span class="${c}">${l}</span>` : l;
+  }).join('\n');
 }
 
 function filasTrabajos(ts) {
   return ts.map(t => {
     const k = 'j' + t.id;
-    const row = estadoJ(t.estado) + `<span class="n">${esc(t.id.slice(9, 15))}</span>` +
+    const [pz, pzCls] = premio(t);
+    const row = estadoJ(t) + `<span class="n">${esc(t.id.slice(9, 15))}</span>` +
       `<span class="x">${esc(t.titulo)}</span><span class="m w">${MODO[t.modo] ?? t.modo}${t.rutina ? ' · ' + esc(t.rutina.slug) + ' v' + t.rutina.version : ''}</span>` +
-      `<span class="m">${avance(t)} ${resultadoTxt(t)}</span><span class="m">${reloj(t.actualizado)}</span>`;
+      `<span class="m ${pzCls}">${esc(pz || '—')}</span><span class="m">${reloj(t.actualizado)}</span>`;
     const d = st.detalle[k];
     let det = `<p class="m">${esc(t.id)} · creado ${hora(t.creado)}${t.detalle ? ' · ' + esc(t.detalle) : ''}</p>`;
     if (d) {
@@ -253,12 +297,21 @@ function filasDiario(evs) {
 function filasRutinas(rs) {
   return rs.map(r => {
     const k = 'r' + r.slug;
-    const row = `<i>↻</i><span class="x">${esc(r.slug)}</span><span class="m">v${r.version}</span>` +
-      `<span class="m ${r.error ? 'hot' : ''}">${esc(r.descripcion ?? r.error ?? '')}</span>` +
-      `<span class="m">${r.proxima ? en(r.proxima) : ''}</span>` +
-      (r.error ? '<span></span>' : btn('lanzar', '▶ lanzar', 'crea un trabajo de la rutina; el orquestador lo recoge en segundos', { slug: r.slug }));
+    // Una máquina de cápsulas amarillas: con halo si la última se atascó,
+    // apagada si su rutina.toml no se puede leer.
+    const suyos = st.trabajos.filter(t => t.rutina?.slug === r.slug);
+    const atascada = suyos.some(t => t.estado === 'en_espera');
+    const enCola = suyos.some(t => t.estado === 'en_cola');
+    const desc = r.error ?? (r.descripcion ?? '') + (atascada ? ' · la última se atascó' : '');
+    const row = capsula(COLOR.rutina, r.error ? 'averiada' : atascada ? 'hot' : '') +
+      `<span class="x">${esc(r.slug)}</span><span class="m">v${r.version}</span>` +
+      `<span class="m ${r.error || atascada ? 'hot' : ''}">${esc(desc)}</span>` +
+      `<span class="m">${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
+      (r.error ? '<span class="hot fuera">fuera de servicio</span>'
+        : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
+          `Lanzar ahora la rutina ${r.slug}: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
     const d = st.detalle[k];
-    const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p><pre class="tx">${esc(d.contenido ?? '')}</pre>` : '';
+    const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p><pre class="toml">${esc(d.contenido ?? '')}</pre>` : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
 }
@@ -277,12 +330,12 @@ function filasPropuestas(ps) {
     let acc = '';
     if (pend) {
       if (irrev) acc += `<span class="m" title="irreversible: solo desde la terminal (ea propuestas decidir ${p.id})">⌨ terminal</span>`;
-      else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'hot' : '');
-      else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' });
+      else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
+      else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' }, 'coin');
       acc += btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
     }
     const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : '';
-    const row = `<i class="${pend || falla ? 'hot' : 'm'}" title="${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${glifo}</i><span class="n">#${p.id}</span>` +
+    const row = `<span title="${glifo} ${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${capsula(COLOR.propuesta, falla ? 'hot' : pend ? '' : 'cerrada', 18, true)}</span><span class="n">#${p.id}</span>` +
       `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${reloj(p.creada)}</span><span class="bs">${acc}</span>`;
     let det = `<p class="tx">${esc(p.descripcion)}</p>`;
     if (ac) {
@@ -387,55 +440,61 @@ const barraViva = '<div class="bar" role="progressbar" aria-label="en marcha"><i
 
 // ------------------------------------------------------------------- portada
 
-// Una columna de la portada: cola de un agente o semáforo del worktree.
-function cajaCola(titulo, rol, entradas) {
-  return `<div class="actor"><h3><i class="luz"></i>${titulo}</h3><p class="rol">${rol}</p>` +
-    (entradas.length ? entradas.map(e =>
-      `<p class="que cola" data-k="j${esc(e.trabajo)}" title="pulsa para ver la ficha">${esc(e.titulo ?? e.trabajo)}</p>` +
-      `<p class="pie">${esc(e.motivo)} · hace ${reloj(e.encolado_en)}</p>`).join('') : '<p class="que">vacía</p>') +
-    `<p class="pie">${entradas.length} en cola</p></div>`;
+// Una columna de la portada: la máquina de un agente, con su placa y la
+// pegatina COLA, o el semáforo del worktree.
+function cajaCola(placa, cls, rol, entradas) {
+  return `<div class="actor"><h3><span class="placa ${cls}">${placa}</span><span class="grow"></span>` +
+    `<span class="pegatina">COLA <b>${entradas.length}</b></span></h3><p class="rol">${rol}</p>` +
+    (entradas.length ? entradas.map(e => {
+      const t = st.trabajos.find(x => x.id === e.trabajo);
+      return `<p class="que" data-k="j${esc(e.trabajo)}" title="pulsa para ver la ficha">${capsula(COLOR[t?.modo] ?? '#8f949c')}<span class="n">${esc(e.titulo ?? e.trabajo)}</span></p>` +
+        `<p class="pie">${esc(e.motivo)} · hace ${reloj(e.encolado_en)}</p>`;
+    }).join('') : '<p class="que">vacía</p>') + '</div>';
 }
 
 function cajaSemaforo(sem) {
   const dueños = sem.length ? sem.map(o => {
     const t = st.trabajos.find(x => x.id === o.trabajo);
-    return `<p class="que run" data-k="j${esc(o.trabajo)}" title="pulsa para ver la ficha">${esc(NOMBRE[o.agente] ?? o.agente)} · ${esc(t?.titulo ?? o.trabajo)}</p>` +
+    return `<p class="que" data-k="j${esc(o.trabajo)}" title="pulsa para ver la ficha">${capsula(COLOR[t?.modo] ?? '#8f949c', 'run')}<span class="n">${esc(NOMBRE[o.agente] ?? o.agente)} · ${esc(t?.titulo ?? o.trabajo)}</span></p>` +
       `<p class="pie">desde hace ${reloj(o.desde)} · pid ${o.pid}</p>${barraViva}`;
   }).join('') : '<p class="que">libre</p>';
-  return `<div class="actor${sem.length ? ' run' : ''}"><h3><i class="luz"></i>Semáforo del worktree</h3>` +
+  const luz = sem.length ? 'rojo: ocupado' : 'verde: libre';
+  return `<div class="actor${sem.length ? ' run' : ''}"><h3><span class="placa wt">WORKTREE</span><span class="grow"></span>` +
+    `<span class="semm ${sem.length ? 'ocupado' : 'libre'}" role="img" aria-label="semáforo en ${luz}"><span class="rojo"></span><span class="ambar"></span><span class="verde"></span></span></h3>` +
     `<p class="rol">quien lo tiene escribe; el otro espera</p>${dueños}</div>`;
 }
 
 function tarjetaJ(t) {
   const k = 'j' + t.id;
   const run = t.estado === 'ejecutando';
+  const [res, resCls] = premio(t, true);
   return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" title="pulsa para ver la ficha">` +
-    `<header>${estadoJ(t.estado)}<span class="n">${MODO[t.modo] ?? t.modo}</span></header>` +
+    `<header><span>${capsulaJ(t, 16)}${MODO[t.modo] ?? t.modo}</span><span>${reloj(t.actualizado)}</span></header>` +
     `<p class="tit">${esc(t.titulo)}</p>` + (run ? barraViva : '') +
-    (t.resultado ? `<p class="res${t.resultado === 'bloqueado' ? ' hot' : ''}">${resultadoTxt(t)}${t.detalle ? ' · ' + esc(t.detalle.slice(0, 120)) : ''}</p>` : '') +
-    `<footer><span>${avance(t)}</span><span>hace ${reloj(t.actualizado)}</span></footer></article>`;
+    (res ? `<p class="res ${resCls}">${esc(res)}</p>` : '') + '</article>';
 }
 
 // El recorrido de un trabajo, de izquierda a derecha.
 function tableroJ() {
   const por = e => st.trabajos.filter(t => t.estado === e);
   const cerrados = st.trabajos.filter(t => FINAL.includes(t.estado)).slice(0, 6);
-  const col = (cls, titulo, ayuda, ts) =>
-    `<section class="col ${cls}"><h3>${titulo}<b>${ts.length || ''}</b></h3><p class="ay">${ayuda}</p>` +
+  const col = (titulo, ayuda, ts) =>
+    `<section class="col"><h3>${titulo}<b>${ts.length || ''}</b></h3><p class="ay">${ayuda}</p>` +
     (ts.length ? ts.map(tarjetaJ).join('') : '<p class="nada">nada</p>') + '</section>';
   return suelto('<div class="tablero t5">' +
-    col('cola', '○ En cola', 'esperan al modelo local', por('en_cola')) +
-    col('curso', '◐ Ejecutando', 'el modelo local trabaja', por('ejecutando')) +
-    col('rev', '◇ En revisión', 'esperan a Claude Code', por('en_revision')) +
-    col('esp', '! En espera', 'esperan tu confirmación', por('en_espera')) +
-    col('fin', '● Cerrados', 'los últimos', cerrados) + '</div>');
+    col('○ En cola', 'esperan al modelo local', por('en_cola')) +
+    col('◐ Ejecutando', 'el modelo local trabaja', por('ejecutando')) +
+    col('◇ En revisión', 'esperan a Claude Code', por('en_revision')) +
+    col('! En espera', 'esperan tu confirmación', por('en_espera')) +
+    col('● Cerrados', 'los últimos, con su premio', cerrados) + '</div>');
 }
 
 // Aviso destacado de un paquete de corrección: añadir contexto y confirmar.
 function avisoPaquete(t) {
-  return suelto(`<div class="paq"><h3><i>!</i>${esc(t.titulo)} <span class="m">${t.rutina ? esc(t.rutina.slug) + ' v' + t.rutina.version : ''} falló · hace ${reloj(t.actualizado)}</span></h3>` +
-    `<p class="m">${esc(t.detalle ?? 'La rutina falló.')} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa a Claude Code.</p>` +
-    `<p>${btn('ir-trabajo', '▸ ver paquete', 'abrir la ficha', { id: t.id }, 'l')}</p>${accionesTrabajo(t, null)}</div>`);
+  const motivo = (t.detalle ?? 'La rutina falló').replace(/[.\s]*$/, '.');
+  return suelto(`<div class="paq"><h3>${capsulaJ(t)}${esc(t.rutina ? t.rutina.slug : t.titulo)} <span class="m">${t.rutina ? 'v' + t.rutina.version + ' ' : ''}falló · hace ${reloj(t.actualizado)}</span></h3>` +
+    `<p class="m">${esc(motivo)} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa a Claude Code.</p>` +
+    accionesTrabajo(t, null, btn('ir-trabajo', '▸ ver paquete', 'abrir la ficha', { id: t.id })) + '</div>');
 }
 
 // La portada: colas y semáforo, lo que espera una decisión, el tablero de
@@ -444,12 +503,12 @@ function filasInicio(d) {
   const out = [
     grupo('⇄', 'Colas', 0, 'modelo local → Claude Code'),
     suelto('<div class="actores">' +
-      cajaCola('Cola · modelo local', 'trabajo que espera para ejecutarse', d.colas['modelo-local']) +
-      cajaCola('Cola · Claude Code', 'trabajo que espera revisión', d.colas['claude-code']) +
+      cajaCola('MODELO LOCAL', 'ml', 'cápsulas que esperan para ejecutarse', d.colas['modelo-local']) +
+      cajaCola('CLAUDE CODE', 'cc', 'cápsulas que esperan a que alguien las abra', d.colas['claude-code']) +
       cajaSemaforo(d.semaforos) + '</div>'),
   ];
   const paq = st.trabajos.filter(t => t.estado === 'en_espera' && t.modo === 'rutina');
-  if (paq.length) out.push(grupo('!', 'Paquetes de corrección en espera', paq.length, 'una rutina falló; nada pasa a Claude Code sin tu confirmación'), ...paq.map(avisoPaquete));
+  if (paq.length) out.push(grupo('!', 'Cápsulas atascadas', paq.length, 'una rutina falló; nada pasa a Claude Code sin tu confirmación'), ...paq.map(avisoPaquete));
   if (d.propuestas.length) {
     out.push(grupo('◇', 'Esperan tu decisión', d.propuestas.length, 'acepta o rechaza; aceptar ejecuta la acción'), ...filasPropuestas(d.propuestas));
   }
@@ -458,7 +517,7 @@ function filasInicio(d) {
     const mal = new Set(e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => 's' + s.nombre));
     if (mal.size) out.push(grupo('▦', 'Servicios parados'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
   }
-  out.push(grupo('▤', 'Trabajos', st.trabajos.length, 'pasan de izquierda a derecha'), tableroJ());
+  out.push(grupo('▤', 'Trabajos', st.trabajos.length, 'las cápsulas pasan de izquierda a derecha'), tableroJ());
   const abiertos = st.trabajos.filter(t => st.abiertos.has('j' + t.id));
   if (abiertos.length) out.push(grupo('▸', 'Ficha', 0, 'pulsa la fila para cerrarla'), ...filasTrabajos(abiertos));
   return out;
@@ -470,7 +529,7 @@ function construir() {
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
-    case 'trabajos': return d ? con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'avance', 'hace'),
+    case 'trabajos': return d ? con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d)) : [];
     case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
     case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
@@ -482,13 +541,16 @@ function construir() {
 
 // -------------------------------------------------------------------- pintado
 
+// La cápsula de cada filtro de estado: el color solo la distingue de sus vecinas.
+const FILTRO = { en_cola: COLOR.mision, ejecutando: COLOR.obra, en_revision: COLOR.obra, en_espera: COLOR.rutina, cerrado: COLOR.obra, cancelado: COLOR.mision };
+
 function barra() {
   const fb = $('#fb');
   let h = '';
   if (st.sec === 'trabajos') {
     h = Object.keys(EST).map(e =>
       `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-label="${EST[e][1]}">` +
-      `<i class="e ${e}">${EST[e][0]}</i>${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
+      `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
     h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="latidos" aria-label="Latidos">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
   } else if (st.sec === 'propuestas') {
@@ -513,8 +575,10 @@ function cabecera() {
       : e.servicios.every(s => s.activo === 'active') ? 'todo en marcha' : '';
   salud.className = caidos.length || !e.orquestador.vivo ? 'hot' : '';
   const o = $('#orq');
-  o.className = e.orquestador.vivo ? '' : 'hot';
-  o.title = e.orquestador.ultimo_latido ? 'latido hace ' + hace(e.orquestador.ultimo_latido) : 'sin latido';
+  o.classList.toggle('hot', !e.orquestador.vivo);
+  const latido = e.orquestador.ultimo_latido ? 'orquestador: latido hace ' + hace(e.orquestador.ultimo_latido) : 'orquestador sin latido';
+  $('title', o).textContent = latido;
+  o.setAttribute('aria-label', latido);
 
   // Trabajos que esperan a alguien: revisión de Claude Code o tu confirmación.
   const atentos = st.trabajos.filter(t => t.estado === 'en_revision' || t.estado === 'en_espera').length;
@@ -523,7 +587,7 @@ function cabecera() {
   bt.textContent = atentos || '';
   bt.className = esperan ? 'hot' : '';
   bp.textContent = e.propuestas_pendientes || '';
-  bp.className = 'hot';
+  bp.className = '';
   document.title = esperan ? `! ${esperan}` : e.propuestas_pendientes ? `◇ ${e.propuestas_pendientes}` : 'ea';
 }
 
@@ -684,7 +748,7 @@ async function accion(b) {
       if (a === 'reformular' && !texto) throw new Error('escribe la nota para reformular');
       if (a === 'cancelar' && !(st.armado && st.armado.n === 'c' + id && st.armado.hasta > Date.now())) {
         st.armado = { n: 'c' + id, hasta: Date.now() + 3000 };
-        b.textContent = '⊘ confirmar cancelar';
+        b.textContent = '⊘ confirmar';
         setTimeout(() => { st.armado = null; st.html = ''; pintar(); }, 3100);
         return;
       }
@@ -719,7 +783,7 @@ async function accion(b) {
       avisa(r.texto, true);
     } else if (a === 'lanzar') {
       const t = await post(`/api/rutinas/${encodeURIComponent(slug)}/lanzar`);
-      avisa(`Rutina lanzada: trabajo ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
+      avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
       st.abiertos.add('j' + t.trabajo);
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
@@ -769,6 +833,22 @@ async function accion(b) {
   await tick();
 }
 
+// Modo oscuro (el tema de Omarchy) o claro; se recuerda en el navegador.
+const LUNA = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+const SOL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+function tema(cambiar = false) {
+  const raiz = document.documentElement;
+  if (cambiar) {
+    raiz.classList.toggle('claro');
+    try { localStorage.setItem('ea-tema', raiz.classList.contains('claro') ? 'claro' : 'oscuro'); } catch { /* sin almacenamiento */ }
+  }
+  const claro = raiz.classList.contains('claro');
+  const b = $('#btema');
+  b.innerHTML = (claro ? SOL : LUNA) + (claro ? 'claro' : 'oscuro');
+  b.title = claro ? 'Modo claro (pulsa para oscuro)' : 'Modo oscuro (pulsa para claro)';
+  b.setAttribute('aria-label', b.title);
+}
+
 function ayuda(mostrar) {
   $('#ayuda').hidden = !mostrar;
   try { localStorage.setItem('ea-ayuda-vista', '1'); } catch { /* sin almacenamiento */ }
@@ -781,6 +861,7 @@ document.addEventListener('click', ev => {
   const rail = t.closest('#rail button');
   if (rail) return ir(rail.dataset.s);
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
+  if (t.closest('#btema')) return tema(true);
   if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }
   const f = t.closest('button[data-f]');
   if (f) {
@@ -855,6 +936,7 @@ addEventListener('hashchange', () => {
   if (SECCIONES.includes(h)) st.sec = h;
   gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
   marco();
+  tema();
   // La primera vez, la guía abierta.
   try { if (!localStorage.getItem('ea-ayuda-vista')) ayuda(true); } catch { /* sin almacenamiento */ }
   tick();
