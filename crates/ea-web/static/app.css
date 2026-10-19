@@ -17,6 +17,9 @@
 :root.claro #rail b.hot, :root.claro button.coin.hot, :root.claro button.coin.hot:hover { color: #fff; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Sin barras de desplazamiento visibles; el desplazamiento sigue funcionando. */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
 html, body { height: 100%; }
 body {
   display: grid;
@@ -62,9 +65,9 @@ i { font-style: normal; text-align: center; }
 /* ---- zona principal ---- */
 main {
   grid-row: 1; grid-column: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
-  padding: 0 24px;
+  padding: 0 19.2px;
 }
-header, #cabecera, #barra, #lista { width: 100%; max-width: 1200px; margin-inline: auto; }
+header, #cabecera, #barra, #lista { width: 100%; max-width: calc(960px + 20%); margin-inline: auto; }
 header { display: flex; align-items: center; gap: 12px; height: 52px; flex: none; }
 /* Cabecera de una línea: estado a la izquierda, sección al centro, tema y ayuda a la derecha. */
 #cabecera {
@@ -165,8 +168,6 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 
 /* ---- lista ---- */
 #lista { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
-#lista::-webkit-scrollbar { width: 8px; }
-#lista::-webkit-scrollbar-thumb { background: var(--sel); border-radius: 4px; }
 .vacio { padding: 24px 10px; color: var(--fg-lo); }
 
 .f.o, .r:hover { background: var(--bg2); }
@@ -389,7 +390,7 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   .r.s { grid-template-columns: 18px 1fr 60px 120px; }
   .r.s > :nth-child(3) { display: none; }
   .hd { display: none !important; }
-  main { padding: 0 12px; }
+  main { padding: 0 9.6px; }
   .w { display: none; }
   .r.j { grid-template-columns: 124px 1fr 44px; }
   .r.j > :nth-child(2), .r.j > :nth-child(4), .r.j > :nth-child(5) { display: none; }

@@ -334,23 +334,22 @@ irreversible exija escribir una frase en una terminal real.
 Implementa §8.3: el sustrato de notas que se leen meses después, compartido
 por el modelo local, Claude Code y el usuario.
 
-**Dónde está.** Por defecto en `~/.local/share/ecosistema-asistente/boveda/`,
-un directorio propio del ecosistema (no la bóveda personal de Obsidian). La raíz
-se cambia con la variable `EA_BOVEDA_DIR` o con
-`~/.config/ecosistema-asistente/boveda.toml`:
+**Dónde está.** La raíz se resuelve en este orden: la variable
+`EA_BOVEDA_DIR`, el fichero `~/.config/ecosistema-asistente/boveda.toml` y,
+si no hay ninguno, `~/.local/share/ecosistema-asistente/boveda/`. En esta
+instalación `boveda.toml` apunta a la bóveda de Obsidian `Ecosistema`:
 
 ```toml
-raiz = "~/ruta/a/una/carpeta"
+raiz = "~/Obsidian/Ecosistema"
 ```
 
-Orden de resolución: variable de entorno, fichero, valor por defecto. Para
-que Obsidian la abra, basta con abrir esa carpeta como bóveda, o apuntar la
-configuración a una carpeta de una bóveda existente. **Eso es decisión del
-usuario y no se ha hecho.** Conviene apuntar a una carpeta dedicada (p. ej.
-`~/Obsidian/SegundoCerebro/asistente`) y no a la raíz de la bóveda: el
-ecosistema solo ve, indexa y escribe tres subcarpetas de la raíz (las
-regiones); todo lo demás que haya en ella le es invisible, pero crea en ella
-las regiones y un fichero oculto `.ea-escritor.lock`.
+Ahí conviven las regiones con notas del usuario fuera de ellas (como
+`Inicio.md`) y la carpeta `.obsidian/`. El ecosistema solo ve, indexa y escribe
+las tres subcarpetas que son regiones; todo lo demás le es invisible, pero crea
+en la raíz las regiones, el fichero oculto `.ea-escritor.lock` y la papelera
+`.papelera/`. Desde la spec 015 el punto de edición es la vista ▥ Bóveda de
+`ea-web`, no Obsidian: la carpeta se puede seguir abriendo en Obsidian, pero
+lo que se edite ahí no pasa por el escritor único ni deja rastro en el diario.
 
 **Regiones** (partición por autor, no por tema; decisiones 8 y 9):
 
@@ -358,7 +357,7 @@ las regiones y un fichero oculto `.ea-escritor.lock`.
 |---|---|---|
 | `modelo-local/` | el modelo local, con libertad total | sus notas |
 | `claude-code/` | Claude Code, con libertad total | sus notas |
-| `compartida/` | nadie directamente: solo recibe notas por **promoción** que decide el usuario | lo de confianza |
+| `compartida/` | ningún agente directamente: lo suyo solo llega por **promoción** que decide el usuario; el usuario crea y edita sus notas (`autor: usuario`) desde `ea-web` | lo de confianza |
 
 Cada agente escribe únicamente en su carpeta: las herramientas no tienen
 argumento de región y la ruta que dan es relativa a la suya. El orquestador
