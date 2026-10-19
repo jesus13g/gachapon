@@ -131,7 +131,7 @@ function fila(k, cls, row, txt, det = '', extra = '') {
   return {
     k,
     txt: txt.toLowerCase(),
-    html: `<article class="f${abierto ? ' o' : ''}${st.sel === k ? ' s' : ''}${extra}" data-k="${esc(k)}">` +
+    html: `<article class="f${abierto ? ' o' : ''}${st.sel === k ? ' s' : ''}${extra}" data-k="${esc(k)}" tabindex="0">` +
       `<div class="r ${cls}">${row}</div>${abierto && det ? `<div class="det">${det}</div>` : ''}</article>`,
   };
 }
@@ -542,8 +542,8 @@ function filasSistema(e, plano = false) {
     const activo = s.activo === 'active';
     const g = s.activo === 'desconocido' ? '◌' : activo || s.activo === 'failed' ? '●' : '○';
     const armado = st.armado && st.armado.n === s.nombre && st.armado.hasta > Date.now();
-    const row = `<i class="${s.activo === 'failed' ? 'hot' : activo ? 'm' : 'n'}" title="${esc(s.activo)}">${g}</i>` +
-      `<span class="x">${s.nombre}</span><span class="${s.activo === 'failed' ? 'hot' : 'm'}">${activo ? '' : esc(s.activo)}</span>` +
+    const row = `<i class="${s.activo === 'failed' ? 'hot' : activo ? 'ok' : 'n'}" title="${esc(s.activo)}">${g}</i>` +
+      `<span class="x">${esc(s.nombre)}</span><span class="${s.activo === 'failed' ? 'hot' : 'm'}">${activo ? 'en marcha' : esc(s.activo)}</span>` +
       `<span class="m">${s.activo_s != null ? unidades(s.activo_s) : ''}</span>` +
       btn('reiniciar', armado ? '↻ confirmar' : '↻ reiniciar', armado ? 'confirmar reinicio' : 'reiniciar (pide confirmar)', { n: s.nombre }, armado ? 'hot' : '');
     out.push(fila('s' + s.nombre, 's', row, s.nombre + ' ' + s.activo));
@@ -631,7 +631,7 @@ function tarjetaJ(t) {
   const k = 'j' + t.id;
   const run = t.estado === 'ejecutando';
   const [res, resCls] = premio(t, true);
-  return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" title="pulsa para ver la ficha">` +
+  return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" tabindex="0" title="pulsa para ver la ficha">` +
     `<header><span>${capsulaJ(t, 16)}${MODO[t.modo] ?? t.modo}</span><span>${reloj(t.actualizado)}</span></header>` +
     `<p class="tit">${esc(t.titulo)}</p>` + (run ? barraViva : '') +
     (res ? `<p class="res ${resCls}">${esc(res)}</p>` : '') + '</article>';
@@ -695,7 +695,7 @@ function filasInicio(d) {
     if (mal.size) out.push(grupo('▦', 'Servicios parados'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
   }
   const ss = st.sesiones.filter(s => !st.proyecto || s.cwd === st.proyecto);
-  if (ss.length) out.push(grupo('◆', 'Claude Code', ss.length, 'sesiones abiertas y sus subagentes'), tableroCC(ss));
+  if (ss.length) out.push(grupo('◆', 'Claude Code', ss.length, ss.length === 1 ? 'sesión abierta y sus subagentes' : 'sesiones abiertas y sus subagentes'), tableroCC(ss));
   out.push(grupo('▤', 'Trabajos', st.trabajos.length, 'las cápsulas pasan de izquierda a derecha'), tableroJ());
   const abiertos = st.trabajos.filter(t => st.abiertos.has('j' + t.id));
   if (abiertos.length) out.push(grupo('▸', 'Ficha', 0, 'pulsa la fila para cerrarla'), ...filasTrabajos(abiertos));
@@ -729,13 +729,13 @@ function barra() {
   let h = '';
   if (st.sec === 'trabajos') {
     h = Object.keys(EST).map(e =>
-      `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-label="${EST[e][1]}">` +
+      `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
       `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
-    h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="latidos" aria-label="Latidos">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
+    h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
   } else if (st.sec === 'propuestas') {
-    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-label="Pendientes">◇ pendientes</button>` +
-        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-label="Todas">∗ todas</button>`;
+    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
+        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
   }
   if (fb.dataset.h !== h) { fb.dataset.h = h; fb.innerHTML = h; }
 }
@@ -894,9 +894,11 @@ function pintar() {
   if (html !== st.html) {
     const lista = $('#lista');
     const y = lista.scrollTop;
+    const foco = document.activeElement?.matches('#filas [data-k]') ? document.activeElement.dataset.k : null;
     st.html = html;
     $('#filas').innerHTML = html; // la escena, encima, no se repinta
     lista.scrollTop = y;
+    if (foco) $(`#filas [data-k="${CSS.escape(foco)}"]`)?.focus({ preventScroll: true });
   }
   relojes();
   barra();
@@ -976,8 +978,13 @@ function marco() {
   const [nombre, guia] = TITULOS[st.sec];
   $('#titulo h1').textContent = nombre;
   $('#titulo p').textContent = guia;
-  $('#q').placeholder = st.sec === 'boveda' ? 'buscar en las notas ( / )' : 'filtrar ( / )';
-  $$('#rail button[data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
+  const q = $('#q'), busca = st.sec === 'boveda';
+  q.placeholder = (busca ? 'buscar en las notas' : 'filtrar') + (matchMedia('(pointer: coarse)').matches ? '' : ' ( / )');
+  q.setAttribute('aria-label', busca ? 'Buscar en las notas' : 'Filtrar la lista');
+  $$('#rail button[data-s]').forEach(b => {
+    b.classList.toggle('on', b.dataset.s === st.sec);
+    if (b.dataset.s === st.sec) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
   $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
   $('#escena').hidden = st.sec !== 'inicio';
 }
@@ -1009,8 +1016,11 @@ function mover(d) {
   if (!st.vis.length) return;
   const i = st.vis.indexOf(st.sel);
   st.sel = st.vis[Math.min(st.vis.length - 1, Math.max(0, i < 0 ? (d > 0 ? 0 : st.vis.length - 1) : i + d))];
+  const conFoco = document.activeElement?.matches('#filas [data-k]');
   pintar();
-  $(`.f[data-k="${CSS.escape(st.sel)}"]`)?.scrollIntoView({ block: 'nearest' });
+  const f = $(`.f[data-k="${CSS.escape(st.sel)}"]`);
+  f?.scrollIntoView({ block: 'nearest' });
+  if (conFoco) f?.focus({ preventScroll: true });
 }
 
 // Argumentos de la consola tal como los espera la herramienta: tipos y
@@ -1177,7 +1187,11 @@ function tema(cambiar = false) {
 }
 
 function ayuda(mostrar) {
-  $('#ayuda').hidden = !mostrar;
+  const a = $('#ayuda');
+  const dentro = a.contains(document.activeElement);
+  a.hidden = !mostrar;
+  if (mostrar) $('[data-cerrar]', a).focus();
+  else if (dentro) $('#bayuda').focus();
   try { localStorage.setItem('ea-ayuda-vista', '1'); } catch { /* sin almacenamiento */ }
 }
 
@@ -1286,6 +1300,7 @@ document.addEventListener('keydown', ev => {
   }
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('trabajos', 'j' + t.dataset.pt); return; }
+  if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('#lista [data-k]')) { ev.preventDefault(); st.sel = t.dataset.k; alterna(t.dataset.k); return; }
   const n = Number(ev.key);
   if (n >= 1 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
   if (ev.key === 'p') proyectos(true);

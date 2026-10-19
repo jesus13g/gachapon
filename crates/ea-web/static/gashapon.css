@@ -9,7 +9,7 @@
 }
 .esc-barra { display: flex; align-items: center; gap: 2px; padding: 6px 8px 0 14px; font-size: 12px; }
 .esc-tit { color: var(--fg-hi); margin-right: 14px; }
-.esc-ley { display: flex; gap: 12px; color: var(--fg-dim); }
+.esc-ley { display: flex; gap: 12px; color: var(--fg-lo); }
 .esc-ley i { margin-right: 4px; }
 .esc-barra button { height: 26px; font-size: 12px; }
 .esc-barra button:disabled { opacity: .45; cursor: default; background: none; }
