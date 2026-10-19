@@ -1080,11 +1080,10 @@ async function tick() {
 
 // ------------------------------------------------------------------ acciones
 
-// Lo que cambia con la sección fuera de la lista: título, guía y cuadros.
+// Lo que cambia con la sección fuera de la lista: título y cuadros.
 function marco() {
-  const [nombre, guia] = TITULOS[st.sec];
-  $('#titulo h1').textContent = nombre;
-  $('#titulo p').textContent = guia;
+  const [nombre] = TITULOS[st.sec];
+  $('#seccion').textContent = nombre;
   const q = $('#q'), busca = st.sec === 'boveda';
   q.placeholder = (busca ? 'buscar en las notas' : 'filtrar') + (matchMedia('(pointer: coarse)').matches ? '' : ' ( / )');
   q.setAttribute('aria-label', busca ? 'Buscar en las notas' : 'Filtrar la lista');
@@ -1361,7 +1360,7 @@ function tema(cambiar = false) {
   }
   const claro = raiz.classList.contains('claro');
   const b = $('#btema');
-  b.innerHTML = (claro ? SOL : LUNA) + (claro ? 'claro' : 'oscuro');
+  b.innerHTML = claro ? SOL : LUNA;
   b.title = claro ? 'Modo claro (pulsa para oscuro)' : 'Modo oscuro (pulsa para claro)';
   b.setAttribute('aria-label', b.title);
 }

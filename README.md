@@ -477,7 +477,9 @@ registradas con su versión, como `ea rutina listar`.
 con `$EA_WEB_PORT`): una página sin dependencias, a base de símbolos, con los
 colores del tema activo de Omarchy. Se actualiza sola cada 3 s. Nunca habla con
 Claude Code ni con el modelo; lee del bus y de SQLite, y sus acciones pasan por
-el mismo `Bus` que la CLI.
+el mismo `Bus` que la CLI. La cabecera ocupa una sola línea: la bola de gashapon y
+el estado (servicios, orquestador y salud) a la izquierda, el nombre de la sección
+en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 
 | Símbolo | Sección | Tecla |
 |---|---|---|

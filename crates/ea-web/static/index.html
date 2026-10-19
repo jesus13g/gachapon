@@ -11,9 +11,6 @@
 </head>
 <body>
 <nav id="rail" aria-label="Secciones">
-  <span class="marca" title="ea">
-    <svg class="ic" width="28" height="28" viewBox="-12 -12 24 24" aria-hidden="true"><path class="baja" d="M-10 0 A10 10 0 0 0 10 0 Z"/><path class="alta" fill="#f08a24" d="M-10 0 A10 10 0 0 1 10 0 Z"/><rect class="junta" x="-10.4" y="-1" width="20.8" height="2" rx="1"/><circle class="aguj" cx="-5" cy="-3.2" r="1"/><circle class="aguj" cx="0" cy="-4.6" r="1"/><circle class="aguj" cx="5" cy="-3.2" r="1"/><ellipse class="brillo" cx="-4" cy="-6" rx="3" ry="1.4" transform="rotate(-25 -4 -6)"/></svg>
-  </span>
   <button data-s="inicio" title="Orquestador (tecla 1)"><i>⌂</i><span>Inicio</span></button>
   <button data-s="trabajos" title="Trabajos (tecla 2)"><i>▤</i><span>Trabajos</span><b></b></button>
   <button data-s="diario" title="Diario (tecla 3)"><i>≡</i><span>Diario</span></button>
@@ -26,17 +23,23 @@
   <button id="bproy" aria-expanded="false" aria-controls="proyectos"><i>◨</i><span>Proyectos</span><b></b></button>
 </nav>
 <main>
-  <header>
-    <div id="servicios" role="status"></div>
-    <svg id="orq" width="16" height="16" viewBox="476 14 20 20" role="img" aria-label="orquestador"><title></title><path class="engranaje" d="M495.5,24.9L495.1,26.8L491.7,27.1L491.0,28.1L492.0,31.3L490.5,32.4L487.9,30.2L486.6,30.5L485.1,33.5L483.2,33.1L482.9,29.7L481.9,29.0L478.7,30.0L477.6,28.5L479.8,25.9L479.5,24.6L476.5,23.1L476.9,21.2L480.3,20.9L481.0,19.9L480.0,16.7L481.5,15.6L484.1,17.8L485.4,17.5L486.9,14.5L488.8,14.9L489.1,18.3L490.1,19.0L493.3,18.0L494.4,19.5L492.2,22.1L492.5,23.4Z"/></svg>
-    <span id="salud"></span>
-    <i id="off" class="hot" title="sin conexión con el panel" hidden>✕ sin conexión</i>
-    <button id="fproy" class="c on" hidden><i>◨</i> <span></span> ✕</button>
-    <span class="grow"></span>
-    <button id="btema"></button>
-    <button id="bayuda" title="Cómo funciona esto (tecla ?; recorrido guiado: t)">? ayuda</button>
+  <header id="cabecera">
+    <div class="cab-lado cab-izq">
+      <span class="marca" title="ea">
+        <svg class="ic" width="28" height="28" viewBox="-12 -12 24 24" aria-hidden="true"><path class="baja" d="M-10 0 A10 10 0 0 0 10 0 Z"/><path class="alta" fill="#f08a24" d="M-10 0 A10 10 0 0 1 10 0 Z"/><rect class="junta" x="-10.4" y="-1" width="20.8" height="2" rx="1"/><circle class="aguj" cx="-5" cy="-3.2" r="1"/><circle class="aguj" cx="0" cy="-4.6" r="1"/><circle class="aguj" cx="5" cy="-3.2" r="1"/><ellipse class="brillo" cx="-4" cy="-6" rx="3" ry="1.4" transform="rotate(-25 -4 -6)"/></svg>
+      </span>
+      <div id="servicios" role="status"></div>
+      <svg id="orq" width="16" height="16" viewBox="476 14 20 20" role="img" aria-label="orquestador"><title></title><path class="engranaje" d="M495.5,24.9L495.1,26.8L491.7,27.1L491.0,28.1L492.0,31.3L490.5,32.4L487.9,30.2L486.6,30.5L485.1,33.5L483.2,33.1L482.9,29.7L481.9,29.0L478.7,30.0L477.6,28.5L479.8,25.9L479.5,24.6L476.5,23.1L476.9,21.2L480.3,20.9L481.0,19.9L480.0,16.7L481.5,15.6L484.1,17.8L485.4,17.5L486.9,14.5L488.8,14.9L489.1,18.3L490.1,19.0L493.3,18.0L494.4,19.5L492.2,22.1L492.5,23.4Z"/></svg>
+      <span id="salud"></span>
+      <i id="off" class="hot" title="sin conexión con el panel" hidden>✕ sin conexión</i>
+      <button id="fproy" class="c on" hidden><i>◨</i> <span></span> ✕</button>
+    </div>
+    <h1 id="seccion"></h1>
+    <div class="cab-lado cab-der">
+      <button id="btema" class="ico"></button>
+      <button id="bayuda" class="ico" title="Ayuda (tecla ?; recorrido guiado: t)" aria-label="Ayuda (tecla ?; recorrido guiado: t)" aria-controls="ayuda" aria-haspopup="dialog"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></button>
+    </div>
   </header>
-  <div id="titulo"><h1></h1><p></p></div>
   <div id="barra"><span id="fb"></span><input id="q" placeholder="filtrar ( / )" aria-label="Filtrar" spellcheck="false"></div>
   <section id="lista"><div id="escena" hidden></div><div id="filas"></div></section>
 </main>
