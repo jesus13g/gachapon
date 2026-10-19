@@ -288,6 +288,50 @@ pub struct CabeceraVista {
     pub promovida_a: Option<String>,
 }
 
+/// El árbol del editor de la bóveda: regiones, carpetas (también vacías) y
+/// notas.
+#[derive(Serialize)]
+pub struct ArbolBoveda {
+    pub raiz: String,
+    pub regiones: Vec<&'static str>,
+    pub carpetas: Vec<String>,
+    pub notas: Vec<NotaResumen>,
+    pub en_papelera: usize,
+}
+
+/// Una nota entera para el editor, con la versión que hay que devolver al
+/// guardar (misma forma que una memoria: `contenido` y `version`).
+#[derive(Serialize)]
+pub struct NotaFichero {
+    pub ruta: String,
+    pub region: String,
+    pub contenido: String,
+    pub version: String,
+    pub cabecera: Option<CabeceraVista>,
+    pub aviso_cabecera: Option<String>,
+    pub bytes: u64,
+    pub modificada: Option<String>,
+    /// Ruta absoluta del fichero (para copiarla).
+    pub absoluta: String,
+}
+
+#[derive(Serialize)]
+pub struct RenombradoBoveda {
+    pub nota: NotaFichero,
+    /// Las otras notas cuyos enlaces se reescribieron.
+    pub actualizadas: Vec<String>,
+    /// Notas con `[[enlaces]]` ambiguos al nombre viejo, que no se tocaron.
+    pub ambiguas: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct EnPapelera {
+    pub id: String,
+    pub ruta: String,
+    pub borrada: String,
+    pub bytes: u64,
+}
+
 #[derive(Serialize)]
 pub struct Promocion {
     pub texto: String,

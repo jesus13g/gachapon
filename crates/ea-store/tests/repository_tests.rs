@@ -250,4 +250,7 @@ fn el_indice_de_la_boveda_busca_sin_acentos_ni_mayusculas() {
     store.boveda_olvidar("compartida/a.md").unwrap();
     assert!(store.boveda_buscar("\"te\"", None, 10, 8).unwrap().is_empty());
     assert_eq!(store.boveda_contar_por_region().unwrap(), vec![("compartida".to_string(), 1)]);
+    store.boveda_indexar(&e("compartida/a/c.md", "C"), "x").unwrap();
+    let todas: Vec<_> = store.boveda_todas().unwrap().into_iter().map(|r| r.ruta).collect();
+    assert_eq!(todas, vec!["compartida/a/c.md".to_string(), "compartida/b.md".to_string()]);
 }

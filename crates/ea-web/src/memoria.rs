@@ -327,88 +327,10 @@ pub fn renombrar(
     for f in ficheros(dir) {
         let fp = dir.join(&f.nombre);
         let Ok(texto) = std::fs::read_to_string(&fp) else { continue };
-        if let Some(cambiado) = reescribir_enlaces(&texto, viejo, nuevo_base) {
+        if let Some(cambiado) = ea_boveda::enlaces::reescribir_por_nombre(&texto, viejo, nuevo_base) {
             escribir_atomico(&fp, cambiado.as_bytes())?;
             actualizadas.push(f.nombre);
         }
     }
     Ok((memoria(proyecto, nuevo, &destino)?, actualizadas))
-}
-
-/// Cambia los enlaces a la memoria `viejo` (sin `.md`) por `nuevo`: los
-/// `[[viejo]]` (con o sin `.md`, alias `|` o ancla `#`) y los enlaces markdown
-/// `](viejo.md)`, `](./viejo.md)` o con ancla. Conserva la forma de cada
-/// enlace. `None` si no había ninguno.
-pub fn reescribir_enlaces(texto: &str, viejo: &str, nuevo: &str) -> Option<String> {
-    let mut out = String::with_capacity(texto.len());
-    let mut resto = texto;
-    let mut cambios = false;
-    while !resto.is_empty() {
-        if let Some(tras) = resto.strip_prefix("[[") {
-            if let Some(fin) = tras.find("]]").filter(|&f| !tras[..f].contains('\n')) {
-                let dentro = &tras[..fin];
-                let corte = dentro.find(['|', '#']).unwrap_or(dentro.len());
-                let (destino, cola) = dentro.split_at(corte);
-                let (base, ext) = match destino.trim().strip_suffix(".md") {
-                    Some(b) => (b, ".md"),
-                    None => (destino.trim(), ""),
-                };
-                if base == viejo {
-                    out.push_str(&format!("[[{nuevo}{ext}{cola}]]"));
-                    cambios = true;
-                } else {
-                    out.push_str("[[");
-                    out.push_str(dentro);
-                    out.push_str("]]");
-                }
-                resto = &tras[fin + 2..];
-                continue;
-            }
-        }
-        if let Some(tras) = resto.strip_prefix("](") {
-            let (prefijo, sin) = match tras.strip_prefix("./") {
-                Some(s) => ("./", s),
-                None => ("", tras),
-            };
-            let objetivo = format!("{viejo}.md");
-            if let Some(cola) = sin.strip_prefix(objetivo.as_str()).filter(|c| c.starts_with([')', '#'])) {
-                out.push_str(&format!("]({prefijo}{nuevo}.md"));
-                cambios = true;
-                resto = cola;
-                continue;
-            }
-        }
-        let c = resto.chars().next().unwrap_or_default();
-        out.push(c);
-        resto = &resto[c.len_utf8()..];
-    }
-    cambios.then_some(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::reescribir_enlaces;
-
-    #[test]
-    fn reescribe_todas_las_formas_de_enlace() {
-        let t = "[[refactor]] [[refactor.md]] [[refactor|el refactor]] [[refactor#Fases]] \
-                 [Ver](refactor.md) [Ver](./refactor.md) [Ver](refactor.md#fases)";
-        assert_eq!(
-            reescribir_enlaces(t, "refactor", "rehecho").unwrap(),
-            "[[rehecho]] [[rehecho.md]] [[rehecho|el refactor]] [[rehecho#Fases]] \
-                 [Ver](rehecho.md) [Ver](./rehecho.md) [Ver](rehecho.md#fases)"
-        );
-    }
-
-    #[test]
-    fn no_toca_nombres_parecidos_ni_texto_suelto() {
-        let t = "[[refactorizar]] [[otro|refactor]] [x](refactorizar.md) [x](otro/refactor.md) refactor.md ñandú";
-        assert_eq!(reescribir_enlaces(t, "refactor", "rehecho"), None);
-    }
-
-    #[test]
-    fn un_corchete_sin_cerrar_no_rompe_nada() {
-        let t = "[[refactor\n]] y luego [[refactor]]";
-        assert_eq!(reescribir_enlaces(t, "refactor", "r").unwrap(), "[[refactor\n]] y luego [[r]]");
-    }
 }

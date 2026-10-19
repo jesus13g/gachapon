@@ -33,11 +33,14 @@ pub fn region_de_agente(actor: &str) -> Option<&'static str> {
     AGENTES.iter().copied().find(|a| *a == actor)
 }
 
-/// Valida una ruta de nota relativa a la raíz: `region/…/nota.md`. Rechaza
-/// lo absoluto, `..`, `.`, componentes vacíos u ocultos, barras invertidas,
-/// caracteres de control, y exige que empiece por una región y acabe en
-/// `.md`. Devuelve los componentes.
-pub fn validar_ruta(ruta: &str) -> Resultado<Vec<&str>> {
+/// Carpeta oculta de la raíz donde van las notas borradas por el usuario
+/// (`<raíz>/.papelera/<marca>/<ruta>`). Ninguna ruta válida llega a ella.
+pub const PAPELERA: &str = ".papelera";
+
+/// Comprobaciones comunes a notas y carpetas: relativa, sin `..` ni `.`,
+/// sin componentes vacíos u ocultos, sin barras invertidas ni caracteres de
+/// control, y que empiece por una región. Devuelve los componentes.
+fn validar_componentes(ruta: &str, minimo: usize) -> Resultado<Vec<&str>> {
     let mal = |m: &str| Err(ErrorBoveda::Ruta(format!("'{ruta}': {m}")));
     if ruta.is_empty() {
         return mal("vacía");
@@ -64,7 +67,7 @@ pub fn validar_ruta(ruta: &str) -> Resultado<Vec<&str>> {
             _ => {}
         }
     }
-    if partes.len() < 2 {
+    if partes.len() < minimo {
         return mal("debe ser 'región/nota.md'");
     }
     if !es_region(partes[0]) {
@@ -73,10 +76,35 @@ pub fn validar_ruta(ruta: &str) -> Resultado<Vec<&str>> {
             REGIONES.join(", ")
         )));
     }
+    Ok(partes)
+}
+
+/// Valida una ruta de nota relativa a la raíz: `region/…/nota.md`. Rechaza
+/// lo absoluto, `..`, `.`, componentes vacíos u ocultos, barras invertidas,
+/// caracteres de control, y exige que empiece por una región y acabe en
+/// `.md`. Devuelve los componentes.
+pub fn validar_ruta(ruta: &str) -> Resultado<Vec<&str>> {
+    let mal = |m: &str| Err(ErrorBoveda::Ruta(format!("'{ruta}': {m}")));
+    let partes = validar_componentes(ruta, 2)?;
     if !partes[partes.len() - 1].ends_with(".md") || partes[partes.len() - 1] == ".md" {
         return mal("debe acabar en .md");
     }
     Ok(partes)
+}
+
+/// Valida una ruta de carpeta: `region` o `region/…/carpeta`, con las mismas
+/// reglas que una nota salvo la extensión.
+pub fn validar_carpeta(ruta: &str) -> Resultado<Vec<&str>> {
+    let partes = validar_componentes(ruta, 1)?;
+    if partes[partes.len() - 1].ends_with(".md") {
+        return Err(ErrorBoveda::Ruta(format!("'{ruta}': una carpeta no acaba en .md")));
+    }
+    Ok(partes)
+}
+
+/// ¿Las dos rutas están en la misma región?
+pub fn misma_region(a: &str, b: &str) -> bool {
+    region_de(a) == region_de(b)
 }
 
 /// Ruta dentro de una región (sin el prefijo de región), lo que escribe un

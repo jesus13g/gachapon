@@ -16,6 +16,7 @@ pub mod acciones;
 pub mod boveda;
 pub mod diario;
 pub mod estado;
+pub mod explorador;
 pub mod memoria;
 pub mod propuestas;
 pub mod rutinas;
@@ -78,9 +79,19 @@ impl From<ErrorBus> for ErrorWeb {
     }
 }
 
+/// Directo, sin pasar por `ErrorAccion`: la bóveda distingue lo que no
+/// existe (404) de lo que choca con lo que hay (409).
 impl From<ea_boveda::ErrorBoveda> for ErrorWeb {
     fn from(e: ea_boveda::ErrorBoveda) -> Self {
-        ErrorWeb::from(ErrorAccion::from(e))
+        use ea_boveda::ErrorBoveda as B;
+        let m = e.to_string();
+        match e {
+            B::NoExiste(_) => Self::NoEncontrado(m),
+            B::YaExiste(_) | B::Cambio(_) | B::Ocupada => Self::Conflicto(m),
+            B::Ruta(_) | B::Argumentos(_) | B::Cabecera(_) => Self::Invalido(m),
+            B::Prohibida(_) | B::FueraDeLaBoveda(_) => Self::Prohibido(m),
+            B::Store(_) | B::Io(_) | B::EventoPerdido(..) => Self::Interno(m),
+        }
     }
 }
 

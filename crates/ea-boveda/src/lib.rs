@@ -13,18 +13,24 @@
 //!   del ecosistema y lectura paginada, con [`Limites`]; nunca se expone el
 //!   sistema de ficheros.
 //! - **Contrato de cabecera** ([`cabecera`]).
+//! - **Edición del usuario** (módulo `usuario`): las operaciones a mano del
+//!   editor de `ea-web` (editar, crear en `compartida/`, renombrar con los
+//!   enlaces al día, papelera). Ningún agente llega a ellas.
 
 pub mod cabecera;
 pub mod config;
+pub mod enlaces;
 pub mod error;
 pub mod limites;
 pub mod ruta;
 
 mod boveda;
+mod usuario;
 
 pub use boveda::{
     consulta_fts, huella, Boveda, NotaEscrita, NotaLeida, NuevaNota, PlanPromocion, ResumenSincronizacion,
 };
 pub use cabecera::Cabecera;
+pub use usuario::{Arbol, EnPapelera, NotaCompleta, Renombrada};
 pub use error::{ErrorBoveda, Resultado};
 pub use limites::Limites;

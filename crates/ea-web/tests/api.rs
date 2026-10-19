@@ -1002,3 +1002,140 @@ async fn mostrar_una_memoria_que_no_existe_da_404() {
     let (s, _) = post(&f, "/api/memoria/-home-u-proy/no-esta.md/mostrar", json!({})).await;
     assert_eq!(s, StatusCode::NOT_FOUND);
 }
+
+// ------------------------------------------------------- editor de la bóveda
+
+fn acciones_del_diario(d: &Value) -> Vec<String> {
+    d.as_array().unwrap().iter().map(|e| e["accion"].as_str().unwrap().to_string()).collect()
+}
+
+#[tokio::test]
+async fn el_arbol_de_la_boveda_lleva_regiones_carpetas_y_notas() {
+    let f = montar();
+    nota(&f, "claude-code", "Una", "uno");
+    std::fs::create_dir_all(f.state.boveda.raiz().join("modelo-local/vacia")).unwrap();
+    let (s, v) = get(&f, "/api/boveda/arbol").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["regiones"], json!(["modelo-local", "claude-code", "compartida"]));
+    assert_eq!(v["notas"][0]["ruta"], "claude-code/una.md");
+    let carpetas: Vec<_> = v["carpetas"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+    assert!(carpetas.contains(&"modelo-local/vacia") && carpetas.contains(&"claude-code"));
+    assert_eq!(v["en_papelera"], 0);
+}
+
+#[tokio::test]
+async fn la_nota_se_lee_entera_y_se_guarda_con_su_version() {
+    let f = montar();
+    let ruta = nota(&f, "modelo-local", "Receta", "Lentejas.");
+    let (s, v) = get(&f, &format!("/api/boveda/fichero?ruta={ruta}")).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let contenido = v["contenido"].as_str().unwrap().to_string();
+    assert!(contenido.starts_with("---\n") && contenido.contains("Lentejas."));
+    assert!(v["absoluta"].as_str().unwrap().ends_with("/boveda/modelo-local/receta.md"));
+    let version = v["version"].as_str().unwrap().to_string();
+
+    let nuevo = contenido.replace("Lentejas.", "Garbanzos.");
+    let (s, g) = post(&f, "/api/boveda/guardar", json!({ "ruta": ruta, "contenido": nuevo, "version": version })).await;
+    assert_eq!(s, StatusCode::OK, "{g}");
+    assert!(std::fs::read_to_string(f.state.boveda.raiz().join(&ruta)).unwrap().contains("Garbanzos."));
+    let (_, b) = get(&f, "/api/boveda?q=garbanzos").await;
+    assert_eq!(b["notas"].as_array().unwrap().len(), 1);
+    let (_, d) = get(&f, "/api/diario?limite=50").await;
+    assert!(acciones_del_diario(&d).contains(&"boveda_edicion".to_string()));
+
+    // Con la versión vieja: 409 y el disco no cambia.
+    let (s, _) = post(&f, "/api/boveda/guardar", json!({ "ruta": ruta, "contenido": "otra", "version": version })).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    assert!(std::fs::read_to_string(f.state.boveda.raiz().join(&ruta)).unwrap().contains("Garbanzos."));
+    // Cambiar la firma: 400.
+    let v2 = g["version"].as_str().unwrap();
+    let firma = g["contenido"].as_str().unwrap().replace("autor: modelo-local", "autor: usuario");
+    let (s, _) = post(&f, "/api/boveda/guardar", json!({ "ruta": ruta, "contenido": firma, "version": v2 })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = get(&f, "/api/boveda/fichero?ruta=compartida/no-esta.md").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn crear_solo_en_la_compartida() {
+    let f = montar();
+    let (s, v) = post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/ideas/nueva" })).await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    assert_eq!(v["ruta"], "compartida/ideas/nueva.md");
+    assert_eq!(v["cabecera"]["autor"], "usuario");
+    let (s, _) = post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/ideas/nueva.md" })).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let (s, _) = post(&f, "/api/boveda/crear", json!({ "ruta": "claude-code/mia.md" })).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert!(!f.state.boveda.raiz().join("claude-code/mia.md").exists());
+    let (s, _) = post(&f, "/api/boveda/carpeta", json!({ "ruta": "claude-code/carpeta" })).await;
+    assert_eq!(s, StatusCode::CREATED);
+    assert!(f.state.boveda.raiz().join("claude-code/carpeta").is_dir());
+}
+
+#[tokio::test]
+async fn renombrar_en_la_boveda_reescribe_los_enlaces() {
+    let f = montar();
+    let (_, x) = post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/x", "contenido": "soy x" })).await;
+    post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/otra", "contenido": "[[x]] y [x](x.md)" })).await;
+    let (s, r) = post(
+        &f,
+        "/api/boveda/renombrar",
+        json!({ "ruta": "compartida/x.md", "nuevo": "compartida/sub/y", "version": x["version"] }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["nota"]["ruta"], "compartida/sub/y.md");
+    assert_eq!(r["actualizadas"], json!(["compartida/otra.md"]));
+    let otra = std::fs::read_to_string(f.state.boveda.raiz().join("compartida/otra.md")).unwrap();
+    assert!(otra.contains("[[y]] y [x](sub/y.md)"), "{otra}");
+    // No pisa otra nota ni cambia de región.
+    let v = r["nota"]["version"].clone();
+    let (s, _) = post(&f, "/api/boveda/renombrar", json!({ "ruta": "compartida/sub/y.md", "nuevo": "compartida/otra", "version": v })).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let (s, _) = post(&f, "/api/boveda/renombrar", json!({ "ruta": "compartida/sub/y.md", "nuevo": "claude-code/y", "version": v })).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn eliminar_manda_a_la_papelera_y_se_restaura() {
+    let f = montar();
+    let ruta = nota(&f, "claude-code", "Borrable", "contenido");
+    let (_, n) = get(&f, &format!("/api/boveda/fichero?ruta={ruta}")).await;
+    let (s, p) = post(&f, "/api/boveda/eliminar", json!({ "ruta": ruta, "version": n["version"] })).await;
+    assert_eq!(s, StatusCode::OK, "{p}");
+    assert!(!f.state.boveda.raiz().join(&ruta).exists());
+    let (_, a) = get(&f, "/api/boveda/arbol").await;
+    assert_eq!((a["notas"].as_array().unwrap().len(), a["en_papelera"].as_u64()), (0, Some(1)));
+    let (_, l) = get(&f, "/api/boveda/papelera").await;
+    assert_eq!(l[0]["ruta"], ruta.as_str());
+    let (s, r) = post(&f, "/api/boveda/papelera/restaurar", json!({ "id": p["id"] })).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(r["contenido"].as_str().unwrap().contains("contenido"));
+    let (_, d) = get(&f, "/api/diario?limite=50").await;
+    let acc = acciones_del_diario(&d);
+    assert!(acc.contains(&"boveda_papelera".to_string()) && acc.contains(&"boveda_restauracion".to_string()));
+    let (s, _) = post(&f, "/api/boveda/papelera/restaurar", json!({ "id": p["id"] })).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn el_editor_de_la_boveda_rechaza_rutas_maliciosas_y_exige_json() {
+    let f = montar();
+    nota(&f, "claude-code", "Algo", "x");
+    for mala in ["../etc/passwd", "/etc/passwd", "claude-code/../../x.md", ".papelera/x.md", "claude-code/.x.md"] {
+        let (s, _) = get(&f, &format!("/api/boveda/fichero?ruta={mala}")).await;
+        assert_ne!(s, StatusCode::OK, "{mala}");
+        let (s, _) = post(&f, "/api/boveda/guardar", json!({ "ruta": mala, "contenido": "x", "version": "0" })).await;
+        assert!(s == StatusCode::BAD_REQUEST || s == StatusCode::FORBIDDEN, "{mala}: {s}");
+        let (s, _) = post(&f, "/api/boveda/crear", json!({ "ruta": mala })).await;
+        assert!(s.is_client_error(), "{mala}: {s}");
+    }
+    let (s, _) = post(&f, "/api/boveda/papelera/restaurar", json!({ "id": "../../etc" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = enviar(&f, Method::POST, "/api/boveda/crear", "localhost:8092", Some(json!({ "ruta": "compartida/x" })), false).await;
+    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(!f.state.boveda.raiz().join("compartida/x.md").exists());
+    let (s, _) = post(&f, "/api/boveda/mostrar", json!({ "ruta": "compartida/no-esta.md" })).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
