@@ -29,7 +29,7 @@ const TITULOS = {
   propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
   acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
   sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
-  boveda: ['Bóveda', 'Las notas de los agentes y las compartidas. El buscador busca dentro de su contenido.'],
+  boveda: ['Bóveda', 'Las notas de los agentes y las tuyas, como en Obsidian. Elige una en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto. El buscador busca también dentro del contenido.'],
   memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Elige una nota en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto.'],
 };
 const VACIO = {
@@ -349,31 +349,7 @@ function filasPropuestas(ps) {
   });
 }
 
-function filasBoveda(d) {
-  return d.notas.map(n => {
-    const k = 'b' + n.ruta;
-    const promovida = n.promocion === 'promovida';
-    const row = `<i class="m" title="${esc(n.region)}">${n.region === 'compartida' ? '◆' : '◇'}</i>` +
-      `<span class="x">${esc(n.titulo)}</span><span class="m w">${esc(n.ruta)}</span>` +
-      `<span class="m">${esc(n.autor ?? '')}</span><span class="m">${reloj(n.actualizada)}</span>`;
-    const x = st.detalle[k];
-    let det = '';
-    if (x) {
-      const c = x.cabecera;
-      det = (c ? `<p class="m">${esc(c.autor)} · ${esc(c.origen)} · ${promovida ? 'promovida' : 'sin promover'}` +
-        `${c.tags.length ? ' · ' + esc(c.tags.join(', ')) : ''}${c.promovida_de ? ' · de ' + esc(c.promovida_de) : ''}` +
-        `${c.promovida_a ? ' · a ' + esc(c.promovida_a) : ''}</p>` : `<p class="m">${esc(x.aviso_cabecera ?? '')}</p>`) +
-        `<pre>${esc(x.contenido)}${x.truncado ? '\n…' : ''}</pre>`;
-    }
-    // Promover es decisión del usuario: segundo clic para confirmar.
-    if (n.region !== 'compartida') {
-      const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
-      det += `<div class="acc">${btn('promover', armada ? '⇧ confirmar' : '⇧ promover a compartida', armada ? 'confirmar: copia a la región compartida' : 'promover a la región compartida', { ruta: n.ruta }, armada ? 'hot' : '')}</div>`;
-    }
-    return fila(k, 'b', row, `${n.titulo} ${n.ruta}`, det, '');
-  });
-}
-// -------------------------------------------------------------------- memoria
+// ------------------------------------------------------------------- markdown
 
 // Markdown mínimo, propio y sin dependencias: todo el texto se escapa antes
 // de formatear y solo los enlaces http(s) y los internos llegan a ser enlaces.
@@ -739,6 +715,282 @@ EDITOR.memoria = {
   },
 };
 
+// --------------------------------------------------------------------- bóveda
+//
+// La bóveda como un editor tipo Obsidian: las tres regiones son las raíces del
+// árbol. El usuario edita notas de cualquier región (la firma de la cabecera
+// no cambia), crea notas solo en compartida/ y carpetas en cualquiera, mueve
+// dentro de la región y borra a la papelera (se restaura).
+
+const carpetaDe = r => (r.includes('/') ? r.slice(0, r.lastIndexOf('/')) : '');
+const conMd = d => (d.endsWith('.md') ? d : d + '.md');
+const regionDe = r => r.split('/')[0];
+
+// Une y normaliza (`.` y `..`); null si sube por encima de la raíz.
+function unirRuta(base, rel) {
+  const p = base.split('/').filter(Boolean);
+  for (const x of rel.split('/')) {
+    if (!x || x === '.') continue;
+    if (x === '..') { if (!p.length) return null; p.pop(); } else p.push(x);
+  }
+  return p.length ? p.join('/') : null;
+}
+
+// Como ea-boveda (enlaces.rs): ruta exacta o que acaba en /destino; si hay
+// varias, la de la misma carpeta; si no, ambiguo (null).
+function resolverWiki(destino, desde, todas) {
+  const d = destino.trim();
+  if (!d) return null;
+  if (d.startsWith('./') || d.startsWith('../')) {
+    const r = unirRuta(carpetaDe(desde), conMd(d));
+    return r && todas.includes(r) ? r : null;
+  }
+  const x = conMd(d.replace(/^\/+/, '')), suf = '/' + x;
+  const c = todas.filter(t => t === x || t.endsWith(suf));
+  if (c.length === 1) return c[0];
+  const aqui = c.filter(t => carpetaDe(t) === carpetaDe(desde));
+  return aqui.length === 1 ? aqui[0] : null;
+}
+
+// Un enlace markdown: relativo a la carpeta de la nota, o a la raíz con `/`.
+function resolverMd(url, desde) {
+  if (!url || /^[^/]*:/.test(url)) return null;
+  let u;
+  try { u = decodeURIComponent(url); } catch { return null; }
+  const r = u.startsWith('/') ? unirRuta('', u.slice(1)) : unirRuta(carpetaDe(desde), u);
+  return r && r.endsWith('.md') ? r : null;
+}
+
+const rutaB = k => k.slice(1);
+const nombreB = k => rutaB(k).split('/').pop().replace(/\.md$/, '');
+
+// La carpeta en la que se crea: la de la nota abierta (si vale) o compartida/.
+function baseCreacion(E, tipo) {
+  const r = E.sel && rutaB(E.sel);
+  if (r && (tipo === 'carpeta' || regionDe(r) === 'compartida')) return carpetaDe(r) + '/';
+  return 'compartida/';
+}
+
+async function creaEnBoveda(valor) {
+  const E = ed('boveda');
+  const tipo = E.creando;
+  E.creando = null;
+  document.activeElement?.blur(); // con el campo enfocado, pintar() no repinta
+  const v = valor.trim().replace(/\/+$/, '');
+  if (!tipo || !v || v + '/' === baseCreacion(E, tipo)) { pintar(); return; }
+  try {
+    if (tipo === 'nota') {
+      if (!cierraBorrador('boveda')) { pintar(); return; }
+      const n = await ea.crearNota(v);
+      const k = 'b' + n.ruta;
+      st.detalle[k] = n;
+      Object.assign(E, { sel: k, modo: 'edicion', borrador: null, papelera: false });
+      EDITOR.boveda.desplegar(E, k);
+      guardaEditor('boveda');
+      avisa('✓ creada ' + n.ruta, true);
+    } else {
+      await ea.crearCarpeta(v);
+      EDITOR.boveda.desplegar(E, 'b' + v + '/x');
+      E.plegados.delete(v);
+      guardaEditor('boveda');
+      avisa('✓ carpeta ' + v, true);
+    }
+  } catch (err) {
+    avisa(err.message);
+  }
+  st.html = '';
+  await tick();
+}
+
+EDITOR.boveda = {
+  cosa: 'nota',
+  aria: 'Notas de la bóveda por región',
+  async datos() {
+    const q = st.q.trim(), E = ed('boveda');
+    const [d, busca, papelera] = await Promise.all([
+      ea.bovedaArbol(),
+      q ? ea.boveda(q).catch(() => null) : null,
+      E.papelera ? ea.papelera() : null,
+    ]);
+    d.rutas = d.notas.map(n => n.ruta);
+    d.rutasSet = new Set(d.rutas);
+    d.fts = busca ? new Set(busca.notas.map(n => n.ruta)) : null;
+    d.papelera = papelera;
+    return d;
+  },
+  carga: k => ea.bovedaFichero(rutaB(k)),
+  vacio: () => false, // las regiones siempre están, para poder crear
+  existe: (d, k) => d.rutasSet.has(rutaB(k)),
+  desplegar(E, k) {
+    let c = carpetaDe(rutaB(k));
+    while (c) { E.plegados.delete(c); c = carpetaDe(c); }
+  },
+  // Regiones, carpetas (también vacías) y notas; primero las carpetas. El
+  // filtro mira nombre, ruta y título y, con el índice, también el contenido.
+  arbol(d, q) {
+    const dirs = new Map();
+    const dir = ruta => {
+      if (dirs.has(ruta)) return dirs.get(ruta);
+      const n = { d: ruta, etiqueta: ruta.split('/').pop(), titulo: ruta, hijos: [], cuenta: 0 };
+      dirs.set(ruta, n);
+      const padre = carpetaDe(ruta);
+      if (padre) dir(padre).hijos.push(n);
+      return n;
+    };
+    d.regiones.forEach(dir);
+    if (!q) d.carpetas.forEach(dir);
+    for (const n of d.notas) {
+      if (q && !`${n.ruta} ${n.titulo}`.toLowerCase().includes(q) && !d.fts?.has(n.ruta)) continue;
+      const promovida = n.promocion === 'promovida';
+      dir(carpetaDe(n.ruta)).hijos.push({
+        k: 'b' + n.ruta, nombre: n.ruta.split('/').pop().replace(/\.md$/, ''),
+        titulo: n.titulo + (n.autor ? ' · ' + (NOMBRE[n.autor] ?? n.autor) : ''),
+        icono: n.region === 'compartida' ? '◆' : promovida ? '◈' : '◇',
+        iconoTitulo: n.region + (promovida ? ' · promovida' : ''),
+      });
+    }
+    const ordena = n => {
+      n.hijos.sort((a, b) => (!!b.hijos - !!a.hijos) || (a.etiqueta ?? a.nombre).localeCompare(b.etiqueta ?? b.nombre, 'es'));
+      n.hijos.forEach(h => h.hijos && ordena(h));
+      n.cuenta = n.hijos.reduce((s, h) => s + (h.hijos ? h.cuenta : 1), 0);
+    };
+    const raices = d.regiones.map(r => dirs.get(r));
+    raices.forEach(ordena);
+    const poda = ns => ns.filter(n => !n.hijos || n.cuenta > 0).map(n => (n.hijos ? { ...n, hijos: poda(n.hijos) } : n));
+    return q ? poda(raices) : raices;
+  },
+  nombre: k => rutaB(k).split('/').pop(),
+  // Lo que se escribe al renombrar: la ruta dentro de la región, sin .md.
+  nombreEditable: k => rutaB(k).split('/').slice(1).join('/').replace(/\.md$/, ''),
+  miga(d, k) {
+    const partes = rutaB(k).split('/');
+    const ultima = partes.pop();
+    return partes.map(p => `<span class="m">${esc(p)}</span><span class="m">/</span>`).join('') + `<b>${esc(ultima)}</b>`;
+  },
+  meta(d, k, x) {
+    if (!x) return '<p class="m">ya no está en disco</p>';
+    const c = x.cabecera;
+    const partes = [`${x.bytes} bytes · modificada hace ${reloj(x.modificada)}`];
+    if (c) {
+      partes.push(
+        'de ' + esc(NOMBRE[c.autor] ?? c.autor), esc(c.origen),
+        c.promocion === 'promovida' ? 'promovida' : 'sin promover',
+        c.tags.length ? esc(c.tags.map(t => '#' + t).join(' ')) : '',
+        c.promovida_de ? 'copia de ' + esc(c.promovida_de) : '',
+        c.promovida_a ? 'promovida a ' + esc(c.promovida_a) : '');
+    } else partes.push(esc(x.aviso_cabecera ?? 'sin cabecera'));
+    return `<p class="m">${partes.filter(Boolean).join(' · ')}</p>`;
+  },
+  menu(d, k, x) {
+    const comp = regionDe(rutaB(k)) === 'compartida';
+    return [
+      { a: 'renombrar-nota', txt: '✎ Renombrar o mover' },
+      ...(comp ? [] : [{ a: 'promover-nota', txt: '⇧ Promover a compartida', off: x?.cabecera?.promocion === 'promovida' && 'ya está promovida' }]),
+      { a: 'copiar-ruta-nota', txt: '⧉ Copiar la ruta' },
+      { a: 'mostrar-nota', txt: '▤ Mostrar en el explorador de archivos' },
+      { a: 'eliminar-nota', txt: '✕ Mover a la papelera', cls: 'hot' },
+    ];
+  },
+  ctx(d, k) {
+    const desde = rutaB(k);
+    return {
+      wiki: destino => { const r = resolverWiki(destino, desde, d.rutas); return r ? 'b' + r : null; },
+      md: url => { const r = resolverMd(url.split('#')[0], desde); return r && d.rutasSet.has(r) ? 'b' + r : null; },
+      roto: 'no hay esa nota (o el enlace es ambiguo)',
+    };
+  },
+  // La barra de la columna del árbol: crear, carpeta y papelera.
+  barraArbol(d, E) {
+    const n = d.en_papelera;
+    let h = '<div class="arbol-bar">' +
+      btn('crear-nota', '＋ nota', 'nota nueva (solo en la región compartida)', {}, E.creando === 'nota' ? 'on' : '') +
+      btn('carpeta-nota', '＋ carpeta', 'carpeta nueva, en cualquier región', {}, E.creando === 'carpeta' ? 'on' : '') +
+      btn('papelera-nota', 'papelera' + (n ? ` (${n})` : ''), 'las notas borradas: se pueden restaurar', {}, E.papelera ? 'on' : '') +
+      '</div>';
+    if (E.creando) {
+      const que = E.creando === 'nota' ? 'Ruta de la nota nueva (compartida/…)' : 'Ruta de la carpeta nueva (región/…)';
+      h += `<input class="ren nueva" data-crear="${E.creando}" value="${esc(baseCreacion(E, E.creando))}" spellcheck="false" aria-label="${que}" title="${que}: Enter crea, Esc cancela">`;
+    }
+    return h;
+  },
+  // La papelera ocupa la columna de la nota mientras está abierta.
+  panel(d, E) {
+    if (!E.papelera) return null;
+    const l = d.papelera;
+    let h = '<header class="nota-cab"><div class="miga"><b>Papelera</b></div><span class="grow"></span>' +
+      '<button class="ico" data-a="papelera-nota" title="Cerrar la papelera" aria-label="Cerrar la papelera">✕</button></header>' +
+      '<p class="m">Las notas borradas desde aquí. Restaurar una la devuelve a su sitio, si no hay otra con la misma ruta.</p>';
+    if (!l) return h + '<p class="vacio">Cargando…</p>';
+    if (!l.length) return h + '<p class="vacio">La papelera está vacía.</p>';
+    return h + '<div class="pap">' + l.map(p =>
+      `<div class="pap-f"><span class="n" title="${esc(p.ruta)}">${esc(p.ruta)}</span><span class="m">${p.bytes} bytes · hace ${reloj(p.borrada)}</span>` +
+      btn('restaurar-nota', '↺ restaurar', 'devolver ' + p.ruta + ' a su sitio', { id: p.id }) + '</div>').join('') + '</div>';
+  },
+  // Acciones propias; null = no es suya, false = ya repintó, true = sondear.
+  async accion(a, E, datos) {
+    if (a === 'crear-nota' || a === 'carpeta-nota') {
+      const tipo = a === 'crear-nota' ? 'nota' : 'carpeta';
+      E.creando = E.creando === tipo ? null : tipo;
+      pintar();
+      const i = $('input[data-crear]');
+      if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+      return false;
+    }
+    if (a === 'papelera-nota') {
+      E.papelera = !E.papelera;
+      return true;
+    }
+    if (a === 'restaurar-nota') {
+      const n = await ea.restaurarNota(datos.id);
+      avisa('✓ restaurada en ' + n.ruta, true);
+      if (cierraBorrador('boveda')) {
+        const k = 'b' + n.ruta;
+        st.detalle[k] = n;
+        Object.assign(E, { sel: k, papelera: false });
+        EDITOR.boveda.desplegar(E, k);
+        guardaEditor('boveda');
+      }
+      return true;
+    }
+    if (a === 'promover-nota') {
+      if (!E.sel) return false;
+      const r = rutaB(E.sel);
+      if (!confirm(`¿Promover ${r} a la región compartida?\n\nSe copia a compartida/; el original se queda, marcado como promovido.`)) { pintar(); return false; }
+      const p = await ea.promover(r);
+      avisa(p.texto, true);
+      return true;
+    }
+    return null;
+  },
+  rutaAbs: x => x.absoluta,
+  guardar: (k, texto, version) => ea.guardarNota(rutaB(k), texto, version),
+  mostrar: k => ea.mostrarNota(rutaB(k)),
+  confirmaEliminar: (k, aviso) => `¿Mover ${rutaB(k)} a la papelera? Se puede restaurar.${aviso}`,
+  async eliminar(k, x) {
+    await ea.eliminarNota(rutaB(k), x.version);
+    return `✓ ${nombreB(k)} en la papelera`;
+  },
+  async renombrar(k, nuevo, x) {
+    const ruta = rutaB(k), region = regionDe(ruta);
+    let v = nuevo.trim().replace(/^\/+/, '').replace(/\.md$/, '');
+    if (!v) return null;
+    const primera = v.split('/')[0];
+    if (primera === region) v = v.slice(region.length + 1);
+    else if (['modelo-local', 'claude-code', 'compartida'].includes(primera))
+      throw new Error('solo se mueve dentro de la misma región (a la compartida se llega con ⋯ → Promover)');
+    const n = `${region}/${v}.md`;
+    if (n === ruta) return null;
+    const r = await ea.renombrarNota(ruta, n, x.version);
+    const m = r.actualizadas.length, a = r.ambiguas.length;
+    return {
+      k: 'b' + r.nota.ruta, detalle: r.nota,
+      aviso: `✓ ${carpetaDe(ruta) === carpetaDe(r.nota.ruta) ? 'renombrada' : 'movida'} a ${r.nota.ruta}` +
+        (m ? ` · enlaces al día en ${m} ${m === 1 ? 'nota' : 'notas'}` : '') +
+        (a ? ` · enlaces ambiguos sin tocar en: ${r.ambiguas.join(', ')}` : ''),
+    };
+  },
+};
+
 function filasSistema(e, plano = false) {
   const out = [];
   e.servicios.forEach(s => {
@@ -916,7 +1168,6 @@ function construir() {
     case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
     case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
-    case 'boveda': return d ? con(columnas('b', '', 'nota', 'ruta', 'autor', 'hace'), filasBoveda(d)) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
   }
 }
@@ -1137,7 +1388,6 @@ async function cargaSeccion() {
   else if (sec === 'diario') datos = await ea.diario({ limite: 300, latidos: st.latidos });
   else if (sec === 'rutinas') datos = await ea.rutinas();
   else if (sec === 'propuestas') datos = await ea.propuestas({ pendientes: !st.propTodas });
-  else if (sec === 'boveda') datos = await ea.boveda(st.q.trim());
   else if (EDITOR[sec]) {
     datos = await EDITOR[sec].datos();
     if (ed(sec).sel) await cargaDetalle(ed(sec).sel);
@@ -1260,7 +1510,7 @@ function abre(sec, k) {
 
 
 async function accion(b) {
-  const { a, id, v, slug, n, ruta, h, k: clave } = b.dataset;
+  const { a, id, v, slug, n, h, k: clave } = b.dataset;
   try {
     if (['cerrar', 'cancelar', 'continuar', 'reformular', 'confirmar'].includes(a)) {
       const caja = b.closest('[data-j]');
@@ -1290,17 +1540,6 @@ async function accion(b) {
       st.armado = null;
       const p = await ea.decidir(id, v);
       if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
-    } else if (a === 'promover') {
-      const k = 'b' + ruta;
-      if (!(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
-        st.armado = { n: k, hasta: Date.now() + 4000 };
-        pintar();
-        setTimeout(pintar, 4100);
-        return;
-      }
-      st.armado = null;
-      const r = await ea.promover(ruta);
-      avisa(r.texto, true);
     } else if (a === 'lanzar') {
       const t = await ea.lanzarRutina(slug);
       avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
@@ -1362,10 +1601,11 @@ async function accionNota(a, datos = {}) {
   const E = ed();
   const local = () => { pintar(); return false; };
   if (a !== 'menu-nota') E.menu = false;
-  if (A.accion) {
-    const r = await A.accion(a, E, datos);
-    if (r !== undefined) return r;
-  }
+  // Las acciones propias del adaptador: null = no es suya, false = ya
+  // repintó, true = hecho (se sondea).
+  const propia = await A.accion?.(a, E, datos) ?? null;
+  if (propia === false) return false;
+  if (propia === true) return;
   const k = E.sel;
   if (!k) return false;
   const x = st.detalle[k], e = E.borrador;
@@ -1552,6 +1792,8 @@ $('#lista').addEventListener('input', ev => {
 $('#lista').addEventListener('focusout', ev => {
   const E = EDITOR[st.sec] && ed();
   if (ev.target.matches('input[data-ren]') && E?.renombrando) { E.renombrando = null; setTimeout(pintar); }
+  // Al salir del campo de crear se cierra, salvo hacia la propia barra.
+  if (ev.target.matches('input[data-crear]') && E?.creando && !ev.relatedTarget?.closest?.('.arbol-acc')) { E.creando = null; setTimeout(pintar); }
 });
 
 let busqueda;
@@ -1573,6 +1815,11 @@ document.addEventListener('keydown', ev => {
     if (t.matches('input[data-ren]')) {
       if (ev.key === 'Enter') { ev.preventDefault(); renombra(t.value); }
       else if (ev.key === 'Escape') { E.renombrando = null; pintar(); }
+      return;
+    }
+    if (t.matches('input[data-crear]')) {
+      if (ev.key === 'Enter') { ev.preventDefault(); creaEnBoveda(t.value); }
+      else if (ev.key === 'Escape') { E.creando = null; t.blur(); pintar(); }
       return;
     }
     if (ev.key === 'Escape' && E.menu) { E.menu = false; pintar(); $('[data-a="menu-nota"]')?.focus(); return; }

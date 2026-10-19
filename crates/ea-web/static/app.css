@@ -467,6 +467,15 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .arbol .ad:focus-visible, .arbol .af:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .arbol .ren { flex: 1; min-width: 0; height: 22px; padding: 0 4px; }
 .arbol .vacio { padding: 12px 8px; }
+.arbol-acc { display: flex; flex-direction: column; gap: 4px; padding: 0 8px 6px 0; }
+.arbol-bar { display: flex; flex-wrap: wrap; gap: 4px; }
+.arbol-bar button.on { color: var(--accent); background: var(--sel); }
+.arbol-acc .nueva { height: 28px; padding: 0 6px; font-size: 13px; }
+.pap { display: flex; flex-direction: column; margin-top: 8px; }
+.pap-f { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 4px; border-radius: 4px; }
+.pap-f:hover { background: var(--bg2); }
+.pap-f .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.pap-f .m { flex: none; font-size: 11px; }
 .sin-guardar { color: var(--accent); font-weight: 400; }
 .nota { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; padding: 0 4px 24px 0; font-size: 13px; color: var(--fg-lo); }
 .nota.ed { overflow: hidden; padding-bottom: 8px; }
