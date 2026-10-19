@@ -445,7 +445,7 @@ Un agente solo la simula o la propone (`ea propuestas`, TUI o ◇ de la web);
 **aceptar la propuesta la ejecuta**, desde la terminal o la web. El usuario
 también puede promover directamente: `ea boveda promover <ruta> [--destino
 x/y.md]` (pide terminal interactiva, muestra la simulación y confirma) o ⇧
-en la sección ▥ de la web (segundo clic). Efecto: **copia** la nota a
+en la sección ▥ de la web (⋯ → «Promover a compartida», con confirmación). Efecto: **copia** la nota a
 `compartida/<misma ruta sin la región>` (o al destino indicado) con la
 cabecera `promocion: promovida`, `promovida_de`, `promovida_por`,
 `promovida_en`; el original se conserva y solo su cabecera pasa a
@@ -458,13 +458,45 @@ cualquier agente o al orquestador como autor de la promoción.
 
 Lo que ve el usuario: `ea boveda estado|listar|buscar|leer|promover|reindexar`,
 la pestaña «Bóveda» de `ea tui` (solo lectura, fotografía) y la sección ▥ del
-panel web (tecla `8`; el cuadro de filtro hace una búsqueda de texto completo).
+panel web (tecla `8`), que es el editor de la bóveda.
+
+**El editor de la bóveda en `ea-web`** (spec 015). Es el punto único de edición
+de la bóveda para el usuario, en lugar de Obsidian. Como el resto, escribe a
+través de `ea-boveda` (`Boveda::guardar_usuario`, `crear_usuario`, `renombrar`,
+`a_papelera`, `restaurar`, `crear_carpeta`): bajo el candado, con escritura
+atómica, el índice al día y un evento en el diario dentro del candado. Estas
+operaciones **no** están en `ea-mcp` ni en `ea-acciones` (ningún agente llega a
+ellas) y rechazan como `quien` a un agente o al orquestador. Reglas:
+
+- **Editar** notas de las tres regiones, con control de versión (huella del
+  contenido: 409 si cambió en disco). La **firma** de una cabecera válida
+  (`autor`, `region`, `creada`, `promocion`, `promovida_*`) no se cambia a mano
+  (400) ni se puede quitar la cabecera; `actualizada` se pone al día sola. A una
+  nota sin cabecera no se le puede poner una firmada por un agente (403).
+  Título, etiquetas, origen y cuerpo sí se editan.
+- **Crear notas** solo en `compartida/` (cabecera con `autor: usuario`, título =
+  nombre del fichero; 403 en otra región). **Carpetas**, en cualquier región.
+- **Renombrar o mover** solo dentro de la misma región (a otra se llega
+  promoviendo; 403); nunca pisa otra nota (409). Reescribe los enlaces que
+  apuntaban a ella en todas las notas indexadas, al estilo de Obsidian:
+  `[[x]]`, `[[ruta/x|alias]]`, `[[x#ancla]]` (con o sin `.md`) y los markdown
+  `](../x.md)`, conservando alias y anclas. Un `[[x]]` se resuelve como en
+  Obsidian (ruta exacta o que acaba en `/x.md`; si hay varias, la de la misma
+  carpeta); si sigue siendo ambiguo no se toca y se avisa.
+- **Borrar** es mandar a la **papelera**: `<raíz>/.papelera/<marca>-<n>/<ruta>`
+  (fuera de las regiones: no se indexa). Se restaura a su ruta original si allí
+  no hay otra nota (409). Vaciar la papelera no está en la web.
+
+Eventos nuevos en el diario (actor `usuario`): `boveda_edicion`,
+`boveda_creacion`, `boveda_renombrado` (con las notas actualizadas y las
+ambiguas), `boveda_papelera`, `boveda_restauracion` y `boveda_carpeta`.
 
 **Limitaciones conocidas.** El orden entre escritores que esperan no es FIFO.
-Las ediciones externas no dejan evento en el diario (solo se reflejan en el
-índice). No hay borrado ni renombrado de notas por herramienta. Los agentes
+Las ediciones externas (fuera de `ea-web`) no dejan evento en el diario (solo se
+reflejan en el índice). Los agentes no borran ni renombran notas. Los agentes
 solo reemplazan notas propias, no hacen *append*. La TUI es una fotografía: no
-promueve desde dentro.
+promueve desde dentro. El editor no toca lo que está fuera de las regiones (p.
+ej. un `Inicio.md` en la raíz) ni renombra o borra carpetas.
 
 ### Monitor: TUI y `ea-web`
 
@@ -490,7 +522,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
-| ▥ | Bóveda: listar, buscar, leer y promover | `8` |
+| ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista y ↺ restaurar). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera | `8` |
 | ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. Apunta `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
 
 `/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
@@ -507,7 +539,19 @@ application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformula
 409 si la versión ya no es la del disco), `POST …/<fichero>/eliminar` (`{"version": "..."}`),
 `POST …/<fichero>/renombrar` (`{"nuevo": "x.md", "version": "..."}`; 409 si ya existe) y
 `POST …/<fichero>/mostrar` (`{}`; abre el gestor de ficheros por D-Bus
-`FileManager1` o, si no, `xdg-open` sobre la carpeta). Solo atiende `Host: localhost|127.0.0.1`.
+`FileManager1` o, si no, `xdg-open` sobre la carpeta); la bóveda, por
+`GET /api/boveda` (`?q=`, `region`, `limite`: lista o busca), `GET /api/boveda/nota?ruta=`
+(lectura paginada), `POST /api/boveda/promover` (`{"ruta": "..."}`) y el editor:
+`GET /api/boveda/arbol` (regiones, carpetas, notas y cuántas hay en la papelera),
+`GET /api/boveda/fichero?ruta=` (la nota entera con `contenido`, `version` y
+`absoluta`), `POST /api/boveda/guardar` (`{"ruta", "contenido", "version"}`; 409 si
+cambió en disco, 400 si cambia la firma), `POST /api/boveda/crear` (`{"ruta",
+"contenido"?}`; 201; solo `compartida/`), `POST /api/boveda/renombrar` (`{"ruta",
+"nuevo", "version"}`; devuelve `{nota, actualizadas, ambiguas}`),
+`POST /api/boveda/eliminar` (`{"ruta", "version"}`: a la papelera),
+`POST /api/boveda/carpeta` (`{"ruta"}`; 201), `POST /api/boveda/mostrar`
+(`{"ruta"}`), `GET /api/boveda/papelera` y `POST /api/boveda/papelera/restaurar`
+(`{"id"}`). Solo atiende `Host: localhost|127.0.0.1`.
 Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 
