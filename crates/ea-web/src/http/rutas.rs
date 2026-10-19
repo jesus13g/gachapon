@@ -245,6 +245,41 @@ pub async fn memoria_guardar(
     ok(servicio::memoria::guardar(&s, &proyecto, &fichero, &b.contenido, &b.version).await)
 }
 
+#[derive(Deserialize)]
+pub struct VersionBody {
+    version: String,
+}
+
+pub async fn memoria_eliminar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(b): Json<VersionBody>,
+) -> Api<Hecho> {
+    ok(servicio::memoria::eliminar(&s, &proyecto, &fichero, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct RenombrarBody {
+    nuevo: String,
+    version: String,
+}
+
+pub async fn memoria_renombrar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(b): Json<RenombrarBody>,
+) -> Api<Renombrado> {
+    ok(servicio::memoria::renombrar(&s, &proyecto, &fichero, &b.nuevo, &b.version).await)
+}
+
+pub async fn memoria_mostrar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(_): Json<Value>,
+) -> Api<Hecho> {
+    ok(servicio::memoria::mostrar(&s, &proyecto, &fichero).await)
+}
+
 // --------------------------------------------------------------- servicios
 
 pub async fn servicio_reiniciar(State(s): Estado, Path(nombre): Path<String>) -> Api<Hecho> {

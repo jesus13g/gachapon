@@ -308,3 +308,10 @@ pub struct ListadoMemoria {
     pub raiz: String,
     pub proyectos: Vec<ProyectoMemoria>,
 }
+
+#[derive(Serialize)]
+pub struct Renombrado {
+    pub memoria: Memoria,
+    /// Las otras memorias del proyecto cuyos enlaces se reescribieron.
+    pub actualizadas: Vec<String>,
+}

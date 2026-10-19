@@ -489,7 +489,7 @@ el mismo `Bus` que la CLI.
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
 | ▥ | Bóveda: listar, buscar, leer y promover | `8` |
-| ✎ | Memoria: la memoria de Claude Code de cada proyecto (`~/.claude/projects/*/memory/*.md`); se lee renderizada como markdown y se edita en un editor de texto (✓ guardar o `Ctrl+S`, ◐ vista previa, ✕ descartar). No crea ni borra memorias, solo reescribe las existentes, avisa si cambiaron en disco y apunta `memoria_editada` en el diario | `9` |
+| ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. Apunta `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
 
 `/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
 abre la ayuda y `t` abre el recorrido guiado, que va de vista en vista
@@ -502,7 +502,10 @@ application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformula
 `POST /api/rutinas/<slug>/lanzar`; la memoria de Claude Code va por
 `GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
 `POST /api/memoria/<proyecto>/<fichero>` (`{"contenido": "...", "version": "..."}`;
-409 si la versión ya no es la del disco). Solo atiende `Host: localhost|127.0.0.1`.
+409 si la versión ya no es la del disco), `POST …/<fichero>/eliminar` (`{"version": "..."}`),
+`POST …/<fichero>/renombrar` (`{"nuevo": "x.md", "version": "..."}`; 409 si ya existe) y
+`POST …/<fichero>/mostrar` (`{}`; abre el gestor de ficheros por D-Bus
+`FileManager1` o, si no, `xdg-open` sobre la carpeta). Solo atiende `Host: localhost|127.0.0.1`.
 Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 
