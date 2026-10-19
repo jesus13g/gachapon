@@ -44,11 +44,26 @@ const ea = (() => {
     boveda: q => api('/api/boveda?q=' + c(q)),
     nota: ruta => api('/api/boveda/nota?ruta=' + c(ruta)),
     promover: ruta => post('/api/boveda/promover', { ruta }),
+    // El editor de la bóveda (gestos del usuario; ningún agente llega aquí).
+    bovedaArbol: () => api('/api/boveda/arbol'),
+    bovedaFichero: ruta => api('/api/boveda/fichero?ruta=' + c(ruta)),
+    guardarNota: (ruta, contenido, version) => post('/api/boveda/guardar', { ruta, contenido, version }),
+    crearNota: (ruta, contenido = '') => post('/api/boveda/crear', { ruta, contenido }),
+    renombrarNota: (ruta, nuevo, version) => post('/api/boveda/renombrar', { ruta, nuevo, version }),
+    eliminarNota: (ruta, version) => post('/api/boveda/eliminar', { ruta, version }),
+    crearCarpeta: ruta => post('/api/boveda/carpeta', { ruta }),
+    mostrarNota: ruta => post('/api/boveda/mostrar', { ruta }),
+    papelera: () => api('/api/boveda/papelera'),
+    restaurarNota: id => post('/api/boveda/papelera/restaurar', { id }),
 
     memoria: () => api('/api/memoria'),
     memoriaFichero: (proyecto, fichero) => api(`/api/memoria/${c(proyecto)}/${c(fichero)}`),
     guardarMemoria: (proyecto, fichero, contenido, version) =>
       post(`/api/memoria/${c(proyecto)}/${c(fichero)}`, { contenido, version }),
+    eliminarMemoria: (proyecto, fichero, version) => post(`/api/memoria/${c(proyecto)}/${c(fichero)}/eliminar`, { version }),
+    renombrarMemoria: (proyecto, fichero, nuevo, version) =>
+      post(`/api/memoria/${c(proyecto)}/${c(fichero)}/renombrar`, { nuevo, version }),
+    mostrarMemoria: (proyecto, fichero) => post(`/api/memoria/${c(proyecto)}/${c(fichero)}/mostrar`),
 
     reiniciar: servicio => post(`/api/servicios/${c(servicio)}/reiniciar`),
   };

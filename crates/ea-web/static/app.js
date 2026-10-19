@@ -29,8 +29,8 @@ const TITULOS = {
   propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
   acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
   sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
-  boveda: ['Bóveda', 'Las notas de los agentes y las compartidas. El buscador busca dentro de su contenido.'],
-  memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Abre una memoria para leerla; ✎ editar la abre en el editor.'],
+  boveda: ['Bóveda', 'Las notas de los agentes y las tuyas, como en Obsidian. Elige una en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto. El buscador busca también dentro del contenido.'],
+  memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Elige una nota en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto.'],
 };
 const VACIO = {
   trabajos: 'No hay trabajos. Se lanzan desde Claude Code con /mision, /obra o /rutina.',
@@ -65,7 +65,7 @@ const st = {
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
   consola: {},         // por herramienta: { v: valores, sim, res, err }
-  memEdit: {},         // por memoria en edición: { texto, original, version, previa, error, conflicto }
+  ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -131,7 +131,7 @@ function fila(k, cls, row, txt, det = '', extra = '') {
   return {
     k,
     txt: txt.toLowerCase(),
-    html: `<article class="f${abierto ? ' o' : ''}${st.sel === k ? ' s' : ''}${extra}" data-k="${esc(k)}">` +
+    html: `<article class="f${abierto ? ' o' : ''}${st.sel === k ? ' s' : ''}${extra}" data-k="${esc(k)}" tabindex="0">` +
       `<div class="r ${cls}">${row}</div>${abierto && det ? `<div class="det">${det}</div>` : ''}</article>`,
   };
 }
@@ -349,43 +349,22 @@ function filasPropuestas(ps) {
   });
 }
 
-function filasBoveda(d) {
-  return d.notas.map(n => {
-    const k = 'b' + n.ruta;
-    const promovida = n.promocion === 'promovida';
-    const row = `<i class="m" title="${esc(n.region)}">${n.region === 'compartida' ? '◆' : '◇'}</i>` +
-      `<span class="x">${esc(n.titulo)}</span><span class="m w">${esc(n.ruta)}</span>` +
-      `<span class="m">${esc(n.autor ?? '')}</span><span class="m">${reloj(n.actualizada)}</span>`;
-    const x = st.detalle[k];
-    let det = '';
-    if (x) {
-      const c = x.cabecera;
-      det = (c ? `<p class="m">${esc(c.autor)} · ${esc(c.origen)} · ${promovida ? 'promovida' : 'sin promover'}` +
-        `${c.tags.length ? ' · ' + esc(c.tags.join(', ')) : ''}${c.promovida_de ? ' · de ' + esc(c.promovida_de) : ''}` +
-        `${c.promovida_a ? ' · a ' + esc(c.promovida_a) : ''}</p>` : `<p class="m">${esc(x.aviso_cabecera ?? '')}</p>`) +
-        `<pre>${esc(x.contenido)}${x.truncado ? '\n…' : ''}</pre>`;
-    }
-    // Promover es decisión del usuario: segundo clic para confirmar.
-    if (n.region !== 'compartida') {
-      const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
-      det += `<div class="acc">${btn('promover', armada ? '⇧ confirmar' : '⇧ promover a compartida', armada ? 'confirmar: copia a la región compartida' : 'promover a la región compartida', { ruta: n.ruta }, armada ? 'hot' : '')}</div>`;
-    }
-    return fila(k, 'b', row, `${n.titulo} ${n.ruta}`, det, '');
-  });
-}
-// -------------------------------------------------------------------- memoria
+// ------------------------------------------------------------------- markdown
 
 // Markdown mínimo, propio y sin dependencias: todo el texto se escapa antes
 // de formatear y solo los enlaces http(s) y los internos llegan a ser enlaces.
-// `ctx`: { proyecto, existe(nombre) } para enlazar entre memorias del proyecto.
+// `ctx`: { wiki(destino), md(url) } devuelven la clave de la nota enlazada (o
+// null si no hay ninguna), y `roto` es el título de un enlace sin destino.
 function mdEnLinea(txt, ctx) {
   const guardados = [];
   const guarda = html => `\u0001${guardados.push(html) - 1}\u0002`;
   let s = esc(txt.replace(/[\u0001\u0002]/g, ''));
   s = s.replace(/`([^`]+)`/g, (_, c) => guarda(`<code>${c}</code>`));
   s = s.replace(/\[\[([^\[\]\n]+)\]\]/g, (_, n) => {
-    const f = n.trim().replace(/\.md$/, '') + '.md';
-    return guarda(ctx.existe?.(f) ? `<a href="#" class="ml" data-ml="${f}">[[${n}]]</a>` : `<span class="roto" title="no hay esa memoria">[[${n}]]</span>`);
+    const [destino, alias] = n.split('|');
+    const k = ctx.wiki?.(destino.split('#')[0].trim());
+    const txt = alias?.trim() || `[[${n}]]`; // con alias, como en Obsidian, solo el alias
+    return guarda(k ? `<a href="#" class="ml" data-ml="${esc(k)}">${txt}</a>` : `<span class="roto" title="${esc(ctx.roto ?? 'no hay esa nota')}">${txt}</span>`);
   });
   const enfasis = t => t
     .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '<strong>$1</strong>')
@@ -394,8 +373,8 @@ function mdEnLinea(txt, ctx) {
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, etiqueta, url) => {
     const t = enfasis(etiqueta);
     if (/^https?:\/\//i.test(url)) return guarda(`<a href="${url}" target="_blank" rel="noopener noreferrer">${t}</a>`);
-    const m = /^(?:\.\/)?([\w.-]+\.md)(?:#.*)?$/.exec(url);
-    if (m && ctx.existe?.(m[1])) return guarda(`<a href="#" class="ml" data-ml="${m[1]}">${t}</a>`);
+    const k = ctx.md?.(url);
+    if (k) return guarda(`<a href="#" class="ml" data-ml="${esc(k)}">${t}</a>`);
     return guarda(`<span class="roto" title="${url}">${t}</span>`); // relativo a otra cosa, javascript:… → sin enlace
   });
   s = enfasis(s);
@@ -472,69 +451,545 @@ function md(texto, ctx = {}) {
   return out;
 }
 
-// El cwd con el home abreviado: /home/ana/x → ~/x.
-const corto = cwd => cwd.replace(/^\/home\/[^/]+/, '~');
-const claveMem = (proyecto, fichero) => 'm' + proyecto + '/' + fichero;
+// --------------------------------------------------------------------- editor
+//
+// Memoria y Bóveda comparten el editor de dos columnas, árbol y nota. Cada
+// una aporta un adaptador (`EDITOR[sec]`) que sabe leer sus datos, pintar su
+// árbol y hablar con su API; el estado de cada editor vive en `st.ed[sec]`.
+
 const sucio = e => !!e && e.texto !== e.original;
+const EDITOR = {};
 
-// Descarta el borrador de una memoria al cerrar su fila; con cambios, antes pregunta.
-function cierraBorrador(k) {
-  const e = st.memEdit[k];
-  if (!e) return true;
-  if (sucio(e) && !confirm('Esta memoria tiene cambios sin guardar. ¿Descartarlos?')) return false;
-  delete st.memEdit[k];
+// El estado del editor de una sección.
+const ed = (sec = st.sec) => (st.ed[sec] ??= {
+  sel: null,           // clave de la nota abierta
+  modo: 'lectura',     // 'lectura' | 'edicion'
+  borrador: null,      // { k, texto, original, version, error, conflicto } de la nota abierta
+  plegados: new Set(), // carpetas plegadas en el árbol
+  menu: false,         // el menú ⋯ de la nota, abierto
+  renombrando: null,   // clave de la nota que se está renombrando
+  creando: null,       // 'nota' | 'carpeta': el campo de crear, abierto
+  papelera: false,     // la papelera, abierta en lugar de la nota
+});
+
+// Descarta el borrador de la nota abierta; con cambios, antes pregunta.
+function cierraBorrador(sec = st.sec) {
+  const A = EDITOR[sec];
+  if (!A) return true;
+  const E = ed(sec);
+  if (sucio(E.borrador) && !confirm(`Esta ${A.cosa} tiene cambios sin guardar. ¿Descartarlos?`)) return false;
+  E.borrador = null;
   return true;
 }
+const sueltaBorradores = () => cierraBorrador(); // al salir de la sección
 
-// Al salir de la sección con borradores sin guardar.
-function sueltaBorradores() {
-  const n = Object.values(st.memEdit).filter(sucio).length;
-  if (n && !confirm(`Hay ${n} ${n === 1 ? 'memoria' : 'memorias'} con cambios sin guardar. ¿Descartarlos?`)) return false;
-  st.memEdit = {};
-  return true;
+// El borrador de la nota abierta, si se está editando. Uno sin cambios sigue
+// a la versión del disco.
+function asegurarBorrador(E) {
+  const k = E.sel, x = k && st.detalle[k];
+  if (E.borrador && E.borrador.k !== k) E.borrador = null;
+  if (!x || E.modo !== 'edicion') return;
+  if (!E.borrador || (!sucio(E.borrador) && E.borrador.version !== x.version && !E.borrador.error))
+    E.borrador = { k, texto: x.contenido, original: x.contenido, version: x.version, error: null, conflicto: false };
 }
 
-function filasMemoria(d) {
-  const out = [];
-  for (const p of d.proyectos) {
-    const existe = n => p.ficheros.some(f => f.nombre === n);
-    const donde = p.cwd ? corto(p.cwd) : p.id;
-    for (const f of p.ficheros) {
-      const k = claveMem(p.id, f.nombre);
-      const indice = f.nombre === 'MEMORY.md';
-      const titulo = f.titulo ?? f.nombre;
-      const row = `<i class="m" title="${indice ? 'índice de las memorias' : 'memoria'}">${indice ? '≡' : '◇'}</i>` +
-        `<span class="x">${esc(titulo)}${f.descripcion ? ` <span class="ds">${esc(f.descripcion)}</span>` : ''}</span>` +
-        `<span class="m w" title="${esc(p.cwd ?? p.id)}">${esc(donde)}</span><span class="m">${esc(f.tipo ?? '')}</span><span class="m">${reloj(f.modificada)}</span>`;
-      const x = st.detalle[k], e = st.memEdit[k];
-      let det = '';
-      if (e || x) {
-        const meta = [f.titulo, f.tipo, f.descripcion].filter(Boolean).join(' · ');
-        det = `<div class="mem"><p class="m">${esc(p.id)}/memory/${esc(f.nombre)} · ${f.bytes} bytes` +
-          `${e ? ' <span class="sin-guardar"' + (sucio(e) ? '' : ' hidden') + '>● sin guardar</span>' : ''}</p>` +
-          (meta ? `<p class="m">${esc(meta)}</p>` : '');
-        const ctx = { proyecto: p.id, existe };
-        if (e) {
-          if (e.error) det += `<p class="hot">✕ ${esc(e.error)}</p>`;
-          const cambiada = x && x.version !== e.version;
-          if (cambiada && !e.error) det += '<p class="hot">La memoria cambió en disco mientras la editabas: si guardas, se te pedirá recargarla.</p>';
-          det += e.previa ? `<div class="md previa">${md(e.texto, ctx)}</div>`
-            : `<textarea class="editor" data-mem="${esc(k)}" spellcheck="false" aria-label="Contenido de ${esc(f.nombre)}" rows="${Math.min(60, Math.max(24, e.original.split('\n').length + 2))}">\n${esc(e.texto)}</textarea>`;
-          det += '<div class="acc">' + btn('guardar-memoria', '✓ guardar', 'escribir la memoria en disco (Ctrl+S)', { k }, 'coin') +
-            btn('previa-memoria', e.previa ? '✎ seguir editando' : '◐ vista previa', 'alterna el editor y el borrador renderizado', { k }) +
-            btn('descartar-memoria', '✕ descartar', 'tirar el borrador (Esc solo sale del editor)', { k }, 'hot') +
-            ((e.conflicto || cambiada) ? btn('recargar-memoria', '↺ recargar', 'descartar el borrador y leer la versión del disco', { k }) : '') + '</div>';
-        } else {
-          det += `<div class="md">${md(x.contenido, ctx)}</div>` +
-            `<div class="acc">${btn('editar-memoria', '✎ editar', 'editar en el editor de texto', { k })}</div>`;
-        }
-        det += '</div>';
-      }
-      out.push(fila(k, 'mm', row, `${f.nombre} ${titulo} ${f.descripcion ?? ''} ${p.cwd ?? ''} ${p.id}`, det));
+function eligeNota(k) {
+  const A = EDITOR[st.sec], E = ed();
+  if (!A || k === E.sel) return;
+  if (!cierraBorrador()) return;
+  E.sel = k;
+  E.menu = false;
+  E.renombrando = null;
+  E.papelera = false;
+  A.desplegar?.(E, k);
+  guardaEditor();
+  pintar();
+  return tick();
+}
+
+// La nota abierta y las carpetas plegadas se recuerdan en el navegador.
+function guardaEditor(sec = st.sec) {
+  const E = ed(sec);
+  try {
+    localStorage.setItem(`ea-${sec}-plegados`, JSON.stringify([...E.plegados]));
+    if (E.sel) localStorage.setItem(`ea-${sec}-sel`, E.sel); else localStorage.removeItem(`ea-${sec}-sel`);
+  } catch { /* sin almacenamiento */ }
+}
+
+function plegar(id) {
+  const E = ed();
+  if (!E.plegados.delete(id)) E.plegados.add(id);
+  guardaEditor();
+  pintar();
+}
+
+// Nodos del árbol: carpetas { d, etiqueta, titulo, cuenta, hijos } y notas
+// { k, nombre, icono, iconoTitulo, titulo }. Con filtro, todo desplegado.
+const plegada = (E, n) => !st.q.trim() && E.plegados.has(n.d);
+
+// Las claves de las notas que se ven, en orden (para j/k).
+const clavesVisibles = (E, nodos) =>
+  nodos.flatMap(n => (n.hijos ? (plegada(E, n) ? [] : clavesVisibles(E, n.hijos)) : [n.k]));
+
+function arbolNotas(A, E, nodos, prof = 0) {
+  return nodos.map(n => {
+    if (n.hijos) {
+      const pl = plegada(E, n);
+      return `<div class="ad" data-ad="${esc(n.d)}" role="treeitem" tabindex="0" aria-expanded="${!pl}" title="${esc(n.titulo)}" style="--n:${prof}">` +
+        `<i>${pl ? '▸' : '▾'}</i><span class="n">${esc(n.etiqueta)}</span><span class="m">${n.cuenta ?? ''}</span></div>` +
+        (pl ? '' : `<div role="group">${arbolNotas(A, E, n.hijos, prof + 1)}</div>`);
     }
-  }
-  return out;
+    const sel = n.k === E.sel;
+    const nombre = E.renombrando === n.k
+      ? `<input class="ren" data-ren="${esc(n.k)}" value="${esc(A.nombreEditable(n.k))}" spellcheck="false" aria-label="Nombre nuevo de ${esc(n.nombre)}">`
+      : `<span class="n">${esc(n.nombre)}</span>`;
+    const punto = sel && sucio(E.borrador) ? '<b class="sin-guardar" title="sin guardar">●</b>' : '';
+    return `<div class="af${sel ? ' sel' : ''}" data-af="${esc(n.k)}" role="treeitem" tabindex="0" aria-selected="${sel}" style="--n:${prof}"` +
+      ` title="${esc(n.titulo)}"><i title="${esc(n.iconoTitulo)}">${n.icono}</i>${nombre}${punto}</div>`;
+  }).join('');
 }
+
+function notaEditor(A, E, d) {
+  const panel = A.panel?.(d, E);
+  if (panel) return panel;
+  const k = E.sel;
+  if (!k) return `<p class="vacio">Elige una ${A.cosa} del árbol.</p>`;
+  const x = st.detalle[k], e = E.borrador?.k === k ? E.borrador : null;
+  if (!x && !e) return '<p class="vacio">Cargando…</p>';
+  const edita = E.modo === 'edicion' && e;
+  const modo = edita ? 'pasar a lectura (Ctrl+E)' : 'pasar a edición (Ctrl+E)';
+  const opcion = o =>
+    `<button role="menuitem" class="${o.cls ?? ''}" data-a="${o.a}"${o.off ? ` disabled title="${esc(o.off)}"` : ''}>${o.txt}</button>`;
+  let h = '<header class="nota-cab">' +
+    `<div class="miga">${A.miga(d, k)}` +
+    `<span class="sin-guardar"${sucio(e) ? '' : ' hidden'}>● sin guardar</span></div><span class="grow"></span>` +
+    `<button class="ico${edita ? ' on' : ''}" data-a="modo-nota" title="${modo}" aria-label="${modo}" aria-pressed="${!!edita}">${edita ? '◉' : '✎'}</button>` +
+    `<span class="menu-anc"><button class="ico" data-a="menu-nota" title="Más acciones" aria-label="Más acciones" aria-haspopup="menu" aria-expanded="${E.menu}">⋯</button>` +
+    (E.menu ? `<div class="menu" role="menu">${A.menu(d, k, x).map(opcion).join('')}</div>` : '') +
+    '</span></header>';
+  h += A.meta(d, k, x);
+  if (e?.error) h += `<p class="hot">✕ ${esc(e.error)}</p>`;
+  else if (e && x && x.version !== e.version) h += `<p class="hot">La ${A.cosa} cambió en disco mientras la editabas: si guardas, se te pedirá recargarla.</p>`;
+  if (e) {
+    const recargar = e.conflicto || (x && x.version !== e.version);
+    h += `<div class="acc"${sucio(e) || recargar ? '' : ' hidden'} data-si-sucio>` +
+      btn('guardar-nota', '✓ guardar', `escribir la ${A.cosa} en disco (Ctrl+S)`, {}, 'coin') +
+      btn('descartar-nota', '✕ descartar', 'tirar el borrador', {}, 'hot') +
+      (recargar ? btn('recargar-nota', '↺ recargar', 'descartar el borrador y leer la versión del disco') : '') + '</div>';
+  }
+  h += edita
+    ? `<textarea class="editor" data-ed="${esc(k)}" spellcheck="false" aria-label="Contenido de ${esc(A.nombre(k))}">\n${esc(e.texto)}</textarea>`
+    : `<div class="md">${md(e ? e.texto : x.contenido, A.ctx(d, k))}</div>`;
+  return h;
+}
+
+// El editor no son filas: el árbol y la nota se pintan por separado para que
+// el sondeo no les reinicie el scroll.
+function pintaEditor() {
+  const A = EDITOR[st.sec], E = ed(), d = st.datos;
+  if (E.sel && !A.existe(d, E.sel) && !sucio(E.borrador)) {
+    E.sel = null; // la borraron o la movieron fuera
+    E.borrador = null;
+  }
+  asegurarBorrador(E);
+  const nodos = A.arbol(d, st.q.trim().toLowerCase());
+  st.vis = clavesVisibles(E, nodos);
+  if (A.vacio(d)) {
+    st.html = '';
+    $('#filas').innerHTML = `<p class="vacio">${VACIO[st.sec]}</p>`;
+    return;
+  }
+  if ($('#filas > .mem-vista')?.dataset.sec !== st.sec)
+    $('#filas').innerHTML = `<div class="mem-vista" data-sec="${st.sec}"><div class="arbol-col"><div class="arbol-acc"></div>` +
+      `<nav class="arbol" role="tree" aria-label="${A.aria}"></nav></div><article class="nota"></article></div>`;
+  // st.html vacío pide repintar: se rehace el contenido, no las columnas (ni su scroll).
+  if (st.html !== 'ed') $$('#filas .mem-vista [data-h]').forEach(el => { el.dataset.h = ''; });
+  st.html = 'ed';
+  const pon = (el, html) => { if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; } };
+  pon($('#filas .arbol-acc'), A.barraArbol?.(d, E) ?? '');
+  pon($('#filas .arbol'), nodos.length ? arbolNotas(A, E, nodos) : `<p class="vacio">Nada coincide con «${esc(st.q.trim())}».</p>`);
+  const nota = $('#filas .nota');
+  pon(nota, notaEditor(A, E, d));
+  nota.classList.toggle('ed', !!$('textarea', nota));
+}
+
+// -------------------------------------------------------------------- memoria
+
+const INDICE = 'MEMORY.md';
+const claveMem = (proyecto, fichero) => 'm' + proyecto + '/' + fichero;
+// m<proyecto>/<fichero> → [proyecto, fichero]
+const partesMem = k => { const i = k.indexOf('/'); return [k.slice(1, i), k.slice(i + 1)]; };
+
+// Etiqueta corta de cada proyecto: el último tramo de su cwd (dos si se repite).
+function etiquetasMem(ps) {
+  const partes = p => (p.cwd ?? '').split('/').filter(Boolean);
+  const e = new Map(ps.map(p => [p.id, partes(p).pop() || p.id]));
+  for (const p of ps) {
+    if (ps.some(o => o.id !== p.id && e.get(o.id) === e.get(p.id)) && p.cwd) e.set(p.id, partes(p).slice(-2).join('/'));
+  }
+  return e;
+}
+
+EDITOR.memoria = {
+  cosa: 'memoria',
+  aria: 'Memorias por proyecto',
+  async datos() {
+    const datos = await ea.memoria();
+    if (st.proyecto) {
+      const id = st.proyecto.replace(/[^A-Za-z0-9]/g, '-');
+      datos.proyectos = datos.proyectos.filter(p => p.cwd === st.proyecto || p.id === id);
+    }
+    return datos;
+  },
+  carga: k => ea.memoriaFichero(...partesMem(k)),
+  vacio: d => !d.proyectos.length,
+  existe: (d, k) => { const [pid, f] = partesMem(k); return d.proyectos.some(p => p.id === pid && p.ficheros.some(x => x.nombre === f)); },
+  desplegar: (E, k) => E.plegados.delete(partesMem(k)[0]),
+  // Un directorio por proyecto y, dentro, sus memorias; el filtro mira el
+  // proyecto y el nombre, título y descripción de cada memoria.
+  arbol(d, q) {
+    const et = etiquetasMem(d.proyectos);
+    return d.proyectos.map(p => {
+      const deProy = q && `${et.get(p.id)} ${p.cwd ?? ''} ${p.id}`.toLowerCase().includes(q);
+      const fs = p.ficheros.filter(f => !q || deProy || `${f.nombre} ${f.titulo ?? ''} ${f.descripcion ?? ''}`.toLowerCase().includes(q));
+      return {
+        d: p.id, etiqueta: et.get(p.id), titulo: p.cwd ?? p.id, cuenta: p.ficheros.length,
+        hijos: fs.map(f => ({
+          k: claveMem(p.id, f.nombre), nombre: f.nombre.replace(/\.md$/, ''), titulo: f.descripcion ?? f.titulo ?? f.nombre,
+          icono: f.nombre === INDICE ? '≡' : '◇', iconoTitulo: f.nombre === INDICE ? 'índice de las memorias' : 'memoria',
+        })),
+      };
+    }).filter(g => g.hijos.length);
+  },
+  nombre: k => partesMem(k)[1],
+  nombreEditable: k => partesMem(k)[1].replace(/\.md$/, ''),
+  miga(d, k) {
+    const [pid, nombre] = partesMem(k);
+    const p = d.proyectos.find(x => x.id === pid);
+    return `<span class="m" title="${esc(p?.cwd ?? pid)}">${esc(etiquetasMem(d.proyectos).get(pid) ?? pid)}</span><span class="m">/</span><b>${esc(nombre)}</b>`;
+  },
+  meta(d, k) {
+    const [pid, nombre] = partesMem(k);
+    const f = d.proyectos.find(x => x.id === pid)?.ficheros.find(x => x.nombre === nombre);
+    const meta = [f?.titulo, f?.tipo, f?.descripcion].filter(Boolean).join(' · ');
+    return `<p class="m">${f ? f.bytes + ' bytes · modificada hace ' + reloj(f.modificada) : 'ya no está en disco'}${meta ? ' · ' + esc(meta) : ''}</p>`;
+  },
+  menu(d, k) {
+    const off = partesMem(k)[1] === INDICE && 'el índice de Claude Code no se renombra ni se borra';
+    return [
+      { a: 'renombrar-nota', txt: '✎ Renombrar', off },
+      { a: 'copiar-ruta-nota', txt: '⧉ Copiar la ruta' },
+      { a: 'mostrar-nota', txt: '▤ Mostrar en el explorador de archivos' },
+      { a: 'eliminar-nota', txt: '✕ Eliminar archivo', cls: 'hot', off },
+    ];
+  },
+  // Enlaces entre memorias del mismo proyecto: por nombre de fichero.
+  ctx(d, k) {
+    const [pid] = partesMem(k);
+    const p = d.proyectos.find(x => x.id === pid);
+    const clave = f => (p?.ficheros.some(y => y.nombre === f) ? claveMem(pid, f) : null);
+    return {
+      wiki: destino => clave(destino.trim().replace(/\.md$/, '') + '.md'),
+      md: url => { const m = /^(?:\.\/)?([\w.-]+\.md)(?:#.*)?$/.exec(url); return m ? clave(m[1]) : null; },
+      roto: 'no hay esa memoria',
+    };
+  },
+  rutaAbs: x => x.ruta,
+  guardar: (k, texto, version) => ea.guardarMemoria(...partesMem(k), texto, version),
+  mostrar: k => ea.mostrarMemoria(...partesMem(k)),
+  confirmaEliminar: (k, aviso) => `¿Eliminar definitivamente ${partesMem(k)[1]}? No se puede deshacer.${aviso}`,
+  async eliminar(k, x) {
+    await ea.eliminarMemoria(...partesMem(k), x.version);
+    return '✓ ' + partesMem(k)[1] + ' eliminada';
+  },
+  async renombrar(k, nuevo, x) {
+    const [pid, nombre] = partesMem(k);
+    const n = nuevo.trim().replace(/\.md$/, '') + '.md';
+    if (n === '.md' || n === nombre) return null;
+    const r = await ea.renombrarMemoria(pid, nombre, n, x.version);
+    const m = r.actualizadas.length;
+    return {
+      k: claveMem(pid, n), detalle: r.memoria,
+      aviso: `✓ renombrada a ${n}` + (m ? ` · enlaces al día en ${m} ${m === 1 ? 'memoria' : 'memorias'}` : ''),
+    };
+  },
+};
+
+// --------------------------------------------------------------------- bóveda
+//
+// La bóveda como un editor tipo Obsidian: las tres regiones son las raíces del
+// árbol. El usuario edita notas de cualquier región (la firma de la cabecera
+// no cambia), crea notas solo en compartida/ y carpetas en cualquiera, mueve
+// dentro de la región y borra a la papelera (se restaura).
+
+const carpetaDe = r => (r.includes('/') ? r.slice(0, r.lastIndexOf('/')) : '');
+const conMd = d => (d.endsWith('.md') ? d : d + '.md');
+const regionDe = r => r.split('/')[0];
+
+// Une y normaliza (`.` y `..`); null si sube por encima de la raíz.
+function unirRuta(base, rel) {
+  const p = base.split('/').filter(Boolean);
+  for (const x of rel.split('/')) {
+    if (!x || x === '.') continue;
+    if (x === '..') { if (!p.length) return null; p.pop(); } else p.push(x);
+  }
+  return p.length ? p.join('/') : null;
+}
+
+// Como ea-boveda (enlaces.rs): ruta exacta o que acaba en /destino; si hay
+// varias, la de la misma carpeta; si no, ambiguo (null).
+function resolverWiki(destino, desde, todas) {
+  const d = destino.trim();
+  if (!d) return null;
+  if (d.startsWith('./') || d.startsWith('../')) {
+    const r = unirRuta(carpetaDe(desde), conMd(d));
+    return r && todas.includes(r) ? r : null;
+  }
+  const x = conMd(d.replace(/^\/+/, '')), suf = '/' + x;
+  const c = todas.filter(t => t === x || t.endsWith(suf));
+  if (c.length === 1) return c[0];
+  const aqui = c.filter(t => carpetaDe(t) === carpetaDe(desde));
+  return aqui.length === 1 ? aqui[0] : null;
+}
+
+// Un enlace markdown: relativo a la carpeta de la nota, o a la raíz con `/`.
+function resolverMd(url, desde) {
+  if (!url || /^[^/]*:/.test(url)) return null;
+  let u;
+  try { u = decodeURIComponent(url); } catch { return null; }
+  const r = u.startsWith('/') ? unirRuta('', u.slice(1)) : unirRuta(carpetaDe(desde), u);
+  return r && r.endsWith('.md') ? r : null;
+}
+
+const rutaB = k => k.slice(1);
+const nombreB = k => rutaB(k).split('/').pop().replace(/\.md$/, '');
+
+// La carpeta en la que se crea: la de la nota abierta (si vale) o compartida/.
+function baseCreacion(E, tipo) {
+  const r = E.sel && rutaB(E.sel);
+  if (r && (tipo === 'carpeta' || regionDe(r) === 'compartida')) return carpetaDe(r) + '/';
+  return 'compartida/';
+}
+
+async function creaEnBoveda(valor) {
+  const E = ed('boveda');
+  const tipo = E.creando;
+  E.creando = null;
+  document.activeElement?.blur(); // con el campo enfocado, pintar() no repinta
+  const v = valor.trim().replace(/\/+$/, '');
+  if (!tipo || !v || v + '/' === baseCreacion(E, tipo)) { pintar(); return; }
+  try {
+    if (tipo === 'nota') {
+      if (!cierraBorrador('boveda')) { pintar(); return; }
+      const n = await ea.crearNota(v);
+      const k = 'b' + n.ruta;
+      st.detalle[k] = n;
+      Object.assign(E, { sel: k, modo: 'edicion', borrador: null, papelera: false });
+      EDITOR.boveda.desplegar(E, k);
+      guardaEditor('boveda');
+      avisa('✓ creada ' + n.ruta, true);
+    } else {
+      await ea.crearCarpeta(v);
+      EDITOR.boveda.desplegar(E, 'b' + v + '/x');
+      E.plegados.delete(v);
+      guardaEditor('boveda');
+      avisa('✓ carpeta ' + v, true);
+    }
+  } catch (err) {
+    avisa(err.message);
+  }
+  st.html = '';
+  await tick();
+}
+
+EDITOR.boveda = {
+  cosa: 'nota',
+  aria: 'Notas de la bóveda por región',
+  async datos() {
+    const q = st.q.trim(), E = ed('boveda');
+    const [d, busca, papelera] = await Promise.all([
+      ea.bovedaArbol(),
+      q ? ea.boveda(q).catch(() => null) : null,
+      E.papelera ? ea.papelera() : null,
+    ]);
+    d.rutas = d.notas.map(n => n.ruta);
+    d.rutasSet = new Set(d.rutas);
+    d.fts = busca ? new Set(busca.notas.map(n => n.ruta)) : null;
+    d.papelera = papelera;
+    return d;
+  },
+  carga: k => ea.bovedaFichero(rutaB(k)),
+  vacio: () => false, // las regiones siempre están, para poder crear
+  existe: (d, k) => d.rutasSet.has(rutaB(k)),
+  desplegar(E, k) {
+    let c = carpetaDe(rutaB(k));
+    while (c) { E.plegados.delete(c); c = carpetaDe(c); }
+  },
+  // Regiones, carpetas (también vacías) y notas; primero las carpetas. El
+  // filtro mira nombre, ruta y título y, con el índice, también el contenido.
+  arbol(d, q) {
+    const dirs = new Map();
+    const dir = ruta => {
+      if (dirs.has(ruta)) return dirs.get(ruta);
+      const n = { d: ruta, etiqueta: ruta.split('/').pop(), titulo: ruta, hijos: [], cuenta: 0 };
+      dirs.set(ruta, n);
+      const padre = carpetaDe(ruta);
+      if (padre) dir(padre).hijos.push(n);
+      return n;
+    };
+    d.regiones.forEach(dir);
+    if (!q) d.carpetas.forEach(dir);
+    for (const n of d.notas) {
+      if (q && !`${n.ruta} ${n.titulo}`.toLowerCase().includes(q) && !d.fts?.has(n.ruta)) continue;
+      const promovida = n.promocion === 'promovida';
+      dir(carpetaDe(n.ruta)).hijos.push({
+        k: 'b' + n.ruta, nombre: n.ruta.split('/').pop().replace(/\.md$/, ''),
+        titulo: n.titulo + (n.autor ? ' · ' + (NOMBRE[n.autor] ?? n.autor) : ''),
+        icono: n.region === 'compartida' ? '◆' : promovida ? '◈' : '◇',
+        iconoTitulo: n.region + (promovida ? ' · promovida' : ''),
+      });
+    }
+    const ordena = n => {
+      n.hijos.sort((a, b) => (!!b.hijos - !!a.hijos) || (a.etiqueta ?? a.nombre).localeCompare(b.etiqueta ?? b.nombre, 'es'));
+      n.hijos.forEach(h => h.hijos && ordena(h));
+      n.cuenta = n.hijos.reduce((s, h) => s + (h.hijos ? h.cuenta : 1), 0);
+    };
+    const raices = d.regiones.map(r => dirs.get(r));
+    raices.forEach(ordena);
+    const poda = ns => ns.filter(n => !n.hijos || n.cuenta > 0).map(n => (n.hijos ? { ...n, hijos: poda(n.hijos) } : n));
+    return q ? poda(raices) : raices;
+  },
+  nombre: k => rutaB(k).split('/').pop(),
+  // Lo que se escribe al renombrar: la ruta dentro de la región, sin .md.
+  nombreEditable: k => rutaB(k).split('/').slice(1).join('/').replace(/\.md$/, ''),
+  miga(d, k) {
+    const partes = rutaB(k).split('/');
+    const ultima = partes.pop();
+    return partes.map(p => `<span class="m">${esc(p)}</span><span class="m">/</span>`).join('') + `<b>${esc(ultima)}</b>`;
+  },
+  meta(d, k, x) {
+    if (!x) return '<p class="m">ya no está en disco</p>';
+    const c = x.cabecera;
+    const partes = [`${x.bytes} bytes · modificada hace ${reloj(x.modificada)}`];
+    if (c) {
+      partes.push(
+        'de ' + esc(NOMBRE[c.autor] ?? c.autor), esc(c.origen),
+        c.promocion === 'promovida' ? 'promovida' : 'sin promover',
+        c.tags.length ? esc(c.tags.map(t => '#' + t).join(' ')) : '',
+        c.promovida_de ? 'copia de ' + esc(c.promovida_de) : '',
+        c.promovida_a ? 'promovida a ' + esc(c.promovida_a) : '');
+    } else partes.push(esc(x.aviso_cabecera ?? 'sin cabecera'));
+    return `<p class="m">${partes.filter(Boolean).join(' · ')}</p>`;
+  },
+  menu(d, k, x) {
+    const comp = regionDe(rutaB(k)) === 'compartida';
+    return [
+      { a: 'renombrar-nota', txt: '✎ Renombrar o mover' },
+      ...(comp ? [] : [{ a: 'promover-nota', txt: '⇧ Promover a compartida', off: x?.cabecera?.promocion === 'promovida' && 'ya está promovida' }]),
+      { a: 'copiar-ruta-nota', txt: '⧉ Copiar la ruta' },
+      { a: 'mostrar-nota', txt: '▤ Mostrar en el explorador de archivos' },
+      { a: 'eliminar-nota', txt: '✕ Mover a la papelera', cls: 'hot' },
+    ];
+  },
+  ctx(d, k) {
+    const desde = rutaB(k);
+    return {
+      wiki: destino => { const r = resolverWiki(destino, desde, d.rutas); return r ? 'b' + r : null; },
+      md: url => { const r = resolverMd(url.split('#')[0], desde); return r && d.rutasSet.has(r) ? 'b' + r : null; },
+      roto: 'no hay esa nota (o el enlace es ambiguo)',
+    };
+  },
+  // La barra de la columna del árbol: crear, carpeta y papelera.
+  barraArbol(d, E) {
+    const n = d.en_papelera;
+    let h = '<div class="arbol-bar">' +
+      btn('crear-nota', '＋ nota', 'nota nueva (solo en la región compartida)', {}, E.creando === 'nota' ? 'on' : '') +
+      btn('carpeta-nota', '＋ carpeta', 'carpeta nueva, en cualquier región', {}, E.creando === 'carpeta' ? 'on' : '') +
+      btn('papelera-nota', 'papelera' + (n ? ` (${n})` : ''), 'las notas borradas: se pueden restaurar', {}, E.papelera ? 'on' : '') +
+      '</div>';
+    if (E.creando) {
+      const que = E.creando === 'nota' ? 'Ruta de la nota nueva (compartida/…)' : 'Ruta de la carpeta nueva (región/…)';
+      h += `<input class="ren nueva" data-crear="${E.creando}" value="${esc(baseCreacion(E, E.creando))}" spellcheck="false" aria-label="${que}" title="${que}: Enter crea, Esc cancela">`;
+    }
+    return h;
+  },
+  // La papelera ocupa la columna de la nota mientras está abierta.
+  panel(d, E) {
+    if (!E.papelera) return null;
+    const l = d.papelera;
+    let h = '<header class="nota-cab"><div class="miga"><b>Papelera</b></div><span class="grow"></span>' +
+      '<button class="ico" data-a="papelera-nota" title="Cerrar la papelera" aria-label="Cerrar la papelera">✕</button></header>' +
+      '<p class="m">Las notas borradas desde aquí. Restaurar una la devuelve a su sitio, si no hay otra con la misma ruta.</p>';
+    if (!l) return h + '<p class="vacio">Cargando…</p>';
+    if (!l.length) return h + '<p class="vacio">La papelera está vacía.</p>';
+    return h + '<div class="pap">' + l.map(p =>
+      `<div class="pap-f"><span class="n" title="${esc(p.ruta)}">${esc(p.ruta)}</span><span class="m">${p.bytes} bytes · hace ${reloj(p.borrada)}</span>` +
+      btn('restaurar-nota', '↺ restaurar', 'devolver ' + p.ruta + ' a su sitio', { id: p.id }) + '</div>').join('') + '</div>';
+  },
+  // Acciones propias; null = no es suya, false = ya repintó, true = sondear.
+  async accion(a, E, datos) {
+    if (a === 'crear-nota' || a === 'carpeta-nota') {
+      const tipo = a === 'crear-nota' ? 'nota' : 'carpeta';
+      E.creando = E.creando === tipo ? null : tipo;
+      pintar();
+      const i = $('input[data-crear]');
+      if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+      return false;
+    }
+    if (a === 'papelera-nota') {
+      E.papelera = !E.papelera;
+      return true;
+    }
+    if (a === 'restaurar-nota') {
+      const n = await ea.restaurarNota(datos.id);
+      avisa('✓ restaurada en ' + n.ruta, true);
+      if (cierraBorrador('boveda')) {
+        const k = 'b' + n.ruta;
+        st.detalle[k] = n;
+        Object.assign(E, { sel: k, papelera: false });
+        EDITOR.boveda.desplegar(E, k);
+        guardaEditor('boveda');
+      }
+      return true;
+    }
+    if (a === 'promover-nota') {
+      if (!E.sel) return false;
+      const r = rutaB(E.sel);
+      if (!confirm(`¿Promover ${r} a la región compartida?\n\nSe copia a compartida/; el original se queda, marcado como promovido.`)) { pintar(); return false; }
+      const p = await ea.promover(r);
+      avisa(p.texto, true);
+      return true;
+    }
+    return null;
+  },
+  rutaAbs: x => x.absoluta,
+  guardar: (k, texto, version) => ea.guardarNota(rutaB(k), texto, version),
+  mostrar: k => ea.mostrarNota(rutaB(k)),
+  confirmaEliminar: (k, aviso) => `¿Mover ${rutaB(k)} a la papelera? Se puede restaurar.${aviso}`,
+  async eliminar(k, x) {
+    await ea.eliminarNota(rutaB(k), x.version);
+    return `✓ ${nombreB(k)} en la papelera`;
+  },
+  async renombrar(k, nuevo, x) {
+    const ruta = rutaB(k), region = regionDe(ruta);
+    let v = nuevo.trim().replace(/^\/+/, '').replace(/\.md$/, '');
+    if (!v) return null;
+    const primera = v.split('/')[0];
+    if (primera === region) v = v.slice(region.length + 1);
+    else if (['modelo-local', 'claude-code', 'compartida'].includes(primera))
+      throw new Error('solo se mueve dentro de la misma región (a la compartida se llega con ⋯ → Promover)');
+    const n = `${region}/${v}.md`;
+    if (n === ruta) return null;
+    const r = await ea.renombrarNota(ruta, n, x.version);
+    const m = r.actualizadas.length, a = r.ambiguas.length;
+    return {
+      k: 'b' + r.nota.ruta, detalle: r.nota,
+      aviso: `✓ ${carpetaDe(ruta) === carpetaDe(r.nota.ruta) ? 'renombrada' : 'movida'} a ${r.nota.ruta}` +
+        (m ? ` · enlaces al día en ${m} ${m === 1 ? 'nota' : 'notas'}` : '') +
+        (a ? ` · enlaces ambiguos sin tocar en: ${r.ambiguas.join(', ')}` : ''),
+    };
+  },
+};
 
 function filasSistema(e, plano = false) {
   const out = [];
@@ -542,8 +997,8 @@ function filasSistema(e, plano = false) {
     const activo = s.activo === 'active';
     const g = s.activo === 'desconocido' ? '◌' : activo || s.activo === 'failed' ? '●' : '○';
     const armado = st.armado && st.armado.n === s.nombre && st.armado.hasta > Date.now();
-    const row = `<i class="${s.activo === 'failed' ? 'hot' : activo ? 'm' : 'n'}" title="${esc(s.activo)}">${g}</i>` +
-      `<span class="x">${s.nombre}</span><span class="${s.activo === 'failed' ? 'hot' : 'm'}">${activo ? '' : esc(s.activo)}</span>` +
+    const row = `<i class="${s.activo === 'failed' ? 'hot' : activo ? 'ok' : 'n'}" title="${esc(s.activo)}">${g}</i>` +
+      `<span class="x">${esc(s.nombre)}</span><span class="${s.activo === 'failed' ? 'hot' : 'm'}">${activo ? 'en marcha' : esc(s.activo)}</span>` +
       `<span class="m">${s.activo_s != null ? unidades(s.activo_s) : ''}</span>` +
       btn('reiniciar', armado ? '↻ confirmar' : '↻ reiniciar', armado ? 'confirmar reinicio' : 'reiniciar (pide confirmar)', { n: s.nombre }, armado ? 'hot' : '');
     out.push(fila('s' + s.nombre, 's', row, s.nombre + ' ' + s.activo));
@@ -631,7 +1086,7 @@ function tarjetaJ(t) {
   const k = 'j' + t.id;
   const run = t.estado === 'ejecutando';
   const [res, resCls] = premio(t, true);
-  return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" title="pulsa para ver la ficha">` +
+  return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" tabindex="0" title="pulsa para ver la ficha">` +
     `<header><span>${capsulaJ(t, 16)}${MODO[t.modo] ?? t.modo}</span><span>${reloj(t.actualizado)}</span></header>` +
     `<p class="tit">${esc(t.titulo)}</p>` + (run ? barraViva : '') +
     (res ? `<p class="res ${resCls}">${esc(res)}</p>` : '') + '</article>';
@@ -695,7 +1150,7 @@ function filasInicio(d) {
     if (mal.size) out.push(grupo('▦', 'Servicios parados'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
   }
   const ss = st.sesiones.filter(s => !st.proyecto || s.cwd === st.proyecto);
-  if (ss.length) out.push(grupo('◆', 'Claude Code', ss.length, 'sesiones abiertas y sus subagentes'), tableroCC(ss));
+  if (ss.length) out.push(grupo('◆', 'Claude Code', ss.length, ss.length === 1 ? 'sesión abierta y sus subagentes' : 'sesiones abiertas y sus subagentes'), tableroCC(ss));
   out.push(grupo('▤', 'Trabajos', st.trabajos.length, 'las cápsulas pasan de izquierda a derecha'), tableroJ());
   const abiertos = st.trabajos.filter(t => st.abiertos.has('j' + t.id));
   if (abiertos.length) out.push(grupo('▸', 'Ficha', 0, 'pulsa la fila para cerrarla'), ...filasTrabajos(abiertos));
@@ -713,8 +1168,6 @@ function construir() {
     case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
     case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
-    case 'boveda': return d ? con(columnas('b', '', 'nota', 'ruta', 'autor', 'hace'), filasBoveda(d)) : [];
-    case 'memoria': return d ? con(columnas('mm', '', 'memoria', 'proyecto', 'tipo', 'hace'), filasMemoria(d)) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
   }
 }
@@ -729,13 +1182,13 @@ function barra() {
   let h = '';
   if (st.sec === 'trabajos') {
     h = Object.keys(EST).map(e =>
-      `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-label="${EST[e][1]}">` +
+      `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
       `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
-    h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="latidos" aria-label="Latidos">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
+    h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
   } else if (st.sec === 'propuestas') {
-    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-label="Pendientes">◇ pendientes</button>` +
-        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-label="Todas">∗ todas</button>`;
+    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
+        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
   }
   if (fb.dataset.h !== h) { fb.dataset.h = h; fb.innerHTML = h; }
 }
@@ -881,6 +1334,13 @@ function pintar() {
     return;
   }
 
+  if (EDITOR[st.sec]) {
+    pintaEditor();
+    relojes();
+    barra();
+    return;
+  }
+
   const q = st.q.trim().toLowerCase();
   const todas = construir();
   // En la bóveda el filtro es una búsqueda de texto completo en el servidor.
@@ -894,9 +1354,11 @@ function pintar() {
   if (html !== st.html) {
     const lista = $('#lista');
     const y = lista.scrollTop;
+    const foco = document.activeElement?.matches('#filas [data-k]') ? document.activeElement.dataset.k : null;
     st.html = html;
     $('#filas').innerHTML = html; // la escena, encima, no se repinta
     lista.scrollTop = y;
+    if (foco) $(`#filas [data-k="${CSS.escape(foco)}"]`)?.focus({ preventScroll: true });
   }
   relojes();
   barra();
@@ -906,9 +1368,8 @@ function pintar() {
 
 async function cargaDetalle(k) {
   if (!(DETALLE[st.sec] || '').includes(k[0])) return;
-  if (k[0] === 'm') {
-    const i = k.indexOf('/');
-    try { st.detalle[k] = await ea.memoriaFichero(k.slice(1, i), k.slice(i + 1)); } catch { delete st.detalle[k]; }
+  if (EDITOR[st.sec]) {
+    try { st.detalle[k] = await EDITOR[st.sec].carga(k); } catch { delete st.detalle[k]; }
     return;
   }
   const carga = { j: ea.trabajo, r: ea.rutina, b: ea.nota }[k[0]];
@@ -927,13 +1388,9 @@ async function cargaSeccion() {
   else if (sec === 'diario') datos = await ea.diario({ limite: 300, latidos: st.latidos });
   else if (sec === 'rutinas') datos = await ea.rutinas();
   else if (sec === 'propuestas') datos = await ea.propuestas({ pendientes: !st.propTodas });
-  else if (sec === 'boveda') datos = await ea.boveda(st.q.trim());
-  else if (sec === 'memoria') {
-    datos = await ea.memoria();
-    if (st.proyecto) {
-      const id = st.proyecto.replace(/[^A-Za-z0-9]/g, '-');
-      datos.proyectos = datos.proyectos.filter(p => p.cwd === st.proyecto || p.id === id);
-    }
+  else if (EDITOR[sec]) {
+    datos = await EDITOR[sec].datos();
+    if (ed(sec).sel) await cargaDetalle(ed(sec).sel);
   }
   if (st.proyecto) {
     const ids = new Set(st.trabajos.map(t => t.id));
@@ -971,15 +1428,25 @@ async function tick() {
 
 // ------------------------------------------------------------------ acciones
 
-// Lo que cambia con la sección fuera de la lista: título, guía y cuadros.
+// Lo que cambia con la sección fuera de la lista: título y cuadros.
 function marco() {
-  const [nombre, guia] = TITULOS[st.sec];
-  $('#titulo h1').textContent = nombre;
-  $('#titulo p').textContent = guia;
-  $('#q').placeholder = st.sec === 'boveda' ? 'buscar en las notas ( / )' : 'filtrar ( / )';
-  $$('#rail button[data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
+  const [nombre] = TITULOS[st.sec];
+  $('#seccion').textContent = nombre;
+  const q = $('#q'), busca = st.sec === 'boveda';
+  q.placeholder = (busca ? 'buscar en las notas' : 'filtrar') + (matchMedia('(pointer: coarse)').matches ? '' : ' ( / )');
+  q.setAttribute('aria-label', busca ? 'Buscar en las notas' : 'Filtrar la lista');
+  $$('#rail button[data-s]').forEach(b => {
+    b.classList.toggle('on', b.dataset.s === st.sec);
+    if (b.dataset.s === st.sec) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
   $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
   $('#escena').hidden = st.sec !== 'inicio';
+  $('#lista').classList.toggle('vista-mem', !!EDITOR[st.sec]);
+  for (const E of Object.values(st.ed)) {
+    E.menu = false;
+    E.renombrando = null;
+    E.creando = null;
+  }
 }
 
 function ir(sec) {
@@ -998,7 +1465,7 @@ function ir(sec) {
 }
 
 async function alterna(k) {
-  if (st.abiertos.has(k)) { if (!cierraBorrador(k)) return; st.abiertos.delete(k); }
+  if (st.abiertos.has(k)) st.abiertos.delete(k);
   else { st.abiertos.add(k); await cargaDetalle(k); }
   pintar();
   // Desde una tarjeta del tablero la ficha se abre más abajo: que se vea.
@@ -1009,8 +1476,11 @@ function mover(d) {
   if (!st.vis.length) return;
   const i = st.vis.indexOf(st.sel);
   st.sel = st.vis[Math.min(st.vis.length - 1, Math.max(0, i < 0 ? (d > 0 ? 0 : st.vis.length - 1) : i + d))];
+  const conFoco = document.activeElement?.matches('#filas [data-k]');
   pintar();
-  $(`.f[data-k="${CSS.escape(st.sel)}"]`)?.scrollIntoView({ block: 'nearest' });
+  const f = $(`.f[data-k="${CSS.escape(st.sel)}"]`);
+  f?.scrollIntoView({ block: 'nearest' });
+  if (conFoco) f?.focus({ preventScroll: true });
 }
 
 // Argumentos de la consola tal como los espera la herramienta: tipos y
@@ -1040,7 +1510,7 @@ function abre(sec, k) {
 
 
 async function accion(b) {
-  const { a, id, v, slug, n, ruta, h, k: clave } = b.dataset;
+  const { a, id, v, slug, n, h, k: clave } = b.dataset;
   try {
     if (['cerrar', 'cancelar', 'continuar', 'reformular', 'confirmar'].includes(a)) {
       const caja = b.closest('[data-j]');
@@ -1070,17 +1540,6 @@ async function accion(b) {
       st.armado = null;
       const p = await ea.decidir(id, v);
       if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
-    } else if (a === 'promover') {
-      const k = 'b' + ruta;
-      if (!(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
-        st.armado = { n: k, hasta: Date.now() + 4000 };
-        pintar();
-        setTimeout(pintar, 4100);
-        return;
-      }
-      st.armado = null;
-      const r = await ea.promover(ruta);
-      avisa(r.texto, true);
     } else if (a === 'lanzar') {
       const t = await ea.lanzarRutina(slug);
       avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
@@ -1118,33 +1577,8 @@ async function accion(b) {
       } catch (e) {
         c.err = e.message;
       }
-    } else if (a === 'editar-memoria') {
-      const x = st.detalle[clave];
-      if (x) st.memEdit[clave] = { texto: x.contenido, original: x.contenido, version: x.version, previa: false, error: null, conflicto: false };
-    } else if (a === 'previa-memoria') {
-      const e = st.memEdit[clave];
-      if (e) e.previa = !e.previa;
-      st.html = '';
-      pintar();
-      if (e && !e.previa) $(`textarea[data-mem="${CSS.escape(clave)}"]`)?.focus();
-      return;
-    } else if (a === 'descartar-memoria') {
-      if (cierraBorrador(clave)) delete st.memEdit[clave];
-    } else if (a === 'recargar-memoria') {
-      delete st.memEdit[clave];
-    } else if (a === 'guardar-memoria') {
-      const e = st.memEdit[clave];
-      if (!e) return;
-      const i = clave.indexOf('/');
-      try {
-        st.detalle[clave] = await ea.guardarMemoria(clave.slice(1, i), clave.slice(i + 1), e.texto, e.version);
-        delete st.memEdit[clave];
-        avisa('✓ memoria guardada', true);
-      } catch (err) {
-        // El borrador se queda intacto; si el disco cambió, se ofrece recargar.
-        e.error = err.message;
-        e.conflicto = err.status === 409;
-      }
+    } else if (a.endsWith('-nota')) {
+      if (await accionNota(a, b.dataset) === false) return;
     } else if (a === 'latidos') {
       st.latidos = !st.latidos;
     } else if (a === 'prop') {
@@ -1160,6 +1594,108 @@ async function accion(b) {
   await tick();
 }
 
+// Las acciones del editor. `false`: ya repintó y no hace falta sondear.
+async function accionNota(a, datos = {}) {
+  const A = EDITOR[st.sec];
+  if (!A) return false;
+  const E = ed();
+  const local = () => { pintar(); return false; };
+  if (a !== 'menu-nota') E.menu = false;
+  // Las acciones propias del adaptador: null = no es suya, false = ya
+  // repintó, true = hecho (se sondea).
+  const propia = await A.accion?.(a, E, datos) ?? null;
+  if (propia === false) return false;
+  if (propia === true) return;
+  const k = E.sel;
+  if (!k) return false;
+  const x = st.detalle[k], e = E.borrador;
+  if (a === 'menu-nota') {
+    E.menu = !E.menu;
+    return local();
+  } else if (a === 'modo-nota') {
+    E.modo = E.modo === 'edicion' ? 'lectura' : 'edicion';
+    if (E.modo === 'lectura' && !sucio(e) && !e?.conflicto) E.borrador = null;
+    pintar();
+    if (E.modo === 'edicion') $('#filas .nota textarea')?.focus();
+    return false;
+  } else if (a === 'descartar-nota') {
+    cierraBorrador();
+  } else if (a === 'recargar-nota') {
+    E.borrador = null;
+  } else if (a === 'guardar-nota') {
+    if (!e) return false;
+    try {
+      st.detalle[k] = await A.guardar(k, e.texto, e.version);
+      E.borrador = null;
+      avisa(`✓ ${A.cosa} guardada`, true);
+    } catch (err) {
+      // El borrador se queda intacto; si el disco cambió, se ofrece recargar.
+      e.error = err.message;
+      e.conflicto = err.status === 409;
+    }
+  } else if (a === 'copiar-ruta-nota') {
+    if (!x) return local();
+    const ruta = A.rutaAbs(x);
+    try { await navigator.clipboard.writeText(ruta); } catch {
+      const ta = Object.assign(document.createElement('textarea'), { value: ruta });
+      document.body.append(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    avisa('✓ ruta copiada: ' + ruta, true);
+    return local();
+  } else if (a === 'mostrar-nota') {
+    await A.mostrar(k);
+    avisa('✓ abierta en el explorador de archivos', true);
+    return local();
+  } else if (a === 'renombrar-nota') {
+    if (sucio(e)) throw new Error('guarda o descarta los cambios antes de renombrar');
+    E.renombrando = k;
+    pintar();
+    const i = $(`input[data-ren="${CSS.escape(k)}"]`);
+    i?.focus();
+    i?.select();
+    return false;
+  } else if (a === 'eliminar-nota') {
+    if (!x) return local();
+    const aviso = sucio(e) ? '\n\nLos cambios sin guardar también se perderán.' : '';
+    if (!confirm(A.confirmaEliminar(k, aviso))) return local();
+    const msg = await A.eliminar(k, x);
+    delete st.detalle[k];
+    E.sel = null;
+    E.borrador = null;
+    guardaEditor();
+    avisa(msg, true);
+  }
+}
+
+// Termina el renombrado en línea: con `nuevo` lo pide al servidor.
+async function renombra(nuevo) {
+  const A = EDITOR[st.sec], E = ed();
+  const k = E.renombrando;
+  E.renombrando = null;
+  if (!k || !A) return;
+  document.activeElement?.blur(); // con el campo enfocado, pintar() no repinta
+  const x = st.detalle[k];
+  if (!x) { pintar(); return; }
+  try {
+    const r = await A.renombrar(k, nuevo, x);
+    if (!r) { pintar(); return; }
+    delete st.detalle[k];
+    st.detalle[r.k] = r.detalle;
+    E.sel = r.k;
+    E.borrador = null;
+    A.desplegar?.(E, r.k);
+    guardaEditor();
+    avisa(r.aviso, true);
+  } catch (err) {
+    avisa(err.message);
+  }
+  st.html = '';
+  await tick();
+}
+
 // Modo oscuro (el tema de Omarchy) o claro; se recuerda en el navegador.
 const LUNA = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
 const SOL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
@@ -1171,13 +1707,17 @@ function tema(cambiar = false) {
   }
   const claro = raiz.classList.contains('claro');
   const b = $('#btema');
-  b.innerHTML = (claro ? SOL : LUNA) + (claro ? 'claro' : 'oscuro');
+  b.innerHTML = claro ? SOL : LUNA;
   b.title = claro ? 'Modo claro (pulsa para oscuro)' : 'Modo oscuro (pulsa para claro)';
   b.setAttribute('aria-label', b.title);
 }
 
 function ayuda(mostrar) {
-  $('#ayuda').hidden = !mostrar;
+  const a = $('#ayuda');
+  const dentro = a.contains(document.activeElement);
+  a.hidden = !mostrar;
+  if (mostrar) $('[data-cerrar]', a).focus();
+  else if (dentro) $('#bayuda').focus();
   try { localStorage.setItem('ea-ayuda-vista', '1'); } catch { /* sin almacenamiento */ }
 }
 
@@ -1185,6 +1725,8 @@ function ayuda(mostrar) {
 
 document.addEventListener('click', ev => {
   const t = ev.target;
+  const E = EDITOR[st.sec] && ed();
+  if (E?.menu && !t.closest('.menu, [data-a="menu-nota"]')) { E.menu = false; pintar(); }
   const rail = t.closest('#rail button[data-s]');
   if (rail) return ir(rail.dataset.s);
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
@@ -1210,11 +1752,14 @@ document.addEventListener('click', ev => {
   const enlace = t.closest('a.ml');
   if (enlace) {
     ev.preventDefault();
-    const k = enlace.closest('[data-k]')?.dataset.k;
-    if (k) abre('memoria', claveMem(k.slice(1, k.indexOf('/')), enlace.dataset.ml));
+    if (E) eligeNota(enlace.dataset.ml);
     return;
   }
-  if (t.closest('input, select, textarea, .acc, .mem')) return;
+  if (t.closest('input, select, textarea, .acc, .nota')) return;
+  const ad = t.closest('[data-ad]');
+  if (ad) return plegar(ad.dataset.ad);
+  const af = t.closest('[data-af]');
+  if (af) return eligeNota(af.dataset.af);
   const fila = t.closest('#lista [data-k]');
   if (fila) { st.sel = fila.dataset.k; alterna(fila.dataset.k); }
 });
@@ -1222,14 +1767,16 @@ document.addEventListener('click', ev => {
 // La consola de acciones guarda lo escrito en el estado (la lista se repinta
 // entera) y da por caducada la simulación en cuanto cambia un argumento.
 $('#lista').addEventListener('input', ev => {
-  // El borrador de una memoria vive en el estado: el sondeo no lo pierde. No se
+  // El borrador de una nota vive en el estado: el sondeo no lo pierde. No se
   // repinta al teclear; solo se actualiza el indicador «sin guardar».
-  const ed = ev.target.closest('textarea[data-mem]');
-  if (ed) {
-    const e = st.memEdit[ed.dataset.mem];
-    if (e) {
-      e.texto = ed.value;
-      $('.sin-guardar', ed.closest('.det'))?.toggleAttribute('hidden', !sucio(e));
+  const ta = ev.target.closest('textarea[data-ed]');
+  if (ta) {
+    const e = ed().borrador;
+    if (e && e.k === ta.dataset.ed) {
+      e.texto = ta.value;
+      const nota = ta.closest('.nota');
+      $('.sin-guardar', nota)?.toggleAttribute('hidden', !sucio(e));
+      if (!e.conflicto) $('[data-si-sucio]', nota)?.toggleAttribute('hidden', !sucio(e));
     }
     return;
   }
@@ -1240,6 +1787,13 @@ $('#lista').addEventListener('input', ev => {
   c.sim = c.res = c.err = null;
   st.html = '';
   $$('.sal', el.closest('.det')).forEach(n => n.remove());
+});
+
+$('#lista').addEventListener('focusout', ev => {
+  const E = EDITOR[st.sec] && ed();
+  if (ev.target.matches('input[data-ren]') && E?.renombrando) { E.renombrando = null; setTimeout(pintar); }
+  // Al salir del campo de crear se cierra, salvo hacia la propia barra.
+  if (ev.target.matches('input[data-crear]') && E?.creando && !ev.relatedTarget?.closest?.('.arbol-acc')) { E.creando = null; setTimeout(pintar); }
 });
 
 let busqueda;
@@ -1255,23 +1809,49 @@ document.addEventListener('keydown', ev => {
   const t = ev.target;
   const enCampo = t.matches('input, textarea, select');
   if (ev.key === 'Escape' && !$('#ayuda').hidden) return ayuda(false);
+  if (EDITOR[st.sec]) {
+    const E = ed();
+    const tecla = ev.key.toLowerCase();
+    if (t.matches('input[data-ren]')) {
+      if (ev.key === 'Enter') { ev.preventDefault(); renombra(t.value); }
+      else if (ev.key === 'Escape') { E.renombrando = null; pintar(); }
+      return;
+    }
+    if (t.matches('input[data-crear]')) {
+      if (ev.key === 'Enter') { ev.preventDefault(); creaEnBoveda(t.value); }
+      else if (ev.key === 'Escape') { E.creando = null; t.blur(); pintar(); }
+      return;
+    }
+    if (ev.key === 'Escape' && E.menu) { E.menu = false; pintar(); $('[data-a="menu-nota"]')?.focus(); return; }
+    if ((ev.ctrlKey || ev.metaKey) && (tecla === 's' || tecla === 'e') && E.sel) {
+      ev.preventDefault();
+      if (tecla === 'e' && enCampo) t.blur(); // con el editor enfocado, pintar() no repinta
+      accion({ dataset: { a: tecla === 's' ? 'guardar-nota' : 'modo-nota' } });
+      return;
+    }
+    if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-af]')) { ev.preventDefault(); eligeNota(t.dataset.af); return; }
+    if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-ad]')) { ev.preventDefault(); plegar(t.dataset.ad); return; }
+    if (!enCampo && !ev.ctrlKey && !ev.metaKey && !ev.altKey && (ev.key === 'j' || ev.key === 'k') && st.vis.length) {
+      const i = st.vis.indexOf(E.sel);
+      const d = ev.key === 'j' ? 1 : -1;
+      const k = st.vis[Math.min(st.vis.length - 1, Math.max(0, i < 0 ? (d > 0 ? 0 : st.vis.length - 1) : i + d))];
+      eligeNota(k);
+      $(`[data-af="${CSS.escape(k)}"]`)?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+  }
   if (ev.key === 'Escape') {
     if (t.id === 'q') { t.value = ''; st.q = ''; }
     if (enCampo) t.blur();
     else {
-      for (const k of [...st.abiertos]) if (cierraBorrador(k)) st.abiertos.delete(k);
+      st.abiertos.clear();
       st.sel = null;
     }
     st.html = '';
     pintar();
     return;
   }
-  if (t.matches('textarea[data-mem]')) {
-    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
-      ev.preventDefault();
-      accion({ dataset: { a: 'guardar-memoria', k: t.dataset.mem } });
-      return;
-    }
+  if (t.matches('textarea[data-ed]')) {
     if (ev.key === 'Tab' && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
       ev.preventDefault();
       t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end');
@@ -1286,6 +1866,7 @@ document.addEventListener('keydown', ev => {
   }
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('trabajos', 'j' + t.dataset.pt); return; }
+  if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('#lista [data-k]')) { ev.preventDefault(); st.sel = t.dataset.k; alterna(t.dataset.k); return; }
   const n = Number(ev.key);
   if (n >= 1 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
   if (ev.key === 'p') proyectos(true);
@@ -1299,7 +1880,7 @@ document.addEventListener('keydown', ev => {
 
 document.addEventListener('visibilitychange', tick);
 addEventListener('beforeunload', ev => {
-  if (Object.values(st.memEdit).some(sucio)) { ev.preventDefault(); ev.returnValue = ''; }
+  if (Object.values(st.ed).some(E => sucio(E.borrador))) { ev.preventDefault(); ev.returnValue = ''; }
 });
 addEventListener('hashchange', () => {
   const h = location.hash.slice(1);
@@ -1311,6 +1892,19 @@ addEventListener('hashchange', () => {
 {
   const h = location.hash.slice(1);
   if (SECCIONES.includes(h)) st.sec = h;
+  try {
+    // Las claves antiguas de la memoria (ea-mem-*) pasan a ea-memoria-*.
+    for (const [viejo, nuevo] of [['ea-mem-plegados', 'ea-memoria-plegados'], ['ea-mem-sel', 'ea-memoria-sel']]) {
+      const v = localStorage.getItem(viejo);
+      if (v !== null && localStorage.getItem(nuevo) === null) localStorage.setItem(nuevo, v);
+      localStorage.removeItem(viejo);
+    }
+    for (const sec of Object.keys(EDITOR)) {
+      const E = ed(sec);
+      E.plegados = new Set(JSON.parse(localStorage.getItem(`ea-${sec}-plegados`) ?? '[]'));
+      E.sel = localStorage.getItem(`ea-${sec}-sel`);
+    }
+  } catch { /* sin almacenamiento */ }
   gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
   tour.montar({ ir, seccion: () => st.sec });
   marco();

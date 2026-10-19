@@ -157,6 +157,11 @@ impl Store {
         boveda::recientes(&self.conn, region, limite)
     }
 
+    /// Todas las notas indexadas, ordenadas por ruta.
+    pub fn boveda_todas(&self) -> StoreResult<Vec<ResultadoBusqueda>> {
+        boveda::todas(&self.conn)
+    }
+
     pub fn boveda_contar_por_region(&self) -> StoreResult<Vec<(String, i64)>> {
         boveda::contar_por_region(&self.conn)
     }

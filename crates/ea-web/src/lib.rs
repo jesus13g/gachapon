@@ -3,8 +3,10 @@
 //! especificación — para leer consulta el diario y el bus de trabajos, para
 //! actuar decide propuestas y gestiona trabajos — y nunca habla con Claude Code ni con el
 //! modelo local (solo mira qué sesiones de Claude Code hay abiertas). Las únicas
-//! rutas que salen de la base de datos son el reinicio de servicios y la
-//! memoria de Claude Code, que el usuario edita a mano desde la página.
+//! rutas que salen de la base de datos son el reinicio de servicios, la
+//! memoria de Claude Code y el editor de la bóveda (este, siempre a través
+//! de `ea-boveda`, su único escritor), que el usuario edita a mano desde la
+//! página.
 
 use std::path::PathBuf;
 

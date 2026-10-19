@@ -1,8 +1,9 @@
 //! La memoria de Claude Code: `<raíz>/<id-proyecto>/memory/*.md`, un fichero
 //! por memoria con frontmatter YAML y `MEMORY.md` como índice. Aquí solo hay
 //! rutas y ficheros (nada de HTTP ni de base de datos). Leer es libre; la
-//! única escritura es reemplazar una memoria que ya existe, con control de
-//! versión (hash del contenido) para no pisar un cambio hecho a mano en disco.
+//! escritura es sobre memorias que ya existen (reemplazar, renombrar o borrar),
+//! siempre con control de versión (hash del contenido) para no pisar un cambio
+//! hecho a mano en disco.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -51,6 +52,8 @@ pub struct FicheroMemoria {
 pub struct Memoria {
     pub proyecto: String,
     pub nombre: String,
+    /// Ruta absoluta del fichero.
+    pub ruta: String,
     pub contenido: String,
     /// Hash del contenido: lo que hay que devolver al guardar.
     pub version: String,
@@ -218,6 +221,7 @@ fn memoria(proyecto: &str, nombre: &str, p: &Path) -> Result<Memoria, ErrorMemor
     Ok(Memoria {
         proyecto: proyecto.to_string(),
         nombre: nombre.to_string(),
+        ruta: p.display().to_string(),
         version: version(&bytes),
         contenido: String::from_utf8(bytes).map_err(|_| ErrorMemoria::Invalido("la memoria no es UTF-8".into()))?,
         modificada,
@@ -226,6 +230,32 @@ fn memoria(proyecto: &str, nombre: &str, p: &Path) -> Result<Memoria, ErrorMemor
 
 pub fn leer(raiz: &Path, proyecto: &str, fichero: &str) -> Result<Memoria, ErrorMemoria> {
     memoria(proyecto, fichero, &ruta(raiz, proyecto, fichero)?)
+}
+
+/// Falla con `Conflicto` si en disco ya no está la versión con la que el
+/// usuario empezó; si sigue, devuelve el contenido actual.
+fn comprobar_version(p: &Path, version_base: &str) -> Result<Vec<u8>, ErrorMemoria> {
+    let actual = std::fs::read(p).map_err(|e| ErrorMemoria::Interno(format!("no se pudo leer la memoria: {e}")))?;
+    if version(&actual) != version_base {
+        return Err(ErrorMemoria::Conflicto(
+            "la memoria cambió en disco desde que la abriste; recárgala".into(),
+        ));
+    }
+    Ok(actual)
+}
+
+/// Temporal en el mismo directorio y rename: nunca queda a medias.
+fn escribir_atomico(p: &Path, contenido: &[u8]) -> Result<(), ErrorMemoria> {
+    let nombre = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = p.with_file_name(format!(".{nombre}.tmp-{}", std::process::id()));
+    let escrito = std::fs::File::create(&tmp)
+        .and_then(|mut f| f.write_all(contenido).and_then(|_| f.sync_all()))
+        .and_then(|_| std::fs::rename(&tmp, p));
+    if let Err(e) = escrito {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(ErrorMemoria::Interno(format!("no se pudo guardar la memoria: {e}")));
+    }
+    Ok(())
 }
 
 /// Reemplaza una memoria que ya existe. Falla con `Conflicto` si en disco ya
@@ -241,20 +271,66 @@ pub fn guardar(
     if contenido.len() > MAX_BYTES {
         return Err(ErrorMemoria::Invalido(format!("la memoria supera {} KiB", MAX_BYTES / 1024)));
     }
-    let actual = std::fs::read(&p).map_err(|e| ErrorMemoria::Interno(format!("no se pudo leer la memoria: {e}")))?;
-    if version(&actual) != version_base {
-        return Err(ErrorMemoria::Conflicto(
-            "la memoria cambió en disco desde que la abriste; recárgala".into(),
-        ));
-    }
-    // Temporal en el mismo directorio y rename: nunca queda a medias.
-    let tmp = p.with_file_name(format!(".{fichero}.tmp-{}", std::process::id()));
-    let escrito = std::fs::File::create(&tmp)
-        .and_then(|mut f| f.write_all(contenido.as_bytes()).and_then(|_| f.sync_all()))
-        .and_then(|_| std::fs::rename(&tmp, &p));
-    if let Err(e) = escrito {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(ErrorMemoria::Interno(format!("no se pudo guardar la memoria: {e}")));
-    }
+    comprobar_version(&p, version_base)?;
+    escribir_atomico(&p, contenido.as_bytes())?;
     memoria(proyecto, fichero, &p)
+}
+
+fn no_es_indice(fichero: &str) -> Result<(), ErrorMemoria> {
+    if fichero == INDICE {
+        return Err(ErrorMemoria::Invalido(format!("{INDICE} es el índice de Claude Code: no se borra ni se renombra")));
+    }
+    Ok(())
+}
+
+/// Borra una memoria (no el índice) si sigue en la versión que vio el usuario.
+/// Devuelve el contenido borrado, para dejarlo en el diario.
+pub fn eliminar(raiz: &Path, proyecto: &str, fichero: &str, version_base: &str) -> Result<String, ErrorMemoria> {
+    let p = ruta(raiz, proyecto, fichero)?;
+    no_es_indice(fichero)?;
+    let actual = comprobar_version(&p, version_base)?;
+    std::fs::remove_file(&p).map_err(|e| ErrorMemoria::Interno(format!("no se pudo borrar la memoria: {e}")))?;
+    Ok(String::from_utf8_lossy(&actual).into_owned())
+}
+
+/// Renombra una memoria sin pisar ninguna otra y reescribe los enlaces que
+/// apuntaban a ella en las demás memorias del proyecto. Devuelve la memoria
+/// con su nombre nuevo y los ficheros cuyos enlaces cambiaron.
+pub fn renombrar(
+    raiz: &Path,
+    proyecto: &str,
+    fichero: &str,
+    nuevo: &str,
+    version_base: &str,
+) -> Result<(Memoria, Vec<String>), ErrorMemoria> {
+    let p = ruta(raiz, proyecto, fichero)?;
+    nombre_valido(proyecto, nuevo)?;
+    no_es_indice(fichero)?;
+    no_es_indice(nuevo)?;
+    if nuevo == fichero {
+        return Err(ErrorMemoria::Invalido("el nombre nuevo es el mismo".into()));
+    }
+    comprobar_version(&p, version_base)?;
+    let destino = p.with_file_name(nuevo);
+    // `hard_link` falla si el destino existe: así nunca se pisa otra memoria.
+    std::fs::hard_link(&p, &destino).map_err(|e| match e.kind() {
+        std::io::ErrorKind::AlreadyExists => ErrorMemoria::Conflicto(format!("ya existe la memoria {nuevo}")),
+        _ => ErrorMemoria::Interno(format!("no se pudo renombrar la memoria: {e}")),
+    })?;
+    if let Err(e) = std::fs::remove_file(&p) {
+        let _ = std::fs::remove_file(&destino);
+        return Err(ErrorMemoria::Interno(format!("no se pudo renombrar la memoria: {e}")));
+    }
+    let dir = destino.parent().unwrap_or(raiz);
+    let (viejo, nuevo_base) = (fichero.trim_end_matches(".md"), nuevo.trim_end_matches(".md"));
+    let mut actualizadas = Vec::new();
+    for f in ficheros(dir) {
+        let fp = dir.join(&f.nombre);
+        let Ok(texto) = std::fs::read_to_string(&fp) else { continue };
+        if let Some(cambiado) = ea_boveda::enlaces::reescribir_por_nombre(&texto, viejo, nuevo_base) {
+            escribir_atomico(&fp, cambiado.as_bytes())?;
+            actualizadas.push(f.nombre);
+        }
+    }
+    Ok((memoria(proyecto, nuevo, &destino)?, actualizadas))
 }

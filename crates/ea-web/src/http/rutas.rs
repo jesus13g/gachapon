@@ -220,6 +220,89 @@ pub async fn boveda_promover(State(s): Estado, Json(b): Json<PromoverBody>) -> A
     ok(servicio::boveda::promover(&s, &b.ruta, b.destino.as_deref()).await)
 }
 
+pub async fn boveda_arbol(State(s): Estado) -> Api<ArbolBoveda> {
+    ok(servicio::boveda::arbol(&s).await)
+}
+
+#[derive(Deserialize)]
+pub struct RutaQuery {
+    ruta: String,
+}
+
+pub async fn boveda_fichero(State(s): Estado, Query(q): Query<RutaQuery>) -> Api<NotaFichero> {
+    ok(servicio::boveda::fichero(&s, &q.ruta))
+}
+
+#[derive(Deserialize)]
+pub struct GuardarNotaBody {
+    ruta: String,
+    contenido: String,
+    /// La versión con la que se abrió: si en disco ya es otra, 409.
+    version: String,
+}
+
+pub async fn boveda_guardar(State(s): Estado, Json(b): Json<GuardarNotaBody>) -> Api<NotaFichero> {
+    ok(servicio::boveda::guardar(&s, &b.ruta, &b.contenido, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct CrearNotaBody {
+    ruta: String,
+    #[serde(default)]
+    contenido: String,
+}
+
+pub async fn boveda_crear(State(s): Estado, Json(b): Json<CrearNotaBody>) -> Result<(StatusCode, Json<NotaFichero>), ApiError> {
+    Ok((StatusCode::CREATED, Json(servicio::boveda::crear(&s, &b.ruta, &b.contenido).await?)))
+}
+
+#[derive(Deserialize)]
+pub struct RenombrarNotaBody {
+    ruta: String,
+    nuevo: String,
+    version: String,
+}
+
+pub async fn boveda_renombrar(State(s): Estado, Json(b): Json<RenombrarNotaBody>) -> Api<RenombradoBoveda> {
+    ok(servicio::boveda::renombrar(&s, &b.ruta, &b.nuevo, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct EliminarNotaBody {
+    ruta: String,
+    version: String,
+}
+
+pub async fn boveda_eliminar(State(s): Estado, Json(b): Json<EliminarNotaBody>) -> Api<EnPapelera> {
+    ok(servicio::boveda::eliminar(&s, &b.ruta, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct RutaBody {
+    ruta: String,
+}
+
+pub async fn boveda_carpeta(State(s): Estado, Json(b): Json<RutaBody>) -> Result<(StatusCode, Json<Hecho>), ApiError> {
+    Ok((StatusCode::CREATED, Json(servicio::boveda::carpeta(&s, &b.ruta).await?)))
+}
+
+pub async fn boveda_mostrar(State(s): Estado, Json(b): Json<RutaBody>) -> Api<Hecho> {
+    ok(servicio::boveda::mostrar(&s, &b.ruta).await)
+}
+
+pub async fn boveda_papelera(State(s): Estado) -> Api<Vec<EnPapelera>> {
+    ok(servicio::boveda::papelera(&s))
+}
+
+#[derive(Deserialize)]
+pub struct RestaurarBody {
+    id: String,
+}
+
+pub async fn boveda_restaurar(State(s): Estado, Json(b): Json<RestaurarBody>) -> Api<NotaFichero> {
+    ok(servicio::boveda::restaurar(&s, &b.id).await)
+}
+
 // ----------------------------------------------------------------- memoria
 
 pub async fn memoria_listar(State(s): Estado) -> Api<ListadoMemoria> {
@@ -243,6 +326,41 @@ pub async fn memoria_guardar(
     Json(b): Json<MemoriaBody>,
 ) -> Api<Memoria> {
     ok(servicio::memoria::guardar(&s, &proyecto, &fichero, &b.contenido, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct VersionBody {
+    version: String,
+}
+
+pub async fn memoria_eliminar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(b): Json<VersionBody>,
+) -> Api<Hecho> {
+    ok(servicio::memoria::eliminar(&s, &proyecto, &fichero, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct RenombrarBody {
+    nuevo: String,
+    version: String,
+}
+
+pub async fn memoria_renombrar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(b): Json<RenombrarBody>,
+) -> Api<Renombrado> {
+    ok(servicio::memoria::renombrar(&s, &proyecto, &fichero, &b.nuevo, &b.version).await)
+}
+
+pub async fn memoria_mostrar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(_): Json<Value>,
+) -> Api<Hecho> {
+    ok(servicio::memoria::mostrar(&s, &proyecto, &fichero).await)
 }
 
 // --------------------------------------------------------------- servicios

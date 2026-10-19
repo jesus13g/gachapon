@@ -113,6 +113,27 @@ pub fn recientes(conn: &Connection, region: Option<&str>, limite: i64) -> StoreR
     Ok(filas.collect::<Result<_, _>>()?)
 }
 
+/// Todas las notas del índice, por ruta: el árbol de la bóveda.
+pub fn todas(conn: &Connection) -> StoreResult<Vec<ResultadoBusqueda>> {
+    let mut st = conn.prepare(
+        "SELECT ruta, region, autor, titulo, actualizada, promocion
+           FROM boveda_notas
+          ORDER BY ruta",
+    )?;
+    let filas = st.query_map([], |r| {
+        Ok(ResultadoBusqueda {
+            ruta: r.get(0)?,
+            region: r.get(1)?,
+            autor: r.get(2)?,
+            titulo: r.get(3)?,
+            actualizada: r.get(4)?,
+            promocion: r.get(5)?,
+            fragmento: String::new(),
+        })
+    })?;
+    Ok(filas.collect::<Result<_, _>>()?)
+}
+
 pub fn contar_por_region(conn: &Connection) -> StoreResult<Vec<(String, i64)>> {
     let mut st = conn.prepare("SELECT region, COUNT(*) FROM boveda_notas GROUP BY region ORDER BY region")?;
     let filas = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;

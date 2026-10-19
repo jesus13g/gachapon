@@ -1,12 +1,13 @@
-//! La memoria de Claude Code: listar, leer y guardar. El usuario la edita a
-//! mano desde la página; cada guardado deja rastro en el diario.
+//! La memoria de Claude Code: listar, leer, guardar, renombrar, borrar y
+//! mostrar en el explorador. El usuario la edita a mano desde la página; cada
+//! cambio deja rastro en el diario (el borrado, con el contenido).
 
 use ea_store::{EventOutcome, NewEvent};
 use serde_json::json;
 
 use super::{Resultado, ErrorWeb, ACTOR};
 use crate::memoria::{self, ErrorMemoria};
-use crate::vistas::ListadoMemoria;
+use crate::vistas::{Hecho, ListadoMemoria, Renombrado};
 use crate::AppState;
 
 impl From<ErrorMemoria> for ErrorWeb {
@@ -37,6 +38,22 @@ pub fn leer(s: &AppState, proyecto: &str, fichero: &str) -> Resultado<memoria::M
     Ok(memoria::leer(raiz(s)?, proyecto, fichero)?)
 }
 
+/// La escritura ya está hecha: si el diario falla, se avisa en el log y se da
+/// la operación por buena.
+async fn apunta(s: &AppState, accion: &str, detalle: serde_json::Value) {
+    let evento = NewEvent {
+        actor: ACTOR.into(),
+        action: accion.into(),
+        trabajo: None,
+        outcome: Some(EventOutcome::Ok),
+        duration_ms: None,
+        detail: Some(detalle.to_string()),
+    };
+    if let Err(e) = s.store.lock().await.append_event(evento) {
+        tracing::warn!(error = %e, accion, "no se pudo apuntar el cambio de memoria en el diario");
+    }
+}
+
 pub async fn guardar(
     s: &AppState,
     proyecto: &str,
@@ -45,18 +62,27 @@ pub async fn guardar(
     version: &str,
 ) -> Resultado<memoria::Memoria> {
     let m = memoria::guardar(raiz(s)?, proyecto, fichero, contenido, version)?;
-    // La escritura ya está hecha: si el diario falla, se avisa en el log y se
-    // da el guardado por bueno.
-    let evento = NewEvent {
-        actor: ACTOR.into(),
-        action: "memoria_editada".into(),
-        trabajo: None,
-        outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
-        detail: Some(json!({ "proyecto": proyecto, "fichero": fichero, "bytes": contenido.len() }).to_string()),
-    };
-    if let Err(e) = s.store.lock().await.append_event(evento) {
-        tracing::warn!(error = %e, "no se pudo apuntar la edición de memoria en el diario");
-    }
+    apunta(s, "memoria_editada", json!({ "proyecto": proyecto, "fichero": fichero, "bytes": contenido.len() })).await;
     Ok(m)
+}
+
+/// Borrado definitivo (constitución IV.2, excepción 1.1.0): el contenido queda
+/// en el diario, que es append-only.
+pub async fn eliminar(s: &AppState, proyecto: &str, fichero: &str, version: &str) -> Resultado<Hecho> {
+    let contenido = memoria::eliminar(raiz(s)?, proyecto, fichero, version)?;
+    let detalle = json!({ "proyecto": proyecto, "fichero": fichero, "bytes": contenido.len(), "contenido": contenido });
+    apunta(s, "memoria_eliminada", detalle).await;
+    Ok(Hecho { ok: true })
+}
+
+pub async fn renombrar(s: &AppState, proyecto: &str, fichero: &str, nuevo: &str, version: &str) -> Resultado<Renombrado> {
+    let (m, actualizadas) = memoria::renombrar(raiz(s)?, proyecto, fichero, nuevo, version)?;
+    apunta(s, "memoria_renombrada", json!({ "proyecto": proyecto, "de": fichero, "a": nuevo, "actualizadas": actualizadas })).await;
+    Ok(Renombrado { memoria: m, actualizadas })
+}
+
+/// Abre el gestor de ficheros del escritorio con la memoria seleccionada.
+pub async fn mostrar(s: &AppState, proyecto: &str, fichero: &str) -> Resultado<Hecho> {
+    let m = memoria::leer(raiz(s)?, proyecto, fichero)?;
+    super::explorador::mostrar(std::path::Path::new(&m.ruta)).await
 }
