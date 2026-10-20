@@ -154,6 +154,9 @@ pub struct TrabajoResumen {
     pub detalle: Option<String>,
     pub resultado: Option<&'static str>,
     pub obra_completa: Option<bool>,
+    /// Cancelado, pero el ejecutor aún tiene cogido su worktree (está
+    /// parando al agente).
+    pub cancelando: bool,
     pub rutina: Value,
     pub worktree: String,
     pub creado: String,

@@ -55,7 +55,7 @@ fn crear_tomar_entregar_y_cerrar_con_historial_en_sqlite() {
     assert_eq!(bus.tomar(Agente::ModeloLocal).unwrap(), None);
     let e = bus.aplicar(&id, Evento::Tomar).unwrap();
     assert_eq!((e.estado, e.iteracion), (EstadoTrabajo::Ejecutando, 0));
-    assert_eq!(bus.anotar_iteracion(&id).unwrap(), 1);
+    assert_eq!(bus.anotar_iteracion(&id).unwrap(), Some(1));
     assert_eq!(bus.leer_estado(&id).unwrap().iteracion, 1);
     bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
     assert_eq!(bus.leer_informe(&id).unwrap().unwrap().evidencia, "ok");
@@ -384,4 +384,54 @@ fn confirmar_encola_en_claude_code_con_el_contexto() {
     assert_eq!((c.len(), c[0].motivo.as_str()), (1, "corrección de rutina"));
     let p = std::fs::read_to_string(d.path().join("trabajos").join(&id).join("paquete-correccion.md")).unwrap();
     assert!(p.contains("ojo con el disco"));
+}
+
+#[test]
+fn anotar_iteracion_no_resucita_un_cancelado() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let raiz = d.path().join("estado");
+    let bus = Bus::abrir_en(&raiz).unwrap().con_store(store);
+    let id = bus.crear_trabajo(orden(d.path())).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    assert_eq!(bus.anotar_iteracion(&id).unwrap(), Some(1));
+    assert!(!bus.esta_cancelado(&id));
+    bus.aplicar(&id, Evento::Cancelar).unwrap();
+    // El ejecutor no se ha enterado y anota la siguiente: no escribe nada.
+    assert_eq!(bus.anotar_iteracion(&id).unwrap(), None);
+    let e = bus.leer_estado(&id).unwrap();
+    assert_eq!((e.estado, e.iteracion), (EstadoTrabajo::Cancelado, 1));
+    assert!(bus.esta_cancelado(&id));
+
+    // A la vez, desde otro hilo (y otro `Bus`, como otro proceso): tras
+    // cancelar, ninguna anotación lo devuelve a ejecutando.
+    let id2 = bus.crear_trabajo(orden(d.path())).unwrap();
+    bus.aplicar(&id2, Evento::Tomar).unwrap();
+    let barrera = Arc::new(Barrier::new(2));
+    let anotador = {
+        let (raiz, id2, barrera) = (raiz.clone(), id2.clone(), barrera.clone());
+        std::thread::spawn(move || {
+            let bus = Bus::abrir_en(&raiz).unwrap();
+            barrera.wait();
+            for _ in 0..500 {
+                if bus.anotar_iteracion(&id2).unwrap().is_none() {
+                    break;
+                }
+            }
+        })
+    };
+    barrera.wait();
+    bus.aplicar(&id2, Evento::Cancelar).unwrap();
+    anotador.join().unwrap();
+    assert_eq!(bus.leer_estado(&id2).unwrap().estado, EstadoTrabajo::Cancelado);
+    assert_eq!(bus.anotar_iteracion(&id2).unwrap(), None);
+
+    // La cancelación en curso queda en el historial y en el diario.
+    bus.anotar_cancelacion_en_curso(&id, 1, None).unwrap();
+    let historial = std::fs::read_to_string(raiz.join("trabajos").join(&id).join("historial.jsonl")).unwrap();
+    assert!(historial.lines().last().unwrap().contains("cancelado_en_curso"));
+    let s = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let eventos = s.list_events(&Default::default()).unwrap();
+    let ev = eventos.iter().find(|e| e.action == "bus_cancelado_en_curso").expect("evento en el diario");
+    assert!(ev.detail.as_deref().unwrap().contains(&id));
 }

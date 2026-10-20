@@ -170,7 +170,9 @@ function eventos(lista) {
 
 // ------------------------------------------------------------------- trabajos
 
-const estadoJ = t => `<span class="est ${t.estado}">${capsulaJ(t)}${EST[t.estado][1]}</span>`;
+// «cancelando…»: cancelado, pero el ejecutor aún tiene su worktree (parando al agente).
+const estadoJ = t => `<span class="est ${t.estado}">${capsulaJ(t)}${t.cancelando ? 'cancelando…' : EST[t.estado][1]}</span>`;
+const NO_SE_DESHACE = 'lo que el agente ya escribió en el worktree no se deshace';
 
 // «fase 2/5» o «iteración 3», lo que diga más del avance.
 function avance(t) {
@@ -183,6 +185,7 @@ function avance(t) {
 function premio(t, largo = false) {
   const av = avance(t);
   const con = (...xs) => xs.filter(Boolean).join(' · ');
+  if (t.cancelando) return ['⊘ cancelando…', 'hot'];
   if (t.estado === 'cancelado') return ['⊘ sin premio', ''];
   if (t.resultado === 'bloqueado' || t.estado === 'en_espera') {
     const roto = t.estado === 'cerrado' ? '✕ premio roto' : '✕ bloqueado';
@@ -208,7 +211,7 @@ function accionesTrabajo(t, i, mas = '') {
       b('confirmar', '✓ desatascar', 'pasa el paquete de corrección a Claude Code', 'coin hot');
   }
   h += mas;
-  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', 'cancelar el trabajo (segundo clic para confirmar)', 'hot');
+  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
   return h ? `<div class="acc" data-j="${id}">${h}</div>` : '';
 }
 
@@ -257,6 +260,7 @@ function filasTrabajos(ts) {
       `<span class="m ${pzCls}">${esc(pz || '—')}</span><span class="m">${reloj(t.actualizado)}</span>`;
     const d = st.detalle[k];
     let det = `<p class="m">${esc(t.id)} · creado ${hora(t.creado)}${t.detalle ? ' · ' + esc(t.detalle) : ''}</p>`;
+    if (t.cancelando) det += `<p class="m hot">cancelando…: el ejecutor está parando al agente y soltará el worktree; ${NO_SE_DESHACE}.</p>`;
     if (d) {
       const o = d.orden;
       det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
@@ -1720,7 +1724,8 @@ async function accion(b) {
       st.armado = null;
       const cuerpo = a === 'reformular' ? { nota: texto } : a === 'confirmar' ? { contexto: texto } : {};
       await ea.accionTrabajo(id, a, cuerpo);
-      avisa(`${id.slice(9, 15)}: ${a}`, true);
+      const enCurso = a === 'cancelar' && st.trabajos.some(t => t.id === id && t.estado === 'ejecutando');
+      avisa(`${id.slice(9, 15)}: ${a}${enCurso ? ' · ' + NO_SE_DESHACE : ''}`, true);
     } else if (a === 'diff') {
       if (st.diffs[id] !== undefined) delete st.diffs[id];
       else st.diffs[id] = await ea.diff(id).catch(e => ({ error: e.message }));

@@ -1,6 +1,8 @@
 //! Trabajos del bus, sus colas y semáforos, y las decisiones del usuario
 //! sobre ellos.
 
+use std::collections::HashSet;
+
 use ea_bus::{Agente, Bus, Evento};
 use serde_json::Value;
 
@@ -12,11 +14,13 @@ fn a_valor<T: serde::Serialize>(v: T) -> Resultado<Value> {
     serde_json::to_value(v).map_err(|e| ErrorWeb::Interno(e.to_string()))
 }
 
-fn resumen(bus: &Bus, id: &str) -> Option<TrabajoResumen> {
+/// `en_curso`: trabajos cuyo worktree tiene cogido el agente local.
+fn resumen(bus: &Bus, id: &str, en_curso: &HashSet<String>) -> Option<TrabajoResumen> {
     let orden = bus.leer_orden(id).ok()?;
     let estado = bus.leer_estado(id).ok()?;
     let informe = bus.leer_informe(id).ok().flatten();
     Some(TrabajoResumen {
+        cancelando: estado.estado == ea_bus::EstadoTrabajo::Cancelado && en_curso.contains(id),
         id: id.into(),
         modo: orden.modo.as_str(),
         estado: estado.estado.as_str(),
@@ -40,7 +44,14 @@ fn resumen(bus: &Bus, id: &str) -> Option<TrabajoResumen> {
 /// El más reciente primero.
 pub fn listar(s: &AppState) -> Resultado<Vec<TrabajoResumen>> {
     let bus = bus_lectura(s)?;
-    let mut v: Vec<_> = bus.listar_trabajos()?.iter().filter_map(|id| resumen(&bus, id)).collect();
+    // Un trabajo cancelado cuyo semáforo sigue cogido es que el ejecutor aún
+    // no se ha enterado (sondea cada 2 s y espera al agente): «cancelando…».
+    let en_curso: HashSet<String> = ea_bus::listar_semaforos_en(bus.raiz())
+        .into_iter()
+        .filter(|(_, o)| o.agente == "modelo-local")
+        .map(|(_, o)| o.trabajo)
+        .collect();
+    let mut v: Vec<_> = bus.listar_trabajos()?.iter().filter_map(|id| resumen(&bus, id, &en_curso)).collect();
     v.reverse();
     Ok(v)
 }

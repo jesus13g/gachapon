@@ -295,7 +295,12 @@ impl Bus {
     /// Valida la transición, escribe `estado.json`, añade una línea a
     /// `historial.jsonl` y registra el evento en SQLite (si hay `Store`).
     /// `Entregar` guarda además el informe.
+    ///
+    /// La lectura, la validación y la escritura van bajo el bloqueo del
+    /// trabajo ([`Bus::bloquear_estado`]): una cancelación que llegue a la vez
+    /// que el ejecutor escribe no se pierde.
     pub fn aplicar(&self, id: &str, evento: Evento) -> Resultado<Estado> {
+        let _bloqueo = self.bloquear_estado(id)?;
         let actual = self.leer_estado(id)?;
         let nuevo_estado = transicion(actual.estado, &evento)?;
         let mut nuevo = Estado { estado: nuevo_estado, actualizado_en: ahora_rfc3339(), ..actual };
@@ -346,13 +351,54 @@ impl Bus {
         Ok(nuevo)
     }
 
-    /// Sube el contador de iteraciones (una por llamada al agente).
-    pub fn anotar_iteracion(&self, id: &str) -> Resultado<u32> {
+    /// `flock` exclusivo sobre `trabajos/<id>/.estado.lock`, que se suelta al
+    /// soltar el fichero devuelto. Ordena entre procesos (CLI, ea-web, el
+    /// ejecutor) toda lectura-modificación-escritura de `estado.json`; la
+    /// escritura en sí sigue siendo atómica (`fs_atomico`), así que quien solo
+    /// lee no necesita el bloqueo. No es reentrante: quien lo tiene no debe
+    /// llamar a otra función que lo pida.
+    fn bloquear_estado(&self, id: &str) -> Resultado<fs::File> {
+        let dir = self.dir_trabajo(id)?;
+        if !dir.is_dir() {
+            return Err(ErrorBus::NoExiste(id.into()));
+        }
+        let f = fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".estado.lock"))?;
+        f.lock()?;
+        Ok(f)
+    }
+
+    /// Sube el contador de iteraciones (una por llamada al agente). Solo si
+    /// el trabajo sigue `Ejecutando`: si no (p. ej. se canceló), no escribe
+    /// nada y devuelve `None`, para no devolver a la vida lo cancelado.
+    pub fn anotar_iteracion(&self, id: &str) -> Resultado<Option<u32>> {
+        let _bloqueo = self.bloquear_estado(id)?;
         let mut e = self.leer_estado(id)?;
+        if e.estado != EstadoTrabajo::Ejecutando {
+            return Ok(None);
+        }
         e.iteracion += 1;
         e.actualizado_en = ahora_rfc3339();
         escribir_json(&self.dir_trabajo(id)?.join("estado.json"), &e)?;
-        Ok(e.iteracion)
+        Ok(Some(e.iteracion))
+    }
+
+    /// `true` si el trabajo está `Cancelado` (un fallo al leer cuenta como
+    /// no cancelado: el ejecutor sigue y la entrega dirá lo que haya).
+    pub fn esta_cancelado(&self, id: &str) -> bool {
+        self.leer_estado(id).is_ok_and(|e| e.estado == EstadoTrabajo::Cancelado)
+    }
+
+    /// El ejecutor dejó de trabajar en un trabajo cancelado mientras corría:
+    /// una línea `cancelado_en_curso` en `historial.jsonl` y el evento
+    /// `bus_cancelado_en_curso` en el diario, con la iteración y la fase en
+    /// que se cortó. No cambia el estado (ya es `Cancelado`).
+    pub fn anotar_cancelacion_en_curso(&self, id: &str, iteracion: u32, fase: Option<u32>) -> Resultado<()> {
+        let estado = self.leer_estado(id)?;
+        self.historial(id, "cancelado_en_curso", &Estado { actualizado_en: ahora_rfc3339(), iteracion, ..estado })?;
+        if let Some(s) = &self.store {
+            self.diario(s, id, "bus_cancelado_en_curso", true, serde_json::json!({ "iteracion": iteracion, "fase": fase }));
+        }
+        Ok(())
     }
 
     /// Quita de TODAS las colas las entradas de un trabajo.

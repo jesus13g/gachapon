@@ -582,6 +582,7 @@ dependencies = [
  "ea-ajustes",
  "ea-bus",
  "ea-store",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

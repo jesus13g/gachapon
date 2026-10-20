@@ -23,9 +23,19 @@
 //! También se excluyen las de objetivos y notebooks: no le sirven y cada
 //! herramienta declarada cuesta tokens en todos los turnos (~900 entre las
 //! tres, medido con `bench/skills`).
+//!
+//! Cancelación cooperativa: el estado se relee antes de cada iteración y de
+//! cada fase, y mientras corre el agente se sondea cada `SONDEO_CANCELACION`.
+//! El agente va en su propio grupo de procesos: si el trabajo pasa a
+//! `cancelado`, el grupo recibe `SIGTERM` y, tras `MARGEN_TERM`, `SIGKILL`.
+//! Tras una cancelación no se corre el criterio ni se entrega informe; lo que
+//! el agente ya escribió en el worktree se queda como está.
 
+use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use ea_bus::{
@@ -38,6 +48,13 @@ const TIEMPO_CRITERIO_S: u64 = 120;
 const MAX_EVIDENCIA: usize = 2048;
 /// Código con el que Qwen Code sale al agotar un tope.
 const SALIDA_TOPES: i32 = 55;
+/// Cada cuánto se relee `estado.json` mientras corre el agente.
+const SONDEO_CANCELACION: Duration = Duration::from_secs(2);
+/// Lo que se espera tras el `SIGTERM` al grupo antes del `SIGKILL`.
+const MARGEN_TERM: Duration = Duration::from_secs(5);
+/// Lo que se espera a que se cierren stdout y stderr tras la salida del
+/// proceso (un nieto escapado del grupo podría tenerlos abiertos).
+const ESPERA_SALIDA: Duration = Duration::from_secs(5);
 
 /// Lo que devuelve el agente tras una ejecución.
 #[derive(Debug, Clone, Default)]
@@ -48,18 +65,38 @@ pub struct SalidaAgente {
     pub bruta: String,
     /// Texto final del agente (resumen), si se pudo extraer.
     pub resumen: String,
+    /// `true` si se cortó porque el trabajo se canceló mientras corría.
+    pub cancelado: bool,
 }
 
 pub trait AgenteLocal {
     /// `sistema` se añade al system prompt (las skills); vacío si no hay.
-    fn ejecutar(&self, prompt: &str, sistema: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador) -> SalidaAgente;
+    /// `cancelado` dice si el trabajo se ha cancelado: el agente debe
+    /// consultarlo mientras corre y cortar en cuanto devuelva `true`.
+    fn ejecutar(
+        &self,
+        prompt: &str,
+        sistema: &str,
+        worktree: &Path,
+        topes: &Topes,
+        config: &ConfigOrquestador,
+        cancelado: &dyn Fn() -> bool,
+    ) -> SalidaAgente;
 }
 
 /// Qwen Code real, en modo headless.
 pub struct QwenCode;
 
 impl AgenteLocal for QwenCode {
-    fn ejecutar(&self, prompt: &str, sistema: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador) -> SalidaAgente {
+    fn ejecutar(
+        &self,
+        prompt: &str,
+        sistema: &str,
+        worktree: &Path,
+        topes: &Topes,
+        config: &ConfigOrquestador,
+        cancelado: &dyn Fn() -> bool,
+    ) -> SalidaAgente {
         let mut args: Vec<String> = Vec::new();
         let mut cmd = if config.sandbox {
             let home = std::env::var("HOME").unwrap_or_default();
@@ -94,9 +131,9 @@ impl AgenteLocal for QwenCode {
         }
         cmd.args(&args).current_dir(worktree);
         // tope de seguridad del proceso: algo más que el de Qwen
-        let (codigo, bruta, _) = correr(cmd, topes.tiempo_s + 120);
-        let resumen = texto_final(&bruta);
-        SalidaAgente { codigo, bruta, resumen }
+        let c = correr_cancelable(cmd, topes.tiempo_s + 120, cancelado);
+        let resumen = texto_final(&c.salida);
+        SalidaAgente { codigo: c.codigo, bruta: c.salida, resumen, cancelado: c.cancelado }
     }
 }
 
@@ -144,6 +181,24 @@ fn texto_final(bruta: &str) -> String {
 /// si no arrancó o murió por señal (incluido el 124 del timeout, que se
 /// convierte en `None`).
 fn correr(cmd: Command, tope_s: u64) -> (Option<i32>, String, String) {
+    let c = correr_cancelable(cmd, tope_s, &|| false);
+    (c.codigo, c.salida, c.errores)
+}
+
+/// Resultado de [`correr_cancelable`].
+struct Corrida {
+    codigo: Option<i32>,
+    salida: String,
+    errores: String,
+    cancelado: bool,
+}
+
+/// Como [`correr`], pero el proceso (`timeout` y todo lo que cuelga de él,
+/// bwrap incluido) va en su propio grupo, y cada `SONDEO_CANCELACION` se
+/// pregunta a `cancelado`: si dice que sí, se manda `SIGTERM` al grupo
+/// entero y, si el líder no ha salido tras `MARGEN_TERM`, `SIGKILL`. El
+/// `SIGKILL` final va siempre, para no dejar nietos sueltos.
+fn correr_cancelable(cmd: Command, tope_s: u64, cancelado: &dyn Fn() -> bool) -> Corrida {
     let prog = cmd.get_program().to_os_string();
     let args: Vec<_> = cmd.get_args().map(|a| a.to_os_string()).collect();
     let dir = cmd.get_current_dir().map(|d| d.to_path_buf());
@@ -152,13 +207,73 @@ fn correr(cmd: Command, tope_s: u64) -> (Option<i32>, String, String) {
     if let Some(d) = dir {
         c.current_dir(d);
     }
-    match c.stdin(Stdio::null()).output() {
-        Ok(o) => {
-            let codigo = o.status.code().filter(|c| *c != 124 && *c != 137);
-            (codigo, String::from_utf8_lossy(&o.stdout).into(), String::from_utf8_lossy(&o.stderr).into())
+    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0);
+    let mut hijo = match c.spawn() {
+        Ok(h) => h,
+        Err(e) => return Corrida { codigo: None, salida: String::new(), errores: e.to_string(), cancelado: false },
+    };
+    let rx_salida = leer_en_hilo(hijo.stdout.take());
+    let rx_errores = leer_en_hilo(hijo.stderr.take());
+    let mut ultimo_sondeo = Instant::now();
+    let mut cancelada = false;
+    let estado = loop {
+        match hijo.try_wait() {
+            Ok(Some(st)) => break Some(st),
+            Ok(None) => {}
+            Err(_) => break None,
         }
-        Err(e) => (None, String::new(), e.to_string()),
+        if ultimo_sondeo.elapsed() >= SONDEO_CANCELACION {
+            ultimo_sondeo = Instant::now();
+            if cancelado() {
+                cancelada = true;
+                break matar_grupo(&mut hijo);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let salida = rx_salida.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
+    let errores = rx_errores.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
+    let codigo = if cancelada { None } else { estado.and_then(|s| s.code()).filter(|c| *c != 124 && *c != 137) };
+    Corrida { codigo, salida, errores, cancelado: cancelada }
+}
+
+/// Lee todo un flujo del hijo en un hilo; el texto llega por el canal.
+fn leer_en_hilo<R: Read + Send + 'static>(flujo: Option<R>) -> mpsc::Receiver<String> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut b = Vec::new();
+        if let Some(mut f) = flujo {
+            let _ = f.read_to_end(&mut b);
+        }
+        let _ = tx.send(String::from_utf8_lossy(&b).into_owned());
+    });
+    rx
+}
+
+/// `SIGTERM` al grupo del hijo (su pgid es su pid: `process_group(0)`),
+/// espera hasta `MARGEN_TERM` a que salga el líder y luego `SIGKILL` al
+/// grupo, por si queda alguien. Devuelve el estado de salida del líder.
+fn matar_grupo(hijo: &mut Child) -> Option<std::process::ExitStatus> {
+    let grupo = -(hijo.id() as libc::pid_t);
+    // SAFETY: `kill` solo recibe enteros; con un pid negativo señala al
+    // grupo que creó `process_group(0)` para este hijo, que aún no se ha
+    // recogido (su pid, y por tanto el grupo, no se ha podido reutilizar).
+    unsafe { libc::kill(grupo, libc::SIGTERM) };
+    let limite = Instant::now() + MARGEN_TERM;
+    let mut estado = None;
+    while Instant::now() < limite {
+        if let Ok(Some(st)) = hijo.try_wait() {
+            estado = Some(st);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
+    // SAFETY: solo enteros. Si el líder ya se recogió y no queda nadie en el
+    // grupo, `kill` falla con ESRCH; mientras quede algún miembro, el kernel
+    // no reutiliza ese id. Reutilizarlo en estos milisegundos exigiría dar la
+    // vuelta entera al espacio de pids.
+    unsafe { libc::kill(grupo, libc::SIGKILL) };
+    estado.or_else(|| hijo.wait().ok())
 }
 
 /// Últimos `MAX_EVIDENCIA` bytes (en límite de carácter): la cola de la salida
@@ -329,10 +444,23 @@ fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn A
     let inicio = Instant::now();
 
     // El candado se mantiene durante todo el bucle de iteraciones y fases.
-    let informe = trabajar(bus, config, agente, &id, &orden, fase_actual, wt, inicio);
-    entregar(bus, config, &id, &orden, informe);
+    match trabajar(bus, config, agente, &id, &orden, fase_actual, wt, inicio) {
+        Ok(informe) => entregar(bus, config, &id, &orden, informe),
+        Err(c) => cancelado_en_curso(bus, &id, c.fase),
+    }
     drop(candado);
     Some(id)
+}
+
+/// El trabajo se canceló mientras corría y el ejecutor dejó de trabajar en
+/// él (`fase`: la de la obra en que se cortó). Lo deja en el historial y en
+/// el diario; el estado ya es `cancelado` y el worktree queda como esté.
+fn cancelado_en_curso(bus: &Bus, id: &str, fase: Option<u32>) {
+    let iteracion = bus.leer_estado(id).map(|e| e.iteracion).unwrap_or(0);
+    tracing::info!(%id, iteracion, ?fase, "trabajo cancelado en curso; se suelta el worktree");
+    if let Err(e) = bus.anotar_cancelacion_en_curso(id, iteracion, fase) {
+        tracing::warn!(%id, error = %e, "no se pudo anotar la cancelación en curso");
+    }
 }
 
 /// Entrega el informe según el modo. Rutina: éxito = se cierra sola; fallo =
@@ -342,7 +470,13 @@ fn entregar(bus: &Bus, config: &ConfigOrquestador, id: &str, orden: &Orden, info
     let motivo = informe.motivo.clone();
     let paquete = (orden.modo == Modo::Rutina && !pasa).then(|| paquete_correccion(bus, id, orden, &informe));
     if let Err(e) = bus.aplicar(id, Evento::Entregar(informe)) {
-        tracing::error!(%id, error = %e, "no se pudo entregar el informe");
+        // Cancelado después de la última comprobación (p. ej. mientras corría
+        // el criterio): no es un fallo, el trabajo se queda cancelado.
+        if bus.esta_cancelado(id) {
+            cancelado_en_curso(bus, id, None);
+        } else {
+            tracing::error!(%id, error = %e, "no se pudo entregar el informe");
+        }
         return;
     }
     if orden.modo != Modo::Rutina {
@@ -354,12 +488,16 @@ fn entregar(bus: &Bus, config: &ConfigOrquestador, id: &str, orden: &Orden, info
         if let Err(e) = std::fs::write(bus.raiz().join("trabajos").join(id).join("paquete-correccion.md"), texto) {
             tracing::error!(%id, error = %e, "no se pudo escribir el paquete de corrección");
         }
-        if let Err(e) = bus.aplicar(id, Evento::PonerEnEspera) {
+        if let Err(e) = bus.aplicar(id, Evento::PonerEnEspera)
+            && !bus.esta_cancelado(id)
+        {
             tracing::error!(%id, error = %e, "no se pudo poner en espera");
         }
         avisar(config, &format!("rutina {slug} falló"), "paquete en espera", id);
     } else {
-        if let Err(e) = bus.aplicar(id, Evento::Cerrar) {
+        if let Err(e) = bus.aplicar(id, Evento::Cerrar)
+            && !bus.esta_cancelado(id)
+        {
             tracing::error!(%id, error = %e, "no se pudo cerrar la rutina");
         }
         avisar(config, &format!("rutina {slug}"), "terminada", id);
@@ -387,6 +525,13 @@ fn paquete_correccion(bus: &Bus, id: &str, orden: &Orden, inf: &Informe) -> Stri
     )
 }
 
+/// El trabajo se canceló mientras se ejecutaba: no hay informe que entregar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Cancelado {
+    /// En una obra, la fase en que se cortó.
+    fase: Option<u32>,
+}
+
 /// Resultado de un bucle de iteraciones.
 struct Bucle {
     pasa: bool,
@@ -409,6 +554,8 @@ fn correr_criterio(wt: &Path, criterio: &str) -> (bool, String) {
 /// agoten las iteraciones. El criterio lo ejecuta el SISTEMA, no el agente, y
 /// su ausencia nunca cuenta como éxito. Las `skills` se vuelven a validar
 /// contra la configuración del momento: si ya no valen, no se llama a Qwen.
+/// `None` si el trabajo se canceló: antes de cada iteración se relee el
+/// estado, y tras una cancelación no se corre el criterio.
 #[allow(clippy::too_many_arguments)]
 fn bucle(
     bus: &Bus,
@@ -421,14 +568,14 @@ fn bucle(
     cuerpo: &str,
     criterio: &str,
     skills: &[String],
-) -> Bucle {
+) -> Option<Bucle> {
     if criterio.trim().is_empty() {
-        return Bucle { pasa: false, evidencia: "la orden no trae criterio de éxito".into(), motivo: Some("sin criterio de éxito".into()) };
+        return Some(Bucle { pasa: false, evidencia: "la orden no trae criterio de éxito".into(), motivo: Some("sin criterio de éxito".into()) });
     }
     let dir = bus.raiz().join("trabajos").join(id);
     let sistema = match config.skills.resolver(&orden.creada_por, skills) {
         Ok(s) => ea_bus::bloque_prompt(&s),
-        Err(e) => return Bucle { pasa: false, evidencia: e.to_string(), motivo: Some(e.to_string()) },
+        Err(e) => return Some(Bucle { pasa: false, evidencia: e.to_string(), motivo: Some(e.to_string()) }),
     };
     if !sistema.is_empty() {
         let _ = std::fs::write(dir.join("skills-qwen.md"), &sistema);
@@ -436,8 +583,13 @@ fn bucle(
     let base = construir_prompt(orden, titulo, cuerpo, criterio);
     let max = orden.topes.iteraciones.max(1);
     let mut previa: Option<String> = None;
+    let cancelado = || bus.esta_cancelado(id);
     for it in 1..=max {
-        let _ = bus.anotar_iteracion(id);
+        // Solo se anota (y se llama al agente) si sigue `ejecutando`; la
+        // comprobación y la escritura van bajo el bloqueo del trabajo.
+        if let Ok(None) = bus.anotar_iteracion(id) {
+            return None;
+        }
         let prompt = match &previa {
             None => base.clone(),
             Some(ev) => format!(
@@ -445,24 +597,27 @@ fn bucle(
                 it - 1
             ),
         };
-        let salida = agente.ejecutar(&prompt, &sistema, wt, &orden.topes, config);
+        let salida = agente.ejecutar(&prompt, &sistema, wt, &orden.topes, config, &cancelado);
         let _ = std::fs::write(dir.join("salida-qwen.json"), &salida.bruta);
+        if salida.cancelado || cancelado() {
+            return None;
+        }
         let (pasa, ev) = correr_criterio(wt, criterio);
         let mut evidencia = ev.clone();
         if !salida.resumen.is_empty() {
             evidencia = recortar_resumen(&format!("{ev}\n--- resumen del agente ---\n{}", salida.resumen.trim()));
         }
         if pasa {
-            return Bucle { pasa: true, evidencia, motivo: None };
+            return Some(Bucle { pasa: true, evidencia, motivo: None });
         }
         if salida.codigo == Some(SALIDA_TOPES) {
-            return Bucle { pasa: false, evidencia, motivo: Some("topes agotados (55)".into()) };
+            return Some(Bucle { pasa: false, evidencia, motivo: Some("topes agotados (55)".into()) });
         }
         if it == max {
             if salida.codigo != Some(0) {
                 evidencia.push_str(&format!("\n(qwen salió con código {:?})", salida.codigo));
             }
-            return Bucle { pasa: false, evidencia, motivo: Some("iteraciones agotadas".into()) };
+            return Some(Bucle { pasa: false, evidencia, motivo: Some("iteraciones agotadas".into()) });
         }
         previa = Some(ev);
     }
@@ -479,10 +634,10 @@ fn trabajar(
     fase_actual: Option<u32>,
     wt: &Path,
     inicio: Instant,
-) -> Informe {
+) -> Result<Informe, Cancelado> {
     let fin = |mut i: Informe| {
         i.duracion_s = inicio.elapsed().as_secs();
-        i
+        Ok(i)
     };
     if !wt.is_dir() {
         return fin(bloqueado("el worktree no existe", orden.worktree.clone()));
@@ -491,11 +646,12 @@ fn trabajar(
         return fin(bloqueado("el worktree no es un repo git", String::new()));
     };
     if orden.modo == Modo::Obra && !orden.fases.is_empty() {
-        return fin(trabajar_obra(bus, config, agente, id, orden, fase_actual, wt, commit_inicio));
+        return fin(trabajar_obra(bus, config, agente, id, orden, fase_actual, wt, commit_inicio)?);
     }
 
     let criterio = orden.criterio_exito.clone().unwrap_or_default();
-    let r = bucle(bus, config, agente, id, orden, wt, &orden.titulo, &orden.objetivo, &criterio, &orden.skills);
+    let r = bucle(bus, config, agente, id, orden, wt, &orden.titulo, &orden.objetivo, &criterio, &orden.skills)
+        .ok_or(Cancelado { fase: None })?;
 
     let mut diff = git(wt, &["diff", "--stat", &commit_inicio]).unwrap_or_default();
     let nuevos: Vec<String> = git(wt, &["ls-files", "--others", "--exclude-standard"])
@@ -522,7 +678,8 @@ fn leer_texto(p: &Path) -> Option<String> {
 }
 
 /// Obra por fases desde `fase_actual`, con parada de revisión cada
-/// `revisar_cada` fases hechas (o al terminar todas).
+/// `revisar_cada` fases hechas (o al terminar todas). Antes de cada fase se
+/// relee el estado: si se ha cancelado, se corta sin informe.
 #[allow(clippy::too_many_arguments)]
 fn trabajar_obra(
     bus: &Bus,
@@ -533,7 +690,7 @@ fn trabajar_obra(
     fase_actual: Option<u32>,
     wt: &Path,
     commit_inicio: String,
-) -> Informe {
+) -> Result<Informe, Cancelado> {
     let dir = bus.raiz().join("trabajos").join(id);
     let mut fases = orden.fases.clone();
     fases.sort_by_key(|f| f.numero);
@@ -544,7 +701,7 @@ fn trabajar_obra(
     let f_ultimo = dir.join("arbol-ultimo.txt");
     let f_revision = dir.join("arbol-revision.txt");
     let Some(mut previo) = leer_texto(&f_ultimo).or_else(|| instantanea(wt, &dir)) else {
-        return bloqueado("no se pudo guardar la instantánea del árbol", String::new());
+        return Ok(bloqueado("no se pudo guardar la instantánea del árbol", String::new()));
     };
     if !f_ultimo.exists() {
         let _ = std::fs::write(&f_ultimo, &previo);
@@ -566,13 +723,17 @@ fn trabajar_obra(
     let mut idx = inicio_idx;
     while idx < total {
         let f = &fases[idx];
+        if bus.esta_cancelado(id) {
+            return Err(Cancelado { fase: Some(f.numero) });
+        }
         let titulo = format!("{} · fase {} de {}: {}", orden.titulo, idx + 1, total, f.titulo);
         let cuerpo = format!(
             "## Objetivo general (contexto)\n{}\n\n## Esta fase: {}\n{}\n\nEntregable: {}",
             orden.objetivo, f.titulo, f.instrucciones, f.entregable
         );
         let skills = if f.skills.is_empty() { &orden.skills } else { &f.skills };
-        let r = bucle(bus, config, agente, id, orden, wt, &titulo, &cuerpo, &f.criterio, skills);
+        let r = bucle(bus, config, agente, id, orden, wt, &titulo, &cuerpo, &f.criterio, skills)
+            .ok_or(Cancelado { fase: Some(f.numero) })?;
         evidencia = r.evidencia.clone();
         if !r.pasa {
             let stat = instantanea(wt, &dir).map(|t| diff_entre(wt, &previo, &t, true)).unwrap_or_default();
@@ -619,7 +780,7 @@ fn trabajar_obra(
     if let Some((_, ev)) = fallo {
         evidencia = ev;
     }
-    Informe {
+    Ok(Informe {
         evidencia,
         commit_inicio: Some(commit_inicio),
         diff_stat: Some(stat),
@@ -629,7 +790,7 @@ fn trabajar_obra(
         fases: informadas,
         diff: Some(parche),
         ..Informe::nuevo(resultado)
-    }
+    })
 }
 
 const MAX_DIFF: usize = 100_000;
@@ -666,12 +827,12 @@ mod tests {
         topes: Mutex<Vec<Topes>>,
     }
     impl AgenteLocal for Doble {
-        fn ejecutar(&self, prompt: &str, sistema: &str, wt: &Path, topes: &Topes, _: &ConfigOrquestador) -> SalidaAgente {
+        fn ejecutar(&self, prompt: &str, sistema: &str, wt: &Path, topes: &Topes, _: &ConfigOrquestador, _: &dyn Fn() -> bool) -> SalidaAgente {
             self.visto.lock().unwrap().push(prompt.to_string());
             self.topes.lock().unwrap().push(*topes);
             self.sistemas.lock().unwrap().push(sistema.to_string());
             let _ = Command::new("sh").arg("-c").arg(self.script).current_dir(wt).status();
-            SalidaAgente { codigo: Some(self.codigo), bruta: "[]".into(), resumen: "hecho".into() }
+            SalidaAgente { codigo: Some(self.codigo), bruta: "[]".into(), resumen: "hecho".into(), cancelado: false }
         }
     }
     fn argumentos(c: &Command) -> Vec<String> {
@@ -1116,5 +1277,165 @@ mod tests {
         assert_eq!((c.len(), c[0].trabajo.as_str(), c[0].motivo.as_str()), (1, id.as_str(), "corrección de rutina"));
         let p = std::fs::read_to_string(e.path().join("estado/trabajos").join(&id).join("paquete-correccion.md")).unwrap();
         assert!(p.contains("revisa la ruta"));
+    }
+
+    // --- cancelación en curso ----------------------------------------------
+
+    /// Doble que cuenta sus llamadas y, en la primera, cancela el trabajo
+    /// desde fuera (con otro `Bus`, como la web o la CLI) antes de volver.
+    struct Cancelador {
+        raiz: std::path::PathBuf,
+        llamadas: std::sync::atomic::AtomicUsize,
+    }
+    impl AgenteLocal for Cancelador {
+        fn ejecutar(&self, _: &str, _: &str, _: &Path, _: &Topes, _: &ConfigOrquestador, _: &dyn Fn() -> bool) -> SalidaAgente {
+            if self.llamadas.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                let bus = Bus::abrir_en(&self.raiz).unwrap();
+                let id = bus.listar_trabajos().unwrap().pop().unwrap();
+                bus.aplicar(&id, Evento::Cancelar).unwrap();
+            }
+            SalidaAgente { codigo: Some(0), bruta: "[]".into(), resumen: "hecho".into(), cancelado: false }
+        }
+    }
+
+    fn cancelador(bus: &Bus) -> Cancelador {
+        Cancelador { raiz: bus.raiz().to_path_buf(), llamadas: Default::default() }
+    }
+
+    /// Detalles (JSON) de los `bus_cancelado_en_curso` del diario.
+    fn cancelaciones_en_curso(e: &Path) -> Vec<serde_json::Value> {
+        ea_store::Store::open_at(&e.join("ea.db"))
+            .unwrap()
+            .list_events(&Default::default())
+            .unwrap()
+            .into_iter()
+            .filter(|ev| ev.action == "bus_cancelado_en_curso")
+            .filter_map(|ev| serde_json::from_str(ev.detail.as_deref()?).ok())
+            .collect()
+    }
+
+    /// Lo que debe quedar tras cortar un trabajo cancelado: cancelado, sin
+    /// informe, en ninguna cola y con el worktree libre.
+    fn queda_cancelado_y_suelto(bus: &Bus, id: &str, wt: &Path) {
+        assert_eq!(bus.leer_estado(id).unwrap().estado, EstadoTrabajo::Cancelado);
+        assert!(bus.leer_informe(id).unwrap().is_none());
+        assert!(bus.listar_cola(Agente::ClaudeCode).unwrap().is_empty());
+        assert!(bus.listar_cola(Agente::ModeloLocal).unwrap().is_empty());
+        assert!(CandadoWorktree::ocupante_en(bus.raiz(), wt).is_none(), "el semáforo sigue cogido");
+    }
+
+    #[test]
+    fn cancelar_entre_iteraciones_no_vuelve_a_llamar_al_agente() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let mut o = orden(wt.path(), "touch criterio-corrio; false");
+        o.topes.iteraciones = 3;
+        let id = bus.crear_trabajo(o).unwrap();
+        let ag = cancelador(&bus);
+        assert_eq!(ejecutar_uno(&bus, &config(), &ag), Some(id.clone()));
+        assert_eq!(ag.llamadas.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // Tras la cancelación no se corre el criterio.
+        assert!(!wt.path().join("criterio-corrio").exists());
+        queda_cancelado_y_suelto(&bus, &id, wt.path());
+        assert_eq!(bus.leer_estado(&id).unwrap().iteracion, 1);
+        let c = cancelaciones_en_curso(e.path());
+        assert_eq!(c.len(), 1);
+        assert_eq!((c[0]["trabajo"].as_str(), c[0]["iteracion"].as_u64(), c[0]["fase"].is_null()), (Some(id.as_str()), Some(1), true));
+        let historial = std::fs::read_to_string(bus.raiz().join("trabajos").join(&id).join("historial.jsonl")).unwrap();
+        assert!(historial.lines().last().unwrap().contains("cancelado_en_curso"));
+    }
+
+    #[test]
+    fn cancelar_una_obra_no_empieza_la_fase_siguiente() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let id = bus.crear_trabajo(fases3(wt.path(), None)).unwrap();
+        let ag = cancelador(&bus);
+        ejecutar_uno(&bus, &config(), &ag);
+        assert_eq!(ag.llamadas.load(std::sync::atomic::Ordering::SeqCst), 1);
+        queda_cancelado_y_suelto(&bus, &id, wt.path());
+        assert_eq!(cancelaciones_en_curso(e.path())[0]["fase"].as_u64(), Some(1));
+        // La fase cortada no se registra como hecha ni bloqueada.
+        let fases = ea_store::Store::open_at(&e.path().join("ea.db")).unwrap().listar_fases(&id).unwrap();
+        assert!(fases.iter().all(|f| f.informe.is_none()), "{fases:?}");
+    }
+
+    /// Espera (como mucho `max`) a que exista un fichero.
+    fn esperar_fichero(p: &Path, max: Duration) -> bool {
+        let limite = Instant::now() + max;
+        while Instant::now() < limite {
+            if p.exists() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
+    /// Cancela el trabajo `id` desde otro hilo en cuanto aparezca `marca`.
+    fn cancelar_al_ver(raiz: &Path, id: &str, marca: std::path::PathBuf) -> std::thread::JoinHandle<bool> {
+        let (raiz, id) = (raiz.to_path_buf(), id.to_string());
+        std::thread::spawn(move || {
+            if !esperar_fichero(&marca, Duration::from_secs(20)) {
+                return false;
+            }
+            Bus::abrir_en(&raiz).unwrap().aplicar(&id, Evento::Cancelar).is_ok()
+        })
+    }
+
+    #[test]
+    fn cancelar_durante_el_criterio_no_da_error_al_entregar() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let mut o = orden(wt.path(), "touch marca; sleep 1; true");
+        o.topes.iteraciones = 1;
+        let id = bus.crear_trabajo(o).unwrap();
+        let hilo = cancelar_al_ver(bus.raiz(), &id, wt.path().join("marca"));
+        ejecutar_uno(&bus, &config(), &doble("true", 0));
+        assert!(hilo.join().unwrap(), "no se pudo cancelar");
+        // La entrega llega tarde: el trabajo se queda cancelado, sin informe.
+        queda_cancelado_y_suelto(&bus, &id, wt.path());
+        assert_eq!(cancelaciones_en_curso(e.path()).len(), 1);
+    }
+
+    #[test]
+    fn cancelar_durante_la_ejecucion_mata_al_agente() {
+        use std::os::unix::fs::PermissionsExt;
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        // Un «qwen» que deja un nieto (`sleep` largo) en su mismo grupo y lo
+        // espera: si solo muriera el hijo, el nieto seguiría vivo.
+        let bin = tempfile::tempdir().unwrap();
+        let qwen = bin.path().join("qwen-falso");
+        std::fs::write(&qwen, "#!/bin/sh\nsleep 600 &\necho $! > pid-nieto\nwait\n").unwrap();
+        std::fs::set_permissions(&qwen, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let cfg = ConfigOrquestador { sandbox: false, qwen_bin: qwen.to_string_lossy().into(), ..config() };
+        let mut o = orden(wt.path(), "touch criterio-corrio; false");
+        o.topes.iteraciones = 3;
+        let id = bus.crear_trabajo(o).unwrap();
+        let hilo = cancelar_al_ver(bus.raiz(), &id, wt.path().join("pid-nieto"));
+        let t = Instant::now();
+        ejecutar_uno(&bus, &cfg, &QwenCode);
+        assert!(hilo.join().unwrap(), "no se pudo cancelar");
+        // Sondeo (2 s) + margen del TERM (5 s), con holgura.
+        assert!(t.elapsed() < Duration::from_secs(15), "tardó {:?}", t.elapsed());
+        let nieto: u32 = std::fs::read_to_string(wt.path().join("pid-nieto")).unwrap().trim().parse().unwrap();
+        let vivo = |pid: u32| {
+            std::fs::read_to_string(format!("/proc/{pid}/stat"))
+                .is_ok_and(|s| s.rsplit(')').next().is_some_and(|r| !r.trim_start().starts_with('Z')))
+        };
+        let limite = Instant::now() + Duration::from_secs(3);
+        while vivo(nieto) && Instant::now() < limite {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!vivo(nieto), "el nieto {nieto} sigue vivo");
+        assert!(!wt.path().join("criterio-corrio").exists());
+        queda_cancelado_y_suelto(&bus, &id, wt.path());
+        assert_eq!(bus.leer_estado(&id).unwrap().iteracion, 1);
+        assert_eq!(cancelaciones_en_curso(e.path()).len(), 1);
     }
 }
