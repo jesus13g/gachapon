@@ -425,6 +425,9 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .paq h3 { display: flex; align-items: center; gap: 8px; font: inherit; color: var(--fg-hi); }
 .paq p { margin: 4px 0; }
 .paq .acc { margin-top: 8px; }
+.det textarea.toml-ed { display: block; width: 100%; max-width: 760px; margin-top: 6px; padding: 8px 10px; border: 0; border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit; font-size: 12.5px; white-space: pre; overflow-x: auto; resize: vertical; tab-size: 4; }
+.det.rnueva { margin: 6px 0 10px; padding-top: 6px; background: var(--bg0); border-radius: 6px; }
+.det textarea[data-campo] { width: 100%; max-width: 760px; min-height: 8em; background: var(--bg); color: var(--fg); border: 0; border-radius: 4px; padding: 6px 8px; font: inherit; font-size: 12.5px; white-space: pre; resize: vertical; }
 .acc textarea { flex: 1; min-width: 220px; max-width: 520px; background: var(--bg); color: var(--fg); border: 0; border-radius: 4px; padding: 6px 8px; font: inherit; resize: vertical; }
 .det pre.diff { max-height: 420px; overflow: auto; background: var(--bg0); padding: 8px 10px; border-radius: 4px; font-size: 12px; white-space: pre; }
 @media (max-width: 1100px) and (min-width: 761px) { .tablero.t5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

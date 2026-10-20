@@ -24,7 +24,7 @@ use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
     BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
-    EncolarRutinaArgs, PromoverNotaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
+    EncolarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
 };
 
 /// Deriva el actor que este servidor escribe en el diario, a partir del nombre que el cliente MCP declaró al conectar
@@ -636,6 +636,28 @@ impl EaTools {
     }
 
     #[tool(
+        description = "[Riesgo: mutación reversible] Registra una rutina nueva o una versión \
+            nueva de una registrada (p. ej. la corrección tras un paquete de corrección), con \
+            su definición TOML completa: la versión debe ser mayor que la registrada. No lanza \
+            la rutina. NO lo registra: con simular=true lo describe, con el diff frente a la \
+            versión registrada y el criterio resultante; sin él encola una propuesta que el \
+            usuario debe aceptar (terminal o panel web).",
+        annotations(
+            title = "Registrar rutina",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_registrar_rutina(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<RegistrarRutinaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_registrar_rutina", json!({ "toml": args.toml }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
         description = "[Riesgo: mutación reversible] Reinicia un servicio del ecosistema \
             (lista cerrada: llama-server, ea-mcp, ea-orchestrator, ea-web). \
             NO lo ejecuta: con simular=true lo describe; sin él encola una propuesta \
@@ -687,7 +709,7 @@ impl ServerHandler for EaTools {
                  bus (solo lectura: crear o decidir trabajo se hace con la CLI y las \
                  skills); ea_listar_diario consulta el historial de eventos. Las \
                  herramientas que cambian el sistema (ea_encolar_rutina, \
-                 ea_reiniciar_servicio, ea_eliminar_rutina, ea_promover_nota) nunca se \
+                 ea_registrar_rutina, ea_reiniciar_servicio, ea_eliminar_rutina, ea_promover_nota) nunca se \
                  ejecutan desde aquí: con simular=true describen lo que harían; sin él \
                  encolan una propuesta que solo el usuario puede aceptar. Las \
                  irreversibles solo se confirman desde una terminal. La bóveda de \

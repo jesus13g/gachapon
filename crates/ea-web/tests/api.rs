@@ -1367,3 +1367,129 @@ async fn la_web_no_afloja_ni_toca_lo_de_terminal() {
     assert_eq!(clave_de(&v, "agente.techo_topes.turnos")["valor"], 20);
     assert_eq!(clave_de(&v, "agente.sandbox")["valor"], true);
 }
+
+// ------------------------------------------- registrar rutinas desde la web
+
+/// Lo que hay registrado y en `rutinas_dir` de una rutina: (versión, creada_por, fichero).
+async fn registro(f: &Fixture, slug: &str) -> (Option<(i64, String)>, Option<String>) {
+    let fila = f.state.store.lock().await.ultima_rutina(slug).unwrap().map(|r| (r.version, r.creada_por));
+    let fichero = std::fs::read_to_string(f.state.config.rutinas_dir.join(format!("{slug}.toml"))).ok();
+    (fila, fichero)
+}
+
+async fn registros_en_el_diario(f: &Fixture) -> Vec<ea_store::Event> {
+    let todos = f.state.store.lock().await.list_events(&ea_store::EventFilter { limit: Some(500), ..Default::default() }).unwrap();
+    todos.into_iter().filter(|e| e.action == "rutina_registrada").collect()
+}
+
+#[tokio::test]
+async fn registrar_desde_la_web_exige_version_mayor_y_toml_valido() {
+    let f = montar();
+    let antes = registro(&f, "revision-diaria").await;
+    for (toml, motivo) in [
+        (RUTINA_BUS.to_string(), "la nueva debe ser mayor"),
+        (RUTINA_BUS.replace("version = 1", "version = 0"), "la versión empieza en 1"),
+        (RUTINA_BUS.replace("version = 1", "version = 2").replace("\"/tmp\"", "\"tmp\""), "worktree debe ser una ruta absoluta"),
+        (RUTINA_BUS.replace("version = 1", "version = 2").replace("test -f {salida}", " "), "falta criterio_exito"),
+        ("[rutina]\nslug = ".into(), "rutina inválida"),
+        (format!("{}#{}", RUTINA_BUS.replace("version = 1", "version = 2"), "x".repeat(ea_bus::MAX_DEFINICION)), "demasiado larga"),
+    ] {
+        let (s, v) = post(&f, "/api/rutinas/registrar", json!({ "toml": toml })).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{motivo}: {v}");
+        assert!(v["error"].as_str().unwrap().contains(motivo), "{motivo}: {v}");
+    }
+    // Cuerpos que no son {toml}: 400 también, sin escribir.
+    for cuerpo in [json!({}), json!({ "toml": RUTINA_BUS, "creada_por": "otro" }), json!({ "toml": 3 })] {
+        let (s, v) = post(&f, "/api/rutinas/registrar", cuerpo).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{v}");
+    }
+    assert_eq!(registro(&f, "revision-diaria").await, antes, "nada escrito");
+    assert!(registros_en_el_diario(&f).await.is_empty());
+
+    // La versión 2 sí: como `ea rutina registrar` (SQLite + rutinas_dir), con el usuario de actor.
+    let v2 = RUTINA_BUS.replace("version = 1", "version = 2").replace("test -f {salida}", "test -s {salida}");
+    let (s, v) = post(&f, "/api/rutinas/registrar", json!({ "toml": v2 })).await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    assert_eq!(v, json!({ "rutina": "revision-diaria", "version": 2, "anterior": 1 }));
+    assert_eq!(registro(&f, "revision-diaria").await, (Some((2, "usuario".into())), Some(v2.clone())));
+    let (_, d) = get(&f, "/api/rutinas/revision-diaria").await;
+    assert_eq!(d["version"], 2);
+    let ev = registros_en_el_diario(&f).await;
+    assert_eq!(ev.len(), 1);
+    assert_eq!(ev[0].actor, "usuario");
+    let det: Value = serde_json::from_str(ev[0].detail.as_deref().unwrap()).unwrap();
+    assert_eq!((det["canal"].as_str(), det["version"].as_i64(), det["anterior"].as_i64()), (Some("web"), Some(2), Some(1)));
+    // Registrar no lanza nada.
+    let (_, t) = get(&f, "/api/trabajos").await;
+    assert_eq!(t.as_array().map(Vec::len), Some(0), "{t}");
+}
+
+#[tokio::test]
+async fn validar_no_registra_nada() {
+    let f = montar();
+    let antes = registro(&f, "revision-diaria").await;
+    let v2 = RUTINA_BUS.replace("version = 1", "version = 2").replace("test -f {salida}", "test -s {salida}");
+    let (s, v) = post(&f, "/api/rutinas/validar", json!({ "toml": v2 })).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!((v["rutina"].as_str(), v["version"].as_u64()), (Some("revision-diaria"), Some(2)));
+    assert_eq!(v["anterior"]["version"], 1);
+    assert_eq!(v["anterior"]["definicion"], RUTINA_BUS);
+    // La vista previa de R1 con las entradas por defecto.
+    assert_eq!(v["previa"]["criterio"], "test -s informe.md");
+    assert!(v["previa"]["objetivo"].as_str().unwrap().contains("revisa y escribe informe.md"));
+    // Los mismos errores que registrar.
+    let (s, v) = post(&f, "/api/rutinas/validar", json!({ "toml": RUTINA_BUS })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(v["error"].as_str().unwrap().contains("la nueva debe ser mayor"), "{v}");
+    // Una nueva: sin anterior.
+    let nueva = RUTINA_BUS.replace("revision-diaria", "otra");
+    let (s, v) = post(&f, "/api/rutinas/validar", json!({ "toml": nueva })).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["anterior"].is_null());
+
+    assert_eq!(registro(&f, "revision-diaria").await, antes);
+    assert_eq!(registro(&f, "otra").await, (None, None));
+    assert!(registros_en_el_diario(&f).await.is_empty());
+    let (_, t) = get(&f, "/api/trabajos").await;
+    assert_eq!(t.as_array().map(Vec::len), Some(0), "{t}");
+}
+
+#[tokio::test]
+async fn crear_una_rutina_nueva_desde_la_web() {
+    let f = montar();
+    let toml = "# Una rutina nueva\n[rutina]\nslug = \"nueva\"\nversion = 1\ndescripcion = \"De prueba\"\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n\n[[pasos]]\ntexto = \"nada\"\n";
+    let (s, v) = post(&f, "/api/rutinas/registrar", json!({ "toml": toml })).await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    assert_eq!(v, json!({ "rutina": "nueva", "version": 1, "anterior": null }));
+    assert_eq!(registro(&f, "nueva").await, (Some((1, "usuario".into())), Some(toml.into())));
+    let (_, l) = get(&f, "/api/rutinas").await;
+    assert!(l.as_array().unwrap().iter().any(|r| r["slug"] == "nueva" && r["descripcion"] == "De prueba"), "{l}");
+    let (s, d) = get(&f, "/api/rutinas/nueva").await;
+    assert_eq!((s, d["contenido"].as_str()), (StatusCode::OK, Some(toml)));
+    // Y se puede lanzar como cualquier otra.
+    let _g = aislar_bus(&f).await;
+    let (s, v) = post(&f, "/api/rutinas/nueva/lanzar", json!({})).await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+}
+
+#[tokio::test]
+async fn validar_y_registrar_sin_clave_dan_403() {
+    let f = montar();
+    let antes = registro(&f, "revision-diaria").await;
+    let v2 = RUTINA_BUS.replace("version = 1", "version = 2");
+    for ruta in ["/api/rutinas/validar", "/api/rutinas/registrar"] {
+        for clave in [None, Some("mala")] {
+            let (s, t) =
+                enviar_con_clave(&f, Method::POST, ruta, "localhost:8092", Some(json!({ "toml": v2 })), true, clave).await;
+            assert_eq!(s, StatusCode::FORBIDDEN, "{ruta} con {clave:?}: {t}");
+        }
+        // Con la clave pero sin JSON, tampoco.
+        let (s, _) = enviar(&f, Method::POST, ruta, "localhost:8092", Some(json!({ "toml": v2 })), false).await;
+        assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{ruta}");
+    }
+    assert_eq!(registro(&f, "revision-diaria").await, antes);
+    assert!(registros_en_el_diario(&f).await.is_empty());
+    // Las rutas fijas no tapan la ficha de una rutina que se llame así.
+    let (s, _) = get(&f, "/api/rutinas/validar").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}

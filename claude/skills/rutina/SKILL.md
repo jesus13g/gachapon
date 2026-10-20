@@ -37,7 +37,7 @@ llamadas_herramienta = 60
 iteraciones = 3
 ```
 
-3. `ea rutina registrar <slug>.toml` (valida; error si la versión no sube). Comprueba con `ea rutina ver <slug>`.
+3. `ea rutina registrar <slug>.toml` (valida; error si la versión no sube). Comprueba con `ea rutina ver <slug>`. Si el usuario prefiere decidirlo él, proponla con `ea_registrar_rutina` (ver «Corrección»), o que la pegue en «＋ rutina» del panel (↻ Rutinas).
 4. Si se pide lanzarla ya: `ea rutina lanzar <slug> [--entrada clave=valor]` → id del trabajo; su revisión se hace con `/revisar`.
 
 ## Programarla
@@ -49,6 +49,6 @@ El servicio `ea-rutina@<slug>.service` ya existe y solo ejecuta `ea rutina lanza
 Si una rutina falla, el usuario confirma el paquete y llega a la cola `claude-code` como trabajo `en_revision` con `trabajos/<id>/paquete-correccion.md` (en `~/.local/state/ecosistema-asistente/`). Entonces:
 
 1. Lee el paquete (definición, salida, error, contexto del usuario) y `ea trabajo ver <id>`.
-2. Diagnostica: ¿paso ambiguo, criterio mal puesto, entrada que cambió? Corrige el TOML.
-3. Sube `version` (+1), `ea rutina registrar` y confirma con `ea rutina ver <slug>`.
-4. `ea trabajo cerrar <id>`. Si quieres probar la nueva versión: `ea rutina lanzar <slug>`.
+2. Diagnostica: ¿paso ambiguo, criterio mal puesto, entrada que cambió? Corrige el TOML (parte de la definición registrada: `ea rutina ver <slug>`).
+3. Sube `version` (+1) y **propón** la vN+1 por MCP con `ea_registrar_rutina` y el TOML completo: primero con `simular: true` (enseña el diff frente a la versión registrada y el criterio resultante; si da error, corrígelo), luego sin simular, que encola una propuesta. No pidas la terminal ni registres tú: dile al usuario que la acepte en ◇ Propuestas del panel (o con `ea propuestas decidir <n> --aceptar`). Si prefiere hacerlo a mano, puede pegar el TOML en «✎ nueva versión» de la ficha de la rutina (↻ Rutinas).
+4. Cuando la propuesta esté aceptada (`ea rutina ver <slug>` muestra la vN+1), `ea trabajo cerrar <id>`. Si quieres probar la nueva versión: `ea_encolar_rutina` (otra propuesta) o que el usuario eche la ficha.

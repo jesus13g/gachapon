@@ -102,6 +102,45 @@ pub async fn rutina_previa(State(s): Estado, Path(slug): Path<String>, cuerpo: B
     ok(servicio::rutinas::previa(&s, &slug, &b.entradas).await)
 }
 
+/// `{"toml": "…"}`: la definición entera de una rutina.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TomlBody {
+    toml: String,
+}
+
+fn toml_de(cuerpo: &[u8]) -> Result<String, ApiError> {
+    // Holgura para el escapado JSON; el límite de verdad lo pone el bus.
+    if cuerpo.len() > 4 * ea_bus::MAX_DEFINICION {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("cuerpo demasiado largo (la definición admite como mucho {} bytes)", ea_bus::MAX_DEFINICION),
+        ));
+    }
+    serde_json::from_slice::<TomlBody>(cuerpo)
+        .map(|b| b.toml)
+        .map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, format!("cuerpo inválido: se espera {{\"toml\": \"…\"}} ({e})")))
+}
+
+pub async fn rutina_validar(State(s): Estado, cuerpo: Bytes) -> Api<RutinaValidada> {
+    ok(servicio::rutinas::validar(&s, &toml_de(&cuerpo)?).await)
+}
+
+pub async fn rutina_registrar(State(s): Estado, cuerpo: Bytes) -> Result<(StatusCode, Json<RutinaRegistrada>), ApiError> {
+    let toml = toml_de(&cuerpo)?;
+    Ok((StatusCode::CREATED, Json(servicio::rutinas::registrar(&s, &toml).await?)))
+}
+
+/// `/api/rutinas/validar` y `/registrar` son rutas fijas que tapan las de
+/// una rutina con ese slug: su GET sigue siendo la ficha de la rutina.
+pub async fn rutina_ver_validar(s: Estado) -> Api<RutinaDetalle> {
+    rutina_ver(s, Path("validar".into())).await
+}
+
+pub async fn rutina_ver_registrar(s: Estado) -> Api<RutinaDetalle> {
+    rutina_ver(s, Path("registrar".into())).await
+}
+
 // ---------------------------------------------------------------- trabajos
 
 pub async fn trabajos_listar(State(s): Estado) -> Api<Vec<TrabajoResumen>> {

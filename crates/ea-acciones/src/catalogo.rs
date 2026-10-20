@@ -98,6 +98,15 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Encola la ejecución de una rutina",
     },
+    // Registrar una versión nueva no borra nada: la anterior sigue en
+    // SQLite y se recupera registrándola otra vez con una versión mayor.
+    Herramienta {
+        nombre: "ea_registrar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Registra una rutina o una versión nueva de una (TOML)",
+    },
     Herramienta {
         nombre: "ea_reiniciar_servicio",
         riesgo: Riesgo::Reversible,

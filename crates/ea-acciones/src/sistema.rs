@@ -45,6 +45,11 @@ pub trait Sistema: Consulta {
     fn servicio_reiniciar(&self, nombre: &str) -> impl Future<Output = Result<(), String>> + Send;
     fn rutina_eliminar(&self, slug: &str) -> Result<(), String>;
 
+    /// Registra la definición `texto` (lo mismo que `ea rutina registrar`:
+    /// la versión en SQLite y la copia en `rutinas_dir`). Devuelve el slug y
+    /// la versión registrados.
+    fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String>;
+
     /// Copia una nota a la región compartida (la promoción que acepta el
     /// usuario). `huella` es la del contenido que se simuló.
     fn nota_promover(
@@ -180,6 +185,16 @@ impl Sistema for SistemaReal {
         std::fs::remove_file(&ruta).map_err(|e| format!("no se pudo borrar {}: {e}", ruta.display()))
     }
 
+    fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String> {
+        let bus = ea_bus::Bus::abrir().map_err(|e| e.to_string())?;
+        let r = bus
+            .con_store(store.duplicar().map_err(|e| e.to_string())?)
+            .con_actor(actor)
+            .registrar_rutina(texto, &self.rutinas_dir)
+            .map_err(|e| e.to_string())?;
+        Ok((r.rutina.slug, r.rutina.version))
+    }
+
     fn nota_promover(
         &self,
         store: &mut Store,
@@ -284,6 +299,24 @@ impl Sistema for SistemaSimulado {
         self.mutaciones.lock().unwrap().push(format!("eliminar_rutina:{slug}"));
         self.rutinas.lock().unwrap().remove(slug);
         Ok(())
+    }
+    /// Con la misma política que el bus (`comprobar_registro`), pero el
+    /// fichero va al mapa en memoria en vez de a `rutinas_dir`.
+    fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String> {
+        let (r, _) = ea_bus::comprobar_registro(store, texto).map_err(|e| e.to_string())?;
+        let (slug, version) = (r.rutina.slug.clone(), r.rutina.version);
+        store
+            .guardar_rutina(&ea_store::FilaRutina {
+                slug: slug.clone(),
+                version: i64::from(version),
+                definicion: texto.to_string(),
+                creada_en: "2026-01-01T00:00:00Z".into(),
+                creada_por: actor.to_string(),
+            })
+            .map_err(|e| e.to_string())?;
+        self.rutinas.lock().unwrap().insert(slug.clone(), texto.to_string());
+        self.mutaciones.lock().unwrap().push(format!("registrar_rutina:{slug}@{version}"));
+        Ok((slug, version))
     }
     fn nota_promover(
         &self,

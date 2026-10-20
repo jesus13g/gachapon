@@ -400,3 +400,24 @@ fn confirmar_encola_en_claude_code_con_el_contexto() {
     let p = std::fs::read_to_string(d.path().join("trabajos").join(&id).join("paquete-correccion.md")).unwrap();
     assert!(p.contains("ojo con el disco"));
 }
+
+#[test]
+fn comprobar_registro_no_escribe_y_aplica_la_misma_politica_que_registrar() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let (r, anterior) = ea_bus::comprobar_registro(&store, RUTINA).unwrap();
+    assert_eq!((r.rutina.slug.as_str(), r.rutina.version), ("prueba", 1));
+    assert!(anterior.is_none());
+    assert!(store.ultima_rutina("prueba").unwrap().is_none(), "comprobar no registra");
+
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap());
+    bus.registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
+    let e = ea_bus::comprobar_registro(&store, RUTINA).unwrap_err().to_string();
+    assert!(e.contains("la nueva debe ser mayor"), "{e}");
+    let (_, anterior) = ea_bus::comprobar_registro(&store, &RUTINA.replace("version = 1", "version = 2")).unwrap();
+    assert_eq!(anterior.map(|f| f.version), Some(1));
+    // Demasiado larga: ni se interpreta, y registrar la rechaza igual.
+    let largo = format!("{}\n#{}", RUTINA.replace("version = 1", "version = 3"), "x".repeat(ea_bus::MAX_DEFINICION));
+    assert!(ea_bus::comprobar_registro(&store, &largo).unwrap_err().to_string().contains("demasiado larga"));
+    assert!(bus.registrar_rutina(&largo, &d.path().join("rutinas")).is_err());
+}

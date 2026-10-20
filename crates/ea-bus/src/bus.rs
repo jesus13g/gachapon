@@ -13,7 +13,7 @@ use time::OffsetDateTime;
 use crate::config::ConfigOrquestador;
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::{escribir_json, fnv};
-use crate::rutina::Rutina;
+use crate::rutina::{Rutina, MAX_DEFINICION};
 use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
     transicion, Agente, Estado, EstadoTrabajo, Evento, Informe, Modo, Orden, ResultadoInforme,
@@ -409,19 +409,12 @@ impl Bus {
         self.store.as_ref().ok_or_else(|| ErrorBus::Argumentos("las rutinas necesitan la base de datos".into()))
     }
 
-    /// Valida y registra una rutina; la versión debe ser mayor que la última
-    /// registrada. Copia el fichero a `dir` (`<slug>.toml`).
+    /// Valida y registra una rutina con [`comprobar_registro`] (tamaño,
+    /// formato y versión mayor que la última registrada). Guarda la versión
+    /// en SQLite y copia el fichero a `dir` (`<slug>.toml`).
     pub fn registrar_rutina(&self, texto: &str, dir: &Path) -> Resultado<Rutina> {
-        let r = Rutina::parsear(texto)?;
         let s = self.store_rutinas()?;
-        if let Some(ult) = s.ultima_rutina(&r.rutina.slug)? {
-            if i64::from(r.rutina.version) <= ult.version {
-                return Err(ErrorBus::Argumentos(format!(
-                    "la rutina {} ya está en la versión {}; la nueva debe ser mayor (es la {})",
-                    r.rutina.slug, ult.version, r.rutina.version
-                )));
-            }
-        }
+        let (r, _) = comprobar_registro(s, texto)?;
         s.guardar_rutina(&FilaRutina {
             slug: r.rutina.slug.clone(),
             version: i64::from(r.rutina.version),
@@ -592,6 +585,31 @@ impl Bus {
             detail: Some(detalle.to_string()),
         });
     }
+}
+
+/// Lo que comprueba registrar una rutina, sin escribir nada: la política
+/// única de la CLI, la web y `ea_registrar_rutina`. La definición no pasa de
+/// [`MAX_DEFINICION`] bytes, es una rutina válida ([`Rutina::parsear`]) y su
+/// versión es mayor que la última registrada. Devuelve la rutina y la última
+/// versión registrada, si la hay.
+pub fn comprobar_registro(store: &Store, texto: &str) -> Resultado<(Rutina, Option<FilaRutina>)> {
+    if texto.len() > MAX_DEFINICION {
+        return Err(ErrorBus::Argumentos(format!(
+            "la definición es demasiado larga ({} bytes; como mucho {MAX_DEFINICION})",
+            texto.len()
+        )));
+    }
+    let r = Rutina::parsear(texto)?;
+    let anterior = store.ultima_rutina(&r.rutina.slug)?;
+    if let Some(ult) = &anterior {
+        if i64::from(r.rutina.version) <= ult.version {
+            return Err(ErrorBus::Argumentos(format!(
+                "la rutina {} ya está en la versión {}; la nueva debe ser mayor (es la {})",
+                r.rutina.slug, ult.version, r.rutina.version
+            )));
+        }
+    }
+    Ok((r, anterior))
 }
 
 /// El criterio de éxito es obligatorio: sin él, nadie puede decir que algo

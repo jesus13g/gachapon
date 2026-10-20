@@ -13,6 +13,7 @@
 //! con el nivel de riesgo limitando qué canal puede confirmar.
 
 pub mod catalogo;
+mod diff;
 pub mod error;
 pub mod flujo;
 pub mod herramientas;
@@ -20,6 +21,7 @@ pub mod sistema;
 
 pub use ea_boveda::Boveda;
 pub use catalogo::{autorizar_mcp, buscar, Canal, Ejecucion, Herramienta, Riesgo, CATALOGO};
+pub use diff::diff_lineas;
 pub use error::ErrorAccion;
 pub use flujo::{aceptar_propuesta, ejecutar, ejecutar_directo, proponer, rechazar_propuesta, Resultado};
 pub use herramientas::{campos, observar, simular_con, validar_argumentos, Campo, Hechos, Simulacion};

@@ -323,6 +323,15 @@ control (saltos de línea incluidos). Se sustituyen **tal cual**, también en
 shell si la rutina la pone en el criterio. Por eso solo las da el usuario (o
 una propuesta que acepta tras ver el criterio resultante en la simulación).
 
+Registrar sigue también una sola política (`ea_bus::comprobar_registro`), la
+misma para `ea rutina registrar`, el editor de la web y `ea_registrar_rutina`:
+el TOML no pasa de 64 KiB, es una rutina válida y su versión es mayor que la
+registrada. Registrar guarda la versión en SQLite y copia el TOML a
+`rutinas_dir/<slug>.toml`; no lanza nada. Tras un paquete de corrección,
+Claude Code no pide la terminal: propone la vN+1 con `ea_registrar_rutina` (la
+simulación enseña el diff y el criterio resultante) y el usuario la acepta en
+◇ Propuestas, o la pega en «✎ nueva versión» de la ficha de la rutina.
+
 ### Servidor de herramientas MCP (`ea-mcp`)
 
 ```bash
@@ -340,6 +349,7 @@ riesgo (§7.3):
 | `ea_escribir_nota` | mutación reversible | se ejecuta, solo en la región propia del agente |
 | `ea_promover_nota` | mutación reversible | solo simula o propone |
 | `ea_encolar_rutina` (crea el trabajo en el bus; `entradas` opcionales, y la simulación muestra el criterio resultante) | mutación reversible | solo simula o propone |
+| `ea_registrar_rutina` (`toml`: la definición entera; la versión debe subir; la simulación muestra el diff frente a la registrada y el criterio resultante; no lanza nada) | mutación reversible | solo simula o propone |
 | `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone |
 | `ea_eliminar_rutina` | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
@@ -605,7 +615,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
 | ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (con nota), continuar, confirmar y cancelar según el estado | `2` |
 | ≡ | Diario (♡/♥ muestra u oculta los latidos) | `3` |
-| ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha | `4` |
+| ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
@@ -636,7 +646,7 @@ API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`
 `/api/colas`, `/api/semaforos`, `/api/rutinas`; y, con `Content-Type:
 application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformular,confirmar}`
 (`reformular` lleva `{"nota": "..."}`, `confirmar` `{"contexto": "..."}`) y
-`POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); la memoria de Claude Code va por
+`POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale o la versión no sube; deja `rutina_registrada` en el diario); la memoria de Claude Code va por
 `GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
 `POST /api/memoria/<proyecto>/<fichero>` (`{"contenido": "...", "version": "..."}`;
 409 si la versión ya no es la del disco), `POST …/<fichero>/eliminar` (`{"version": "..."}`),
