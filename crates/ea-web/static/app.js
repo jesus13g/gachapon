@@ -81,6 +81,8 @@ const st = {
   consola: {},         // por herramienta: { v: valores, sim, res, err }
   rutEnt: {},          // por rutina: { v: entradas escritas, previa, err }
   rutEd: null,         // editor de TOML abierto: ver editorRutina()
+  rutVer: {},          // por rutina: { abierto, lista, err, txt: { n: TOML } }: ver versionesHtml()
+  rutVerSel: null,     // versión elegida: { slug (null: la fila del enlace), n, diff }
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
   ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
   rfBorrador: {},      // trabajo -> { nota, fase }: lo escrito para reformularlo, sin enviar
@@ -551,7 +553,8 @@ function filasRutinas(rs) {
       formEntradas(r) +
       (editando ? editorRutina()
         : `<div class="acc">${btn('red', '✎ nueva versión', 'edita el TOML y registra una versión nueva (la versión ya va subida en uno)', { slug: r.slug })}</div>` +
-          `<pre class="toml">${esc(d.contenido ?? '')}</pre>`) : '';
+          `<pre class="toml">${esc(d.contenido ?? '')}</pre>`) +
+      versionesHtml(r.slug) : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
 }
@@ -650,6 +653,70 @@ function abreEditorRutina(slug) {
   if (st.rutEd && st.rutEd.slug === slug) { st.rutEd = null; return; }
   const base = slug ? st.detalle['r' + slug]?.contenido ?? '' : '';
   st.rutEd = { slug, base, texto: slug ? subeVersion(base) : PLANTILLA_RUTINA, val: null, err: null, armado: null };
+}
+
+// ------------------------------------------- versiones de una rutina (R3)
+//
+// «▸ versiones» en la ficha lista las registradas (la más reciente primero)
+// con «ver» (su TOML) y «diff» (frente a la versión anterior de la lista, con
+// diffLineas y colorDiff, como el editor). Solo lectura. La versión elegida
+// va al hash: #rutinas/<slug>?version=N[&diff=1].
+
+// La versión elegida de `slug`, si la hay ({ n, diff }).
+function selVersion(slug) {
+  const s = st.rutVerSel;
+  if (!s) return null;
+  // La de un enlace se queda con la fila del enlace en cuanto la hay.
+  if (s.slug == null && st.enlace?.startsWith('r')) s.slug = st.enlace.slice(1);
+  return s.slug === slug ? s : null;
+}
+
+// La lista de versiones y los TOML que hacen falta para lo elegido. Los TOML
+// no cambian: se piden una vez.
+async function cargaVersiones(slug) {
+  const V = (st.rutVer[slug] ??= { abierto: false, lista: null, err: null, txt: {} });
+  const sel = selVersion(slug);
+  if (sel) V.abierto = true;
+  if (!V.abierto) return;
+  try {
+    V.lista = await ea.versionesRutina(slug);
+    V.err = null;
+    if (!sel) return;
+    const i = V.lista.findIndex(v => v.version === sel.n);
+    if (i < 0) { V.err = `la rutina '${slug}' no tiene versión ${sel.n}`; return; }
+    const hacen = [sel.n, ...(sel.diff && V.lista[i + 1] ? [V.lista[i + 1].version] : [])];
+    for (const n of hacen) V.txt[n] ??= (await ea.versionRutina(slug, n)).contenido;
+  } catch (e) {
+    if (e.status === 403) throw e;
+    V.err = e.message;
+  }
+}
+
+function versionesHtml(slug) {
+  const V = st.rutVer[slug], abierto = !!V?.abierto;
+  let h = `<p class="et">${btn('rversiones', (abierto ? '▾' : '▸') + ' versiones', 'las versiones registradas: su TOML y qué cambió frente a la anterior', { slug }, 'l')}</p>`;
+  if (!abierto) return h;
+  if (V.err) h += `<p class="hot">✕ ${esc(V.err)}</p>`;
+  if (!V.lista) return h + (V.err ? '' : '<p class="m">cargando…</p>');
+  const sel = selVersion(slug);
+  h += '<div class="evs">' + V.lista.map((v, i) => {
+    const ant = V.lista[i + 1];
+    const es = m => sel?.n === v.version && !!sel.diff === m;
+    return `<div class="ev rv"><span class="${sel?.n === v.version ? '' : 'm'}">v${v.version}</span>` +
+      `<span title="${esc(v.creada_en)}">${hora(v.creada_en)}</span><span class="m">${esc(v.creada_por)}</span><span>` +
+      btn('rver', es(false) ? '▾ ver' : 'ver', `el TOML de la versión ${v.version}`, { slug, n: v.version }, 'l') +
+      (ant ? ' ' + btn('rvdiff', es(true) ? '▾ diff' : 'diff', `qué cambió de la v${ant.version} a la v${v.version}`, { slug, n: v.version }, 'l') : '') +
+      '</span></div>';
+  }).join('') + '</div>';
+  const i = sel ? V.lista.findIndex(v => v.version === sel.n) : -1;
+  if (i < 0) return h;
+  const txt = V.txt[sel.n], ant = V.lista[i + 1];
+  if (txt === undefined) return h + '<p class="m">cargando…</p>';
+  if (!sel.diff) return h + `<p class="et">v${sel.n} · TOML</p><pre class="toml">${esc(txt)}</pre>`;
+  if (!ant) return h + '<p class="m">es la primera versión: no hay anterior con la que comparar</p>';
+  if (V.txt[ant.version] === undefined) return h + '<p class="m">cargando…</p>';
+  return h + `<p class="et">cambios de la v${ant.version} a la v${sel.n}</p>` +
+    `<pre class="diff">${colorDiff(diffLineas(V.txt[ant.version], txt) || '(sin cambios)')}</pre>`;
 }
 
 function filasPropuestas(ps) {
@@ -1866,6 +1933,7 @@ async function cargaDetalle(k) {
   }
   const carga = { j: ea.trabajo, r: ea.rutina, b: ea.nota }[k[0]];
   try { st.detalle[k] = await carga(k.slice(1)); } catch { delete st.detalle[k]; }
+  if (k[0] === 'r' && (st.rutVer[k.slice(1)]?.abierto || selVersion(k.slice(1)))) await cargaVersiones(k.slice(1)).catch(() => {});
 }
 
 async function cargaSeccion() {
@@ -1986,6 +2054,18 @@ const PARAMS = {
     latidos: bandera('latidos'),
   },
   propuestas: { todas: bandera('propTodas') },
+  // La versión elegida en la ficha enlazada (ver versionesHtml); diff=1, su
+  // diff con la anterior. Solo se escribe si es de la fila del enlace.
+  rutinas: {
+    version: {
+      lee: v => { st.rutVerSel = /^[1-9]\d{0,8}$/.test(v ?? '') ? { slug: null, n: Number(v), diff: false } : null; },
+      escribe: () => { const s = st.rutVerSel, f = st.enlace?.startsWith('r') ? st.enlace.slice(1) : null; return s && f && selVersion(f) === s ? String(s.n) : null; },
+    },
+    diff: {
+      lee: v => { if (st.rutVerSel) st.rutVerSel.diff = v === '1'; },
+      escribe: () => { const s = st.rutVerSel, f = st.enlace?.startsWith('r') ? st.enlace.slice(1) : null; return s?.diff && f && selVersion(f) === s ? '1' : null; },
+    },
+  },
 };
 const Q = { lee: v => { st.q = v ?? ''; }, escribe: () => st.q || null };
 const paramsDe = sec => ({ ...PARAMS[sec], q: Q });
@@ -2188,6 +2268,17 @@ async function accion(b) {
       }
     } else if (a === 'red' || a === 'rnueva') {
       abreEditorRutina(a === 'red' ? slug : '');
+    } else if (a === 'rversiones') {
+      const V = (st.rutVer[slug] ??= { abierto: false, lista: null, err: null, txt: {} });
+      V.abierto = !V.abierto;
+      if (!V.abierto && selVersion(slug)) { st.rutVerSel = null; escribeHash(false); }
+      if (V.abierto) await cargaVersiones(slug);
+    } else if (a === 'rver' || a === 'rvdiff') {
+      // Otra vez sobre lo mismo lo pliega. Va al hash si es la fila del enlace.
+      const diff = a === 'rvdiff', s = selVersion(slug);
+      st.rutVerSel = s && s.n === Number(n) && s.diff === diff ? null : { slug, n: Number(n), diff };
+      escribeHash(false);
+      await cargaVersiones(slug);
     } else if (a === 'rdescartar') {
       st.rutEd = null;
     } else if (a === 'rvalidar' && st.rutEd) {

@@ -2078,3 +2078,44 @@ async fn diff_de_una_fase_usa_las_instantaneas() {
     // Todo esto es lectura: el trabajo sigue donde estaba.
     assert_eq!(j["estado"]["estado"], "en_cola");
 }
+
+#[tokio::test]
+async fn las_versiones_de_una_rutina_se_listan_y_se_leen() {
+    let f = montar();
+    // v1 la deja `montar` (creada por «test»); v2 se registra desde la web.
+    let v2 = RUTINA_BUS.replace("version = 1", "version = 2").replace("revisa y", "revisa con calma y");
+    let (s, v) = post(&f, "/api/rutinas/registrar", json!({ "toml": v2 })).await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+
+    let (s, l) = get(&f, "/api/rutinas/revision-diaria/versiones").await;
+    assert_eq!(s, StatusCode::OK, "{l}");
+    let l = l.as_array().unwrap();
+    let resumen: Vec<_> =
+        l.iter().map(|v| (v["version"].as_i64().unwrap(), v["creada_por"].as_str().unwrap())).collect();
+    assert_eq!(resumen, vec![(2, "usuario"), (1, "test")]);
+    assert!(l.iter().all(|v| v.get("contenido").is_none() && v.get("definicion").is_none()), "{l:?}");
+    assert_eq!(l[1]["creada_en"], "2026-01-01T00:00:00Z");
+
+    for (n, toml) in [(1, RUTINA_BUS.to_string()), (2, v2.clone())] {
+        let (s, d) = get(&f, &format!("/api/rutinas/revision-diaria/versiones/{n}")).await;
+        assert_eq!(s, StatusCode::OK, "{d}");
+        assert_eq!((d["version"].as_i64(), d["contenido"].as_str()), (Some(n), Some(toml.as_str())));
+        assert_eq!(d["slug"], "revision-diaria");
+    }
+
+    // Lo que no existe da 404 con un mensaje claro; lo mal formado, 400.
+    let (s, e) = get(&f, "/api/rutinas/revision-diaria/versiones/3").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert!(e.to_string().contains("no tiene versión 3"), "{e}");
+    let (s, _) = get(&f, "/api/rutinas/no-existe/versiones").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = get(&f, "/api/rutinas/no-existe/versiones/1").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = get(&f, "/api/rutinas/revision-diaria/versiones/dos").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // Las rutas fijas de R5 no tapan estas ni la ficha.
+    let (s, _) = get(&f, "/api/rutinas/validar/versiones").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = get(&f, "/api/rutinas/revision-diaria").await;
+    assert_eq!(s, StatusCode::OK);
+}

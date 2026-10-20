@@ -290,3 +290,23 @@ fn el_indice_de_la_boveda_busca_sin_acentos_ni_mayusculas() {
     let todas: Vec<_> = store.boveda_todas().unwrap().into_iter().map(|r| r.ruta).collect();
     assert_eq!(todas, vec!["compartida/a/c.md".to_string(), "compartida/b.md".to_string()]);
 }
+
+#[test]
+fn las_versiones_de_una_rutina_se_listan_de_la_mas_reciente_a_la_primera() {
+    let store = open_test_store();
+    let fila = |slug: &str, version: i64, por: &str| ea_store::FilaRutina {
+        slug: slug.into(),
+        version,
+        definicion: format!("slug = \"{slug}\"\nversion = {version}\n"),
+        creada_en: format!("2026-10-{:02}T10:00:00Z", 10 + version),
+        creada_por: por.into(),
+    };
+    store.guardar_rutina(&fila("informe", 1, "usuario")).unwrap();
+    store.guardar_rutina(&fila("informe", 2, "claude-code")).unwrap();
+    store.guardar_rutina(&fila("otra", 1, "usuario")).unwrap();
+    let v = store.listar_versiones_rutina("informe").unwrap();
+    assert_eq!(v.iter().map(|f| f.version).collect::<Vec<_>>(), vec![2, 1]);
+    assert_eq!(v[0].creada_por, "claude-code");
+    assert!(v[1].definicion.contains("version = 1"));
+    assert!(store.listar_versiones_rutina("no-existe").unwrap().is_empty());
+}

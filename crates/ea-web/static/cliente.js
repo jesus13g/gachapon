@@ -103,6 +103,9 @@ const ea = (() => {
     rutina: slug => api('/api/rutinas/' + c(slug)),
     lanzarRutina: (slug, entradas = {}) => post(`/api/rutinas/${c(slug)}/lanzar`, { entradas }),
     previaRutina: (slug, entradas = {}) => post(`/api/rutinas/${c(slug)}/previa`, { entradas }),
+    // Las versiones registradas (sin definición) y una con su TOML.
+    versionesRutina: slug => api(`/api/rutinas/${c(slug)}/versiones`),
+    versionRutina: (slug, n) => api(`/api/rutinas/${c(slug)}/versiones/${c(n)}`),
     // Definir o corregir una rutina: validar no escribe nada; registrar, sí.
     validarRutina: toml => post('/api/rutinas/validar', { toml }),
     registrarRutina: toml => post('/api/rutinas/registrar', { toml }),

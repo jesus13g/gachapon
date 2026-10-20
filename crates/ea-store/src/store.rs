@@ -81,6 +81,11 @@ impl Store {
         trabajos::listar_rutinas(&self.conn)
     }
 
+    /// Todas las versiones de una rutina, la más reciente primero.
+    pub fn listar_versiones_rutina(&self, slug: &str) -> StoreResult<Vec<FilaRutina>> {
+        trabajos::listar_versiones_rutina(&self.conn, slug)
+    }
+
     pub fn append_event(&self, new_event: NewEvent) -> StoreResult<Event> {
         events::append_event(&self.conn, new_event)
     }

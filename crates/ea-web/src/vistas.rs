@@ -175,6 +175,26 @@ pub struct RutinaRegistrada {
     pub anterior: Option<i64>,
 }
 
+/// Una versión registrada de una rutina, sin su definición
+/// (`GET /api/rutinas/{slug}/versiones`).
+#[derive(Serialize)]
+pub struct RutinaVersionFila {
+    pub version: i64,
+    pub creada_en: String,
+    pub creada_por: String,
+}
+
+/// Una versión concreta con su definición
+/// (`GET /api/rutinas/{slug}/versiones/{n}`).
+#[derive(Serialize)]
+pub struct RutinaVersion {
+    pub slug: String,
+    pub version: i64,
+    pub creada_en: String,
+    pub creada_por: String,
+    pub contenido: String,
+}
+
 // ---------------------------------------------------------------- trabajos
 
 #[derive(Serialize)]

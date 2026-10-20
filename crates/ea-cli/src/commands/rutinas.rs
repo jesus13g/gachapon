@@ -50,6 +50,25 @@ pub fn listar(store: &Store) -> Result<()> {
     Ok(())
 }
 
+/// `ea rutina ver <slug> --version N`: una versión registrada concreta y la
+/// lista de todas. Solo lectura.
+pub fn ver_version(store: &Store, slug: &str, n: i64) -> Result<()> {
+    let versiones = store.listar_versiones_rutina(slug)?;
+    if versiones.is_empty() {
+        anyhow::bail!("la rutina '{slug}' no está registrada (ea rutina registrar <fichero>)");
+    }
+    let fila = store.obtener_rutina(slug, n)?.ok_or_else(|| {
+        let hay: Vec<String> = versiones.iter().map(|v| format!("v{}", v.version)).collect();
+        anyhow::anyhow!("la rutina '{slug}' no tiene versión {n} (registradas: {})", hay.join(", "))
+    })?;
+    println!("Rutina '{slug}', versión {} (registrada {} por {}):\n{}", fila.version, fila.creada_en, fila.creada_por, fila.definicion);
+    println!("Versiones registradas:");
+    for v in versiones {
+        println!("  v{:<4} {}  {}", v.version, v.creada_en, v.creada_por);
+    }
+    Ok(())
+}
+
 pub fn ver(store: &Store, slug: &str) -> Result<()> {
     let fila = store
         .ultima_rutina(slug)?

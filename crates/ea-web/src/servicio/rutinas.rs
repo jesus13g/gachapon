@@ -8,6 +8,7 @@ use serde_json::json;
 
 use super::{bus_con_store, slug_valido, ErrorWeb, Resultado};
 use crate::vistas::{RutinaAnterior, RutinaDetalle, RutinaFila, RutinaLanzada, RutinaPrevia, RutinaRegistrada, RutinaValidada};
+use crate::vistas::{RutinaVersion, RutinaVersionFila};
 use crate::AppState;
 
 pub async fn listar(s: &AppState) -> Resultado<Vec<RutinaFila>> {
@@ -43,6 +44,43 @@ pub async fn ver(s: &AppState, slug: &str) -> Resultado<RutinaDetalle> {
     slug_valido(slug)?;
     let fila = s.store.lock().await.ultima_rutina(slug)?.ok_or_else(|| no_registrada(slug))?;
     Ok(RutinaDetalle { slug: slug.into(), version: fila.version, contenido: fila.definicion })
+}
+
+/// Las versiones registradas de una rutina, la más reciente primero, sin
+/// la definición. Solo lectura.
+pub async fn versiones(s: &AppState, slug: &str) -> Resultado<Vec<RutinaVersionFila>> {
+    slug_valido(slug)?;
+    let filas = s.store.lock().await.listar_versiones_rutina(slug)?;
+    if filas.is_empty() {
+        return Err(no_registrada(slug));
+    }
+    Ok(filas
+        .into_iter()
+        .map(|f| RutinaVersionFila { version: f.version, creada_en: f.creada_en, creada_por: f.creada_por })
+        .collect())
+}
+
+/// Una versión concreta de una rutina, con su TOML. Solo lectura.
+pub async fn version(s: &AppState, slug: &str, n: &str) -> Resultado<RutinaVersion> {
+    slug_valido(slug)?;
+    let n: i64 = n
+        .parse()
+        .ok()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| ErrorWeb::Invalido(format!("versión no válida: '{n}' (un entero positivo)")))?;
+    let fila = s
+        .store
+        .lock()
+        .await
+        .obtener_rutina(slug, n)?
+        .ok_or_else(|| ErrorWeb::NoEncontrado(format!("la rutina '{slug}' no tiene versión {n}")))?;
+    Ok(RutinaVersion {
+        slug: fila.slug,
+        version: fila.version,
+        creada_en: fila.creada_en,
+        creada_por: fila.creada_por,
+        contenido: fila.definicion,
+    })
 }
 
 /// Entradas tal como llegan de la petición (`{clave: valor}`), en pares.
