@@ -348,6 +348,84 @@ function trabajoDe(e) {
   try { return JSON.parse(e.detalle)?.trabajo || null; } catch { return null; }
 }
 
+// Adónde lleva un evento del diario, además de a su trabajo: lo que traiga
+// su `detail` (también dentro de `argumentos`, `args` y `resultado`). Cada
+// destino es { sec, fila, glifo, titulo }; la fila es la clave sin prefijo
+// y el glifo va ya escapado (btn no lo escapa).
+// Las claves salen de quien emite cada familia: `propuesta` y `herramienta`
+// (ea-acciones), `ruta` (ea-boveda; al renombrar, `a`; al promover,
+// `destino`), `rutina` (rutina_registrada) o `slug` (argumentos de las
+// herramientas de rutinas), `cambios[].clave` (ajustes_cambiados),
+// `proyecto` y `fichero` (memoria_*). Un `mcp_<x>` es la herramienta `ea_<x>`.
+function destinosEvento(e) {
+  let d = {};
+  try { d = JSON.parse(e.detalle) ?? {}; } catch { /* sin detalle o no es JSON */ }
+  const obj = x => x && typeof x === 'object' && !Array.isArray(x);
+  const capas = [d, d.argumentos, d.args, d.resultado].filter(obj);
+  const de = (n, vale) => {
+    for (const c of capas) {
+      const v = c[n];
+      if ((typeof v === 'string' || typeof v === 'number') && vale.test(String(v))) return String(v);
+    }
+    return null;
+  };
+  const out = [];
+  const pon = (sec, fila, glifo, titulo) => {
+    if (fila && !out.some(o => o.sec === sec && o.fila === fila)) out.push({ sec, fila, glifo, titulo });
+  };
+  const ac = e.accion ?? '';
+  const prop = de('propuesta', /^\d+$/);
+  pon('propuestas', prop, '→ propuesta #' + prop, 'ver la propuesta en ◇ Propuestas');
+  const mcp = /^mcp_([a-z_]+?)(_simulada|_denegada)?$/.exec(ac);
+  const h = de('herramienta', /^ea_[a-z_]+$/) ?? (mcp ? 'ea_' + mcp[1] : null);
+  pon('acciones', h, '→ ' + esc(h), 'ver la herramienta en ▶ Acciones');
+  const rut = de('rutina', /^[\w.-]{1,128}$/) ?? de('slug', /^[\w.-]{1,128}$/);
+  pon('rutinas', rut, '→ rutina ' + esc(rut), 'ver la rutina en ↻ Rutinas');
+  // La ruta de una nota que sigue en su sitio: no la que se fue a la
+  // papelera, ni una carpeta, ni la ruta relativa a su región que lleva
+  // ea_escribir_nota (la de verdad viene en su boveda_escritura).
+  if (!/^(boveda_papelera|boveda_carpeta|mcp_escribir_nota)/.test(ac)) {
+    const md = /^[^/]+\/.+\.md$/;
+    const ruta = ac === 'boveda_renombrado' ? de('a', md) : ac === 'boveda_promocion' ? de('destino', md) : de('ruta', md);
+    pon('boveda', ruta, '→ nota', 'abrir la nota en ▥ Bóveda');
+  }
+  if (ac.startsWith('memoria_') && ac !== 'memoria_eliminada') {
+    const p = de('proyecto', /^[\w.-]+$/), f = ac === 'memoria_renombrada' ? de('a', /^[^/]+\.md$/) : de('fichero', /^[^/]+\.md$/);
+    if (p && f) pon('memoria', p + '/' + f, '→ memoria', 'abrir la memoria en ✎ Memoria');
+  }
+  const claves = Array.isArray(d.cambios) ? d.cambios.map(c => c?.clave) : [d.clave];
+  for (const c of claves) {
+    if (typeof c === 'string' && /^[\w.-]{1,128}$/.test(c)) pon('ajustes', c, '→ ' + esc(c), 'ver el ajuste en ⚙ Ajustes');
+  }
+  return out;
+}
+
+// Los botones de los destinos de un evento (ver destinosEvento). Los datos
+// van en data-dsec y data-dfila: data-f ya es el filtro de estado de Trabajos.
+function enlacesEvento(e) {
+  const ds = destinosEvento(e);
+  if (!ds.length) return '';
+  return '<p>' + ds.map(x => x.sec === 'propuestas'
+    ? btn('ir-prop', x.glifo, x.titulo, { id: x.fila }, 'l')
+    : btn('ir-a', x.glifo, x.titulo, { dsec: x.sec, dfila: x.fila }, 'l')).join(' ') + '</p>';
+}
+
+// Abre la fila `f` (clave sin prefijo) de la sección `sec`. En Bóveda y
+// Memoria, la fila es la nota abierta del editor; si ya no existe, el
+// editor la suelta al pintar.
+function irAFila(sec, f) {
+  if (EDITOR[sec]) {
+    if (!cierraBorrador(sec)) return;
+    const E = ed(sec), k = (sec === 'boveda' ? 'b' : 'm') + f;
+    Object.assign(E, { sel: k, menu: false, renombrando: null, creando: null, papelera: false });
+    EDITOR[sec].desplegar?.(E, k);
+    guardaEditor(sec);
+    ir(sec);
+    return;
+  }
+  if (FILA[sec]) abre(sec, FILA[sec] + f);
+}
+
 function filasDiario(evs) {
   return evs.map(e => {
     const k = 'e' + e.id;
@@ -357,7 +435,8 @@ function filasDiario(evs) {
       `<span class="n" title="${esc(e.trabajo ?? '')}">${e.trabajo ? esc(e.trabajo.slice(-8)) : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
     const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${new Date(e.ts).toLocaleString()}</p>` +
       (e.detalle ? `<pre>${esc(pretty(e.detalle))}</pre>` : '') +
-      (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '');
+      (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '') +
+      enlacesEvento(e);
     return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
   });
 }
@@ -2101,6 +2180,9 @@ async function accion(b) {
     } else if (a === 'ir-prop') {
       st.propTodas = true;
       abre('propuestas', 'p' + id);
+      return;
+    } else if (a === 'ir-a') {
+      irAFila(b.dataset.dsec, b.dataset.dfila);
       return;
     } else if (a === 'simular' || a === 'ejecutar') {
       // Los fallos se quedan junto al formulario, no en un aviso pasajero.

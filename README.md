@@ -655,6 +655,15 @@ las lanza si hay `node`). `ea-web-open '#trabajos/<id>'` abre una ventana en esa
 vista con la clave (`#trabajos/<id>&clave=…`), y los avisos de escritorio del
 ejecutor llevan una acción **abrir** que hace justo eso.
 
+Enlaces cruzados del diario: el detalle de un evento lleva, además de
+«→ trabajo», un botón por cada cosa que nombre su `detail`: «→ propuesta #n»
+(`propuesta`), la herramienta en ▶ Acciones (`herramienta`, o la `ea_<x>` de un
+`mcp_<x>`), la rutina (`rutina` o `slug`), la nota en ▥ Bóveda (`ruta`; al
+renombrar, `a`; al promover, `destino`; no la que fue a la papelera), la memoria
+(`proyecto` y `fichero`) y cada ajuste cambiado (`cambios[].clave`). A la
+inversa, «→ diario» en el historial de la ficha de un trabajo abre el diario
+filtrado por él.
+
 API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`,
 `/api/colas`, `/api/semaforos`, `/api/rutinas`, `/api/diario` (`?trabajo=`,
 `actor`, `desde`, `hasta`, `resultado=ok|error`, `accion=<prefijo>` —solo
