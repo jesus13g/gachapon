@@ -43,6 +43,10 @@ pub fn slug_valido(slug: &str) -> bool {
     !slug.is_empty() && slug.len() <= 64 && slug.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// Tamaño máximo, en bytes, del TOML de una rutina al registrarla
+/// (RF-016 de la spec 004).
+pub const MAX_DEFINICION: usize = 64 * 1024;
+
 /// Como mucho tantas entradas por ejecución (RF-013 de la spec 004).
 pub const MAX_ENTRADAS: usize = 32;
 /// Tamaño máximo, en bytes, del valor de una entrada.

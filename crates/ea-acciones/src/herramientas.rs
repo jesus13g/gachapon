@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::catalogo::{self, Canal, Ejecucion, Herramienta, Riesgo};
+use crate::diff::diff_lineas;
 use crate::error::ErrorAccion;
 use crate::sistema::{slug_valido, Consulta, EstadoServicio, Sistema, SERVICIOS_REINICIABLES};
 
@@ -57,6 +58,28 @@ impl EncolarRutina {
     fn comprobar(&self) -> Result<(), ErrorAccion> {
         comprobar_slug(&self.slug)?;
         ea_bus::validar_entradas(&self.pares()).map_err(|e| ErrorAccion::Argumentos(e.to_string()))
+    }
+}
+
+/// `ea_registrar_rutina`: la definición completa, tal como se registraría.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrarRutina {
+    toml: String,
+}
+
+impl RegistrarRutina {
+    /// Validación sin mirar el mundo: tamaño y formato (RF-001 y RF-016 de
+    /// la spec 004). Que la versión sea mayor se mira al simular.
+    fn comprobar(&self) -> Result<ea_bus::Rutina, ErrorAccion> {
+        if self.toml.len() > ea_bus::MAX_DEFINICION {
+            return Err(ErrorAccion::Argumentos(format!(
+                "la definición es demasiado larga ({} bytes; como mucho {})",
+                self.toml.len(),
+                ea_bus::MAX_DEFINICION
+            )));
+        }
+        ea_bus::Rutina::parsear(&self.toml).map_err(|e| ErrorAccion::Argumentos(e.to_string()))
     }
 }
 
@@ -144,6 +167,7 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
     match nombre {
         "ea_encolar_rutina" => parsear::<EncolarRutina>(args)?.comprobar(),
         "ea_eliminar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
+        "ea_registrar_rutina" => parsear::<RegistrarRutina>(args)?.comprobar().map(|_| ()),
         "ea_reiniciar_servicio" => comprobar_servicio(&parsear::<PorServicio>(args)?.servicio),
         "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
@@ -156,6 +180,8 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
 pub struct Campo {
     pub nombre: &'static str,
     pub entero: bool,
+    /// Texto de varias líneas (un área de texto, no un campo de una línea).
+    pub largo: bool,
     pub obligatorio: bool,
     /// Dominio cerrado de valores; vacío si es libre.
     pub opciones: &'static [&'static str],
@@ -163,12 +189,14 @@ pub struct Campo {
 }
 
 const fn campo(nombre: &'static str, ayuda: &'static str) -> Campo {
-    Campo { nombre, entero: false, obligatorio: true, opciones: &[], ayuda }
+    Campo { nombre, entero: false, largo: false, obligatorio: true, opciones: &[], ayuda }
 }
 
 const CAMPOS_SLUG: &[Campo] = &[campo("slug", "rutina")];
 const CAMPOS_SERVICIO: &[Campo] =
     &[Campo { opciones: &SERVICIOS_REINICIABLES, ..campo("servicio", "servicio") }];
+const CAMPOS_REGISTRAR: &[Campo] =
+    &[Campo { largo: true, ..campo("toml", "definición TOML de la rutina ([rutina], [entradas], [[pasos]])") }];
 const CAMPOS_PROMOVER: &[Campo] = &[
     campo("ruta", "ruta de la nota (p. ej. claude-code/tema/nota.md)"),
     Campo { obligatorio: false, ..campo("destino", "destino en «compartida» (opcional)") },
@@ -181,6 +209,7 @@ pub fn campos(nombre: &str) -> &'static [Campo] {
     match nombre {
         "ea_encolar_rutina" | "ea_eliminar_rutina" => CAMPOS_SLUG,
         "ea_reiniciar_servicio" => CAMPOS_SERVICIO,
+        "ea_registrar_rutina" => CAMPOS_REGISTRAR,
         "ea_promover_nota" => CAMPOS_PROMOVER,
         _ => &[],
     }
@@ -265,6 +294,45 @@ pub fn simular_con<C: Consulta>(
                     orden.criterio_exito.as_deref().unwrap_or_default()
                 ),
                 json!({ "trabajos_activos": 0, "version": version }),
+            )
+        }
+        "ea_registrar_rutina" => {
+            let a: RegistrarRutina = parsear(args)?;
+            a.comprobar()?;
+            // Lo que no es de formato depende del mundo (la versión
+            // registrada ahora): NoAplica, como en el resto de herramientas.
+            let (r, anterior) =
+                ea_bus::comprobar_registro(store, &a.toml).map_err(|e| ErrorAccion::NoAplica(e.to_string()))?;
+            let orden = r.a_orden(&[]).map_err(|e| ErrorAccion::Argumentos(e.to_string()))?;
+            let c = &r.rutina;
+            let (que, cambios) = match &anterior {
+                Some(f) => {
+                    let d = diff_lineas(&f.definicion, &a.toml);
+                    (
+                        format!("la versión {} de la rutina '{}' (ahora está en la {})", c.version, c.slug, f.version),
+                        if d.is_empty() {
+                            "La definición es la misma salvo la versión.".to_string()
+                        } else {
+                            format!("Cambios frente a la versión {}:\n{d}", f.version)
+                        },
+                    )
+                }
+                None => (
+                    format!("la rutina nueva '{}' en la versión {}", c.slug, c.version),
+                    format!("Definición completa:\n{}", a.toml.trim_end()),
+                ),
+            };
+            (
+                json!({ "toml": a.toml }),
+                format!(
+                    "Registraría {que}: la guarda en SQLite y copia el TOML a rutinas_dir/{}.toml, como \
+                     `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. \
+                     Worktree: {}. Criterio que ejecutará el sistema (entradas por defecto): `{}`.\n\n{cambios}",
+                    c.slug,
+                    c.worktree,
+                    orden.criterio_exito.as_deref().unwrap_or_default()
+                ),
+                json!({ "slug": c.slug, "version_registrada": anterior.map(|f| f.version) }),
             )
         }
         "ea_reiniciar_servicio" => {
@@ -380,7 +448,7 @@ pub fn aplicar_en_store(
                 datos: json!({ "trabajo": id, "rutina": a.slug }),
             }))
         }
-        "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" => Ok(None),
+        "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" | "ea_registrar_rutina" => Ok(None),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -415,6 +483,15 @@ pub async fn aplicar_en_sistema<S: Sistema>(
                 texto: format!("{}.service reiniciado (ahora: {}).", a.servicio, ahora.activo),
                 trabajo: None,
                 datos: json!({ "servicio": a.servicio, "activo": ahora.activo }),
+            })
+        }
+        "ea_registrar_rutina" => {
+            let a: RegistrarRutina = parsear(args)?;
+            let (slug, version) = sistema.rutina_registrar(store, &a.toml, actor).map_err(ErrorAccion::Sistema)?;
+            Ok(Aplicada {
+                texto: format!("Rutina '{slug}' registrada en la versión {version}."),
+                trabajo: None,
+                datos: json!({ "rutina": slug, "version": version }),
             })
         }
         "ea_eliminar_rutina" => {

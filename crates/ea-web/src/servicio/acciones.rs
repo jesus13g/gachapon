@@ -20,6 +20,7 @@ pub async fn catalogo(s: &AppState) -> Resultado<Vec<AccionCatalogo>> {
                 .map(|c| CampoVista {
                     nombre: c.nombre,
                     entero: c.entero,
+                    largo: c.largo,
                     obligatorio: c.obligatorio,
                     // Las rutinas no son un dominio fijo: las que hay ahora.
                     opciones: if c.nombre == "slug" {

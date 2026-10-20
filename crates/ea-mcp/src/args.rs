@@ -65,6 +65,19 @@ pub struct EncolarRutinaArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct RegistrarRutinaArgs {
+    /// La definición completa de la rutina en TOML ([rutina] con slug,
+    /// version, worktree absoluto y criterio_exito; [entradas]; [[pasos]]),
+    /// como la que se pasaría a `ea rutina registrar`. Para corregir una
+    /// rutina, la versión debe ser mayor que la registrada. Como mucho 64 KiB.
+    pub toml: String,
+    /// Si es true, solo describe lo que se haría (diff frente a la versión
+    /// registrada y criterio resultante). Si es false (por defecto), encola
+    /// una propuesta que el usuario debe aceptar: nada se registra aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReiniciarServicioArgs {
     /// Servicio de la lista cerrada: llama-server, ea-mcp,
     /// ea-orchestrator o ea-web.

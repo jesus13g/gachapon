@@ -3,9 +3,11 @@
 use std::collections::BTreeMap;
 
 use ea_bus::Rutina;
+use ea_store::{EventOutcome, NewEvent};
+use serde_json::json;
 
 use super::{bus_con_store, slug_valido, ErrorWeb, Resultado};
-use crate::vistas::{RutinaDetalle, RutinaFila, RutinaLanzada, RutinaPrevia};
+use crate::vistas::{RutinaAnterior, RutinaDetalle, RutinaFila, RutinaLanzada, RutinaPrevia, RutinaRegistrada, RutinaValidada};
 use crate::AppState;
 
 pub async fn listar(s: &AppState) -> Resultado<Vec<RutinaFila>> {
@@ -74,6 +76,47 @@ async fn registrada(s: &AppState, slug: &str) -> Resultado<Rutina> {
 /// Vista previa de la última versión registrada. No escribe nada.
 pub async fn previa(s: &AppState, slug: &str, entradas: &Entradas) -> Resultado<RutinaPrevia> {
     previa_de(&registrada(s, slug).await?, entradas)
+}
+
+/// Lo que registraría `toml` (RF-017 de la spec 004): las mismas
+/// comprobaciones que `ea rutina registrar` (`ea_bus::comprobar_registro`:
+/// tamaño, formato, versión mayor que la registrada) y la vista previa de la
+/// orden con las entradas por defecto. No escribe nada ni ejecuta el criterio.
+pub async fn validar(s: &AppState, toml: &str) -> Resultado<RutinaValidada> {
+    let (r, anterior) = ea_bus::comprobar_registro(&*s.store.lock().await, toml)?;
+    let previa = previa_de(&r, &Entradas::new())?;
+    Ok(RutinaValidada {
+        rutina: r.rutina.slug.clone(),
+        version: r.rutina.version,
+        anterior: anterior.map(|f| RutinaAnterior { version: f.version, definicion: f.definicion }),
+        previa,
+    })
+}
+
+/// Registra `toml` igual que `ea rutina registrar`: `Bus::registrar_rutina`
+/// guarda la versión en SQLite (con `creada_por` el usuario) y copia el TOML
+/// a `rutinas_dir/<slug>.toml`. Si no vale, el error del bus y nada escrito.
+/// Deja `rutina_registrada` en el diario, como las demás decisiones de la web.
+pub async fn registrar(s: &AppState, toml: &str) -> Resultado<RutinaRegistrada> {
+    let anterior = ea_bus::comprobar_registro(&*s.store.lock().await, toml)?.1.map(|f| f.version);
+    let r = bus_con_store(s).await?.registrar_rutina(toml, &s.config.rutinas_dir)?;
+    let c = &r.rutina;
+    let evento = NewEvent {
+        actor: super::ACTOR.into(),
+        action: "rutina_registrada".into(),
+        trabajo: None,
+        outcome: Some(EventOutcome::Ok),
+        duration_ms: None,
+        detail: Some(
+            json!({ "canal": "web", "rutina": c.slug, "version": c.version, "anterior": anterior, "bytes": toml.len() })
+                .to_string(),
+        ),
+    };
+    // El registro ya está hecho: si el diario falla, se avisa en el log.
+    if let Err(e) = s.store.lock().await.append_event(evento) {
+        tracing::warn!(error = %e, "no se pudo apuntar el registro de la rutina en el diario");
+    }
+    Ok(RutinaRegistrada { rutina: c.slug.clone(), version: c.version, anterior })
 }
 
 /// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`): crea el

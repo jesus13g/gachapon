@@ -149,6 +149,32 @@ pub struct RutinaPrevia {
     pub criterio: String,
 }
 
+/// La versión registrada de una rutina, para comparar con la que se edita.
+#[derive(Serialize)]
+pub struct RutinaAnterior {
+    pub version: i64,
+    pub definicion: String,
+}
+
+/// Lo que registraría una definición (`POST /api/rutinas/validar`), sin
+/// escribir nada: su slug y versión, la registrada ahora y la orden que
+/// recibiría el agente con las entradas por defecto.
+#[derive(Serialize)]
+pub struct RutinaValidada {
+    pub rutina: String,
+    pub version: u32,
+    pub anterior: Option<RutinaAnterior>,
+    pub previa: RutinaPrevia,
+}
+
+#[derive(Serialize)]
+pub struct RutinaRegistrada {
+    pub rutina: String,
+    pub version: u32,
+    /// La versión que había antes, o `None` si la rutina es nueva.
+    pub anterior: Option<i64>,
+}
+
 // ---------------------------------------------------------------- trabajos
 
 #[derive(Serialize)]
@@ -245,6 +271,8 @@ pub struct AccionCatalogo {
 pub struct CampoVista {
     pub nombre: &'static str,
     pub entero: bool,
+    /// Texto de varias líneas: la consola pinta un área de texto.
+    pub largo: bool,
     pub obligatorio: bool,
     pub opciones: Vec<String>,
     pub ayuda: &'static str,

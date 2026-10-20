@@ -78,6 +78,7 @@ const st = {
   otra: false,         // hay que repetir el sondeo al terminar el actual
   consola: {},         // por herramienta: { v: valores, sim, res, err }
   rutEnt: {},          // por rutina: { v: entradas escritas, previa, err }
+  rutEd: null,         // editor de TOML abierto: ver editorRutina()
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
   ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
   sondeoMs: null,      // web.sondeo_ms de los ajustes (null: 3000)
@@ -396,10 +397,110 @@ function filasRutinas(rs) {
         : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
           `Lanzar ahora la rutina ${r.slug} con las entradas de su ficha: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
     const d = st.detalle[k];
+    const editando = st.rutEd?.slug === r.slug;
     const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
-      formEntradas(r) + `<pre class="toml">${esc(d.contenido ?? '')}</pre>` : '';
+      formEntradas(r) +
+      (editando ? editorRutina()
+        : `<div class="acc">${btn('red', '✎ nueva versión', 'edita el TOML y registra una versión nueva (la versión ya va subida en uno)', { slug: r.slug })}</div>` +
+          `<pre class="toml">${esc(d.contenido ?? '')}</pre>`) : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
+}
+
+// ------------------------------------------------ editor de rutinas (TOML)
+//
+// «✎ nueva versión» en la ficha y «＋ rutina» en la barra abren el mismo
+// editor (st.rutEd: { slug, texto, base, val, err, armado }; slug '' es una
+// rutina nueva). «◌ validar» pregunta al servidor sin escribir nada;
+// «✓ registrar» pide un segundo clic. Lo de .sal caduca al teclear.
+
+const PLANTILLA_RUTINA = `# Una rutina: el agente local la ejecuta; el sistema corre el criterio.
+[rutina]
+slug = "mi-rutina"                 # [A-Za-z0-9_-], 64 como mucho
+version = 1                        # solo puede subir
+descripcion = "Qué hace, en una línea"
+worktree = "/ruta/absoluta/al/repo" # repo git donde trabaja
+criterio_exito = "test -s {salida}" # shell; lo ejecuta el sistema, nunca el agente
+salida_esperada = "Qué debe quedar hecho y dónde"
+
+[entradas]                         # clave = valor por defecto; {clave} se sustituye
+salida = "resumen.md"
+
+[[pasos]]
+texto = "Primer paso, concreto, con rutas y comandos; escribe {salida}."
+
+[[pasos]]
+texto = "Comprueba que {salida} no esté vacío."
+`;
+
+// El TOML con la versión de [rutina] subida en uno (la primera línea
+// «version = N» del fichero, que es la de la cabecera).
+function subeVersion(toml) {
+  return toml.replace(/^(\s*version\s*=\s*)(\d+)/m, (_, pre, n) => pre + (Number(n) + 1));
+}
+
+// Diff de líneas mínimo (subsecuencia común más larga), con el mismo formato
+// que el de las simulaciones: solo lo que cambia, dos líneas de contexto y
+// @@ entre trozos. Vacío si son iguales.
+function diffLineas(antes, despues) {
+  const a = antes.replace(/\n$/, '').split('\n'), b = despues.replace(/\n$/, '').split('\n');
+  if (!antes) a.length = 0;
+  const n = a.length, m = b.length;
+  let ops;
+  if (n * m > 4e6) ops = [...a.map(l => ['-', l]), ...b.map(l => ['+', l])];
+  else {
+    const L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+      L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    ops = [];
+    let i = 0, j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && a[i] === b[j]) { ops.push([' ', a[i]]); i++; j++; }
+      else if (i < n && (j === m || L[i + 1][j] >= L[i][j + 1])) ops.push(['-', a[i++]]);
+      else ops.push(['+', b[j++]]);
+    }
+  }
+  const cambia = ops.map((o, k) => (o[0] === ' ' ? -1 : k)).filter(k => k >= 0);
+  if (!cambia.length) return '';
+  let out = '', prev = null;
+  ops.forEach(([s, l], k) => {
+    if (!cambia.some(c => Math.abs(c - k) <= 2)) return;
+    if ((prev !== null && prev + 1 !== k) || (prev === null && k > 0)) out += '@@\n';
+    prev = k;
+    out += s + l + '\n';
+  });
+  return out;
+}
+
+function editorRutina() {
+  const E = st.rutEd;
+  const nueva = E.slug === '';
+  const lineas = Math.min(32, Math.max(10, E.texto.split('\n').length + 1));
+  const armada = E.armado && E.armado > Date.now();
+  let h = `<p class="et">${nueva ? '＋ rutina nueva' : `✎ nueva versión de ${esc(E.slug)}`} · TOML</p>` +
+    `<textarea class="toml-ed" data-red rows="${lineas}" spellcheck="false" aria-label="definición TOML de la rutina">${esc(E.texto)}</textarea>` +
+    '<div class="acc">' +
+    btn('rvalidar', '◌ validar', 'comprueba la definición como al registrar y muestra la orden y los cambios, sin escribir nada') +
+    btn('rregistrar', armada ? '✓ confirmar registro' : '✓ registrar', armada ? 'confirmar: registra esta versión' : 'registra esta versión (pide confirmar)', {}, armada ? 'coin hot' : 'coin') +
+    btn('rdescartar', '✕ descartar', 'cierra el editor sin registrar nada') + '</div>';
+  if (E.val) {
+    const v = E.val;
+    const base = v.anterior ? v.anterior.definicion : '';
+    const d = diffLineas(base, E.texto);
+    h += `<p class="tx sal">✓ válida: <b>${esc(v.rutina)}</b> v${v.version}${v.anterior ? ` (registrada: v${v.anterior.version})` : ' · rutina nueva'} · criterio: <b>${esc(v.previa.criterio)}</b></p>` +
+      `<p class="et sal">${v.anterior ? `cambios frente a la v${v.anterior.version}` : 'definición completa'}</p>` +
+      `<pre class="diff sal">${colorDiff(d || '(sin cambios)')}</pre>` +
+      `<p class="et sal">orden con las entradas por defecto</p><pre class="toml sal">${esc(v.previa.objetivo)}</pre>`;
+  }
+  if (E.err) h += `<p class="hot sal">✕ ${esc(E.err)}</p>`;
+  return h;
+}
+
+// Abre el editor: con la versión registrada (y la versión subida) o con la plantilla.
+function abreEditorRutina(slug) {
+  if (st.rutEd && st.rutEd.slug === slug) { st.rutEd = null; return; }
+  const base = slug ? st.detalle['r' + slug]?.contenido ?? '' : '';
+  st.rutEd = { slug, base, texto: slug ? subeVersion(base) : PLANTILLA_RUTINA, val: null, err: null, armado: null };
 }
 
 function filasPropuestas(ps) {
@@ -423,10 +524,13 @@ function filasPropuestas(ps) {
     const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : '';
     const row = `<span title="${glifo} ${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${capsula(COLOR.propuesta, falla ? 'hot' : pend ? '' : 'cerrada', 18, true)}</span><span class="n">#${p.id}</span>` +
       `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${reloj(p.creada)}</span><span class="bs">${acc}</span>`;
-    let det = `<p class="tx">${esc(p.descripcion)}</p>`;
+    // Registrar una rutina lleva el TOML entero: su simulación ya trae el diff.
+    const conToml = typeof ac?.argumentos?.toml === 'string';
+    let det = conToml && p.descripcion === ac.simulacion ? '' : `<p class="tx">${esc(p.descripcion)}</p>`;
     if (ac) {
       det += `<p class="m">${esc(ac.herramienta)} · riesgo ${esc(ac.riesgo)} · propuesta por ${esc(p.proponente ?? '?')}</p>` +
-        `<p class="m">${esc(JSON.stringify(ac.argumentos))}</p><p class="tx">Simulación: ${esc(ac.simulacion)}</p>`;
+        (conToml ? `<p class="m">toml: ${ac.argumentos.toml.length} caracteres</p><p class="et">simulación</p><pre class="diff">${colorDiff(ac.simulacion)}</pre>`
+          : `<p class="m">${esc(JSON.stringify(ac.argumentos))}</p><p class="tx">Simulación: ${esc(ac.simulacion)}</p>`);
       if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>.</p>`;
     }
     if (p.ejecutada) det += `<p class="${falla ? 'hot' : 'tx'}">Ejecución ${esc(p.ejecutada.estado)}: ${esc(p.ejecutada.detalle ?? '')}</p>`;
@@ -1116,6 +1220,7 @@ function filasAcciones(hs) {
           return `<select ${attrs(f)}><option value="">${esc(f.nombre)}</option>` +
             f.opciones.map(o => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('') + '</select>';
         }
+        if (f.largo) return `<textarea ${attrs(f)} placeholder="${esc(f.ayuda)}" spellcheck="false" rows="8">${esc(val)}</textarea>`;
         return `<input ${attrs(f)} placeholder="${esc(f.ayuda)}" value="${esc(val)}"${f.entero ? ' inputmode="numeric" size="8"' : ''}>`;
       }).join('') + btn('simular', '◌ simular', 'describe lo que haría, sin hacer nada', { h: h.nombre }) + '</div>';
       // Lo que sale de simular o ejecutar (.sal) caduca en cuanto cambia un argumento.
@@ -1344,7 +1449,8 @@ function construir() {
     case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
     case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
-    case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
+    case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
+      ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d))] : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
     case 'ajustes': return d ? filasAjustes(d) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
@@ -1414,6 +1520,9 @@ function barra() {
         `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
     h = barraDiario();
+  } else if (st.sec === 'rutinas') {
+    const on = st.rutEd?.slug === '';
+    h = `<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>`;
   } else if (st.sec === 'propuestas') {
     h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
         `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
@@ -1916,6 +2025,45 @@ async function accion(b) {
         if (e.status === 403) throw e;
         re.err = e.message;
       }
+    } else if (a === 'red' || a === 'rnueva') {
+      abreEditorRutina(a === 'red' ? slug : '');
+    } else if (a === 'rdescartar') {
+      st.rutEd = null;
+    } else if (a === 'rvalidar' && st.rutEd) {
+      const E = st.rutEd;
+      E.val = E.err = E.armado = null;
+      try {
+        E.val = await ea.validarRutina(E.texto);
+      } catch (e) {
+        if (e.status === 403) throw e;
+        E.err = e.message;
+      }
+    } else if (a === 'rregistrar' && st.rutEd) {
+      // Segundo clic para confirmar, como aceptar una propuesta.
+      const E = st.rutEd;
+      if (!(E.armado && E.armado > Date.now())) {
+        E.armado = Date.now() + 4000;
+        st.html = '';
+        pintar();
+        setTimeout(() => { st.html = ''; pintar(); }, 4100);
+        return;
+      }
+      E.armado = null;
+      let r;
+      try {
+        r = await ea.registrarRutina(E.texto);
+      } catch (e) {
+        if (e.status === 403) throw e;
+        E.val = null;
+        E.err = e.message;
+      }
+      if (r) {
+        st.rutEd = null;
+        delete st.rutEnt[r.rutina];
+        avisa(`✓ ${r.rutina}: registrada la versión ${r.version}`, true);
+        st.abiertos.add('r' + r.rutina);
+        st.sel = 'r' + r.rutina;
+      }
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;
@@ -2176,6 +2324,15 @@ $('#lista').addEventListener('input', ev => {
       $('.sin-guardar', nota)?.toggleAttribute('hidden', !sucio(e));
       if (!e.conflicto) $('[data-si-sucio]', nota)?.toggleAttribute('hidden', !sucio(e));
     }
+    return;
+  }
+  // El editor de una rutina: lo validado deja de valer al cambiar el texto.
+  const rt = ev.target.closest('textarea[data-red]');
+  if (rt && st.rutEd) {
+    st.rutEd.texto = rt.value;
+    st.rutEd.val = st.rutEd.err = st.rutEd.armado = null;
+    st.html = '';
+    $$('.sal', rt.closest('.det')).forEach(n => n.remove());
     return;
   }
   // Las entradas de una rutina: la vista previa deja de valer.

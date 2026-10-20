@@ -309,6 +309,65 @@ async fn encolar_rutina_con_entradas_muestra_el_criterio_y_las_valida() {
 }
 
 #[tokio::test]
+async fn registrar_rutina_se_simula_con_el_diff_se_propone_y_al_aceptar_se_registra() {
+    let (mut s, _d) = store();
+    let sis = sistema();
+    let v1 = s.ultima_rutina("con-entradas").unwrap().unwrap().definicion;
+    let v2 = v1.replace("version = 1", "version = 2").replace("test -f {salida}", "test -s {salida}");
+    let args = json!({ "toml": v2 });
+    validar_argumentos("ea_registrar_rutina", &args).unwrap();
+
+    // Simular: el diff y el criterio resultante, sin escribir nada.
+    let eventos = acciones(&s).len();
+    let sim = simular(&s, &sis, "ea_registrar_rutina", &args).await.unwrap();
+    assert_eq!(sim.riesgo, Riesgo::Reversible);
+    assert!(sim.texto.contains("-criterio_exito = \"test -f {salida}\""), "{}", sim.texto);
+    assert!(sim.texto.contains("+criterio_exito = \"test -s {salida}\""), "{}", sim.texto);
+    assert!(sim.texto.contains("`test -s informe.md`"), "{}", sim.texto);
+    assert_eq!(sim.precondicion, json!({ "slug": "con-entradas", "version_registrada": 1 }));
+    assert_eq!(acciones(&s).len(), eventos);
+    assert_eq!(s.ultima_rutina("con-entradas").unwrap().unwrap().version, 1);
+
+    // Proponer (lo que hace Claude Code por MCP): encola, no registra.
+    let (p, nueva) = proponer_(&s, &sis, "claude-code", "ea_registrar_rutina", &args).await.unwrap();
+    assert!(nueva);
+    assert!(p.accion.as_ref().unwrap().simulacion.contains("test -s informe.md"));
+    assert!(sis.mutaciones().is_empty());
+    assert_eq!(s.ultima_rutina("con-entradas").unwrap().unwrap().version, 1);
+
+    // Aceptar (el usuario): registra la v2 con el actor del usuario.
+    let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
+    assert_eq!(p.ejecucion.as_ref().unwrap().estado, EstadoEjecucion::Ejecutada, "{:?}", p.ejecucion);
+    assert_eq!(sis.mutaciones(), vec!["registrar_rutina:con-entradas@2"]);
+    let fila = s.ultima_rutina("con-entradas").unwrap().unwrap();
+    assert_eq!((fila.version, fila.creada_por.as_str()), (2, "usuario"));
+    assert_eq!(fila.definicion, v2);
+    assert!(acciones(&s).contains(&"accion_ejecutada".to_string()));
+
+    // Ya registrada: la misma versión no aplica, y un TOML roto no es ni argumento válido.
+    assert!(matches!(simular(&s, &sis, "ea_registrar_rutina", &args).await, Err(ErrorAccion::NoAplica(_))));
+    let roto = json!({ "toml": "[rutina]\nslug = \"x\"\n" });
+    assert!(matches!(validar_argumentos("ea_registrar_rutina", &roto), Err(ErrorAccion::Argumentos(_))));
+    assert!(matches!(proponer_(&s, &sis, "claude-code", "ea_registrar_rutina", &roto).await, Err(ErrorAccion::Argumentos(_))));
+}
+
+#[tokio::test]
+async fn registrar_rutina_revalida_la_version_al_aceptar() {
+    let (mut s, _d) = store();
+    let sis = sistema();
+    let v1 = s.ultima_rutina("nocturna").unwrap().unwrap().definicion;
+    let args = json!({ "toml": v1.replace("version = 1", "version = 2") });
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_registrar_rutina", &args).await.unwrap();
+    // Mientras tanto, alguien registra la v3 por otro camino.
+    sis.rutina_registrar(&s, &v1.replace("version = 1", "version = 3"), "ea-cli").unwrap();
+    let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
+    let ej = p.ejecucion.unwrap();
+    assert_eq!(ej.estado, EstadoEjecucion::Fallida);
+    assert!(ej.detalle.unwrap().contains("el estado cambió"));
+    assert_eq!(s.ultima_rutina("nocturna").unwrap().unwrap().version, 3);
+}
+
+#[tokio::test]
 async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
     let (mut s, _d) = store();
     let sis = sistema();
@@ -371,7 +430,7 @@ fn autorizacion_por_actor() {
     assert!(autorizar_mcp("modelo-local", h("ea_status")).is_ok());
     assert!(autorizar_mcp("modelo-local", h("ea_ver_trabajo")).is_ok());
     assert!(autorizar_mcp("modelo-local", h("ea_promover_nota")).is_ok());
-    for n in ["ea_eliminar_rutina", "ea_reiniciar_servicio", "ea_encolar_rutina"] {
+    for n in ["ea_eliminar_rutina", "ea_reiniciar_servicio", "ea_encolar_rutina", "ea_registrar_rutina"] {
         assert!(autorizar_mcp("modelo-local", h(n)).is_err(), "{n}");
     }
     assert!(autorizar_mcp("claude-code", h("ea_eliminar_rutina")).is_ok());
@@ -395,6 +454,9 @@ fn los_campos_declarados_casan_con_los_argumentos_que_se_validan() {
             (_, Some(o), _) => json!(o),
             (_, _, "ruta") => json!("claude-code/tema/nota.md"),
             (_, _, "destino") => json!("tema/nota.md"),
+            (_, _, "toml") => json!(
+                "[rutina]\nslug = \"x\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+            ),
             _ => json!("revision-diaria"),
         };
         // Solo los obligatorios, y luego todos: ambas formas deben validar.
