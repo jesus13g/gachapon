@@ -9,6 +9,7 @@ use ea_store::Store;
 use cli::{AccionesAccion, AjustesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
+    salir_en_silencio_si_se_cierra_la_tuberia();
     let args = Cli::parse();
     // Los ajustes no necesitan la base de datos (y dicen dónde está).
     let args = match args.command {
@@ -93,4 +94,14 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Rust ignora SIGPIPE, así que `ea ... | head` acababa en pánico al escribir
+/// en una tubería cerrada. Con la acción por defecto el proceso termina sin
+/// ruido, como cualquier herramienta de Unix.
+fn salir_en_silencio_si_se_cierra_la_tuberia() {
+    // SAFETY: se llama al principio de `main`, antes de crear hilos.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
 }
