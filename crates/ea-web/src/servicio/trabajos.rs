@@ -94,17 +94,20 @@ pub async fn diff(s: &AppState, id: &str) -> Resultado<Diff> {
 
 // ------------------------------------------------------------------- crear
 
-/// Los modos que se crean desde la web. Las obras llegarán con T2, por el
-/// mismo formulario y la misma ruta.
-const MODOS_WEB: [&str; 1] = ["mision"];
+/// Los modos que se crean desde la web: misiones y obras, por el mismo
+/// formulario y la misma ruta. Las rutinas se lanzan desde su ficha.
+const MODOS_WEB: [&str; 2] = ["mision", "obra"];
 const TITULO_MAX: usize = 200;
 const OBJETIVO_MAX: usize = 20_000;
 const CRITERIO_MAX: usize = 2_000;
 const WORKTREE_MAX: usize = 4_096;
 const SUGERENCIAS_MAX: usize = 30;
+const FASES_MAX: usize = 20;
+const ENTREGABLE_MAX: usize = 2_000;
 
 /// Cuerpo de `POST /api/trabajos`. Cualquier otro campo (`skills`,
-/// `creada_por`, `fases`…) se rechaza: desde la web no se eligen.
+/// `creada_por`…) se rechaza: desde la web no se eligen. La misión lleva
+/// `criterio`; la obra, `fases` (cada una con el suyo) y `revisar_cada`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NuevoTrabajo {
@@ -113,9 +116,36 @@ struct NuevoTrabajo {
     titulo: String,
     worktree: String,
     objetivo: String,
-    criterio: String,
+    #[serde(default)]
+    criterio: Option<String>,
     #[serde(default)]
     topes: Option<TopesPedidos>,
+    #[serde(default)]
+    fases: Option<Vec<FasePedida>>,
+    /// Fuera: no se envió; `Some(None)`: `null`, solo al final;
+    /// `Some(Some(n))`: cada `n` fases. En la obra es obligatorio (art. IV.4).
+    #[serde(default, deserialize_with = "presente")]
+    revisar_cada: Option<Option<u32>>,
+}
+
+/// Distingue un campo ausente (`None`, por el `default`) de uno a `null`.
+fn presente<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<u32>>, D::Error> {
+    Option::<u32>::deserialize(d)
+        .map(Some)
+        .map_err(|e| serde::de::Error::custom(format!("'revisar_cada' debe ser un entero positivo o null ({e})")))
+}
+
+/// Una fase de la obra tal como llega del formulario. El número lo pone el
+/// orden de la lista; las skills no se eligen desde la web.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FasePedida {
+    titulo: String,
+    instrucciones: String,
+    entregable: String,
+    /// Vacío llega al bus, que lo rechaza («la fase N no tiene criterio»).
+    #[serde(default)]
+    criterio: String,
 }
 
 /// Los topes que se pueden pedir desde el formulario; el resto, por defecto.
@@ -170,10 +200,69 @@ async fn validar_worktree(wt: &str) -> Resultado<String> {
     if !crate::git::es_repo(&canon).await? {
         return Err(ErrorWeb::Invalido(format!("'{canon}' no está dentro de un repositorio git")));
     }
+    if !crate::git::tiene_commits(&canon).await? {
+        return Err(ErrorWeb::Invalido(format!(
+            "el repo no tiene ningún commit ('{canon}'): haz un commit inicial antes de encargarle trabajo"
+        )));
+    }
     Ok(canon)
 }
 
-/// Crea una misión encargada por el usuario desde la página. Todo se valida
+/// Texto no vacío de una sola línea, de hasta `TITULO_MAX` caracteres.
+fn una_linea(valor: &str, campo: &str) -> Resultado<String> {
+    let v = texto_no_vacio(valor, campo, TITULO_MAX)?;
+    if v.chars().any(char::is_control) {
+        return Err(ErrorWeb::Invalido(format!("'{campo}' debe ser una sola línea")));
+    }
+    Ok(v)
+}
+
+/// Las fases y `revisar_cada` de una obra. Sin criterio general (cada fase
+/// lleva el suyo); `revisar_cada` lo elige el usuario expresamente: `null`
+/// (solo al final) o entre 1 y el número de fases, nunca un valor oculto.
+/// Que cada fase tenga criterio lo comprueba el bus antes de escribir nada.
+fn fases_de_obra(n: &NuevoTrabajo) -> Resultado<(Vec<ea_bus::Fase>, Option<u32>)> {
+    if n.criterio.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+        return Err(ErrorWeb::Invalido("en una obra el criterio va en cada fase, no en 'criterio'".into()));
+    }
+    let pedidas = n.fases.as_deref().unwrap_or_default();
+    if pedidas.is_empty() {
+        return Err(ErrorWeb::Invalido("una obra necesita al menos una fase en 'fases'".into()));
+    }
+    if pedidas.len() > FASES_MAX {
+        return Err(ErrorWeb::Invalido(format!("una obra tiene como mucho {FASES_MAX} fases")));
+    }
+    let revisar_cada = n.revisar_cada.ok_or_else(|| {
+        ErrorWeb::Invalido("elige 'revisar_cada': cada cuántas fases revisa Claude Code (null: solo al final)".into())
+    })?;
+    if let Some(k) = revisar_cada
+        && (k == 0 || k as usize > pedidas.len())
+    {
+        return Err(ErrorWeb::Invalido(format!(
+            "'revisar_cada' debe estar entre 1 y {} (o null: solo al final)",
+            pedidas.len()
+        )));
+    }
+    let mut fases = Vec::with_capacity(pedidas.len());
+    for (i, f) in pedidas.iter().enumerate() {
+        let numero = i as u32 + 1;
+        let campo = |c: &str| format!("fase {numero}: {c}");
+        if f.criterio.chars().count() > CRITERIO_MAX {
+            return Err(ErrorWeb::Invalido(format!("'{}' supera {CRITERIO_MAX} caracteres", campo("criterio"))));
+        }
+        fases.push(ea_bus::Fase {
+            numero,
+            titulo: una_linea(&f.titulo, &campo("titulo"))?,
+            instrucciones: texto_no_vacio(&f.instrucciones, &campo("instrucciones"), OBJETIVO_MAX)?,
+            entregable: texto_no_vacio(&f.entregable, &campo("entregable"), ENTREGABLE_MAX)?,
+            criterio: f.criterio.trim().to_string(),
+            skills: vec![],
+        });
+    }
+    Ok((fases, revisar_cada))
+}
+
+/// Crea una misión o una obra encargada por el usuario desde la página. Todo se valida
 /// antes de tocar el bus; después, `Bus::crear_trabajo` (que vuelve a
 /// exigir el criterio y valida skills) la escribe, la encola en
 /// `modelo-local` y apunta `bus_crear` en el diario con actor `usuario`.
@@ -186,14 +275,20 @@ pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
         serde_json::from_value(cuerpo).map_err(|e| ErrorWeb::Invalido(format!("petición inválida: {e}")))?;
     let modo = n.modo.as_deref().unwrap_or("mision");
     if !MODOS_WEB.contains(&modo) {
-        return Err(ErrorWeb::Invalido(format!("modo '{modo}': desde la web solo se crean misiones")));
+        return Err(ErrorWeb::Invalido(format!("modo '{modo}': desde la web solo se crean misiones y obras")));
     }
-    let titulo = texto_no_vacio(&n.titulo, "titulo", TITULO_MAX)?;
-    if titulo.chars().any(char::is_control) {
-        return Err(ErrorWeb::Invalido("'titulo' debe ser una sola línea".into()));
-    }
+    let titulo = una_linea(&n.titulo, "titulo")?;
     let objetivo = texto_no_vacio(&n.objetivo, "objetivo", OBJETIVO_MAX)?;
-    let criterio = texto_no_vacio(&n.criterio, "criterio", CRITERIO_MAX)?;
+    let (modo, criterio, fases, revisar_cada) = if modo == "obra" {
+        let (fases, revisar_cada) = fases_de_obra(&n)?;
+        (Modo::Obra, None, fases, revisar_cada)
+    } else {
+        if n.fases.is_some() || n.revisar_cada.is_some() {
+            return Err(ErrorWeb::Invalido("'fases' y 'revisar_cada' son de las obras: usa modo 'obra'".into()));
+        }
+        let criterio = texto_no_vacio(n.criterio.as_deref().unwrap_or(""), "criterio", CRITERIO_MAX)?;
+        (Modo::Mision, Some(criterio), vec![], None)
+    };
     let pedidos = n.topes.unwrap_or_default();
     if pedidos.iteraciones == Some(0) || pedidos.tiempo_s == Some(0) {
         return Err(ErrorWeb::Invalido("los topes deben ser al menos 1".into()));
@@ -208,13 +303,13 @@ pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
     .acotar(&techo(s));
     let orden = Orden {
         id: String::new(),
-        modo: Modo::Mision,
+        modo,
         titulo,
         worktree,
         objetivo,
-        criterio_exito: Some(criterio),
-        fases: vec![],
-        revisar_cada: None,
+        criterio_exito: criterio,
+        fases,
+        revisar_cada,
         topes,
         rutina: None,
         notas_revision: vec![],

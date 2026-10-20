@@ -56,3 +56,14 @@ pub async fn es_repo(wt: &str) -> Resultado<bool> {
         Err(_) => Ok(false),
     }
 }
+
+/// Si el repo de `wt` tiene HEAD apuntando a un commit. El ejecutor arranca
+/// con `rev-parse HEAD` (es el `commit_inicio`) y bloquea un repo sin
+/// commits; esto lo detecta antes de encolar (D11). Sin fsmonitor.
+pub async fn tiene_commits(wt: &str) -> Resultado<bool> {
+    match git(wt, &["-c", "core.fsmonitor=false", "rev-parse", "--verify", "-q", "HEAD^{commit}"]).await {
+        Ok(salida) => Ok(!salida.trim().is_empty()),
+        Err(ErrorWeb::Tiempo(m)) => Err(ErrorWeb::Tiempo(m)),
+        Err(_) => Ok(false),
+    }
+}
