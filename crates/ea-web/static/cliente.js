@@ -121,6 +121,10 @@ const ea = (() => {
     ejecutar: (herramienta, argumentos, precondicion) =>
       post('/api/acciones/ejecutar', { herramienta, argumentos, precondicion }),
 
+    // Abre una terminal real con el comando que confirma lo irreversible
+    // ({ propuesta } o { herramienta, argumentos }); la web no confirma nada.
+    abrirTerminal: cuerpo => post('/api/terminal/abrir', cuerpo),
+
     boveda: q => api('/api/boveda?q=' + c(q)),
     nota: ruta => api('/api/boveda/nota?ruta=' + c(ruta)),
     promover: ruta => post('/api/boveda/promover', { ruta }),

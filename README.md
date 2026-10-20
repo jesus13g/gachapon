@@ -759,6 +759,20 @@ curl -X POST -H 'Content-Type: application/json' \
 Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 
+Para ellas está **⌨ terminal** (en ◇ Propuestas, y en ▶ Acciones tras
+simular): `POST /api/terminal/abrir` con `{"propuesta": <id>}` o
+`{"herramienta": …, "argumentos": {…}}` abre una terminal real
+(`xdg-terminal-exec` u `omarchy-launch-terminal`) con
+`ea propuestas decidir <id> --aceptar` o `ea acciones ejecutar <h> --args '<json>'`
+ya escrito, y `--esperar` para que la ventana no se cierre sin leer el
+resultado. **La web solo abre la ventana**: la simulación y la frase
+`confirmo <id>` se escriben en esa TTY. El comando sale de una lista cerrada
+(una propuesta pendiente irreversible, o una herramienta supervisada que la
+web no puede confirmar con argumentos que validan contra sus campos), va como
+argv sin shell, el `ea` es el de la carpeta de `ea-web` (no el del `PATH`) y
+cualquier otra cosa, texto libre incluido, da 400. Queda en el diario como
+`accion_terminal_abierta`.
+
 Instalación como servicio de sesión:
 
 ```bash

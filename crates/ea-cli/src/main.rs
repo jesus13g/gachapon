@@ -57,8 +57,8 @@ fn main() -> Result<()> {
         Command::Propuestas { accion } => match accion {
             PropuestasAccion::Listar { estado } => commands::propuestas::listar(&store, estado)?,
             PropuestasAccion::Ver { id } => commands::propuestas::ver(&store, id)?,
-            PropuestasAccion::Decidir { id, aceptar, rechazar } => {
-                commands::propuestas::decidir(&mut store, id, aceptar, rechazar)?
+            PropuestasAccion::Decidir { id, aceptar, rechazar, esperar } => {
+                commands::al_final(esperar, commands::propuestas::decidir(&mut store, id, aceptar, rechazar))?
             }
         },
         Command::Acciones { accion } => match accion {
@@ -66,8 +66,8 @@ fn main() -> Result<()> {
             AccionesAccion::Simular { herramienta, args } => {
                 commands::acciones::simular(&store, &herramienta, &args)?
             }
-            AccionesAccion::Ejecutar { herramienta, args } => {
-                commands::acciones::ejecutar(&mut store, &herramienta, &args)?
+            AccionesAccion::Ejecutar { herramienta, args, esperar } => {
+                commands::al_final(esperar, commands::acciones::ejecutar(&mut store, &herramienta, &args))?
             }
         },
         Command::Boveda { accion } => match accion {

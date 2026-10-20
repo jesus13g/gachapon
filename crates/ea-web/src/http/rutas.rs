@@ -306,6 +306,16 @@ pub async fn accion_ejecutar(State(s): Estado, Json(b): Json<AccionBody>) -> Api
     ok(servicio::acciones::ejecutar(&s, &b.herramienta, &b.argumentos, &b.precondicion).await)
 }
 
+// ---------------------------------------------------------------- terminal
+
+/// `{propuesta}` o `{herramienta, argumentos}`; cualquier otra cosa (texto
+/// libre incluido) es un 400.
+pub async fn terminal_abrir(State(s): Estado, cuerpo: Bytes) -> Api<servicio::terminal::TerminalAbierta> {
+    let v: Value = serde_json::from_slice(&cuerpo)
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "se espera {propuesta} o {herramienta, argumentos}"))?;
+    ok(servicio::terminal::abrir(&s, &v).await)
+}
+
 // ------------------------------------------------------------------ bóveda
 
 #[derive(Deserialize)]

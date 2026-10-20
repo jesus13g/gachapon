@@ -60,6 +60,19 @@ pub fn preguntar(texto: &str) -> anyhow::Result<String> {
     Ok(linea.trim().to_string())
 }
 
+/// Con `esperar` (una ventana abierta por ea-web), enseña el error, si lo
+/// hay, y espera a Intro antes de salir: si no, la ventana se cerraría sin
+/// dejar leer el resultado. El error se devuelve igual (código de salida).
+pub fn al_final(esperar: bool, r: anyhow::Result<()>) -> anyhow::Result<()> {
+    if esperar {
+        if let Err(e) = &r {
+            eprintln!("Error: {e:#}");
+        }
+        let _ = preguntar("\n  Pulsa Intro para cerrar esta ventana. ");
+    }
+    r
+}
+
 /// Confirmación explícita (§11.1): una reversible pide `s`; una irreversible
 /// obliga a escribir `confirmo <referencia>`, para que no se acepte por
 /// reflejo ni con un simple Enter.

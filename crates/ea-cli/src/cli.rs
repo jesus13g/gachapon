@@ -261,6 +261,10 @@ pub enum AccionesAccion {
         /// Argumentos como objeto JSON
         #[arg(long, default_value = "{}")]
         args: String,
+        /// Al terminar, espera a Intro antes de salir (la usa «⌨ abrir en la
+        /// terminal» de ea-web, para que la ventana no se cierre sin leer)
+        #[arg(long)]
+        esperar: bool,
     },
 }
 
@@ -320,6 +324,10 @@ pub enum PropuestasAccion {
         aceptar: bool,
         #[arg(long)]
         rechazar: bool,
+        /// Al terminar, espera a Intro antes de salir (la usa «⌨ abrir en la
+        /// terminal» de ea-web, para que la ventana no se cierre sin leer)
+        #[arg(long)]
+        esperar: bool,
     },
 }
 

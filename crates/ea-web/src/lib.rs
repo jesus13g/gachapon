@@ -52,6 +52,9 @@ pub struct WebConfig {
     pub estado_dir: PathBuf,
     /// De dónde se leen (en cada petición) y adónde se escriben los ajustes.
     pub ajustes: ea_ajustes::Fuentes,
+    /// Cómo se abre una terminal real para confirmar lo irreversible
+    /// (`servicio::terminal`). Las pruebas usan una simulada.
+    pub terminal: servicio::terminal::Terminal,
 }
 
 impl WebConfig {
@@ -80,6 +83,7 @@ impl WebConfig {
             proyectos_claude_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/projects")),
             estado_dir: a.rutas.estado,
             ajustes: fuentes,
+            terminal: servicio::terminal::Terminal::del_sistema(),
         }
     }
 }

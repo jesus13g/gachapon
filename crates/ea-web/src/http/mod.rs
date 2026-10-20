@@ -59,6 +59,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/acciones", get(acciones_listar))
         .route("/api/acciones/simular", post(accion_simular))
         .route("/api/acciones/ejecutar", post(accion_ejecutar))
+        .route("/api/terminal/abrir", post(terminal_abrir))
         .route("/api/boveda", get(boveda_listar))
         .route("/api/boveda/nota", get(boveda_leer))
         .route("/api/boveda/promover", post(boveda_promover))
