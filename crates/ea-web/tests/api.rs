@@ -551,6 +551,17 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     let (_, sem) = get(&f, "/api/semaforos").await;
     assert_eq!(sem[0]["trabajo"], id.as_str());
     assert_eq!(sem[0]["agente"], "modelo-local");
+
+    // Cancelado con el semáforo aún cogido: «cancelando…» hasta que se suelte.
+    let cancelando = |l: &Value| l.as_array().unwrap().iter().find(|t| t["id"] == id.as_str()).unwrap()["cancelando"].clone();
+    let (_, l) = get(&f, "/api/trabajos").await;
+    assert_eq!(cancelando(&l), json!(false));
+    bus.aplicar(&id, ea_bus::Evento::Cancelar).unwrap();
+    let (_, l) = get(&f, "/api/trabajos").await;
+    assert_eq!(cancelando(&l), json!(true));
+    drop(_candado);
+    let (_, l) = get(&f, "/api/trabajos").await;
+    assert_eq!(cancelando(&l), json!(false));
 }
 
 #[tokio::test]

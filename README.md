@@ -70,6 +70,15 @@ Los fallos, bloqueos y paquetes en espera avisan con `notify-send`; el aviso
 lleva una acción **abrir** que lanza `ea-web-open '#trabajos/<id>'` (el proceso
 del aviso va aparte: el ejecutor no lo espera).
 
+Cancelar un trabajo `ejecutando` (`ea trabajo cancelar`, o «devolver» en la web)
+lo detiene de verdad: el ejecutor relee el estado antes de cada iteración y de
+cada fase y, mientras corre Qwen, lo sondea cada 2 s; el agente va en su propio
+grupo de procesos, que recibe `SIGTERM` y, a los 5 s, `SIGKILL`. Tras cancelar no
+se corre el criterio ni hay informe: se suelta el semáforo y el diario apunta
+`bus_cancelado_en_curso`. **Lo que el agente ya escribió en el worktree no se
+deshace.** Mientras el semáforo siga cogido, la web muestra el trabajo como
+«cancelando…» (`cancelando: true` en `GET /api/trabajos`).
+
 ### Seguridad
 
 Qwen Code corre dentro de **bubblewrap** (`bwrap`): sistema de ficheros de solo
