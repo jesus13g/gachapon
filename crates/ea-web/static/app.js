@@ -73,6 +73,12 @@ const st = {
   dHasta: null,        // AAAA-MM-DD (incluido)
   dTrabajo: null,
   dFechas: false,      // se eligió «fechas…» en el rango (aún sin fecha)
+  // «↓ más antiguos»: ver fundeDiario().
+  dLista: null,        // lo cargado del diario, sin el filtro de proyecto
+  dMas: false,         // hay páginas antiguas cargadas además de la primera
+  dFin: false,         // no quedan eventos más antiguos
+  dFirma: '',          // los filtros con los que se cargó dLista
+  dCargando: false,
   armado: null,       // { n, hasta }: reinicio de servicio pendiente de confirmar
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
@@ -1448,7 +1454,7 @@ function construir() {
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
     case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
-    case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
+    case 'diario': return d ? [...con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)), ...pieDiario(d)] : [];
     case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
       ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d))] : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
@@ -1485,6 +1491,63 @@ function ventanaDiario() {
   else if (v && FECHA.test(v)) desde = dia(v);
   if (st.dHasta) hasta = new Date(dia(st.dHasta, 1) - 1);
   return { desde: desde?.toISOString() ?? null, hasta: hasta?.toISOString() ?? null };
+}
+
+// Paginación «↓ más antiguos» (spec 010). El sondeo solo pide la primera
+// página; si ya se cargaron otras, la funde con ellas por id (sin duplicar).
+// Unos filtros nuevos, o un hueco entre la primera página y lo cargado (más
+// eventos nuevos que el límite, p. ej. con la pestaña oculta), vuelven a
+// empezar por la primera página.
+const ordenDiario = (a, b) => (ms(b.ts) - ms(a.ts)) || (b.id - a.id);
+const firmaDiario = () => JSON.stringify([st.dActor, st.dResultado, st.dAccion, st.dTrabajo, st.dDesde, st.dHasta, st.latidos]);
+const limiteDiario = () => st.diarioLimite ?? 300;
+const filtrosDiario = () => ({
+  limite: limiteDiario(), latidos: st.latidos,
+  actor: st.dActor, resultado: st.dResultado, accion: st.dAccion, trabajo: st.dTrabajo, ...ventanaDiario(),
+});
+
+// `L`: el límite con el que se pidió `primera` (los ajustes pueden llegar a medias).
+function fundeDiario(primera, L) {
+  const firma = firmaDiario(), prev = st.dLista, ult = primera[primera.length - 1];
+  const enlaza = st.dMas && prev?.length && (primera.length < L || ordenDiario(ult, prev[0]) >= 0);
+  if (firma !== st.dFirma || !enlaza) {
+    st.dFirma = firma;
+    st.dMas = false;
+    st.dFin = primera.length < L;
+    st.dLista = primera;
+  } else {
+    const ids = new Set(primera.map(e => e.id));
+    st.dLista = [...primera, ...prev.filter(e => !ids.has(e.id))].sort(ordenDiario);
+  }
+  return st.dLista;
+}
+
+// Pide la página anterior al evento más antiguo cargado, con los mismos filtros.
+async function masDiario() {
+  const lista = st.dLista ?? [], ult = lista[lista.length - 1];
+  if (!ult || st.dFin || st.dCargando) return;
+  const firma = st.dFirma, filtros = filtrosDiario();
+  st.dCargando = true;
+  st.html = '';
+  pintar();
+  try {
+    const mas = await ea.diario({ ...filtros, antes_de: ult.id });
+    if (firma !== st.dFirma) return; // cambiaron los filtros mientras tanto
+    const ids = new Set();
+    st.dLista = [...(st.dLista ?? []), ...lista, ...mas].filter(e => !ids.has(e.id) && ids.add(e.id)).sort(ordenDiario);
+    st.dMas = true;
+    st.dFin = mas.length < filtros.limite;
+  } finally {
+    st.dCargando = false;
+  }
+}
+
+// El pie de la lista: el botón de la página siguiente, mientras quede algo.
+function pieDiario(d) {
+  if (st.dFin || !st.dLista?.length) return [];
+  const nada = d.length ? '' : '<span class="m">nada de este proyecto en lo cargado</span>';
+  return [suelto(`<div class="mas">${nada}${btn('d-mas', st.dCargando ? '… cargando' : '↓ más antiguos',
+    'cargar los eventos anteriores, con los mismos filtros', {}, 'c')}</div>`, true)];
 }
 
 function barraDiario() {
@@ -1729,10 +1792,8 @@ async function cargaSeccion() {
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await ea.acciones();
   else if (sec === 'diario') {
-    datos = await ea.diario({
-      limite: st.diarioLimite ?? 300, latidos: st.latidos,
-      actor: st.dActor, resultado: st.dResultado, accion: st.dAccion, trabajo: st.dTrabajo, ...ventanaDiario(),
-    });
+    const filtros = filtrosDiario();
+    datos = fundeDiario(await ea.diario(filtros), filtros.limite);
   }
   else if (sec === 'ajustes') {
     datos = await ea.ajustes();
@@ -2124,6 +2185,8 @@ async function accion(b) {
       st.dResultado = st.dResultado === v ? null : v;
     } else if (a === 'd-trabajo') {
       st.dTrabajo = null;
+    } else if (a === 'd-mas') {
+      await masDiario();
     } else if (a === 'prop') {
       st.propTodas = v === '1';
     }

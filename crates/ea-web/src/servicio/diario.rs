@@ -18,6 +18,9 @@ pub struct Filtro {
     pub accion: Option<String>,
     /// Incluir los heartbeats del orquestador (por defecto se omiten).
     pub latidos: bool,
+    /// Cursor «cargar más»: el id del último evento ya cargado; se devuelven
+    /// los anteriores a él con los mismos filtros.
+    pub antes_de: Option<String>,
     pub limite: Option<i64>,
 }
 
@@ -34,6 +37,17 @@ pub async fn listar(s: &AppState, f: Filtro) -> Resultado<Vec<EventoVista>> {
     {
         return Err(ErrorWeb::Invalido(format!("acción no válida: «{a}» (solo [a-z_])")));
     }
+    let before_id = f
+        .antes_de
+        .as_deref()
+        .filter(|a| !a.is_empty())
+        .map(|a| {
+            a.parse::<i64>()
+                .ok()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| ErrorWeb::Invalido(format!("antes_de no válido: «{a}» (un id de evento)")))
+        })
+        .transpose()?;
     let filter = EventFilter {
         trabajo: f.trabajo.filter(|t| !t.is_empty()),
         actor: f.actor.filter(|a| !a.is_empty()),
@@ -42,6 +56,7 @@ pub async fn listar(s: &AppState, f: Filtro) -> Resultado<Vec<EventoVista>> {
         exclude_action: (!f.latidos).then(|| "heartbeat".to_string()),
         outcome,
         action_prefix: accion,
+        before_id,
         limit: Some(limite(f.limite, 200, 1000)),
     };
     let store = s.store.lock().await;

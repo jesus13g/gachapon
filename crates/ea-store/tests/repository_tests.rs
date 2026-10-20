@@ -102,6 +102,47 @@ fn filtra_por_resultado_y_prefijo_de_accion() {
 }
 
 #[test]
+fn el_cursor_before_id_pagina_sin_huecos_ni_repetidos() {
+    let store = open_test_store();
+    // 7 eventos `bus_` intercalados con otros que el filtro descarta.
+    for i in 0..7 {
+        store.append_event(evento("usuario", "bus_crear", Some(&format!("m-{i}")))).unwrap();
+        store.append_event(evento("usuario", "propuesta_decidida", None)).unwrap();
+    }
+    let filtro = |antes: Option<i64>| EventFilter {
+        action_prefix: Some("bus_".into()),
+        before_id: antes,
+        limit: Some(3),
+        ..Default::default()
+    };
+
+    let mut vistos: Vec<i64> = Vec::new();
+    let mut antes = None;
+    let mut paginas = 0;
+    loop {
+        let pagina = store.list_events(&filtro(antes)).unwrap();
+        if pagina.is_empty() {
+            break;
+        }
+        paginas += 1;
+        if paginas == 2 {
+            // Un evento nuevo entre página y página no se cuela ni desplaza.
+            store.append_event(evento("usuario", "bus_crear", Some("m-nuevo"))).unwrap();
+        }
+        assert!(pagina.iter().all(|e| e.action == "bus_crear"));
+        vistos.extend(pagina.iter().map(|e| e.id));
+        antes = pagina.last().map(|e| e.id);
+    }
+    assert_eq!(paginas, 3, "3 + 3 + 1");
+    let mut ordenados = vistos.clone();
+    ordenados.sort_unstable_by(|a, b| b.cmp(a));
+    ordenados.dedup();
+    assert_eq!(vistos, ordenados, "de más reciente a más antiguo, sin repetidos");
+    assert_eq!(vistos.len(), 7);
+    assert!(store.list_events(&filtro(Some(9_999))).unwrap().is_empty(), "id inexistente: nada");
+}
+
+#[test]
 fn el_diario_es_append_only_a_nivel_de_motor() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("diario.db");

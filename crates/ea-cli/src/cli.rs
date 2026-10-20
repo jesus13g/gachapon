@@ -192,6 +192,10 @@ pub enum DiarioAccion {
         /// eventos (`bus_`, `mcp_`, `propuesta_`…); solo `[a-z_]`
         #[arg(long, value_parser = prefijo_de_accion)]
         accion: Option<String>,
+        /// Página siguiente: solo los eventos anteriores al de este id (el
+        /// último de la página ya vista), con los mismos filtros
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
+        antes_de: Option<i64>,
         #[arg(long, default_value_t = 20)]
         limite: i64,
     },
