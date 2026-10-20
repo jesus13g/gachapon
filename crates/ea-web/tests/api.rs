@@ -1217,6 +1217,43 @@ async fn la_consola_valida_y_no_ejecuta_irreversibles() {
 }
 
 #[tokio::test]
+async fn el_catalogo_guia_los_formularios_con_sugerencias_y_estados() {
+    let f = montar();
+    let propia = nota(&f, "claude-code", "Plan de la semana", "Repasar el backlog.");
+    let ajena = nota(&f, "modelo-local", "Receta de lentejas", "Lentejas con chorizo.");
+    let promovida = nota(&f, "modelo-local", "Hallazgo", "Ya compartido.");
+    let (s, _) = post(&f, "/api/boveda/promover", json!({ "ruta": promovida })).await;
+    assert_eq!(s, StatusCode::OK);
+
+    let (s, cat) = get(&f, "/api/acciones").await;
+    assert_eq!(s, StatusCode::OK);
+    let campo = |h: &str, c: &str| {
+        let h = cat.as_array().unwrap().iter().find(|x| x["nombre"] == h).unwrap();
+        h["campos"].as_array().unwrap().iter().find(|x| x["nombre"] == c).unwrap().clone()
+    };
+
+    // La ruta de promover: las notas de los agentes que aún no se han promovido.
+    let ruta = campo("ea_promover_nota", "ruta");
+    let sug: Vec<&str> = ruta["sugerencias"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(sug.contains(&propia.as_str()) && sug.contains(&ajena.as_str()), "{sug:?}");
+    assert!(!sug.contains(&promovida.as_str()), "una promovida no se vuelve a promover");
+    assert!(sug.iter().all(|r| !r.starts_with("compartida/")));
+    assert_eq!(ruta["opciones"], json!([]), "sigue siendo un campo libre");
+    assert_eq!(campo("ea_promover_nota", "destino")["sugerencias"], json!([]));
+
+    // El servicio: el estado de cada uno junto a la opción (sin systemctl, desconocido).
+    let srv = campo("ea_reiniciar_servicio", "servicio");
+    for o in srv["opciones"].as_array().unwrap() {
+        let o = o.as_str().unwrap();
+        assert_eq!(srv["estados"][o], if o == "ea-web" { "active" } else { "desconocido" }, "{o}");
+    }
+
+    // El slug: las rutinas registradas.
+    assert_eq!(campo("ea_eliminar_rutina", "slug")["opciones"], json!(["revision-diaria"]));
+    assert_eq!(campo("ea_encolar_rutina", "slug")["estados"], json!({}));
+}
+
+#[tokio::test]
 async fn las_sesiones_de_claude_code_solo_cuentan_si_el_proceso_vive() {
     let f = montar();
     let dir = f._dir.path().join("sesiones");

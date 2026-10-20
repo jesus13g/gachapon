@@ -338,6 +338,13 @@ pub struct CampoVista {
     pub largo: bool,
     pub obligatorio: bool,
     pub opciones: Vec<String>,
+    /// Valores conocidos para un campo libre (la consola los ofrece en un
+    /// `<datalist>`; se puede escribir otro): las notas que se pueden
+    /// promover para `ruta`. Vacío si no hay nada que sugerir.
+    pub sugerencias: Vec<String>,
+    /// Lo que se sabe ahora de cada opción, por su valor: el estado de cada
+    /// servicio para `servicio`. Solo informativo; no cambia el dominio.
+    pub estados: BTreeMap<String, String>,
     pub ayuda: &'static str,
 }
 
