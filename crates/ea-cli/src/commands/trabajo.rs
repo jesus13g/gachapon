@@ -52,7 +52,6 @@ pub fn crear(
             creada_por: por,
         }
     };
-    super::qwen_skills::validar_orden(&orden)?;
     println!("{}", bus()?.crear_trabajo(orden)?);
     Ok(())
 }

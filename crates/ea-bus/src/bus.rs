@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use crate::config::ConfigOrquestador;
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::{escribir_json, fnv};
 use crate::rutina::Rutina;
+use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
     transicion, Agente, Estado, EstadoTrabajo, Evento, Informe, Modo, Orden, ResultadoInforme,
 };
@@ -67,6 +69,9 @@ pub struct Bus {
     raiz: PathBuf,
     store: Option<Store>,
     actor: String,
+    /// Configuración de skills con la que se validan las órdenes al crear.
+    /// `None`: la de los ajustes efectivos, leída solo si la orden pide skills.
+    skills: Option<ConfigSkills>,
 }
 
 impl Bus {
@@ -79,7 +84,7 @@ impl Bus {
         for d in ["colas/modelo-local", "colas/claude-code", "trabajos", "semaforos"] {
             fs::create_dir_all(raiz.join(d))?;
         }
-        Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: "orquestador".into() })
+        Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: "orquestador".into(), skills: None })
     }
 
     /// Con historial y diario en SQLite.
@@ -91,6 +96,13 @@ impl Bus {
     /// Actor con el que se registran los eventos del diario.
     pub fn con_actor(mut self, actor: &str) -> Self {
         self.actor = actor.into();
+        self
+    }
+
+    /// Valida las skills de las órdenes con esta configuración en vez de con
+    /// la de los ajustes (pruebas o un llamador que ya la tiene cargada).
+    pub fn con_skills(mut self, skills: ConfigSkills) -> Self {
+        self.skills = Some(skills);
         self
     }
 
@@ -112,9 +124,17 @@ impl Bus {
     // --- trabajos ----------------------------------------------------------
 
     /// Escribe `orden.json` y `estado.json` y encola en `modelo-local`. Si la
-    /// orden trae el id vacío se le asigna uno nuevo.
+    /// orden trae el id vacío se le asigna uno nuevo. Antes de escribir nada
+    /// valida los criterios y las skills (llave, existencia y topes), de modo
+    /// que cualquier punto de entrada (CLI, ea-web, rutinas) lo hereda.
     pub fn crear_trabajo(&self, mut orden: Orden) -> Resultado<String> {
         validar_criterios(&orden)?;
+        if pide_skills(&orden) {
+            match &self.skills {
+                Some(cfg) => cfg.validar_orden(&orden)?,
+                None => ConfigOrquestador::cargar().skills.validar_orden(&orden)?,
+            }
+        }
         if orden.id.is_empty() {
             orden.id = nuevo_id();
         }

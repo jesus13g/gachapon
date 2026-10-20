@@ -256,6 +256,10 @@ puede elegir y quién:
   `claude-code`). Un trabajo con skills de otro origen se rechaza al crearlo y
   vuelve a validarse al ejecutarse: si no pasa, se bloquea sin llamar a Qwen.
 
+La validación al crear (llave, existencia, habilitación y topes, en la orden y
+en cada fase) la hace `Bus::crear_trabajo`, así que la heredan todos los puntos
+de entrada (CLI, ea-web, rutinas) y una orden rechazada no deja nada en el bus.
+
 ```bash
 ln -sfn "$PWD/qwen/skills" ~/.config/ecosistema-asistente/qwen-skills
 ea qwen-skills listar              # catálogo, tamaños y descripciones

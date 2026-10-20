@@ -368,7 +368,7 @@ fn bucle(
     let dir = bus.raiz().join("trabajos").join(id);
     let sistema = match config.skills.resolver(&orden.creada_por, skills) {
         Ok(s) => ea_bus::bloque_prompt(&s),
-        Err(e) => return Bucle { pasa: false, evidencia: e.to_string(), motivo: Some(format!("skills: {e}")) },
+        Err(e) => return Bucle { pasa: false, evidencia: e.to_string(), motivo: Some(e.to_string()) },
     };
     if !sistema.is_empty() {
         let _ = std::fs::write(dir.join("skills-qwen.md"), &sistema);
@@ -750,7 +750,7 @@ mod tests {
         let e = tempfile::tempdir().unwrap();
         let sk = tempfile::tempdir().unwrap();
         let cfg = config_con_skills(sk.path());
-        let bus = Bus::abrir_en(e.path()).unwrap();
+        let bus = Bus::abrir_en(e.path()).unwrap().con_skills(cfg.skills.clone());
         let o = Orden { skills: vec!["rust".into()], creada_por: "claude-code".into(), ..orden(wt.path(), "test -f ok.txt") };
         let id = bus.crear_trabajo(o).unwrap();
         let ag = doble("echo hola > ok.txt", 0);
@@ -769,7 +769,11 @@ mod tests {
         let e = tempfile::tempdir().unwrap();
         let sk = tempfile::tempdir().unwrap();
         let cfg = config_con_skills(sk.path());
-        let bus = Bus::abrir_en(e.path()).unwrap();
+        // Al crear, "test" aún tenía la llave; luego los ajustes cambian y el
+        // ejecutor vuelve a validar con los de ahora.
+        let mut al_crear = cfg.skills.clone();
+        al_crear.pueden_elegir.push("test".into());
+        let bus = Bus::abrir_en(e.path()).unwrap().con_skills(al_crear);
         let o = Orden { skills: vec!["rust".into()], ..orden(wt.path(), "test -f ok.txt") };
         let id = bus.crear_trabajo(o).unwrap();
         let ag = doble("echo hola > ok.txt", 0);
@@ -786,7 +790,7 @@ mod tests {
         let e = tempfile::tempdir().unwrap();
         let sk = tempfile::tempdir().unwrap();
         let cfg = config_con_skills(sk.path());
-        let bus = Bus::abrir_en(e.path()).unwrap();
+        let bus = Bus::abrir_en(e.path()).unwrap().con_skills(cfg.skills.clone());
         let mut o = Orden { skills: vec!["rust".into()], creada_por: "claude-code".into(), ..fases3(wt.path(), None) };
         o.fases[1].skills = vec!["tests".into()];
         bus.crear_trabajo(o).unwrap();

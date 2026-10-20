@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ErrorBus, Resultado};
+use crate::tipos::Orden;
 
 /// `[agente.skills]` de los ajustes.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -82,7 +83,7 @@ impl ConfigSkills {
         if nombres.is_empty() {
             return Ok(vec![]);
         }
-        let err = |m: String| Err(ErrorBus::Argumentos(m));
+        let err = |m: String| Err(ErrorBus::Skills(m));
         if !self.pueden_elegir.iter().any(|p| p == creada_por) {
             return err(format!(
                 "{creada_por:?} no tiene la llave para elegir skills (pueden_elegir = {:?})",
@@ -110,6 +111,25 @@ impl ConfigSkills {
         }
         Ok(elegidas)
     }
+
+    /// Valida las skills de la orden y las de cada fase (llave, existencia,
+    /// habilitación y topes). Es lo que hace `Bus::crear_trabajo` al crear,
+    /// para que todos los puntos de entrada lo hereden.
+    pub fn validar_orden(&self, orden: &Orden) -> Resultado<()> {
+        self.resolver(&orden.creada_por, &orden.skills)?;
+        for f in &orden.fases {
+            self.resolver(&orden.creada_por, &f.skills).map_err(|e| match e {
+                ErrorBus::Skills(m) => ErrorBus::Skills(format!("fase {}: {m}", f.numero)),
+                otro => otro,
+            })?;
+        }
+        Ok(())
+    }
+}
+
+/// La orden pide alguna skill, en ella o en alguna de sus fases.
+pub fn pide_skills(orden: &Orden) -> bool {
+    !orden.skills.is_empty() || orden.fases.iter().any(|f| !f.skills.is_empty())
 }
 
 /// Texto que se añade al system prompt de Qwen; vacío si no hay skills.

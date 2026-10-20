@@ -16,6 +16,10 @@ pub enum ErrorBus {
     Ocupado,
     #[error("{0}")]
     Argumentos(String),
+    /// Las skills pedidas no pasan la llave, no existen, no están
+    /// habilitadas o exceden los topes de `[agente.skills]`.
+    #[error("skills: {0}")]
+    Skills(String),
 }
 
 pub type Resultado<T> = Result<T, ErrorBus>;
