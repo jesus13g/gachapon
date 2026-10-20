@@ -20,16 +20,15 @@ use crate::tipos::{
 pub const ENV_ESTADO: &str = "EA_ESTADO_DIR";
 static CONTADOR_ID: AtomicU64 = AtomicU64::new(0);
 
-/// `$EA_ESTADO_DIR` o `~/.local/state/ecosistema-asistente/`.
+/// `$EA_ESTADO_DIR`, si no `rutas.estado` de los ajustes (por defecto
+/// `~/.local/state/ecosistema-asistente/`).
 pub fn raiz_estado() -> PathBuf {
     if let Ok(v) = std::env::var(ENV_ESTADO) {
         if !v.trim().is_empty() {
             return PathBuf::from(v.trim());
         }
     }
-    directories::ProjectDirs::from("", "", "ecosistema-asistente")
-        .map(|d| d.state_dir().unwrap_or_else(|| d.data_local_dir()).to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("estado"))
+    ea_ajustes::cargar().rutas.estado
 }
 
 pub(crate) fn ahora_rfc3339() -> String {

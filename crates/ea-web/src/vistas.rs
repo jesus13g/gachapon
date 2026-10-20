@@ -359,3 +359,24 @@ pub struct Renombrado {
     /// Las otras memorias del proyecto cuyos enlaces se reescribieron.
     pub actualizadas: Vec<String>,
 }
+
+// ----------------------------------------------------------------- ajustes
+
+/// `GET /api/ajustes`: la misma forma que `ea ajustes ver --json`.
+pub use ea_ajustes::{FilaAjuste as ClaveVista, Resumen as AjustesVista, SeccionAjustes};
+
+#[derive(Serialize)]
+pub struct AjusteAplicado {
+    pub clave: &'static str,
+    pub antes: Value,
+    pub despues: Value,
+    /// `caliente` o `reinicio`.
+    pub aplica: &'static str,
+    pub reinicio: &'static [&'static str],
+}
+
+#[derive(Serialize)]
+pub struct AjustesCambiados {
+    pub aplicados: Vec<AjusteAplicado>,
+    pub ajustes: AjustesVista,
+}

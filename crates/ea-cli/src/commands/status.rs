@@ -12,7 +12,7 @@ use super::fmt_ts;
 /// contra un proceso que no responde: si no hay ninguno, dice que no hay
 /// señal, no que esté "caído".
 pub fn estado_orquestador(store: &Store) -> Result<String> {
-    let umbral_s = (ea_orchestrator::config::load().intervalo_heartbeat_s * 2) as i64;
+    let umbral_s = ea_ajustes::cargar().umbral_latido_s();
     let estado = store.estado_orquestador(umbral_s)?;
     Ok(match estado.ultimo_latido {
         None => "sin señal (ningún heartbeat registrado todavía)".to_string(),

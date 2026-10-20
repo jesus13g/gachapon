@@ -54,6 +54,19 @@ impl Default for Topes {
     }
 }
 
+impl Topes {
+    /// Recorta cada tope al del techo (el de los ajustes). Al menos una
+    /// iteración: una orden siempre llega a llamar al agente una vez.
+    pub fn acotar(self, techo: &Topes) -> Topes {
+        Topes {
+            turnos: self.turnos.min(techo.turnos),
+            tiempo_s: self.tiempo_s.min(techo.tiempo_s),
+            llamadas_herramienta: self.llamadas_herramienta.min(techo.llamadas_herramienta),
+            iteraciones: self.iteraciones.min(techo.iteraciones).max(1),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fase {
     pub numero: u32,
@@ -247,5 +260,19 @@ impl Informe {
             fases: vec![],
             diff: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Topes;
+
+    #[test]
+    fn acotar_recorta_cada_tope_al_techo() {
+        let pedidos = Topes { turnos: 500, tiempo_s: 9000, llamadas_herramienta: 20, iteraciones: 0 };
+        let techo = Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 200, iteraciones: 3 };
+        let t = pedidos.acotar(&techo);
+        assert_eq!(t, Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 20, iteraciones: 1 });
+        assert_eq!(Topes::default().acotar(&Topes::default()), Topes::default());
     }
 }

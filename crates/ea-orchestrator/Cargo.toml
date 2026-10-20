@@ -11,11 +11,10 @@ path = "src/main.rs"
 [dependencies]
 ea-store = { path = "../ea-store" }
 ea-bus = { path = "../ea-bus" }
+ea-ajustes = { path = "../ea-ajustes" }
 serde_json = "1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net"] }
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
-directories = "5.0"
 anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

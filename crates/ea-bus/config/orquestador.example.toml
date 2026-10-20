@@ -1,16 +1,27 @@
-# Copiar a ~/.config/ecosistema-asistente/orquestador.toml.
-# Todo es opcional: lo que falte toma el valor por defecto que se ve aquí.
+# HEREDADO: usa ~/.config/ecosistema-asistente/ajustes.toml
+# (plantilla en crates/ea-ajustes/config/ajustes.example.toml) o
+# `ea ajustes establecer`. Este fichero se sigue leyendo como fuente de solo
+# lectura: lo que ponga ajustes.toml (o una variable de entorno) le gana, y el
+# sistema nunca lo escribe.
+#
+# Equivalencias: modelo → modelo.nombre, base_url → modelo.base_url,
+# qwen_bin → modelo.qwen_bin, sandbox → agente.sandbox,
+# avisos_escritorio → agente.avisos_escritorio, [topes] → agente.techo_topes,
+# [skills] → agente.skills.
 
-# base_url = "http://127.0.0.1:8080/v1"
+# base_url = "http://127.0.0.1:8080/v1"     # solo 127.0.0.1, localhost o [::1]
 # modelo = "qwen3-coder-30b"
 # qwen_bin = "qwen"
+# sandbox = true
 # avisos_escritorio = true
 
+# Techo de los topes de cualquier orden: lo que pida una orden por encima se
+# recorta (máximo absoluto 100 / 3600 / 200 / 10).
 # [topes]
-# turnos = 30
-# tiempo_s = 900
-# llamadas_herramienta = 60
-# iteraciones = 5
+# turnos = 100
+# tiempo_s = 3600
+# llamadas_herramienta = 200
+# iteraciones = 10
 
 # Skills propias de Qwen (`qwen/skills/` del repo, enlazado aquí). Ninguna va
 # activa por defecto: cada trabajo lleva solo las que elija quien tenga la

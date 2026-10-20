@@ -70,6 +70,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/memoria/{proyecto}/{fichero}/renombrar", post(memoria_renombrar))
         .route("/api/memoria/{proyecto}/{fichero}/mostrar", post(memoria_mostrar))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
+        .route("/api/ajustes", get(ajustes_ver).post(ajustes_cambiar))
         .layer(middleware::from_fn(guardia))
         .with_state(state)
 }

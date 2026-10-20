@@ -66,5 +66,9 @@ const ea = (() => {
     mostrarMemoria: (proyecto, fichero) => post(`/api/memoria/${c(proyecto)}/${c(fichero)}/mostrar`),
 
     reiniciar: servicio => post(`/api/servicios/${c(servicio)}/reiniciar`),
+
+    // Los ajustes (ajustes.toml). `cambios`: clave -> valor; null la quita.
+    ajustes: () => api('/api/ajustes'),
+    cambiarAjustes: (version, cambios) => post('/api/ajustes', { version, cambios }),
   };
 })();

@@ -4,9 +4,9 @@
 //! actuar decide propuestas y gestiona trabajos — y nunca habla con Claude Code ni con el
 //! modelo local (solo mira qué sesiones de Claude Code hay abiertas). Las únicas
 //! rutas que salen de la base de datos son el reinicio de servicios, la
-//! memoria de Claude Code y el editor de la bóveda (este, siempre a través
-//! de `ea-boveda`, su único escritor), que el usuario edita a mano desde la
-//! página.
+//! memoria de Claude Code, el editor de la bóveda (este, siempre a través
+//! de `ea-boveda`, su único escritor) y los ajustes (`ajustes.toml`, a través
+//! de `ea-ajustes`), que el usuario edita a mano desde la página.
 
 use std::path::PathBuf;
 
@@ -24,9 +24,6 @@ pub mod vistas;
 
 /// Nombre histórico de la capa HTTP (`ea_web::api::router`).
 pub use http as api;
-
-const DEFAULT_PORT: u16 = 8092;
-const ENV_PORT: &str = "EA_WEB_PORT";
 
 pub struct WebConfig {
     pub puerto: u16,
@@ -52,30 +49,36 @@ pub struct WebConfig {
     pub proyectos_claude_dir: Option<PathBuf>,
     /// Raíz de estado del bus de trabajos (colas, trabajos, semáforos).
     pub estado_dir: PathBuf,
+    /// De dónde se leen (en cada petición) y adónde se escriben los ajustes.
+    pub ajustes: ea_ajustes::Fuentes,
 }
 
 impl WebConfig {
     pub fn load() -> Self {
-        let orquestador = ea_orchestrator::config::load();
+        let fuentes = ea_ajustes::Fuentes::sistema();
+        let efectivos = ea_ajustes::cargar_de(&fuentes);
+        for aviso in &efectivos.avisos {
+            tracing::warn!(%aviso, "ajustes");
+        }
+        let a = efectivos.ajustes;
         let tema_path = directories::BaseDirs::new()
             .and_then(|d| d.state_dir().map(|s| s.to_path_buf()))
             .unwrap_or_default()
             .join("omarchy/current/theme/colors.toml");
         Self {
-            puerto: std::env::var(ENV_PORT)
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(DEFAULT_PORT),
-            umbral_heartbeat_s: (orquestador.intervalo_heartbeat_s * 2) as i64,
+            // `red.puerto_web` (`EA_WEB_PORT` le gana); el host, siempre 127.0.0.1.
+            puerto: a.red.puerto_web,
+            umbral_heartbeat_s: a.umbral_latido_s(),
             tema_path,
-            rutinas_dir: orquestador.rutinas_dir,
-            boveda: ea_boveda::Boveda::configurada(),
+            rutinas_dir: a.orquestador.rutinas_dir.clone(),
+            boveda: ea_boveda::Boveda::en(a.rutas.boveda.clone()),
             systemctl: true,
             sesiones_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/sessions")),
-            subagentes_dir: directories::BaseDirs::new()
-                .and_then(|d| d.state_dir().map(|s| s.join("ecosistema-asistente/subagentes"))),
+            // Junto al estado del bus, como el hook (que lee EA_ESTADO_DIR).
+            subagentes_dir: Some(a.rutas.estado.join("subagentes")),
             proyectos_claude_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/projects")),
-            estado_dir: ea_bus::raiz_estado(),
+            estado_dir: a.rutas.estado,
+            ajustes: fuentes,
         }
     }
 }
@@ -89,6 +92,8 @@ pub struct AppState {
     pub acciones: Mutex<Store>,
     pub boveda: ea_boveda::Boveda,
     pub config: WebConfig,
+    /// Serializa las escrituras de `ajustes.toml` desde la página.
+    pub ajustes_escritura: Mutex<()>,
 }
 
 impl AppState {
@@ -98,6 +103,7 @@ impl AppState {
             store: Mutex::new(store),
             boveda: config.boveda.clone(),
             config,
+            ajustes_escritura: Mutex::new(()),
         })
     }
 }

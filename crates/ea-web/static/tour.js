@@ -7,7 +7,7 @@
 const tour = (() => {
   const NOMBRES = {
     inicio: 'Inicio', trabajos: 'Trabajos', diario: 'Diario', rutinas: 'Rutinas',
-    propuestas: 'Propuestas', acciones: 'Acciones', sistema: 'Sistema', boveda: 'Bóveda', memoria: 'Memoria',
+    propuestas: 'Propuestas', acciones: 'Acciones', sistema: 'Sistema', boveda: 'Bóveda', memoria: 'Memoria', ajustes: 'Ajustes',
   };
 
   // Cada paso: sección (opcional), anclas candidatas (la primera visible gana),
@@ -16,7 +16,7 @@ const tour = (() => {
     { titulo: 'Bienvenido a ea',
       texto: 'Este recorrido enseña cada vista en un par de minutos. <b>→</b> avanza, <b>←</b> vuelve, <b>Esc</b> sale. Solo mira: no lanza, cierra ni decide nada.' },
     { sec: 'inicio', ancla: ['#rail'], titulo: 'Las secciones',
-      texto: 'Cada símbolo es una vista; las teclas <b>1 – 9</b> también llevan a ellas. Las pegatinas cuentan lo que espera: azul si espera a Claude Code, roja si te espera a ti.' },
+      texto: 'Cada símbolo es una vista; las teclas <b>1 – 9</b> y <b>0</b> también llevan a ellas. Las pegatinas cuentan lo que espera: azul si espera a Claude Code, roja si te espera a ti.' },
     { sec: 'inicio', ancla: ['#cabecera .cab-izq'], titulo: 'La salud del sistema',
       texto: 'Un punto por servicio: verde en marcha, rojo caído. El engranaje es el orquestador: gira mientras late y se pone rojo si deja de latir.' },
     { sec: 'inicio', ancla: ['#btema, #bayuda'], titulo: 'Tema y ayuda',
@@ -59,10 +59,12 @@ const tour = (() => {
       texto: 'Lo que Claude Code recuerda de cada proyecto: una carpeta por proyecto y, dentro, una nota por memoria; <b>≡</b> es el índice. Pulsa una para abrirla (o <b>j / k</b>); pulsa la carpeta para plegarla.' },
     { sec: 'memoria', ancla: ['#filas .nota-cab', '#lista'], titulo: 'Leer, editar y más',
       texto: '<b>✎</b> (o <b>Ctrl+E</b>) alterna lectura y edición sin perder el borrador; <b>Ctrl+S</b> guarda, y si la memoria cambió en disco avisa antes de pisarla. <b>⋯</b> renombra (y pone al día los enlaces), copia la ruta, la muestra en el explorador o la elimina para siempre.' },
+    { sec: 'ajustes', ancla: ['#lista .f', '#lista'], titulo: 'Ajustes',
+      texto: 'Cómo se comporta el ecosistema y de dónde sale cada valor. <b>◐</b> se cambia aquí (segundo clic para confirmar; los topes solo bajan), <b>⌨</b> solo en una terminal con <b>ea ajustes</b> y <b>⊘</b> lo fija una variable de entorno.' },
     { ancla: ['#proyectos:not(.plegada)', '#proyectos', '#bproy'], titulo: 'Proyectos',
       texto: 'Las sesiones de Claude Code abiertas, agrupadas por proyecto, con sus trabajos activos. Pulsa un proyecto para ver solo lo suyo en toda la web; <b>p</b> pliega o despliega la barra.' },
     { titulo: 'Eso es todo',
-      texto: 'Atajos: <b>1 – 9</b> secciones, <b>/</b> filtrar, <b>j / k</b> moverse, <b>Enter</b> abrir, <b>Esc</b> cerrar, <b>?</b> la chuleta y <b>t</b> este recorrido.' },
+      texto: 'Atajos: <b>1 – 9, 0</b> secciones, <b>/</b> filtrar, <b>j / k</b> moverse, <b>Enter</b> abrir, <b>Esc</b> cerrar, <b>?</b> la chuleta y <b>t</b> este recorrido.' },
   ];
 
   const M = 12;          // margen del globo con la ventana y con el ancla

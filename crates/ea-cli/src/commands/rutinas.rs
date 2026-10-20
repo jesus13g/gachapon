@@ -6,7 +6,7 @@ use ea_store::Store;
 
 
 fn rutinas_dir() -> PathBuf {
-    ea_orchestrator::config::load().rutinas_dir
+    ea_ajustes::cargar().orquestador.rutinas_dir
 }
 
 /// Próxima ejecución programada según `systemd --user`, si el timer de la

@@ -14,7 +14,8 @@
 //! ```
 //!
 //! Qué skills hay disponibles, cuántas caben y quién puede elegirlas lo
-//! define el usuario en la sección `[skills]` de `orquestador.toml`.
+//! define el usuario en `[agente.skills]` de `ajustes.toml` (o en la sección
+//! heredada `[skills]` de `orquestador.toml`).
 
 use std::path::{Path, PathBuf};
 
@@ -22,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{ErrorBus, Resultado};
 
-/// Sección `[skills]` de `orquestador.toml`.
+/// `[agente.skills]` de los ajustes.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct ConfigSkills {
@@ -61,11 +62,9 @@ pub struct Skill {
 impl ConfigSkills {
     pub fn ruta_catalogo(&self) -> PathBuf {
         if !self.dir.is_empty() {
-            return expandir_home(&self.dir);
+            return ea_ajustes::expandir_tilde(&self.dir);
         }
-        directories::ProjectDirs::from("", "", "ecosistema-asistente")
-            .map(|d| d.config_dir().join("qwen-skills"))
-            .unwrap_or_else(|| PathBuf::from("qwen-skills"))
+        ea_ajustes::Fuentes::sistema().dir_config.join("qwen-skills")
     }
 
     fn habilitada(&self, nombre: &str) -> bool {
@@ -161,13 +160,6 @@ fn partir(texto: &str) -> (String, String) {
         .map(|d| d.trim().to_string())
         .unwrap_or_default();
     (descripcion, cuerpo.trim().to_string())
-}
-
-fn expandir_home(ruta: &str) -> PathBuf {
-    match ruta.strip_prefix("~/") {
-        Some(r) => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(r),
-        None => PathBuf::from(ruta),
-    }
 }
 
 #[cfg(test)]

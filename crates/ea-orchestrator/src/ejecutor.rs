@@ -17,8 +17,8 @@
 //! worktree, `/tmp` propio y `~/.qwen`; la red queda abierta para llegar a
 //! llama-server). Con `sandbox = false` el agente corre con
 //! `--approval-mode yolo`: puede escribir y ejecutar en cualquier sitio donde
-//! escriba el usuario. Se limita además con los topes de la orden, el
-//! aislamiento por worktree y `--exclude-tools` para las herramientas web.
+//! escriba el usuario. Se limita además con los topes de la orden (recortados
+//! al techo de los ajustes, `agente.techo_topes`), el aislamiento por worktree y `--exclude-tools` para las herramientas web.
 //! También se excluyen las de objetivos y notebooks: no le sirven y cada
 //! herramienta declarada cuesta tokens en todos los turnos (~900 entre las
 //! tres, medido con `bench/skills`).
@@ -233,13 +233,19 @@ fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn A
             return None;
         }
     };
-    let orden = match bus.leer_orden(&id) {
+    let mut orden = match bus.leer_orden(&id) {
         Ok(o) => o,
         Err(e) => {
             tracing::warn!(%id, error = %e, "orden ilegible; se descarta la entrada");
             return Some(id);
         }
     };
+    // Ninguna orden pasa del techo de los ajustes, la escriba quien la escriba.
+    let acotados = orden.topes.acotar(&config.techo_topes);
+    if acotados != orden.topes {
+        tracing::warn!(%id, pedidos = ?orden.topes, techo = ?config.techo_topes, "topes acotados al techo de los ajustes");
+        orden.topes = acotados;
+    }
     let wt = Path::new(&orden.worktree);
 
     // Candado antes de pasar a Ejecutando: si está ocupado, el trabajo sigue
@@ -597,17 +603,19 @@ mod tests {
         codigo: i32,
         visto: Mutex<Vec<String>>,
         sistemas: Mutex<Vec<String>>,
+        topes: Mutex<Vec<Topes>>,
     }
     impl AgenteLocal for Doble {
-        fn ejecutar(&self, prompt: &str, sistema: &str, wt: &Path, _: &Topes, _: &ConfigOrquestador) -> SalidaAgente {
+        fn ejecutar(&self, prompt: &str, sistema: &str, wt: &Path, topes: &Topes, _: &ConfigOrquestador) -> SalidaAgente {
             self.visto.lock().unwrap().push(prompt.to_string());
+            self.topes.lock().unwrap().push(*topes);
             self.sistemas.lock().unwrap().push(sistema.to_string());
             let _ = Command::new("sh").arg("-c").arg(self.script).current_dir(wt).status();
             SalidaAgente { codigo: Some(self.codigo), bruta: "[]".into(), resumen: "hecho".into() }
         }
     }
     fn doble(script: &'static str, codigo: i32) -> Doble {
-        Doble { script, codigo, visto: Mutex::new(vec![]), sistemas: Mutex::new(vec![]) }
+        Doble { script, codigo, visto: Mutex::new(vec![]), sistemas: Mutex::new(vec![]), topes: Mutex::new(vec![]) }
     }
 
     fn repo() -> tempfile::TempDir {
@@ -707,6 +715,25 @@ mod tests {
         assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap()[0].trabajo, id);
         assert!(e.path().join("trabajos").join(&id).join("salida-qwen.json").exists());
         assert_eq!(ejecutar_uno(&bus, &config(), &ag), None);
+    }
+
+    #[test]
+    fn los_topes_de_la_orden_se_recortan_al_techo() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = Bus::abrir_en(e.path()).unwrap();
+        let topes = Topes { turnos: 500, tiempo_s: 9000, llamadas_herramienta: 20, iteraciones: 5 };
+        bus.crear_trabajo(Orden { topes, ..orden(wt.path(), "false") }).unwrap();
+        let cfg = ConfigOrquestador {
+            techo_topes: Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 200, iteraciones: 1 },
+            ..config()
+        };
+        let ag = doble("true", 0);
+        ejecutar_uno(&bus, &cfg, &ag);
+        let vistos = ag.topes.lock().unwrap();
+        // techo de iteraciones 1: una sola llamada aunque el criterio falle
+        assert_eq!(vistos.len(), 1);
+        assert_eq!(vistos[0], Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 20, iteraciones: 1 });
     }
 
     fn config_con_skills(dir: &Path) -> ConfigOrquestador {

@@ -3,7 +3,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria'];
+const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'ajustes'];
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
 const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', boveda: 'b', memoria: 'm' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
@@ -31,6 +31,7 @@ const TITULOS = {
   sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
   boveda: ['Bóveda', 'Las notas de los agentes y las tuyas, como en Obsidian. Elige una en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto. El buscador busca también dentro del contenido.'],
   memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Elige una nota en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto.'],
+  ajustes: ['Ajustes', 'Cómo se comporta el ecosistema. Lo marcado ⌨ se cambia en una terminal con `ea ajustes`.'],
 };
 const VACIO = {
   trabajos: 'No hay trabajos. Se lanzan desde Claude Code con /mision, /obra o /rutina.',
@@ -66,6 +67,10 @@ const st = {
   otra: false,         // hay que repetir el sondeo al terminar el actual
   consola: {},         // por herramienta: { v: valores, sim, res, err }
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
+  ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
+  sondeoMs: null,      // web.sondeo_ms de los ajustes (null: 3000)
+  diarioLimite: null,  // web.diario_limite de los ajustes (null: 300)
+  relojTick: null,     // el intervalo del sondeo
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -1047,6 +1052,98 @@ function filasAcciones(hs) {
     return fila('a' + h.nombre, 'a', row, `${h.nombre} ${h.resumen} ${h.riesgo}`, det, h.supervisada ? '' : ' fin');
   });
 }
+// ------------------------------------------------------------------- ajustes
+
+const ORIGEN_AJ = { defecto: () => 'por defecto', ajustes: () => 'ajustes.toml', heredado: o => 'heredado: ' + o.fichero, entorno: o => 'entorno: ' + o.variable };
+const origenAj = o => (ORIGEN_AJ[o.tipo] ?? (() => o.tipo))(o);
+// Un valor para leerlo y tal como se escribiría en la terminal.
+const valorAj = v => (Array.isArray(v) ? (v.length ? v.join(', ') : '(ninguna)') : typeof v === 'boolean' ? (v ? 'sí' : 'no') : String(v ?? ''));
+const crudoAj = v => (Array.isArray(v) ? v.join(',') : String(v ?? ''));
+const armadoAj = n => !!(st.armado && st.armado.n === n && st.armado.hasta > Date.now());
+
+function filaAjuste(c) {
+  const fijada = !!c.fijada_por;
+  const web = c.edicion === 'web' && !fijada;
+  const [glifo, tit] = fijada ? ['⊘', `la fija la variable ${c.fijada_por}`] : web ? ['◐', 'se cambia desde aquí'] : ['⌨', 'solo desde una terminal (ea ajustes)'];
+  const reinicia = c.aplica === 'reinicio';
+  const row = `<i class="${fijada ? 'n' : 'm'}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(c.clave)}">${esc(c.titulo)}</span>` +
+    `<span class="${c.origen.tipo === 'defecto' ? 'm' : 'x'}" title="${esc(valorAj(c.valor))}">${esc(valorAj(c.valor))}</span>` +
+    `<span class="m">${esc(origenAj(c.origen))}</span>` +
+    `<span class="${reinicia ? 'hot' : 'm'}" title="${reinicia ? esc('reiniciar ' + c.reinicio.join(', ')) : 'sin reiniciar nada'}">${reinicia ? 'requiere reinicio' : 'en caliente'}</span>`;
+  const rango = c.min != null ? ` · de ${c.min} a ${c.max}` : c.permitidos ? ` · solo ${c.permitidos.join(', ') || 'nada'}` : '';
+  let det = `<p class="tx">${esc(c.descripcion)}</p>` +
+    `<p class="m">${esc(c.clave)} · por defecto ${esc(valorAj(c.defecto))}${esc(rango)}${reinicia ? esc(' · al cambiarlo, reinicia ' + c.reinicio.join(', ')) : ''}</p>`;
+  if (fijada) {
+    det += `<p class="hot">La fija la variable ${esc(c.fijada_por)}: no se cambia desde ningún sitio mientras esté definida.</p>`;
+  } else if (web) {
+    const actual = st.ajBorrador[c.clave] ?? crudoAj(c.valor);
+    const attrs = `data-aj="${esc(c.clave)}" title="${esc(c.titulo)}" aria-label="${esc(c.titulo)}"`;
+    const control = c.tipo === 'booleano'
+      ? `<select ${attrs}>${[['true', 'sí'], ['false', 'no']].map(([v, t]) => `<option value="${v}"${v === actual ? ' selected' : ''}>${t}</option>`).join('')}</select>`
+      : `<input ${attrs} value="${esc(actual)}"${c.tipo === 'entero' ? ' inputmode="numeric" size="8"' : ''} spellcheck="false">`;
+    const g = armadoAj('g' + c.clave), d = armadoAj('d' + c.clave);
+    det += '<div class="fm">' + control +
+      btn('ajuste-guardar', g ? '✓ confirmar' : '✓ guardar', g ? 'confirmar el cambio' : 'guardar en ajustes.toml (pide confirmar)', { c: c.clave }, g ? 'hot' : '') +
+      (c.origen.tipo === 'ajustes'
+        ? btn('ajuste-defecto', d ? '↺ confirmar' : '↺ por defecto', d ? 'confirmar: quitarlo de ajustes.toml' : 'quitarlo de ajustes.toml: vuelve al heredado o al valor por defecto (pide confirmar)', { c: c.clave }, d ? 'hot' : '')
+        : '') + '</div>';
+    if (c.endurecible) det += `<p class="m">Desde aquí solo puede bajar; para subirlo: <b>ea ajustes establecer ${esc(c.clave)}=…</b> en una terminal.</p>`;
+  } else {
+    det += `<p class="m">Solo desde una terminal: <b>ea ajustes establecer ${esc(c.clave)}=${esc(crudoAj(c.valor))}</b>` +
+      (c.origen.tipo === 'ajustes' ? ` (o <b>ea ajustes establecer --quitar ${esc(c.clave)}</b> para volver al heredado o al valor por defecto)` : '') + '.</p>';
+  }
+  return fila('g' + c.clave, 'aj', row, `${c.clave} ${c.titulo} ${valorAj(c.valor)} ${origenAj(c.origen)}`, det);
+}
+
+function filasAjustes(d) {
+  const out = [suelto(`<p class="aj-cab m">${esc(d.fichero)}${d.existe ? '' : ' · aún no existe: todo sale de otras capas'}</p>` +
+    d.avisos.map(a => `<p class="aj-cab hot">! ${esc(a)}</p>`).join(''), true)];
+  out.push(columnas('aj', '', 'ajuste', 'valor', 'origen', 'aplica'));
+  d.secciones.forEach(s => {
+    if (!s.claves.length) return;
+    out.push(grupo('⚙', esc(s.titulo), 0), ...s.claves.map(filaAjuste));
+  });
+  return out;
+}
+
+// Lo que la página toma de los ajustes para sí misma.
+function aplicaCliente(cl) {
+  if (!cl) return;
+  const antes = st.sondeoMs;
+  st.sondeoMs = cl.sondeo_ms;
+  st.diarioLimite = cl.diario_limite;
+  if (st.relojTick && antes !== st.sondeoMs) programaSondeo();
+}
+
+function programaSondeo() {
+  clearInterval(st.relojTick);
+  st.relojTick = setInterval(tick, st.sondeoMs ?? 3000);
+}
+
+// Guarda (o quita, con `defecto`) un ajuste con la versión que se leyó.
+async function guardaAjuste(clave, defecto) {
+  const d = st.datos;
+  const c = d?.secciones?.flatMap(s => s.claves).find(x => x.clave === clave);
+  if (!c) throw new Error('ajuste desconocido');
+  let valor = null;
+  if (!defecto) {
+    const crudo = ($(`[data-aj="${CSS.escape(clave)}"]`)?.value ?? st.ajBorrador[clave] ?? crudoAj(c.valor)).trim();
+    if (c.tipo === 'booleano') valor = crudo === 'true';
+    else if (c.tipo === 'entero') {
+      if (!/^\d+$/.test(crudo)) throw new Error(`'${c.titulo}' debe ser un número`);
+      valor = Number(crudo);
+    } else if (c.tipo === 'lista') valor = crudo.split(',').map(x => x.trim()).filter(Boolean);
+    else valor = crudo;
+  }
+  const r = await ea.cambiarAjustes(d.version, { [clave]: valor });
+  delete st.ajBorrador[clave];
+  st.datos = r.ajustes;
+  aplicaCliente(r.ajustes.cliente);
+  for (const ap of r.aplicados) {
+    avisa(`✓ ${ap.clave}: ${valorAj(ap.antes)} → ${valorAj(ap.despues)}` + (ap.reinicio.length ? ` · requiere reiniciar ${ap.reinicio.join(', ')}` : ''), true);
+  }
+}
+
 const suelto = (html, fijo = false) => ({ k: null, txt: '', html, fijo });
 const grupo = (glifo, titulo, n, ayuda = '') =>
   suelto(`<h2 class="gr"><i>${glifo}</i>${titulo}${n ? `<b>${n}</b>` : ''}${ayuda ? `<span>${ayuda}</span>` : ''}</h2>`);
@@ -1168,6 +1265,7 @@ function construir() {
     case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
     case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
+    case 'ajustes': return d ? filasAjustes(d) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
   }
 }
@@ -1385,7 +1483,11 @@ async function cargaSeccion() {
     datos = { propuestas, colas, semaforos, diario, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await ea.acciones();
-  else if (sec === 'diario') datos = await ea.diario({ limite: 300, latidos: st.latidos });
+  else if (sec === 'diario') datos = await ea.diario({ limite: st.diarioLimite ?? 300, latidos: st.latidos });
+  else if (sec === 'ajustes') {
+    datos = await ea.ajustes();
+    aplicaCliente(datos.cliente);
+  }
   else if (sec === 'rutinas') datos = await ea.rutinas();
   else if (sec === 'propuestas') datos = await ea.propuestas({ pendientes: !st.propTodas });
   else if (EDITOR[sec]) {
@@ -1555,6 +1657,22 @@ async function accion(b) {
         setTimeout(pintar, 3100);
         return;
       }
+    } else if (a === 'ajuste-guardar' || a === 'ajuste-defecto') {
+      // Segundo clic para confirmar, como reiniciar un servicio.
+      const n = (a === 'ajuste-guardar' ? 'g' : 'd') + b.dataset.c;
+      if (!armadoAj(n)) {
+        if (a === 'ajuste-guardar') {
+          const el = $(`[data-aj="${CSS.escape(b.dataset.c)}"]`);
+          if (el) st.ajBorrador[b.dataset.c] = el.value;
+        }
+        st.armado = { n, hasta: Date.now() + 3000 };
+        st.html = '';
+        pintar();
+        setTimeout(() => { st.html = ''; pintar(); }, 3100);
+        return;
+      }
+      st.armado = null;
+      await guardaAjuste(b.dataset.c, a === 'ajuste-defecto');
     } else if (a === 'ir-trabajo') {
       st.filtroEstado = null;
       abre('trabajos', 'j' + id);
@@ -1767,6 +1885,9 @@ document.addEventListener('click', ev => {
 // La consola de acciones guarda lo escrito en el estado (la lista se repinta
 // entera) y da por caducada la simulación en cuanto cambia un argumento.
 $('#lista').addEventListener('input', ev => {
+  // Lo escrito en un ajuste sobrevive al repintado del sondeo.
+  const aj = ev.target.closest('[data-aj]');
+  if (aj) { st.ajBorrador[aj.dataset.aj] = aj.value; return; }
   // El borrador de una nota vive en el estado: el sondeo no lo pierde. No se
   // repinta al teclear; solo se actualiza el indicador «sin guardar».
   const ta = ev.target.closest('textarea[data-ed]');
@@ -1859,6 +1980,13 @@ document.addEventListener('keydown', ev => {
       return;
     }
   }
+  if (ev.key === 'Enter' && t.matches('input[data-aj]')) {
+    ev.preventDefault();
+    const b = $(`button[data-a="ajuste-guardar"][data-c="${CSS.escape(t.dataset.aj)}"]`);
+    t.blur();
+    if (b) accion(b);
+    return;
+  }
   if (ev.key === 'Enter' && t.matches('input[data-campo]')) {
     ev.preventDefault();
     accion({ dataset: { a: 'simular', h: t.dataset.h } });
@@ -1867,8 +1995,9 @@ document.addEventListener('keydown', ev => {
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('trabajos', 'j' + t.dataset.pt); return; }
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('#lista [data-k]')) { ev.preventDefault(); st.sel = t.dataset.k; alterna(t.dataset.k); return; }
+  if (ev.key === '0') { ir('ajustes'); return; }
   const n = Number(ev.key);
-  if (n >= 1 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
+  if (n >= 1 && n <= 9 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
   if (ev.key === 'p') proyectos(true);
   else if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
   else if (ev.key === 't') tour.iniciar();
@@ -1913,6 +2042,7 @@ addEventListener('hashchange', () => {
   // La primera vez, el recorrido guiado.
   try { if (!localStorage.getItem('ea-tour-visto')) tour.iniciar(); } catch { /* sin almacenamiento */ }
   tick();
-  setInterval(tick, 3000);
+  // El refresco sale de los ajustes (web.sondeo_ms); sin ellos, cada 3 s.
+  ea.ajustes().then(a => aplicaCliente(a.cliente)).catch(() => {}).finally(programaSondeo);
   setInterval(relojes, 1000);
 }

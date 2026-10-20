@@ -3,7 +3,8 @@
 # existe, solo enfoca el escritorio. La clase de ventana de Chromium sale del
 # host (localhost → chrome-localhost__-Default); no usar 127.0.0.1, que ya es
 # la clase del tutor de Hyprland (regla en ~/.config/hypr/hyprland.lua).
-PORT="${EA_WEB_PORT:-8092}"
+# El puerto: EA_WEB_PORT o red.puerto_web de los ajustes (8092 si no hay `ea`).
+PORT="${EA_WEB_PORT:-$("$HOME/Proyectos/ecosistema-asistente/target/release/ea" ajustes obtener red.puerto_web 2>/dev/null || echo 8092)}"
 URL="http://localhost:${PORT}/"
 CLASS="chrome-localhost__-Default"
 WORKSPACE=4

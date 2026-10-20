@@ -232,7 +232,8 @@ impl Boveda {
         Self { raiz: raiz.into(), espera: ESPERA_POR_DEFECTO }
     }
 
-    /// Sobre la raíz configurada (`EA_BOVEDA_DIR`, `boveda.toml`, por defecto).
+    /// Sobre la raíz configurada (`rutas.boveda` de los ajustes: `EA_BOVEDA_DIR`,
+    /// `ajustes.toml`, `boveda.toml` heredado o por defecto).
     pub fn configurada() -> Self {
         Self::en(crate::config::raiz())
     }

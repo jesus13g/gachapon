@@ -169,12 +169,13 @@ fn sin_configuracion_se_usan_los_valores_por_defecto() {
     assert_eq!(c, ConfigOrquestador::default());
     assert_eq!(c.base_url, "http://127.0.0.1:8080/v1");
     assert_eq!(c.modelo, "qwen3-coder-30b");
-    assert_eq!(c.topes.turnos, 30);
+    assert_eq!(c.techo_topes.turnos, 100);
     assert!(c.avisos_escritorio);
     let p = d.path().join("o.toml");
     std::fs::write(&p, "modelo = \"otro\"\n[topes]\nturnos = 5\n").unwrap();
     let c = ConfigOrquestador::cargar_de(&p);
-    assert_eq!((c.modelo.as_str(), c.topes.turnos, c.topes.tiempo_s, c.qwen_bin.as_str()), ("otro", 5, 900, "qwen"));
+    // el `[topes]` antiguo es ahora el techo; lo que falta, el techo duro
+    assert_eq!((c.modelo.as_str(), c.techo_topes.turnos, c.techo_topes.tiempo_s, c.qwen_bin.as_str()), ("otro", 5, 3600, "qwen"));
 }
 
 #[test]
