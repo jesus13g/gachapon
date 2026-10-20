@@ -1,8 +1,8 @@
-//! `ea qwen-skills`: catálogo de skills del agente local y validación de las
-//! que elige quien crea un trabajo.
+//! `ea qwen-skills`: catálogo de skills del agente local y prueba de una
+//! selección. La validación al crear un trabajo la hace `Bus::crear_trabajo`.
 
-use anyhow::{anyhow, bail, Result};
-use ea_bus::{ConfigOrquestador, Orden};
+use anyhow::{anyhow, Result};
+use ea_bus::ConfigOrquestador;
 
 pub fn listar(json: bool) -> Result<()> {
     let cfg = ConfigOrquestador::cargar().skills;
@@ -52,17 +52,5 @@ pub fn probar(por: &str, skills: &[String]) -> Result<()> {
     let s = ConfigOrquestador::cargar().skills.resolver(por, skills)?;
     let total: usize = s.iter().map(|s| s.cuerpo.chars().count()).sum();
     println!("ok: {} skills, {total} caracteres", s.len());
-    Ok(())
-}
-
-/// Las skills de la orden y de cada fase deben pasar la llave y los topes.
-pub fn validar_orden(orden: &Orden) -> Result<()> {
-    let cfg = ConfigOrquestador::cargar().skills;
-    cfg.resolver(&orden.creada_por, &orden.skills)?;
-    for f in &orden.fases {
-        if let Err(e) = cfg.resolver(&orden.creada_por, &f.skills) {
-            bail!("fase {}: {e}", f.numero);
-        }
-    }
     Ok(())
 }

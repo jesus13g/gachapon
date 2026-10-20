@@ -4,7 +4,7 @@ use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
 use ea_bus::{
-    transicion, Agente, Bus, CandadoWorktree, ConfigOrquestador, ErrorBus, Estado, EstadoTrabajo, Evento, Fase, Informe,
+    transicion, Agente, Bus, CandadoWorktree, ConfigOrquestador, ConfigSkills, ErrorBus, Estado, EstadoTrabajo, Evento, Fase, Informe,
     Modo, Ocupante, Orden, ResultadoInforme, Topes,
 };
 use ea_store::Store;
@@ -254,6 +254,80 @@ fn el_criterio_es_obligatorio() {
     let mut o = orden(d.path());
     o.fases[0].criterio = String::new();
     assert!(bus.crear_trabajo(o).is_err());
+}
+
+/// Catálogo temporal con dos skills y una configuración que apunta a él.
+fn skills_de_prueba() -> (tempfile::TempDir, ConfigSkills) {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("rust.md"), "---\ndescripcion: Rust\n---\nUsa cargo test.\n").unwrap();
+    std::fs::write(d.path().join("tests.md"), "---\ndescripcion: tests\n---\nPrueba primero.\n").unwrap();
+    let cfg = ConfigSkills { dir: d.path().to_string_lossy().into(), ..Default::default() };
+    (d, cfg)
+}
+
+/// Un rechazo de skills no deja rastro: ni trabajo ni entrada en la cola.
+fn sin_rastro(bus: &Bus) {
+    assert!(bus.listar_trabajos().unwrap().is_empty());
+    assert!(bus.listar_cola(Agente::ModeloLocal).unwrap().is_empty());
+}
+
+#[test]
+fn crear_trabajo_rechaza_skills_sin_llave() {
+    let d = tempfile::tempdir().unwrap();
+    let (_sk, cfg) = skills_de_prueba();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_skills(cfg);
+    let mut o = orden(d.path());
+    o.creada_por = "ea-cli".into();
+    o.skills = vec!["rust".into()];
+    let e = bus.crear_trabajo(o.clone()).unwrap_err();
+    assert!(matches!(&e, ErrorBus::Skills(m) if m.contains("llave")), "{e}");
+    sin_rastro(&bus);
+    // también si la skill va en una fase
+    o.skills.clear();
+    o.fases[0].skills = vec!["rust".into()];
+    let e = bus.crear_trabajo(o.clone()).unwrap_err();
+    assert!(matches!(&e, ErrorBus::Skills(m) if m.contains("fase 1") && m.contains("llave")), "{e}");
+    sin_rastro(&bus);
+    // sin skills no hace falta llave
+    o.fases[0].skills.clear();
+    bus.crear_trabajo(o).unwrap();
+}
+
+#[test]
+fn crear_trabajo_rechaza_skills_inexistentes_o_deshabilitadas() {
+    let d = tempfile::tempdir().unwrap();
+    let (_sk, mut cfg) = skills_de_prueba();
+    cfg.habilitadas = vec!["rust".into()];
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_skills(cfg);
+    let mut o = orden(d.path());
+    o.skills = vec!["no-existe".into()];
+    let e = bus.crear_trabajo(o.clone()).unwrap_err();
+    assert!(matches!(&e, ErrorBus::Skills(m) if m.contains("no existe")), "{e}");
+    o.skills = vec!["tests".into()];
+    let e = bus.crear_trabajo(o.clone()).unwrap_err();
+    assert!(matches!(&e, ErrorBus::Skills(m) if m.contains("no está habilitada")), "{e}");
+    sin_rastro(&bus);
+    o.skills = vec!["rust".into()];
+    let id = bus.crear_trabajo(o).unwrap();
+    assert_eq!(bus.leer_orden(&id).unwrap().skills, ["rust"]);
+}
+
+#[test]
+fn crear_trabajo_rechaza_skills_que_exceden_los_topes() {
+    let d = tempfile::tempdir().unwrap();
+    let (_sk, mut cfg) = skills_de_prueba();
+    cfg.max_por_trabajo = 1;
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_skills(cfg.clone());
+    let mut o = orden(d.path());
+    o.fases[0].skills = vec!["rust".into(), "tests".into()];
+    let e = bus.crear_trabajo(o.clone()).unwrap_err();
+    assert!(matches!(&e, ErrorBus::Skills(m) if m.contains("el máximo es 1")), "{e}");
+    cfg.max_por_trabajo = 3;
+    cfg.max_caracteres = 10;
+    let bus = bus.con_skills(cfg);
+    let e = bus.crear_trabajo(o).unwrap_err();
+    assert!(matches!(&e, ErrorBus::Skills(m) if m.contains("caracteres")), "{e}");
+    sin_rastro(&bus);
 }
 
 const RUTINA: &str = r#"

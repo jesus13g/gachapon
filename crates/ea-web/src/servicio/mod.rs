@@ -74,7 +74,7 @@ impl From<ErrorBus> for ErrorWeb {
         match &e {
             ErrorBus::NoExiste(_) => Self::NoEncontrado(msg),
             ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado => Self::Conflicto(msg),
-            ErrorBus::Argumentos(_) => Self::Invalido(msg),
+            ErrorBus::Argumentos(_) | ErrorBus::Skills(_) => Self::Invalido(msg),
             _ => Self::Interno(msg),
         }
     }
