@@ -537,19 +537,21 @@ function filasRutinas(rs) {
     // Una máquina de cápsulas amarillas: con halo si la última se atascó,
     // apagada si su rutina.toml no se puede leer.
     const suyos = st.trabajos.filter(t => t.rutina?.slug === r.slug);
-    const atascada = suyos.some(t => t.estado === 'en_espera');
+    const atascada = suyos.some(t => t.estado === 'en_espera') || r.ultima?.estado === 'en_espera';
     const enCola = suyos.some(t => t.estado === 'en_cola');
     const desc = r.error ?? (r.descripcion ?? '') + (atascada ? ' · la última se atascó' : '');
     const row = capsula(COLOR.rutina, r.error ? 'averiada' : atascada ? 'hot' : '') +
       `<span class="x">${esc(r.slug)}</span><span class="m">v${r.version}</span>` +
       `<span class="m ${r.error || atascada ? 'hot' : ''}">${esc(desc)}</span>` +
       `<span class="m">${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
+      ultimaRutina(r.ultima) +
       (r.error ? '<span class="hot fuera">fuera de servicio</span>'
         : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
           `Lanzar ahora la rutina ${r.slug} con las entradas de su ficha: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
     const d = st.detalle[k];
     const editando = st.rutEd?.slug === r.slug;
     const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
+      ejecucionesRutina(d.ejecuciones) +
       formEntradas(r) +
       (editando ? editorRutina()
         : `<div class="acc">${btn('red', '✎ nueva versión', 'edita el TOML y registra una versión nueva (la versión ya va subida en uno)', { slug: r.slug })}</div>` +
@@ -557,6 +559,32 @@ function filasRutinas(rs) {
       versionesHtml(r.slug) : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
+}
+
+// --------------------------------------- ejecuciones de una rutina (R2)
+//
+// La columna «última» de la fila (estado y hace cuánto) y, en la ficha, las
+// últimas ejecuciones que da el servidor (`ultima` y `ejecuciones`, del bus),
+// cada una con su botón a la ficha del trabajo. Solo lectura.
+
+// Una ejecución «pinta mal» si espera la confirmación de su paquete o se
+// bloqueó.
+const ejMal = e => e.estado === 'en_espera' || e.resultado === 'bloqueado';
+
+function ultimaRutina(e) {
+  if (!e) return '<span class="m">—</span>';
+  return `<span class="m${ejMal(e) ? ' hot' : ''}" title="${esc(`trabajo ${e.trabajo} · v${e.version}${e.detalle ? ' · ' + e.detalle : ''}`)}">` +
+    `${EST[e.estado]?.[0] ?? ''} ${esc(EST[e.estado]?.[1] ?? e.estado)} · ${reloj(e.actualizado)}</span>`;
+}
+
+function ejecucionesRutina(es) {
+  if (!es) return '';
+  if (!es.length) return '<p class="et">últimas ejecuciones</p><p class="m">sin ejecuciones todavía</p>';
+  return `<p class="et">últimas ${es.length} ejecuciones</p><div class="evs">` + es.map(e =>
+    `<div class="ev"><span title="${esc(e.creado)}">${hora(e.creado)}</span><span class="${ejMal(e) ? 'hot' : ''}">${EST[e.estado]?.[0] ?? ''}</span>` +
+    `<span class="${ejMal(e) ? 'hot' : ''}">${btn('ir-trabajo', esc(e.trabajo.slice(9, 15)), `abrir la ficha del trabajo ${e.trabajo}`, { id: e.trabajo }, 'l')} ` +
+    `${esc(EST[e.estado]?.[1] ?? e.estado)}${e.resultado ? ' · ' + e.resultado : ''}${e.detalle ? ' · ' + esc(e.detalle) : ''}</span>` +
+    `<span class="m">v${e.version}</span><span class="m">${e.duracion_s != null ? dur(e.duracion_s * 1000) : ''}</span></div>`).join('') + '</div>';
 }
 
 // ------------------------------------------------ editor de rutinas (TOML)
@@ -1666,7 +1694,7 @@ function construir() {
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
     case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
     case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
-      ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d))] : [];
+      ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', 'última', ''), filasRutinas(d))] : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
     case 'ajustes': return d ? filasAjustes(d) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
