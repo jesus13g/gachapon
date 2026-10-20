@@ -402,8 +402,8 @@ impl EaTools {
                 actor: args.actor.clone(),
                 since,
                 until,
-                exclude_action: None,
                 limit: Some(args.limite.unwrap_or(20)),
+                ..Default::default()
             };
             let store = self.store.lock().await;
             let events = store.list_events(&filter).map_err(|e| e.to_string())?;

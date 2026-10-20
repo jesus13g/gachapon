@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use ea_store::{
-    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, NewEvent, NuevaPropuesta,
+    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, EventOutcome, NewEvent, NuevaPropuesta,
     PropuestaFilter, Store, StoreError,
 };
 
@@ -63,6 +63,42 @@ fn list_events_can_exclude_an_action() {
         .unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].action, "voz_escucha_iniciada");
+}
+
+#[test]
+fn filtra_por_resultado_y_prefijo_de_accion() {
+    let store = open_test_store();
+    let con = |actor: &str, action: &str, outcome| NewEvent {
+        outcome: Some(outcome),
+        ..evento(actor, action, None)
+    };
+    store.append_event(con("usuario", "bus_crear", EventOutcome::Ok)).unwrap();
+    store.append_event(con("orquestador", "bus_entregar", EventOutcome::Error)).unwrap();
+    store.append_event(con("usuario", "propuesta_decidida", EventOutcome::Error)).unwrap();
+    // `busXcrear` casaría con `bus_` si el `_` no se escapase.
+    store.append_event(con("usuario", "busXcrear", EventOutcome::Error)).unwrap();
+
+    let lista = |f: EventFilter| -> Vec<String> {
+        store.list_events(&f).unwrap().into_iter().map(|e| e.action).collect()
+    };
+
+    let mut bus = lista(EventFilter { action_prefix: Some("bus_".into()), ..Default::default() });
+    bus.sort();
+    assert_eq!(bus, ["bus_crear", "bus_entregar"]);
+
+    let mut errores = lista(EventFilter { outcome: Some(EventOutcome::Error), ..Default::default() });
+    errores.sort();
+    assert_eq!(errores, ["busXcrear", "bus_entregar", "propuesta_decidida"]);
+
+    let ambos = lista(EventFilter {
+        outcome: Some(EventOutcome::Error),
+        action_prefix: Some("bus_".into()),
+        ..Default::default()
+    });
+    assert_eq!(ambos, ["bus_entregar"]);
+
+    // Un comodín en el prefijo se compara literalmente.
+    assert!(lista(EventFilter { action_prefix: Some("%".into()), ..Default::default() }).is_empty());
 }
 
 #[test]

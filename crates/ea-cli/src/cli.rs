@@ -185,6 +185,13 @@ pub enum DiarioAccion {
         /// Fecha/hora máxima (RFC3339 o AAAA-MM-DD)
         #[arg(long)]
         hasta: Option<String>,
+        /// Solo los eventos con este resultado
+        #[arg(long, value_parser = ["ok", "error"])]
+        resultado: Option<String>,
+        /// Solo las acciones que empiezan por este prefijo, la familia de
+        /// eventos (`bus_`, `mcp_`, `propuesta_`…); solo `[a-z_]`
+        #[arg(long, value_parser = prefijo_de_accion)]
+        accion: Option<String>,
         #[arg(long, default_value_t = 20)]
         limite: i64,
     },
@@ -288,4 +295,14 @@ pub enum PropuestasAccion {
         #[arg(long)]
         rechazar: bool,
     },
+}
+
+/// Un prefijo de acción del diario: letras minúsculas y `_`, como los nombres
+/// de las acciones.
+fn prefijo_de_accion(s: &str) -> Result<String, String> {
+    if !s.is_empty() && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') {
+        Ok(s.to_string())
+    } else {
+        Err("solo letras minúsculas y `_` (p. ej. `bus_` o `propuesta_`)".into())
+    }
 }

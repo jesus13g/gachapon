@@ -1,24 +1,31 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_store::{EventFilter, Store};
+use ea_store::{EventFilter, EventOutcome, Store};
 
 use super::{fmt_ts, parse_flexible_date};
 
-pub fn listar(
-    store: &Store,
-    trabajo: Option<String>,
-    actor: Option<String>,
-    desde: Option<String>,
-    hasta: Option<String>,
-    limite: i64,
-) -> Result<()> {
+/// Los filtros de `ea diario listar`, tal como llegan de la línea de órdenes.
+pub struct Filtro {
+    pub trabajo: Option<String>,
+    pub actor: Option<String>,
+    pub desde: Option<String>,
+    pub hasta: Option<String>,
+    /// `ok` o `error` (clap ya lo ha validado).
+    pub resultado: Option<String>,
+    /// Prefijo de la acción (clap ya lo ha validado como `[a-z_]+`).
+    pub accion: Option<String>,
+}
+
+pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
     let filter = EventFilter {
-        trabajo,
-        actor,
-        since: desde.as_deref().map(parse_flexible_date).transpose()?,
-        until: hasta.as_deref().map(parse_flexible_date).transpose()?,
-        exclude_action: None,
+        trabajo: f.trabajo,
+        actor: f.actor,
+        since: f.desde.as_deref().map(parse_flexible_date).transpose()?,
+        until: f.hasta.as_deref().map(parse_flexible_date).transpose()?,
+        outcome: f.resultado.as_deref().map(str::parse::<EventOutcome>).transpose()?,
+        action_prefix: f.accion,
         limit: Some(limite),
+        ..Default::default()
     };
 
     let events = store.list_events(&filter)?;

@@ -1,8 +1,8 @@
 //! El historial de eventos.
 
-use ea_store::{Event, EventFilter};
+use ea_store::{Event, EventFilter, EventOutcome};
 
-use super::{limite, parse_fecha, ts, Resultado};
+use super::{limite, parse_fecha, ts, ErrorWeb, Resultado};
 use crate::vistas::EventoVista;
 use crate::AppState;
 
@@ -12,18 +12,36 @@ pub struct Filtro {
     pub actor: Option<String>,
     pub desde: Option<String>,
     pub hasta: Option<String>,
+    /// `ok` o `error`.
+    pub resultado: Option<String>,
+    /// Prefijo de la acción, la familia de eventos (`bus_`, `mcp_`…).
+    pub accion: Option<String>,
     /// Incluir los heartbeats del orquestador (por defecto se omiten).
     pub latidos: bool,
     pub limite: Option<i64>,
 }
 
 pub async fn listar(s: &AppState, f: Filtro) -> Resultado<Vec<EventoVista>> {
+    let outcome = f
+        .resultado
+        .as_deref()
+        .filter(|r| !r.is_empty())
+        .map(str::parse::<EventOutcome>)
+        .transpose()?;
+    let accion = f.accion.filter(|a| !a.is_empty());
+    if let Some(a) = &accion
+        && !a.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+    {
+        return Err(ErrorWeb::Invalido(format!("acción no válida: «{a}» (solo [a-z_])")));
+    }
     let filter = EventFilter {
         trabajo: f.trabajo.filter(|t| !t.is_empty()),
         actor: f.actor.filter(|a| !a.is_empty()),
         since: f.desde.as_deref().map(parse_fecha).transpose()?,
         until: f.hasta.as_deref().map(parse_fecha).transpose()?,
         exclude_action: (!f.latidos).then(|| "heartbeat".to_string()),
+        outcome,
+        action_prefix: accion,
         limit: Some(limite(f.limite, 200, 1000)),
     };
     let store = s.store.lock().await;

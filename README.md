@@ -302,7 +302,8 @@ ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus
 
 # Resto del ecosistema
 ea status                                    # orquestador, trabajos por estado, colas y semáforos
-ea diario listar|ver <id>                    # listar acepta --trabajo <id>
+ea diario listar|ver <id>                    # listar: --trabajo, --actor, --desde, --hasta,
+                                             #   --resultado ok|error, --accion <prefijo> (bus_, mcp_…)
 ea propuestas listar|ver|decidir <id> --aceptar|--rechazar
 ea acciones listar|simular|ejecutar          # catálogo de herramientas
 ea boveda estado|listar|buscar|leer|promover|reindexar
@@ -596,7 +597,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 |---|---|---|
 | ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
 | ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (con nota), continuar, confirmar y cancelar según el estado | `2` |
-| ≡ | Diario (♡/♥ muestra u oculta los latidos) | `3` |
+| ≡ | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros | `3` |
 | ↻ | Rutinas registradas, con versión y próxima ejecución; ▶ lanzar | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
@@ -613,7 +614,10 @@ Enlaces profundos: el hash dice la sección, la fila desplegada y los filtros,
 `#<seccion>[/<fila>][?<param>=<valor>&…]`. Por ejemplo
 `localhost:8092/#trabajos/<id>` abre la ficha de un trabajo,
 `#rutinas/<slug>`, `#acciones/<herramienta>` o `#propuestas/<n>` despliegan
-esa fila, y `#diario?latidos=1&q=texto`, `#trabajos?estado=en_revision` o
+esa fila, y `#diario?latidos=1&q=texto`,
+`#diario?actor=modelo-local&resultado=error&accion=bus_&desde=24h` (también
+`hasta`, `trabajo`; `desde` es `hoy`, `ayer`, `24h`, `7d` o `AAAA-MM-DD`),
+`#trabajos?estado=en_revision` o
 `#propuestas?todas=1` abren la sección con esos filtros (`q` es el cuadro de
 filtrar y vale en todas). Navegar reescribe el hash: cambiar de sección o abrir
 una fila deja una entrada en el historial (el botón atrás vuelve), y recargar
@@ -625,7 +629,9 @@ vista con la clave (`#trabajos/<id>&clave=…`), y los avisos de escritorio del
 ejecutor llevan una acción **abrir** que hace justo eso.
 
 API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`,
-`/api/colas`, `/api/semaforos`, `/api/rutinas`; y, con `Content-Type:
+`/api/colas`, `/api/semaforos`, `/api/rutinas`, `/api/diario` (`?trabajo=`,
+`actor`, `desde`, `hasta`, `resultado=ok|error`, `accion=<prefijo>` —solo
+`[a-z_]`, si no 400—, `latidos=1`, `limite`); y, con `Content-Type:
 application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformular,confirmar}`
 (`reformular` lleva `{"nota": "..."}`, `confirmar` `{"contexto": "..."}`) y
 `POST /api/rutinas/<slug>/lanzar`; la memoria de Claude Code va por

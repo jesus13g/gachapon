@@ -39,6 +39,8 @@ const tour = (() => {
       texto: '<b>★ canjear</b> cierra, <b>▶ seguir girando</b> continúa una obra, <b>↺ volver a girar</b> reformula con una nota y <b>⊘ devolver</b> cancela (pide un segundo clic). El azul redondo es la acción principal.' },
     { sec: 'diario', ancla: ['#lista'], titulo: 'El diario',
       texto: 'Todo lo que ocurre en el ecosistema, lo más reciente arriba: quién hizo qué, en qué trabajo y cuánto duró.' },
+    { sec: 'diario', ancla: ['#fb'], titulo: 'Filtros del diario',
+      texto: 'Quién, <b>✓</b>/<b>✕</b>, qué familia de eventos y cuándo: se piden al servidor, así que miran todo el diario y no solo lo cargado. Quedan en la dirección (<b>#diario?resultado=error</b>) para enlazarlos; el cuadro de filtrar busca texto en lo que llega.' },
     { sec: 'diario', ancla: ['[data-a=latidos]'], si: true, titulo: 'Latidos',
       texto: 'El orquestador late cada pocos segundos. Por defecto se ocultan para no tapar el resto; <b>♡</b> los muestra.' },
     { sec: 'rutinas', ancla: ['#lista'], titulo: 'Rutinas',

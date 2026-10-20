@@ -34,6 +34,13 @@ test('parámetros con ? o con &', () => {
   assert.deepEqual(enlaces.leer('#diario?q=uno&q=dos&=x').params, { q: 'uno' });
 });
 
+test('los filtros del diario van y vuelven por el hash', () => {
+  const vista = { sec: 'diario', fila: null, params: { actor: 'modelo-local', resultado: 'error', accion: 'bus_', desde: '24h', trabajo: '20261020-101500-ab12' } };
+  const h = enlaces.escribir(vista);
+  assert.equal(h, 'diario?actor=modelo-local&resultado=error&accion=bus_&desde=24h&trabajo=20261020-101500-ab12');
+  assert.deepEqual(enlaces.leer('#' + h), vista);
+});
+
 test('la clave nunca es un parámetro de sección', () => {
   // cliente.js la saca antes, pero por si acaso.
   assert.deepEqual(enlaces.leer('#trabajos/x&clave=secreta'), { sec: 'trabajos', fila: 'x', params: {} });

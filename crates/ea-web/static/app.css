@@ -165,6 +165,12 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .c { display: inline-flex; align-items: center; gap: 6px; }
 .c .ic { margin-right: 2px; }
 .c.on { color: var(--fg-hi); background: var(--sel); }
+/* los desplegables y las fechas de la barra del diario, como sus chips */
+#fb select.c, #fb input.c { height: 30px; padding: 0 8px; color: var(--fg-lo); background: none; }
+#fb select.c:hover, #fb input.c:hover { color: var(--fg-hi); background: var(--bg2); }
+#fb .c.on, #fb select.c:focus, #fb input.c:focus { color: var(--fg-hi); background: var(--sel); }
+#fb input.c[type=date] { color-scheme: dark; }
+:root.claro #fb input.c[type=date] { color-scheme: light; }
 
 /* ---- lista ---- */
 #lista { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }

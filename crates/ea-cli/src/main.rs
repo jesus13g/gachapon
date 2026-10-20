@@ -33,8 +33,14 @@ fn main() -> Result<()> {
                 actor,
                 desde,
                 hasta,
+                resultado,
+                accion,
                 limite,
-            } => commands::diario::listar(&store, trabajo, actor, desde, hasta, limite)?,
+            } => commands::diario::listar(
+                &store,
+                commands::diario::Filtro { trabajo, actor, desde, hasta, resultado, accion },
+                limite,
+            )?,
             DiarioAccion::Ver { id } => commands::diario::ver(&store, id)?,
         },
         Command::Rutina { accion } => match accion {

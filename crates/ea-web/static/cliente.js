@@ -83,8 +83,15 @@ const ea = (() => {
     colas: () => api('/api/colas'),
     semaforos: () => api('/api/semaforos'),
 
-    diario: ({ limite, latidos = false } = {}) =>
-      api('/api/diario?limite=' + limite + (latidos ? '&latidos=1' : '')),
+    // Filtros del servidor: actor, resultado (ok | error), accion (prefijo,
+    // [a-z_]+), desde y hasta (RFC 3339 o AAAA-MM-DD) y trabajo; los vacíos
+    // no se envían.
+    diario: ({ limite, latidos = false, ...filtros } = {}) => {
+      const q = new URLSearchParams({ limite });
+      if (latidos) q.set('latidos', '1');
+      for (const [k, v] of Object.entries(filtros)) if (v) q.set(k, v);
+      return api('/api/diario?' + q);
+    },
 
     rutinas: () => api('/api/rutinas'),
     rutina: slug => api('/api/rutinas/' + c(slug)),
