@@ -45,6 +45,10 @@ pub struct DiarioQuery {
     actor: Option<String>,
     desde: Option<String>,
     hasta: Option<String>,
+    /// `ok` o `error`.
+    resultado: Option<String>,
+    /// Prefijo de la acción (`bus_`, `propuesta_`…): solo `[a-z_]+`.
+    accion: Option<String>,
     /// `1` incluye los heartbeats del orquestador (por defecto se omiten).
     latidos: Option<String>,
     limite: Option<i64>,
@@ -56,6 +60,8 @@ pub async fn diario(State(s): Estado, Query(q): Query<DiarioQuery>) -> Api<Vec<E
         actor: q.actor,
         desde: q.desde,
         hasta: q.hasta,
+        resultado: q.resultado,
+        accion: q.accion,
         latidos: q.latidos.as_deref() == Some("1"),
         limite: q.limite,
     };

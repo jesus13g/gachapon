@@ -91,7 +91,26 @@ pub struct EventFilter {
     /// orquestador emite cada pocos segundos y ahogaría cualquier listado
     /// acotado por `limit`).
     pub exclude_action: Option<String>,
+    /// Solo los eventos con este resultado (`ok` o `error`).
+    pub outcome: Option<EventOutcome>,
+    /// Solo las acciones que empiezan por este prefijo (p. ej. `bus_` o
+    /// `propuesta_`), una familia de eventos. Los comodines de `LIKE` del
+    /// prefijo se escapan: se compara literalmente.
+    pub action_prefix: Option<String>,
     pub limit: Option<i64>,
+}
+
+/// Escapa `%`, `_` y la propia barra para usar `texto` como literal en un
+/// `LIKE ... ESCAPE '\'`.
+fn escapar_like(texto: &str) -> String {
+    let mut s = String::with_capacity(texto.len());
+    for c in texto.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            s.push('\\');
+        }
+        s.push(c);
+    }
+    s
 }
 
 pub fn list_events(conn: &Connection, filter: &EventFilter) -> StoreResult<Vec<Event>> {
@@ -117,6 +136,14 @@ pub fn list_events(conn: &Connection, filter: &EventFilter) -> StoreResult<Vec<E
     if let Some(exclude_action) = &filter.exclude_action {
         sql.push_str(" AND action != ?");
         sql_params.push(Box::new(exclude_action.clone()));
+    }
+    if let Some(outcome) = filter.outcome {
+        sql.push_str(" AND outcome = ?");
+        sql_params.push(Box::new(outcome.as_str()));
+    }
+    if let Some(prefijo) = &filter.action_prefix {
+        sql.push_str(" AND action LIKE ? || '%' ESCAPE '\\'");
+        sql_params.push(Box::new(escapar_like(prefijo)));
     }
     sql.push_str(" ORDER BY ts DESC");
     if let Some(limit) = filter.limit {

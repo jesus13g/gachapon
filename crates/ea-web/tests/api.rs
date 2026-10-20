@@ -314,6 +314,74 @@ async fn el_diario_oculta_los_latidos_salvo_que_se_pidan() {
     assert_eq!(e["orquestador"]["vivo"], true);
 }
 
+fn acciones(d: &Value) -> Vec<String> {
+    let mut v: Vec<String> = d.as_array().unwrap().iter().map(|e| e["accion"].as_str().unwrap().to_string()).collect();
+    v.sort();
+    v
+}
+
+#[tokio::test]
+async fn el_diario_filtra_por_actor_resultado_y_familia() {
+    let f = montar();
+    {
+        let store = f.state.store.lock().await;
+        for (actor, accion, ok) in [
+            ("modelo-local", "mcp_leer_nota", true),
+            ("modelo-local", "mcp_escribir_nota_denegada", false),
+            ("usuario", "propuesta_decidida", false),
+            ("usuario", "bus_crear", true),
+            ("orquestador", "bus_entregar", false),
+        ] {
+            store
+                .append_event(NewEvent {
+                    actor: actor.into(),
+                    action: accion.into(),
+                    trabajo: None,
+                    outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
+                    duration_ms: None,
+                    detail: None,
+                })
+                .unwrap();
+        }
+    }
+
+    let (_, d) = get(&f, "/api/diario?actor=modelo-local").await;
+    assert_eq!(acciones(&d), ["mcp_escribir_nota_denegada", "mcp_leer_nota"]);
+
+    let (_, d) = get(&f, "/api/diario?resultado=error").await;
+    assert_eq!(acciones(&d), ["bus_entregar", "mcp_escribir_nota_denegada", "propuesta_decidida"]);
+
+    let (_, d) = get(&f, "/api/diario?accion=bus_").await;
+    assert_eq!(acciones(&d), ["bus_crear", "bus_entregar"]);
+
+    let (_, d) = get(&f, "/api/diario?actor=modelo-local&resultado=error&accion=mcp_").await;
+    assert_eq!(acciones(&d), ["mcp_escribir_nota_denegada"]);
+
+    // Vacíos, como los manda la barra sin filtro: no filtran.
+    let (_, d) = get(&f, "/api/diario?actor=&resultado=&accion=").await;
+    assert_eq!(d.as_array().unwrap().len(), 5);
+
+    // Las transiciones del bus quedan en la columna `trabajo`: el filtro por
+    // trabajo (el que usa la ficha) las encuentra.
+    let _g = aislar_bus(&f).await;
+    let (s, l) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
+    assert_eq!(s, StatusCode::CREATED);
+    let id = l["trabajo"].as_str().unwrap();
+    let (_, d) = get(&f, &format!("/api/diario?trabajo={id}&accion=bus_")).await;
+    assert_eq!(acciones(&d), ["bus_crear"]);
+}
+
+#[tokio::test]
+async fn el_diario_rechaza_un_resultado_o_una_accion_no_validos() {
+    let f = montar();
+    for q in ["accion=bus%25", "accion=BUS_", "accion=bus-crear", "accion=x%27%20OR%201", "resultado=quizas"] {
+        let (s, _) = get(&f, &format!("/api/diario?{q}")).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}");
+    }
+    let (s, _) = get(&f, "/api/diario?accion=propuesta_&resultado=ok").await;
+    assert_eq!(s, StatusCode::OK);
+}
+
 #[tokio::test]
 async fn decidir_una_propuesta() {
     let f = montar();

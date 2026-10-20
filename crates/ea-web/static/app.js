@@ -64,7 +64,15 @@ const st = {
   filtroEstado: null,
   propTodas: false,
   latidos: false,
-  armado: null,        // { n, hasta }: reinicio de servicio pendiente de confirmar
+  // Filtros del diario (van al servidor y al hash, ver PARAMS.diario).
+  dActor: null,
+  dResultado: null,    // 'ok' | 'error'
+  dAccion: null,       // prefijo de la familia: 'bus_', 'mcp_'…
+  dDesde: null,        // 'hoy' | 'ayer' | '24h' | '7d' | AAAA-MM-DD
+  dHasta: null,        // AAAA-MM-DD (incluido)
+  dTrabajo: null,
+  dFechas: false,      // se eligió «fechas…» en el rango (aún sin fecha)
+  armado: null,       // { n, hasta }: reinicio de servicio pendiente de confirmar
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
   consola: {},         // por herramienta: { v: valores, sim, res, err }
@@ -266,7 +274,7 @@ function filasTrabajos(ts) {
         informeHtml(d) +
         (d.paquete ? `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>` : '') +
         (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
-        `<p class="et">historial</p><div class="evs">` + d.historial.map(h =>
+        `<p class="et">historial ${btn('ir-diario', '→ diario', 'los eventos de este trabajo en el diario', { id: t.id }, 'l')}</p><div class="evs">` + d.historial.map(h =>
           `<div class="ev"><span>${hora(h.ts)}</span><i></i><span>${esc(h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}</span></div>`).join('') + '</div>' +
         accionesTrabajo(t, d.informe);
     } else {
@@ -1297,6 +1305,53 @@ function construir() {
 // La cápsula de cada filtro de estado: el color solo la distingue de sus vecinas.
 const FILTRO = { en_cola: COLOR.mision, ejecutando: COLOR.obra, en_revision: COLOR.obra, en_espera: COLOR.rutina, cerrado: COLOR.obra, cancelado: COLOR.mision };
 
+// Los filtros del diario, que se aplican en el servidor. Los actores y las
+// familias son los que escribe el código (spec 009, «Familias de eventos»).
+const ACTORES = ['usuario', 'claude-code', 'modelo-local', 'orquestador', 'ea-cli'];
+const FAMILIAS = { bus_: 'bus', mcp_: 'mcp', propuesta_: 'propuestas', accion_: 'acciones', boveda_: 'bóveda', memoria_: 'memoria', ajustes_: 'ajustes' };
+const RANGOS = { hoy: 'hoy', ayer: 'ayer', '24h': '24 h', '7d': '7 días' };
+const FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+// desde/hasta en RFC 3339 para la API. Los rangos se resuelven en cada
+// petición (la ventana avanza con el sondeo); las fechas son días locales y
+// `hasta` incluye el suyo entero.
+function ventanaDiario() {
+  const dia = (s, mas = 0) => { const [a, m, d] = s.split('-').map(Number); return new Date(a, m - 1, d + mas); };
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const ayer = new Date(hoy); ayer.setDate(ayer.getDate() - 1);
+  const v = st.dDesde;
+  let desde = null, hasta = null;
+  if (v === 'hoy') desde = hoy;
+  else if (v === 'ayer') { desde = ayer; hasta = new Date(hoy - 1); }
+  else if (v === '24h') desde = new Date(Date.now() - 864e5);
+  else if (v === '7d') desde = new Date(Date.now() - 7 * 864e5);
+  else if (v && FECHA.test(v)) desde = dia(v);
+  if (st.dHasta) hasta = new Date(dia(st.dHasta, 1) - 1);
+  return { desde: desde?.toISOString() ?? null, hasta: hasta?.toISOString() ?? null };
+}
+
+function barraDiario() {
+  const opcion = (v, t, actual) => `<option value="${esc(v)}"${v === (actual ?? '') ? ' selected' : ''}>${esc(t)}</option>`;
+  const sel = (campo, titulo, ops, actual) =>
+    `<select class="c${actual ? ' on' : ''}" data-df="${campo}" title="${titulo}" aria-label="${titulo}">${ops.map(([v, t]) => opcion(v, t, actual)).join('')}</select>`;
+  const actores = st.dActor && !ACTORES.includes(st.dActor) ? [...ACTORES, st.dActor] : ACTORES;
+  const fechas = st.dFechas || FECHA.test(st.dDesde ?? '') || !!st.dHasta;
+  const rango = fechas ? 'fechas' : st.dDesde;
+  const res = (v, g, t) => `<button class="c${st.dResultado === v ? ' on' : ''}" data-a="d-resultado" data-v="${v}" title="${t}" aria-pressed="${st.dResultado === v}">${g}</button>`;
+  let h = sel('actor', 'quién', [['', 'quién: todos'], ...actores.map(a => [a, a])], st.dActor) +
+    res('ok', '✓', 'solo lo que salió bien') + res('error', '✕', 'solo los errores') +
+    sel('accion', 'familia de eventos', [['', 'qué: todo'], ...Object.entries(FAMILIAS)], st.dAccion) +
+    sel('rango', 'cuándo', [['', 'cuándo: siempre'], ...Object.entries(RANGOS), ['fechas', 'fechas…']], rango);
+  if (fechas) {
+    const d = FECHA.test(st.dDesde ?? '') ? st.dDesde : '';
+    h += `<input type="date" class="c${d ? ' on' : ''}" data-df="desde" value="${esc(d)}" title="desde (incluido)" aria-label="Desde">` +
+      `<input type="date" class="c${st.dHasta ? ' on' : ''}" data-df="hasta" value="${esc(st.dHasta ?? '')}" title="hasta (incluido)" aria-label="Hasta">`;
+  }
+  if (st.dTrabajo) h += `<button class="c on" data-a="d-trabajo" title="solo los eventos del trabajo ${esc(st.dTrabajo)}; pulsa para quitarlo" aria-pressed="true">▣ ${esc(st.dTrabajo.slice(-8))} ✕</button>`;
+  h += `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
+  return h;
+}
+
 function barra() {
   const fb = $('#fb');
   let h = '';
@@ -1305,7 +1360,7 @@ function barra() {
       `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
       `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
-    h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
+    h = barraDiario();
   } else if (st.sec === 'propuestas') {
     h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
         `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
@@ -1511,7 +1566,12 @@ async function cargaSeccion() {
     datos = { propuestas, colas, semaforos, diario, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await ea.acciones();
-  else if (sec === 'diario') datos = await ea.diario({ limite: st.diarioLimite ?? 300, latidos: st.latidos });
+  else if (sec === 'diario') {
+    datos = await ea.diario({
+      limite: st.diarioLimite ?? 300, latidos: st.latidos,
+      actor: st.dActor, resultado: st.dResultado, accion: st.dAccion, trabajo: st.dTrabajo, ...ventanaDiario(),
+    });
+  }
   else if (sec === 'ajustes') {
     datos = await ea.ajustes();
     aplicaCliente(datos.cliente);
@@ -1603,7 +1663,17 @@ const texto = (campo, vale = () => true) => ({
 });
 const PARAMS = {
   trabajos: { estado: texto('filtroEstado', v => v in EST) },
-  diario: { latidos: bandera('latidos') },
+  diario: {
+    actor: texto('dActor', v => /^[a-z0-9_-]{1,64}$/.test(v)),
+    resultado: texto('dResultado', v => v === 'ok' || v === 'error'),
+    accion: texto('dAccion', v => /^[a-z_]{1,64}$/.test(v)),
+    // Un rango (hoy, ayer, 24h, 7d) o un día; al llegar de un enlace, el
+    // «fechas…» sin fecha que hubiera elegido se olvida.
+    desde: { ...texto('dDesde'), lee: v => { st.dDesde = v && (Object.hasOwn(RANGOS, v) || FECHA.test(v)) ? v : null; st.dFechas = false; } },
+    hasta: texto('dHasta', v => FECHA.test(v)),
+    trabajo: texto('dTrabajo', v => /^[\w.-]{1,128}$/.test(v)),
+    latidos: bandera('latidos'),
+  },
   propuestas: { todas: bandera('propTodas') },
 };
 const Q = { lee: v => { st.q = v ?? ''; }, escribe: () => st.q || null };
@@ -1811,6 +1881,9 @@ async function accion(b) {
       st.filtroEstado = null;
       abre('trabajos', 'j' + id);
       return;
+    } else if (a === 'ir-diario') {
+      ir('diario', { fila: null, params: { trabajo: id } });
+      return;
     } else if (a === 'ir-prop') {
       st.propTodas = true;
       abre('propuestas', 'p' + id);
@@ -1833,6 +1906,10 @@ async function accion(b) {
       if (await accionNota(a, b.dataset) === false) return;
     } else if (a === 'latidos') {
       st.latidos = !st.latidos;
+    } else if (a === 'd-resultado') {
+      st.dResultado = st.dResultado === v ? null : v;
+    } else if (a === 'd-trabajo') {
+      st.dTrabajo = null;
     } else if (a === 'prop') {
       st.propTodas = v === '1';
     }
@@ -2059,6 +2136,25 @@ $('#lista').addEventListener('focusout', ev => {
   if (ev.target.matches('input[data-ren]') && E?.renombrando) { E.renombrando = null; setTimeout(pintar); }
   // Al salir del campo de crear se cierra, salvo hacia la propia barra.
   if (ev.target.matches('input[data-crear]') && E?.creando && !ev.relatedTarget?.closest?.('.arbol-acc')) { E.creando = null; setTimeout(pintar); }
+});
+
+// Los desplegables y las fechas de la barra del diario: filtros del servidor.
+$('#fb').addEventListener('change', ev => {
+  const c = ev.target.closest('[data-df]');
+  if (!c || st.sec !== 'diario') return;
+  const v = c.value || null;
+  if (c.dataset.df === 'actor') st.dActor = v;
+  else if (c.dataset.df === 'accion') st.dAccion = v;
+  else if (c.dataset.df === 'rango') {
+    st.dFechas = v === 'fechas';
+    st.dDesde = st.dFechas ? null : v;
+    st.dHasta = null;
+  } else if (c.dataset.df === 'desde') { st.dDesde = v; st.dFechas = true; }
+  else if (c.dataset.df === 'hasta') { st.dHasta = v; st.dFechas = true; }
+  c.blur();
+  st.html = '';
+  pintar();
+  tick();
 });
 
 let busqueda;

@@ -580,13 +580,15 @@ impl Bus {
     }
 
     /// El diario es secundario: un fallo de SQLite no deshace el bus.
-    fn diario(&self, s: &Store, _id: &str, accion: &str, ok: bool, detalle: serde_json::Value) {
+    fn diario(&self, s: &Store, id: &str, accion: &str, ok: bool, detalle: serde_json::Value) {
         let mut detalle = detalle;
-        detalle["trabajo"] = serde_json::Value::String(_id.into());
+        detalle["trabajo"] = serde_json::Value::String(id.into());
         let _ = s.append_event(NewEvent {
             actor: self.actor.clone(),
             action: accion.into(),
-            trabajo: None,
+            // En la columna, no solo en el detalle: así `--trabajo` y el
+            // filtro del diario encuentran los `bus_*` del trabajo.
+            trabajo: Some(id.into()),
             outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
             duration_ms: None,
             detail: Some(detalle.to_string()),
