@@ -16,7 +16,7 @@ use crate::fs_atomico::{escribir_json, fnv};
 use crate::rutina::{Rutina, MAX_DEFINICION};
 use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
-    transicion, Agente, Estado, EstadoTrabajo, Evento, Informe, Modo, Orden, ResultadoInforme,
+    transicion, Agente, Estado, EstadoTrabajo, Evento, FaseInforme, Informe, Modo, Orden, ResultadoInforme,
 };
 
 pub const ENV_ESTADO: &str = "EA_ESTADO_DIR";
@@ -301,6 +301,12 @@ impl Bus {
     /// que el ejecutor escribe no se pierde.
     pub fn aplicar(&self, id: &str, evento: Evento) -> Resultado<Estado> {
         let _bloqueo = self.bloquear_estado(id)?;
+        self.aplicar_bloqueado(id, evento, None)
+    }
+
+    /// [`Bus::aplicar`] para quien ya tiene el bloqueo del trabajo. Con
+    /// `Reformular`, `fase` es la fase de obra desde la que se rehace.
+    fn aplicar_bloqueado(&self, id: &str, evento: Evento, fase: Option<u32>) -> Resultado<Estado> {
         let actual = self.leer_estado(id)?;
         let nuevo_estado = transicion(actual.estado, &evento)?;
         let mut nuevo = Estado { estado: nuevo_estado, actualizado_en: ahora_rfc3339(), ..actual };
@@ -312,6 +318,7 @@ impl Bus {
                 }
                 nuevo.detalle = inf.motivo.clone();
             }
+            Evento::Reformular if fase.is_some() => nuevo.fase_actual = fase,
             _ => {}
         }
         let dir = self.dir_trabajo(id)?;
@@ -346,7 +353,11 @@ impl Bus {
         if let Some(s) = &self.store {
             s.actualizar_estado_trabajo(id, nuevo.estado.as_str(), &nuevo.actualizado_en)?;
             self.sincronizar_fases(s, id, &evento, &nuevo)?;
-            self.diario(s, id, &format!("bus_{}", evento.nombre()), true, serde_json::json!({ "estado": nuevo.estado.as_str() }));
+            let mut detalle = serde_json::json!({ "estado": nuevo.estado.as_str() });
+            if let Some(n) = fase {
+                detalle["fase"] = n.into();
+            }
+            self.diario(s, id, &format!("bus_{}", evento.nombre()), true, detalle);
         }
         Ok(nuevo)
     }
@@ -524,15 +535,51 @@ impl Bus {
     /// Reformula un trabajo en revisión: añade las notas de la revisión a
     /// `orden.json` (`notas_revision`) y aplica `Reformular`, que lo vuelve
     /// a encolar en `modelo-local`.
-    pub fn reformular(&self, id: &str, notas: &str) -> Resultado<Estado> {
+    ///
+    /// En una obra, `fase` es la fase desde la que se rehace; sin ella, la
+    /// pendiente (`fase_actual`; en una obra completa, la última). Esa fase y
+    /// las siguientes vuelven a quedar pendientes: `fase_actual` apunta a
+    /// ella y se recortan `fases-informe.json` y las filas de fase de SQLite.
+    /// Una fase que no existe en la obra, o una fase en una misión o rutina,
+    /// es un error de argumentos y no escribe nada. Todo va bajo el bloqueo
+    /// del trabajo.
+    pub fn reformular(&self, id: &str, notas: &str, fase: Option<u32>) -> Resultado<Estado> {
+        let _bloqueo = self.bloquear_estado(id)?;
         let estado = self.leer_estado(id)?;
         transicion(estado.estado, &Evento::Reformular)?; // validar antes de tocar la orden
         let mut orden = self.leer_orden(id)?;
+        let rehacer = fase_a_rehacer(&orden, &estado, fase)?;
         if !notas.trim().is_empty() {
             orden.notas_revision.push(notas.trim().into());
             escribir_json(&self.dir_trabajo(id)?.join("orden.json"), &orden)?;
         }
-        self.aplicar(id, Evento::Reformular)
+        if let Some(n) = rehacer {
+            self.recortar_fases(id, n)?;
+        }
+        self.aplicar_bloqueado(id, Evento::Reformular, rehacer)
+    }
+
+    /// Deja pendientes la fase `desde` y las siguientes: las quita de
+    /// `fases-informe.json` (si existe) y devuelve sus filas de SQLite a
+    /// `pendiente`, sin informe (que llevaba el árbol de la fase).
+    fn recortar_fases(&self, id: &str, desde: u32) -> Resultado<()> {
+        let p = self.dir_trabajo(id)?.join("fases-informe.json");
+        if let Ok(b) = fs::read(&p) {
+            let mut v: Vec<FaseInforme> = serde_json::from_slice(&b).unwrap_or_default();
+            v.retain(|f| f.numero < desde);
+            escribir_json(&p, &v)?;
+        }
+        if let Some(s) = &self.store {
+            for mut f in s.listar_fases(id)?.into_iter().filter(|f| f.numero >= i64::from(desde)) {
+                if f.estado != "pendiente" || f.informe.is_some() {
+                    f.estado = "pendiente".into();
+                    f.informe = None;
+                    f.cerrado_en = None;
+                    s.guardar_fase(&f)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Para llamar al arrancar. Devuelve a la cola los reclamos `.tomada-*`
@@ -658,6 +705,33 @@ pub fn comprobar_registro(store: &Store, texto: &str) -> Resultado<(Rutina, Opti
         }
     }
     Ok((r, anterior))
+}
+
+/// La fase de obra desde la que se rehace al reformular. Solo una obra con
+/// fases tiene una: la pedida, si existe en la obra; si no se pide, la
+/// pendiente (`fase_actual`), y en una obra completa (`fase_actual` pasada
+/// de la última) la última. Pedir fase en una misión o rutina, o una que la
+/// obra no tiene (0, más allá de la última), es un error de argumentos.
+fn fase_a_rehacer(orden: &Orden, estado: &Estado, pedida: Option<u32>) -> Resultado<Option<u32>> {
+    let numeros: Vec<u32> = orden.fases.iter().map(|f| f.numero).collect();
+    let extremos = numeros.iter().min().zip(numeros.iter().max());
+    let (primera, ultima) = match (orden.modo, extremos) {
+        (Modo::Obra, Some((&p, &u))) => (p, u),
+        _ if pedida.is_some() => {
+            return Err(ErrorBus::Argumentos(format!(
+                "solo una obra con fases se reformula desde una fase; este trabajo es una {}",
+                orden.modo.as_str()
+            )));
+        }
+        _ => return Ok(None),
+    };
+    match pedida {
+        Some(n) if !numeros.contains(&n) => {
+            Err(ErrorBus::Argumentos(format!("la fase {n} está fuera de rango: la obra va de la fase {primera} a la {ultima}")))
+        }
+        Some(n) => Ok(Some(n)),
+        None => Ok(Some(estado.fase_actual.filter(|n| numeros.contains(n)).unwrap_or(ultima))),
+    }
 }
 
 /// El criterio de éxito es obligatorio: sin él, nadie puede decir que algo

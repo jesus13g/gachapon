@@ -79,6 +79,14 @@ se corre el criterio ni hay informe: se suelta el semáforo y el diario apunta
 deshace.** Mientras el semáforo siga cogido, la web muestra el trabajo como
 «cancelando…» (`cancelando: true` en `GET /api/trabajos`).
 
+Reformular una obra la rehace desde una fase: la que se pida (`--fase N`, o
+`fase` en la web) o, si no, la pendiente (`fase_actual`; en una obra completa,
+la última). Esa fase y las siguientes vuelven a quedar pendientes (`fase_actual`,
+`fases-informe.json` y las fases de SQLite); las anteriores se conservan. El
+worktree no se revierte: el agente rehace sobre lo que hay, y los diffs por fase
+y de revisión parten del último árbol guardado. Una fase que la obra no tiene, o
+una fase en una misión o rutina, se rechaza sin escribir nada.
+
 ### Seguridad
 
 Qwen Code corre dentro de **bubblewrap** (`bwrap`): sistema de ficheros de solo
@@ -298,7 +306,7 @@ ea trabajo listar
 ea trabajo ver <id> [--json]                 # orden, estado e informe
 ea trabajo diff <id> [--fase N]              # diff desde commit_inicio
 ea trabajo cerrar|cancelar <id>
-ea trabajo reformular <id> --nota "..."      # vuelve al agente local
+ea trabajo reformular <id> --nota "..." [--fase N]  # vuelve al agente local (obra: desde la fase N)
 ea trabajo continuar <id>                    # aprueba una revisión intermedia de una obra
 ea trabajo confirmar <id> [--contexto "..."] # paquete de corrección -> claude-code
 ea cola [modelo-local|claude-code] [--json]  # colas
@@ -623,7 +631,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | Símbolo | Sección | Tecla |
 |---|---|---|
 | ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
-| ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (con nota), continuar, confirmar y cancelar según el estado. **＋ misión** (en la barra) abre en línea un formulario para encargar una misión al modelo local: título, worktree (sugiere los de las sesiones de Claude Code y los de trabajos anteriores), objetivo, criterio (obligatorio) e iteraciones y minutos, acotados al techo de `ajustes.toml`; al encolarla se abre su ficha. El criterio lo ejecuta el sistema, nunca la página | `2` |
+| ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (nota amplia con las notas anteriores encima y, en una obra, «rehacer desde la fase N» con la pendiente preseleccionada), continuar, confirmar y cancelar según el estado. **＋ misión** (en la barra) abre en línea un formulario para encargar una misión al modelo local: título, worktree (sugiere los de las sesiones de Claude Code y los de trabajos anteriores), objetivo, criterio (obligatorio) e iteraciones y minutos, acotados al techo de `ajustes.toml`; al encolarla se abre su ficha. El criterio lo ejecuta el sistema, nunca la página | `2` |
 | ≡ | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros | `3` |
 | ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
@@ -660,7 +668,8 @@ API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`
 `actor`, `desde`, `hasta`, `resultado=ok|error`, `accion=<prefijo>` —solo
 `[a-z_]`, si no 400—, `latidos=1`, `limite`); y, con `Content-Type:
 application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformular,confirmar}`
-(`reformular` lleva `{"nota": "..."}`, `confirmar` `{"contexto": "..."}`),
+(`reformular` lleva `{"nota": "...", "fase"?: N}` —`fase` solo en obras; fuera
+de rango o en una misión, 400 sin escribir nada—, `confirmar` `{"contexto": "..."}`),
 `POST /api/trabajos` (crea una misión: `{"modo"?: "mision", "titulo", "worktree",
 "objetivo", "criterio", "topes"?: {"iteraciones"?, "tiempo_s"?}}` → 201 `{id, estado}`;
 `creada_por` es `usuario` y no admite skills ni otros campos; 400 si falta el

@@ -176,9 +176,12 @@ pub fn evento(id: &str, ev: Evento) -> Result<()> {
     Ok(())
 }
 
-pub fn reformular(id: &str, nota: &str) -> Result<()> {
-    let e = bus()?.reformular(id, nota)?;
-    println!("{id}: reformular -> {}", e.estado.as_str());
+pub fn reformular(id: &str, nota: &str, fase: Option<u32>) -> Result<()> {
+    let e = bus()?.reformular(id, nota, fase)?;
+    match e.fase_actual.filter(|_| fase.is_some()) {
+        Some(n) => println!("{id}: reformular desde la fase {n} -> {}", e.estado.as_str()),
+        None => println!("{id}: reformular -> {}", e.estado.as_str()),
+    }
     Ok(())
 }
 

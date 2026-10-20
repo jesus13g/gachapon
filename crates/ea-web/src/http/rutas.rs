@@ -174,6 +174,8 @@ pub async fn trabajo_diff(State(s): Estado, Path(id): Path<String>) -> Api<Diff>
 pub struct NotaUsuario {
     nota: String,
     contexto: String,
+    /// Reformular una obra: fase desde la que se rehace.
+    fase: Option<u32>,
 }
 
 async fn decidir(s: &AppState, id: &str, d: Decision<'_>) -> Api<EstadoTrabajo> {
@@ -197,7 +199,7 @@ pub async fn trabajo_reformular(
     Path(id): Path<String>,
     Json(b): Json<NotaUsuario>,
 ) -> Api<EstadoTrabajo> {
-    decidir(&s, &id, Decision::Reformular { nota: &b.nota }).await
+    decidir(&s, &id, Decision::Reformular { nota: &b.nota, fase: b.fase }).await
 }
 
 pub async fn trabajo_confirmar(

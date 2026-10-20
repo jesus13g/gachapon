@@ -232,7 +232,8 @@ pub enum Decision<'a> {
     Cancelar,
     /// Aprueba una revisión intermedia: reformular sin nota (como `ea trabajo continuar`).
     Continuar,
-    Reformular { nota: &'a str },
+    /// `fase`: en una obra, la fase desde la que se rehace (por defecto, la pendiente).
+    Reformular { nota: &'a str, fase: Option<u32> },
     /// Confirma el paquete de corrección de una rutina en espera.
     Confirmar { contexto: &'a str },
 }
@@ -241,10 +242,10 @@ pub async fn decidir(s: &AppState, id: &str, d: Decision<'_>) -> Resultado<Estad
     let e = match d {
         Decision::Cerrar => bus_con_store(s).await?.aplicar(id, Evento::Cerrar)?,
         Decision::Cancelar => bus_con_store(s).await?.aplicar(id, Evento::Cancelar)?,
-        Decision::Continuar => bus_con_store(s).await?.reformular(id, "")?,
-        Decision::Reformular { nota } => {
+        Decision::Continuar => bus_con_store(s).await?.reformular(id, "", None)?,
+        Decision::Reformular { nota, fase } => {
             let nota = texto_no_vacio(nota, "nota", 10_000)?;
-            bus_con_store(s).await?.reformular(id, &nota)?
+            bus_con_store(s).await?.reformular(id, &nota, fase)?
         }
         Decision::Confirmar { contexto } => {
             if contexto.chars().count() > 10_000 {

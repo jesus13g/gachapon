@@ -183,14 +183,109 @@ fn reformular_anade_notas_y_vuelve_a_encolar() {
     let d = tempfile::tempdir().unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
     let id = bus.crear_trabajo(orden(d.path())).unwrap();
-    assert!(bus.reformular(&id, "no vale").is_err()); // aún EnCola
+    assert!(bus.reformular(&id, "no vale", None).is_err()); // aún EnCola
     bus.tomar(Agente::ModeloLocal).unwrap();
     bus.aplicar(&id, Evento::Tomar).unwrap();
     bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
-    bus.reformular(&id, "falta la prueba").unwrap();
+    bus.reformular(&id, "falta la prueba", None).unwrap();
     assert_eq!(bus.leer_orden(&id).unwrap().notas_revision, vec!["falta la prueba".to_string()]);
     assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
     assert_eq!(bus.tomar(Agente::ModeloLocal).unwrap(), Some(id));
+}
+
+/// Obra de tres fases (1, 2, 3) ya completa y en revisión, con su
+/// `fases-informe.json` como lo deja el ejecutor y las fases hechas en SQLite.
+fn obra_completa_en_revision(d: &Path) -> (Bus, String) {
+    let store = Store::open_at(&d.join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.join("estado")).unwrap().con_store(store);
+    let fase = |n: u32| Fase {
+        numero: n,
+        titulo: format!("f{n}"),
+        instrucciones: "i".into(),
+        entregable: "e".into(),
+        criterio: "true".into(),
+        skills: vec![],
+    };
+    let id = bus.crear_trabajo(Orden { fases: vec![fase(1), fase(2), fase(3)], ..orden(d) }).unwrap();
+    bus.tomar(Agente::ModeloLocal).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    let fases: Vec<ea_bus::FaseInforme> = (1..=3)
+        .map(|n| ea_bus::FaseInforme { numero: n, titulo: format!("f{n}"), resultado: "hecha".into(), diff_stat: String::new() })
+        .collect();
+    std::fs::write(bus.raiz().join("trabajos").join(&id).join("fases-informe.json"), serde_json::to_vec(&fases).unwrap()).unwrap();
+    for n in 1..=3 {
+        bus.registrar_fase(&id, n, "hecha", &serde_json::json!({ "arbol": format!("arbol{n}") })).unwrap();
+    }
+    let inf = Informe { fases_hechas: 3, obra_completa: true, fases, ..informe() };
+    let e = bus.aplicar(&id, Evento::Entregar(inf)).unwrap();
+    assert_eq!((e.estado, e.fase_actual), (EstadoTrabajo::EnRevision, Some(4)));
+    (bus, id)
+}
+
+fn fases_informe(bus: &Bus, id: &str) -> Vec<u32> {
+    let b = std::fs::read(bus.raiz().join("trabajos").join(id).join("fases-informe.json")).unwrap();
+    serde_json::from_slice::<Vec<ea_bus::FaseInforme>>(&b).unwrap().iter().map(|f| f.numero).collect()
+}
+
+fn estados_fases(d: &Path, id: &str) -> Vec<(String, bool)> {
+    let s = Store::open_at(&d.join("ea.db")).unwrap();
+    s.listar_fases(id).unwrap().into_iter().map(|f| (f.estado, f.informe.is_some())).collect()
+}
+
+#[test]
+fn reformular_obra_completa_desde_fase_2_rehace_la_2_y_siguientes() {
+    let d = tempfile::tempdir().unwrap();
+    let (bus, id) = obra_completa_en_revision(d.path());
+    let e = bus.reformular(&id, "rehaz la 2 con pruebas", Some(2)).unwrap();
+    assert_eq!((e.estado, e.fase_actual), (EstadoTrabajo::EnCola, Some(2)));
+    assert_eq!(bus.leer_estado(&id).unwrap().fase_actual, Some(2));
+    assert_eq!(fases_informe(&bus, &id), [1]);
+    let h = |e: &str, i: bool| (e.to_string(), i);
+    assert_eq!(estados_fases(d.path(), &id), [h("hecha", true), h("pendiente", false), h("pendiente", false)]);
+    assert_eq!(bus.leer_orden(&id).unwrap().notas_revision, ["rehaz la 2 con pruebas"]);
+    assert_eq!(bus.tomar(Agente::ModeloLocal).unwrap(), Some(id.clone()));
+    // El diario lleva la fase desde la que se rehace.
+    let s = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let ev = s.list_events_by_trabajo(&id).unwrap().into_iter().find(|e| e.action == "bus_reformular").unwrap();
+    assert!(ev.detail.unwrap().contains("\"fase\":2"));
+}
+
+#[test]
+fn reformular_obra_completa_sin_fase_rehace_la_ultima() {
+    let d = tempfile::tempdir().unwrap();
+    let (bus, id) = obra_completa_en_revision(d.path());
+    let e = bus.reformular(&id, "retoca el final", None).unwrap();
+    assert_eq!(e.fase_actual, Some(3));
+    assert_eq!(fases_informe(&bus, &id), [1, 2]);
+    let estados: Vec<String> = estados_fases(d.path(), &id).into_iter().map(|(e, _)| e).collect();
+    assert_eq!(estados, ["hecha", "hecha", "pendiente"]);
+}
+
+#[test]
+fn reformular_con_fase_fuera_de_rango_o_en_mision_no_escribe_nada() {
+    let d = tempfile::tempdir().unwrap();
+    let (bus, id) = obra_completa_en_revision(d.path());
+    let dir = bus.raiz().join("trabajos").join(&id);
+    let antes = |f: &str| std::fs::read(dir.join(f)).unwrap();
+    let (orden0, estado0, fases0) = (antes("orden.json"), antes("estado.json"), antes("fases-informe.json"));
+    for n in [0, 4] {
+        let r = bus.reformular(&id, "no debería quedar", Some(n));
+        assert!(matches!(r, Err(ErrorBus::Argumentos(_))), "fase {n}: {r:?}");
+    }
+    assert_eq!((antes("orden.json"), antes("estado.json"), antes("fases-informe.json")), (orden0, estado0, fases0));
+    assert_eq!(estados_fases(d.path(), &id).iter().filter(|(e, _)| e == "hecha").count(), 3);
+    assert!(bus.listar_cola(Agente::ModeloLocal).unwrap().is_empty());
+
+    // Una misión no tiene fases.
+    let m = bus
+        .crear_trabajo(Orden { modo: Modo::Mision, fases: vec![], criterio_exito: Some("true".into()), ..orden(d.path()) })
+        .unwrap();
+    bus.tomar(Agente::ModeloLocal).unwrap();
+    bus.aplicar(&m, Evento::Tomar).unwrap();
+    bus.aplicar(&m, Evento::Entregar(informe())).unwrap();
+    assert!(matches!(bus.reformular(&m, "x", Some(1)), Err(ErrorBus::Argumentos(_))));
+    assert_eq!(bus.leer_estado(&m).unwrap().estado, EstadoTrabajo::EnRevision);
+    assert_eq!(bus.reformular(&m, "x", None).unwrap().estado, EstadoTrabajo::EnCola);
 }
 
 #[test]

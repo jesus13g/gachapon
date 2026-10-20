@@ -146,6 +146,10 @@ pub enum TrabajoAccion {
         id: String,
         #[arg(long)]
         nota: String,
+        /// Obra: rehace desde esta fase (y las siguientes); por defecto, la
+        /// pendiente (en una obra completa, la última)
+        #[arg(long)]
+        fase: Option<u32>,
     },
     /// Cancela un trabajo
     Cancelar { id: String },

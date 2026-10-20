@@ -81,6 +81,7 @@ const st = {
   rutEd: null,         // editor de TOML abierto: ver editorRutina()
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
   ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
+  rfBorrador: {},      // trabajo -> { nota, fase }: lo escrito para reformularlo, sin enviar
   sondeoMs: null,      // web.sondeo_ms de los ajustes (null: 3000)
   diarioLimite: null,  // web.diario_limite de los ajustes (null: 300)
   relojTick: null,     // el intervalo del sondeo
@@ -215,8 +216,7 @@ function accionesTrabajo(t, i, mas = '') {
   if (t.estado === 'en_revision') {
     h += b('cerrar', '★ canjear <span>cerrar</span>', 'cerrar: darlo por bueno', 'coin');
     if (i && !i.obra_completa) h += b('continuar', '▶ seguir girando <span class="dd">continuar</span>', 'la obra sigue con las fases que quedan');
-    h += `<input class="nota" placeholder="nota para volver a girar" aria-label="Nota para reformular" maxlength="10000">` +
-      b('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al modelo local con esta nota (obligatoria)');
+    h += reformularHtml(t);
   } else if (t.estado === 'en_espera') {
     h += `<textarea class="nota" rows="2" placeholder="contexto que se añade al paquete (opcional)" aria-label="Contexto" maxlength="10000"></textarea>` +
       b('confirmar', '✓ desatascar', 'pasa el paquete de corrección a Claude Code', 'coin hot');
@@ -224,6 +224,32 @@ function accionesTrabajo(t, i, mas = '') {
   h += mas;
   if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
   return h ? `<div class="acc" data-j="${id}">${h}</div>` : '';
+}
+
+// Reformular: encima, las notas de las revisiones anteriores (solo lectura);
+// debajo, la nota nueva y, en una obra, desde qué fase se rehace: la
+// pendiente por defecto (en una obra completa, la última). Esa fase y las
+// siguientes vuelven a quedar pendientes. Lo escrito vive en st.rfBorrador.
+function reformularHtml(t) {
+  const o = st.detalle['j' + t.id]?.orden;
+  const bo = st.rfBorrador[t.id] ?? {};
+  const id = esc(t.id);
+  let h = '<div class="rf">';
+  if (o?.notas_revision?.length) {
+    h += '<p class="et">notas anteriores</p>' +
+      o.notas_revision.map((n, i) => `<p class="tx"><span class="dd">${i + 1}.</span> ${esc(n)}</p>`).join('');
+  }
+  h += `<textarea class="nota" data-rf="${id}" rows="3" placeholder="nota para volver a girar: qué falla y qué cambiar" aria-label="Nota para reformular" maxlength="10000">${esc(bo.nota ?? '')}</textarea></div>`;
+  if (t.modo === 'obra' && t.fases_total) {
+    const fases = o?.fases?.length ? o.fases : Array.from({ length: t.fases_total }, (_, i) => ({ numero: i + 1 }));
+    const nums = fases.map(f => f.numero);
+    const pend = nums.includes(t.fase_actual) ? t.fase_actual : Math.max(...nums);
+    const elegida = bo.fase ?? pend;
+    h += `<select data-rff="${id}" aria-label="Fase desde la que se rehace" title="esa fase y las siguientes vuelven a quedar pendientes">` +
+      fases.map(f => `<option value="${f.numero}"${f.numero === elegida ? ' selected' : ''}>rehacer desde la fase ${f.numero}` +
+        `${f.titulo ? ': ' + esc(f.titulo) : ''}${f.numero === pend ? ' · pendiente' : ''}</option>`).join('') + '</select>';
+  }
+  return h + btn('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al modelo local con esta nota (obligatoria)', { id: t.id });
 }
 
 function informeHtml(d) {
@@ -276,7 +302,7 @@ function filasTrabajos(ts) {
       const o = d.orden;
       det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
         `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
-        (o.notas_revision?.length ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
+        (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
         informeHtml(d) +
         (d.paquete ? `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>` : '') +
         (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
@@ -1971,7 +1997,10 @@ async function accion(b) {
       }
       st.armado = null;
       const cuerpo = a === 'reformular' ? { nota: texto } : a === 'confirmar' ? { contexto: texto } : {};
+      const fase = a === 'reformular' ? $('[data-rff]', caja) : null;
+      if (fase) cuerpo.fase = Number(fase.value);
       await ea.accionTrabajo(id, a, cuerpo);
+      if (a === 'reformular') delete st.rfBorrador[id];
       const enCurso = a === 'cancelar' && st.trabajos.some(t => t.id === id && t.estado === 'ejecutando');
       avisa(`${id.slice(9, 15)}: ${a}${enCurso ? ' · ' + NO_SE_DESHACE : ''}`, true);
     } else if (a === 'nueva-mision') {
@@ -2343,6 +2372,13 @@ $('#lista').addEventListener('input', ev => {
     re.previa = re.err = null;
     st.html = '';
     $$('.sal', ri.closest('.det')).forEach(n => n.remove());
+    return;
+  }
+  // La nota y la fase de reformular un trabajo sobreviven al sondeo.
+  const rf = ev.target.closest('[data-rf], [data-rff]');
+  if (rf) {
+    const bo = (st.rfBorrador[rf.dataset.rf ?? rf.dataset.rff] ??= {});
+    if (rf.dataset.rf !== undefined) bo.nota = rf.value; else bo.fase = Number(rf.value);
     return;
   }
   // Lo escrito en el formulario «＋ misión».
