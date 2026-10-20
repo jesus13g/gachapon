@@ -68,6 +68,29 @@ pub async fn diario(State(s): Estado, Query(q): Query<DiarioQuery>) -> Api<Vec<E
     ok(servicio::diario::listar(&s, filtro).await)
 }
 
+/// `{"texto": "…", "corrige": 12, "trabajo": "…"}`: solo `texto` es
+/// obligatorio; cualquier otro campo se rechaza.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnotarBody {
+    texto: String,
+    #[serde(default)]
+    corrige: Option<i64>,
+    #[serde(default)]
+    trabajo: Option<String>,
+}
+
+pub async fn diario_anotar(State(s): Estado, cuerpo: Bytes) -> Result<(StatusCode, Json<EventoVista>), ApiError> {
+    let b: AnotarBody = serde_json::from_slice(&cuerpo).map_err(|e| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("cuerpo inválido: se espera {{\"texto\": \"…\", \"corrige\"?: id, \"trabajo\"?: \"…\"}} ({e})"),
+        )
+    })?;
+    let nota = ea_store::NuevaNota { texto: b.texto, corrige: b.corrige, trabajo: b.trabajo };
+    Ok((StatusCode::CREATED, Json(servicio::diario::anotar(&s, nota).await?)))
+}
+
 // ----------------------------------------------------------------- rutinas
 
 pub async fn rutinas_listar(State(s): Estado) -> Api<Vec<RutinaFila>> {

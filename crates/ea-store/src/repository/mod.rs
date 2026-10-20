@@ -1,5 +1,6 @@
 pub mod boveda;
 pub mod events;
+pub mod notas;
 pub mod propuestas;
 pub mod trabajos;
 

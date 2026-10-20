@@ -96,6 +96,9 @@ const ea = (() => {
       for (const [k, v] of Object.entries(filtros)) if (v) q.set(k, v);
       return api('/api/diario?' + q);
     },
+    // Una nota del usuario ({ texto, corrige?, trabajo? }): deja constancia de
+    // algo o corrige un evento sin tocarlo (el diario es append-only).
+    anotarDiario: cuerpo => post('/api/diario/anotar', cuerpo),
 
     rutinas: () => api('/api/rutinas'),
     rutina: slug => api('/api/rutinas/' + c(slug)),

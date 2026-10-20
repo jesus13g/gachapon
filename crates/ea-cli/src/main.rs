@@ -42,6 +42,9 @@ fn main() -> Result<()> {
                 limite,
             )?,
             DiarioAccion::Ver { id } => commands::diario::ver(&store, id)?,
+            DiarioAccion::Anotar { texto, corrige, trabajo } => {
+                commands::diario::anotar(&store, ea_store::NuevaNota { texto, corrige, trabajo })?
+            }
         },
         Command::Rutina { accion } => match accion {
             RutinaAccion::Registrar { fichero } => commands::rutinas::registrar(&fichero)?,

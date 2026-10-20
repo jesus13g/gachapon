@@ -21,6 +21,7 @@ pub use models::{
 };
 pub use orquestador::{ultimo_latido, EstadoOrquestador, ResumenAgente, AGENTES};
 pub use repository::events::EventFilter;
+pub use repository::notas::{NuevaNota, ACCION_NOTA, ACTOR_NOTA, MAX_TEXTO_NOTA};
 pub use repository::propuestas::PropuestaFilter;
 pub use repository::trabajos::{FilaFase, FilaRutina, FilaTrabajo};
 pub use store::Store;

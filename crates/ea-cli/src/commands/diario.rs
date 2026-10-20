@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_store::{EventFilter, EventOutcome, Store};
+use ea_store::{EventFilter, EventOutcome, NuevaNota, Store};
 
 use super::{fmt_ts, parse_flexible_date};
 
@@ -68,5 +68,17 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
     if let Some(detail) = &e.detail {
         println!("  Detalle:   {detail}");
     }
+    if let Some(notas) = store.correcciones_diario(&[e.id])?.get(&e.id) {
+        let lista: Vec<String> = notas.iter().map(|n| format!("#{n}")).collect();
+        println!("  Corregido por: {}", lista.join(", "));
+    }
+    Ok(())
+}
+
+/// `ea diario anotar`: añade una nota del usuario; si corrige un evento, el
+/// original queda intacto y la nota apunta a él.
+pub fn anotar(store: &Store, nota: NuevaNota) -> Result<()> {
+    let e = store.anotar_diario(nota)?;
+    println!("Anotado en el diario: evento #{}.", e.id);
     Ok(())
 }

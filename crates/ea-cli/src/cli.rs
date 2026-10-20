@@ -197,6 +197,19 @@ pub enum DiarioAccion {
     },
     /// Muestra el detalle de un evento
     Ver { id: i64 },
+    /// Añade una nota del usuario (`usuario_nota`): deja constancia de algo
+    /// o corrige un evento (el diario no se edita: se añade otro evento)
+    Anotar {
+        /// Texto de la nota (no vacío; como mucho 10.000 caracteres)
+        #[arg(long)]
+        texto: String,
+        /// Id del evento que esta nota corrige
+        #[arg(long)]
+        corrige: Option<i64>,
+        /// Trabajo del bus al que se asocia la nota
+        #[arg(long)]
+        trabajo: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
