@@ -321,7 +321,8 @@ ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus
 # Resto del ecosistema
 ea status                                    # orquestador, trabajos por estado, colas y semáforos
 ea diario listar|ver <id>                    # listar: --trabajo, --actor, --desde, --hasta,
-                                             #   --resultado ok|error, --accion <prefijo> (bus_, mcp_…)
+                                             #   --resultado ok|error, --accion <prefijo> (bus_, mcp_…),
+                                             #   --antes-de <id> (página siguiente, más antiguos)
 ea propuestas listar|ver|decidir <id> --aceptar|--rechazar
 ea acciones listar|simular|ejecutar          # catálogo de herramientas
 ea boveda estado|listar|buscar|leer|promover|reindexar
@@ -633,7 +634,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 |---|---|---|
 | ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
 | ▤ | Trabajos: lista con filtro por estado y ficha con informe, resumen del agente, metadatos (skills, topes, `creada_por`, rutina vN), el plan de la obra (estado de cada fase, con su plan y su diff plegables), diff plegable e historial; cerrar, reformular (nota amplia con las notas anteriores encima y, en una obra, «rehacer desde la fase N» con la pendiente preseleccionada), continuar, confirmar y cancelar según el estado. **＋ misión** (en la barra) abre en línea un formulario para encargar una misión al modelo local: título, worktree (sugiere los de las sesiones de Claude Code y los de trabajos anteriores), objetivo, criterio (obligatorio) e iteraciones y minutos, acotados al techo de `ajustes.toml`; al encolarla se abre su ficha. En modo **obra**, el mismo formulario lleva un objetivo general y una lista de fases (título, instrucciones, entregable y criterio cada una) que se añaden, quitan y reordenan, y obliga a elegir cada cuántas fases revisa Claude Code (o solo al final). El worktree tiene que ser un repo con al menos un commit. El criterio lo ejecuta el sistema, nunca la página | `2` |
-| ≡ | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros | `3` |
+| ≡ | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros. Al pie, ↓ más antiguos añade la página siguiente con los mismos filtros (desaparece cuando no queda nada); el sondeo refresca solo la primera sin perder las cargadas, y cambiar un filtro vuelve a la primera | `3` |
 | ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada. «▸ versiones» lista las registradas (número, fecha y quién) con «ver» (su TOML) y «diff» (qué cambió frente a la anterior), solo lectura | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
@@ -672,7 +673,9 @@ reciente primero, sin la definición), `/api/rutinas/<slug>/versiones/<n>`
 (`{slug, version, creada_en, creada_por, contenido}`; 404 si no existe, 400 si
 `<n>` no es un entero), `/api/diario` (`?trabajo=`,
 `actor`, `desde`, `hasta`, `resultado=ok|error`, `accion=<prefijo>` —solo
-`[a-z_]`, si no 400—, `latidos=1`, `limite`); y, con `Content-Type:
+`[a-z_]`, si no 400—, `latidos=1`, `limite`, `antes_de=<id>` —cursor: los
+eventos anteriores a ese id con los mismos filtros, estable aunque lleguen
+nuevos; no numérico, 400—); y, con `Content-Type:
 application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformular,confirmar}`
 (`reformular` lleva `{"nota": "...", "fase"?: N}` —`fase` solo en obras; fuera
 de rango o en una misión, 400 sin escribir nada—, `confirmar` `{"contexto": "..."}`),

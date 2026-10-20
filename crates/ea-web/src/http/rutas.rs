@@ -51,6 +51,8 @@ pub struct DiarioQuery {
     accion: Option<String>,
     /// `1` incluye los heartbeats del orquestador (por defecto se omiten).
     latidos: Option<String>,
+    /// Cursor «cargar más»: id del último evento ya cargado.
+    antes_de: Option<String>,
     limite: Option<i64>,
 }
 
@@ -63,6 +65,7 @@ pub async fn diario(State(s): Estado, Query(q): Query<DiarioQuery>) -> Api<Vec<E
         resultado: q.resultado,
         accion: q.accion,
         latidos: q.latidos.as_deref() == Some("1"),
+        antes_de: q.antes_de,
         limite: q.limite,
     };
     ok(servicio::diario::listar(&s, filtro).await)

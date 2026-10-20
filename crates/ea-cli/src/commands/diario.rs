@@ -14,6 +14,8 @@ pub struct Filtro {
     pub resultado: Option<String>,
     /// Prefijo de la acción (clap ya lo ha validado como `[a-z_]+`).
     pub accion: Option<String>,
+    /// Cursor: solo los eventos anteriores al de este id.
+    pub antes_de: Option<i64>,
 }
 
 pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
@@ -24,6 +26,7 @@ pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
         until: f.hasta.as_deref().map(parse_flexible_date).transpose()?,
         outcome: f.resultado.as_deref().map(str::parse::<EventOutcome>).transpose()?,
         action_prefix: f.accion,
+        before_id: f.antes_de,
         limit: Some(limite),
         ..Default::default()
     };
@@ -33,6 +36,9 @@ pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
         println!("No hay eventos que coincidan con el filtro.");
         return Ok(());
     }
+
+    // Si la página va llena puede haber más: el cursor de la siguiente.
+    let siguiente = (events.len() as i64 >= limite).then(|| events.last().map(|e| e.id)).flatten();
 
     let mut table = Table::new();
     table.set_header(vec!["ID", "Cuándo", "Actor", "Acción", "Trabajo", "Resultado"]);
@@ -47,6 +53,9 @@ pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
         ]);
     }
     println!("{table}");
+    if let Some(id) = siguiente {
+        println!("Más antiguos: añade --antes-de {id}");
+    }
     Ok(())
 }
 

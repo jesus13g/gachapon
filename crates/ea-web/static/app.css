@@ -175,6 +175,8 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 /* ---- lista ---- */
 #lista { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
 .vacio { padding: 24px 10px; color: var(--fg-lo); }
+/* «↓ más antiguos» al pie del diario */
+.mas { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 10px 24px; }
 
 .f.o, .r:hover { background: var(--bg2); }
 .f { border-radius: 4px; }

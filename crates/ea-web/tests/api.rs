@@ -384,6 +384,78 @@ async fn el_diario_rechaza_un_resultado_o_una_accion_no_validos() {
 }
 
 #[tokio::test]
+async fn el_diario_pagina_por_cursor_sin_solapes() {
+    let f = montar();
+    let anotar = |actor: &str, accion: &str, ok: bool| NewEvent {
+        actor: actor.into(),
+        action: accion.into(),
+        trabajo: None,
+        outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
+        duration_ms: None,
+        detail: None,
+    };
+    {
+        let store = f.state.store.lock().await;
+        // 11 errores del bus entre otros eventos que el filtro descarta.
+        for i in 0..11 {
+            store.append_event(anotar("orquestador", "bus_entregar", false)).unwrap();
+            store.append_event(anotar("orquestador", "bus_entregar", true)).unwrap();
+            if i % 2 == 0 {
+                store.append_event(anotar("usuario", "propuesta_decidida", false)).unwrap();
+            }
+        }
+    }
+
+    let filtro = "accion=bus_&resultado=error&limite=4";
+    let mut ids: Vec<i64> = Vec::new();
+    let mut antes: Option<i64> = None;
+    let mut paginas = 0;
+    loop {
+        let ruta = match antes {
+            Some(id) => format!("/api/diario?{filtro}&antes_de={id}"),
+            None => format!("/api/diario?{filtro}"),
+        };
+        let (s, d) = get(&f, &ruta).await;
+        assert_eq!(s, StatusCode::OK, "{ruta}");
+        let pagina = d.as_array().unwrap();
+        if pagina.is_empty() {
+            break;
+        }
+        paginas += 1;
+        assert!(pagina.len() <= 4);
+        for e in pagina {
+            assert_eq!(e["accion"], "bus_entregar");
+            assert_eq!(e["resultado"], "error");
+        }
+        if paginas == 1 {
+            // Un evento nuevo entre página y página no desplaza el cursor.
+            let store = f.state.store.lock().await;
+            store.append_event(anotar("orquestador", "bus_entregar", false)).unwrap();
+        }
+        ids.extend(pagina.iter().map(|e| e["id"].as_i64().unwrap()));
+        antes = ids.last().copied();
+    }
+    assert_eq!(paginas, 3, "4 + 4 + 3");
+    assert_eq!(ids.len(), 11, "todos, sin huecos: {ids:?}");
+    let mut esperado = ids.clone();
+    esperado.sort_unstable_by(|a, b| b.cmp(a));
+    esperado.dedup();
+    assert_eq!(ids, esperado, "de más reciente a más antiguo y sin repetidos");
+
+    // La primera página (lo que refresca el sondeo) ya trae el nuevo.
+    let (_, d) = get(&f, &format!("/api/diario?{filtro}")).await;
+    assert!(d[0]["id"].as_i64().unwrap() > ids[0]);
+
+    for q in ["antes_de=abc", "antes_de=-3", "antes_de=0", "antes_de=1.5"] {
+        let (s, _) = get(&f, &format!("/api/diario?{q}")).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}");
+    }
+    // Vacío, como lo manda la barra sin cursor: no pagina.
+    let (s, _) = get(&f, "/api/diario?antes_de=").await;
+    assert_eq!(s, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn decidir_una_propuesta() {
     let f = montar();
     let id = {

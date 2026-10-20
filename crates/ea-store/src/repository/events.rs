@@ -97,6 +97,11 @@ pub struct EventFilter {
     /// `propuesta_`), una familia de eventos. Los comodines de `LIKE` del
     /// prefijo se escapan: se compara literalmente.
     pub action_prefix: Option<String>,
+    /// Cursor de paginación: solo los eventos que van *después* del evento
+    /// con este id en el orden del listado (`ts DESC, id DESC`), es decir, los
+    /// más antiguos que él. Estable aunque lleguen eventos nuevos. Un id que
+    /// no existe no devuelve nada.
+    pub before_id: Option<i64>,
     pub limit: Option<i64>,
 }
 
@@ -145,7 +150,13 @@ pub fn list_events(conn: &Connection, filter: &EventFilter) -> StoreResult<Vec<E
         sql.push_str(" AND action LIKE ? || '%' ESCAPE '\\'");
         sql_params.push(Box::new(escapar_like(prefijo)));
     }
-    sql.push_str(" ORDER BY ts DESC");
+    if let Some(id) = filter.before_id {
+        sql.push_str(" AND (ts, id) < (SELECT ts, id FROM events WHERE id = ?)");
+        sql_params.push(Box::new(id));
+    }
+    // `id` desempata los eventos del mismo instante: el orden es total y el
+    // cursor `before_id` no salta ni repite filas.
+    sql.push_str(" ORDER BY ts DESC, id DESC");
     if let Some(limit) = filter.limit {
         sql.push_str(" LIMIT ?");
         sql_params.push(Box::new(limit));
