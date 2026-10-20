@@ -92,6 +92,8 @@ async fn expone_el_catalogo_y_responde_a_una_llamada() {
     for ausente in ["ea_listar_tareas", "ea_ver_tarea", "ea_crear_tarea", "ea_cambiar_estado_tarea"] {
         assert!(!names.contains(&ausente), "{ausente} ya no existe");
     }
+    // Los ajustes no existen para los agentes: ni leerlos ni cambiarlos.
+    assert!(!names.iter().any(|n| n.contains("ajuste")), "{names:?}");
     for expected in [
         "ea_status",
         "ea_listar_trabajos",

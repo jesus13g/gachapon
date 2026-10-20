@@ -1,8 +1,10 @@
 #!/bin/sh
 # Hook de Claude Code para SubagentStart / SubagentStop: deja un fichero por
-# subagente en ~/.local/state/ecosistema-asistente/subagentes/<sesión>/<agente>.json
-# para que ea-web sepa cuáles siguen en marcha. Nunca falla: un error aquí no
-# debe estorbar a Claude Code.
+# subagente en <estado>/subagentes/<sesión>/<agente>.json (<estado> =
+# $EA_ESTADO_DIR o ~/.local/state/ecosistema-asistente, como el bus) para que
+# ea-web sepa cuáles siguen en marcha. No lee ajustes.toml: un rutas.estado
+# puesto solo allí no llega aquí. Nunca falla: un error aquí no debe estorbar a
+# Claude Code.
 #
 #   start → {"agente","tipo","transcript","desde"}
 #   stop  → añade "hasta" (crea el fichero si faltaba)
@@ -11,7 +13,7 @@ accion="${1:-}"
 entrada="$(cat 2>/dev/null)" || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-raiz="${XDG_STATE_HOME:-$HOME/.local/state}/ecosistema-asistente/subagentes"
+raiz="${EA_ESTADO_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ecosistema-asistente}/subagentes"
 sesion="$(printf '%s' "$entrada" | jq -r '.session_id // empty' 2>/dev/null)"
 agente="$(printf '%s' "$entrada" | jq -r '.agent_id // empty' 2>/dev/null)"
 [ -n "$sesion" ] && [ -n "$agente" ] || exit 0

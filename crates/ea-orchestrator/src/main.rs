@@ -31,7 +31,12 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let config = config::load();
+    // Avisos de los ajustes (valores inválidos, ficheros rotos), una vez.
+    let efectivos = ea_ajustes::cargar_de(&ea_ajustes::Fuentes::sistema());
+    for aviso in &efectivos.avisos {
+        tracing::warn!(%aviso, "ajustes");
+    }
+    let config: config::Config = efectivos.ajustes.orquestador.into();
 
     let intervalo_heartbeat = config.intervalo_heartbeat_s;
     tokio::spawn(async move {

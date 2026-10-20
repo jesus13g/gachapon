@@ -134,7 +134,7 @@ fn respond(body: ToolBody) -> Result<CallToolResult, McpError> {
 #[tool_router]
 impl EaTools {
     pub fn new(store: Arc<Mutex<Store>>) -> Self {
-        Self::con_rutinas_dir(store, ea_orchestrator::config::load().rutinas_dir)
+        Self::con_rutinas_dir(store, ea_ajustes::cargar().orquestador.rutinas_dir)
     }
 
     /// Con la bóveda configurada (`EA_BOVEDA_DIR`, `boveda.toml`).
@@ -273,7 +273,7 @@ impl EaTools {
                 .map_err(|e| e.to_string())?;
             // Mismo criterio que `ea status` y `ea-web`: último latido del
             // diario, con umbral del doble del intervalo configurado.
-            let umbral_s = (ea_orchestrator::config::load().intervalo_heartbeat_s * 2) as i64;
+            let umbral_s = ea_ajustes::cargar().umbral_latido_s();
             let orquestador = store.estado_orquestador(umbral_s).map_err(|e| e.to_string())?;
             Ok(json!({
                 "orquestador": {

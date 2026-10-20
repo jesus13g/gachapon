@@ -1,12 +1,10 @@
-//! Configuración de `ea-orchestrator`: cadencia del heartbeat, en fichero
-//! TOML opcional con defaults sensatos si no existe.
+//! Configuración de `ea-orchestrator`: cadencia del sondeo y del heartbeat
+//! y directorio de rutinas. Sale de `[orquestador]` de los ajustes
+//! (`ea-ajustes`), que también leen el `orchestrator.toml` heredado.
 
 use std::path::PathBuf;
 
-use serde::Deserialize;
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(default)]
+#[derive(Clone, Debug)]
 pub struct Config {
     /// Directorio de ficheros de rutina (los gestionan `ea-acciones` y la CLI).
     pub rutinas_dir: PathBuf,
@@ -14,42 +12,20 @@ pub struct Config {
     pub intervalo_heartbeat_s: u64,
 }
 
+impl From<ea_ajustes::Orquestador> for Config {
+    fn from(o: ea_ajustes::Orquestador) -> Self {
+        Self { rutinas_dir: o.rutinas_dir, intervalo_sondeo_s: o.intervalo_sondeo_s, intervalo_heartbeat_s: o.intervalo_heartbeat_s }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
-        let rutinas_dir = directories::ProjectDirs::from("", "", "ecosistema-asistente")
-            .map(|dirs| dirs.config_dir().join("rutinas"))
-            .unwrap_or_else(|| PathBuf::from("rutinas"));
-        Self { rutinas_dir, intervalo_sondeo_s: 5, intervalo_heartbeat_s: 30 }
+        ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::sistema()).orquestador.into()
     }
 }
-fn config_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("", "", "ecosistema-asistente")
-        .map(|dirs| dirs.config_dir().join("orchestrator.toml"))
-}
 
-/// Carga `orchestrator.toml` si existe y es válido; si no existe o falla el
-/// parseo, cae en los defaults documentados (no es un error fatal: el
-/// orquestador debe seguir arrancando).
+/// Los ajustes efectivos de ahora. Nunca falla: lo inválido cae a la capa
+/// siguiente (el orquestador debe seguir arrancando).
 pub fn load() -> Config {
-    let Some(path) = config_path() else {
-        tracing::warn!("no se pudo resolver el directorio de configuración; usando defaults");
-        return Config::default();
-    };
-
-    match std::fs::read_to_string(&path) {
-        Ok(contents) => match toml::from_str(&contents) {
-            Ok(config) => {
-                tracing::info!(path = %path.display(), "configuración cargada");
-                config
-            }
-            Err(err) => {
-                tracing::warn!(path = %path.display(), %err, "config inválida, usando defaults");
-                Config::default()
-            }
-        },
-        Err(_) => {
-            tracing::info!(path = %path.display(), "sin fichero de configuración, usando defaults");
-            Config::default()
-        }
-    }
+    ea_ajustes::cargar().orquestador.into()
 }

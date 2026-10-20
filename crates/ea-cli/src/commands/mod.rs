@@ -1,4 +1,5 @@
 pub mod acciones;
+pub mod ajustes;
 pub mod boveda;
 pub mod diario;
 pub mod propuestas;
@@ -43,7 +44,7 @@ pub fn bloquear<F: std::future::Future>(f: F) -> F::Output {
 /// El sistema real para lo que el usuario confirma desde esta terminal.
 pub fn sistema() -> ea_acciones::SistemaReal {
     ea_acciones::SistemaReal {
-        rutinas_dir: ea_orchestrator::config::load().rutinas_dir,
+        rutinas_dir: ea_ajustes::cargar().orquestador.rutinas_dir,
         boveda: ea_acciones::Boveda::configurada(),
         propio: None,
     }

@@ -9,9 +9,6 @@ use rmcp::transport::streamable_http_server::{
 use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-const DEFAULT_PORT: u16 = 8765;
-const ENV_PORT: &str = "EA_MCP_PORT";
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
@@ -22,10 +19,13 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let port: u16 = std::env::var(ENV_PORT)
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_PORT);
+    // `red.puerto_mcp` de los ajustes (`EA_MCP_PORT` le gana); el host,
+    // siempre 127.0.0.1.
+    let efectivos = ea_ajustes::cargar_de(&ea_ajustes::Fuentes::sistema());
+    for aviso in &efectivos.avisos {
+        tracing::warn!(%aviso, "ajustes");
+    }
+    let port = efectivos.ajustes.red.puerto_mcp;
     let bind_addr = format!("127.0.0.1:{port}");
 
     let store = Store::open().context("no se pudo abrir la base de datos")?;

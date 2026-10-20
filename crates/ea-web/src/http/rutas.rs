@@ -368,3 +368,21 @@ pub async fn memoria_mostrar(
 pub async fn servicio_reiniciar(State(s): Estado, Path(nombre): Path<String>) -> Api<Hecho> {
     ok(servicio::servicios::reiniciar(&s, &nombre).await)
 }
+
+// ----------------------------------------------------------------- ajustes
+
+pub async fn ajustes_ver(State(s): Estado) -> Api<AjustesVista> {
+    Ok(Json(servicio::ajustes::ver(&s)))
+}
+
+#[derive(Deserialize)]
+pub struct CuerpoAjustes {
+    /// Huella de `ajustes.toml` que se leyó ("" si no existía).
+    version: String,
+    /// Clave → valor nuevo; `null` la quita (vuelve a la capa siguiente).
+    cambios: std::collections::BTreeMap<String, Option<Value>>,
+}
+
+pub async fn ajustes_cambiar(State(s): Estado, Json(b): Json<CuerpoAjustes>) -> Api<AjustesCambiados> {
+    ok(servicio::ajustes::cambiar(&s, &b.version, b.cambios).await)
+}

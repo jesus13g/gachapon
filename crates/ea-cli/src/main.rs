@@ -6,10 +6,22 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
+use cli::{AccionesAccion, AjustesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     let args = Cli::parse();
+    // Los ajustes no necesitan la base de datos (y dicen dónde está).
+    let args = match args.command {
+        Command::Ajustes { accion } => {
+            return match accion {
+                AjustesAccion::Ver { json } => commands::ajustes::ver(json),
+                AjustesAccion::Obtener { clave } => commands::ajustes::obtener(&clave),
+                AjustesAccion::Establecer { cambios, quitar } => commands::ajustes::establecer(&cambios, &quitar),
+                AjustesAccion::Ruta => commands::ajustes::ruta(),
+            };
+        }
+        otro => Cli { command: otro },
+    };
     let mut store = Store::open()?;
 
     match args.command {
@@ -77,6 +89,7 @@ fn main() -> Result<()> {
         Command::Cola { agente, json } => commands::trabajo::cola(agente.as_deref(), json)?,
         Command::Semaforos => commands::trabajo::semaforos(),
         Command::Tui => tui::run(&mut store)?,
+        Command::Ajustes { .. } => unreachable!("se atiende antes de abrir la base"),
     }
 
     Ok(())

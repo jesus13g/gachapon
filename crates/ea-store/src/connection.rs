@@ -1,26 +1,29 @@
 use std::path::PathBuf;
 
-use directories::ProjectDirs;
 use rusqlite::Connection;
 
 use crate::error::{StoreError, StoreResult};
 use crate::migrations::run_migrations;
 
 const ENV_OVERRIDE: &str = "EA_DB_PATH";
-const DB_FILE_NAME: &str = "ecosistema.db";
 
 /// Resuelve la ruta del fichero SQLite: `$EA_DB_PATH` si está definida
-/// (usado por tests de integración y pruebas manuales), si no la ruta XDG
-/// estándar de datos de la aplicación.
+/// (usado por tests de integración y pruebas manuales), si no `rutas.db` de
+/// los ajustes (`ajustes.toml`; por defecto la ruta XDG estándar de datos de
+/// la aplicación, `ecosistema.db`).
 pub fn resolve_db_path() -> StoreResult<PathBuf> {
-    if let Ok(path) = std::env::var(ENV_OVERRIDE) {
+    if let Ok(path) = std::env::var(ENV_OVERRIDE)
+        && !path.trim().is_empty()
+    {
         return Ok(PathBuf::from(path));
     }
 
-    let dirs = ProjectDirs::from("", "", "ecosistema-asistente").ok_or(StoreError::NoDataDir)?;
-    let data_dir = dirs.data_dir();
-    std::fs::create_dir_all(data_dir)?;
-    Ok(data_dir.join(DB_FILE_NAME))
+    let path = ea_ajustes::cargar().rutas.db;
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => std::fs::create_dir_all(dir)?,
+        _ => {}
+    }
+    Ok(path)
 }
 
 /// Abre la base de datos en la ruta resuelta, aplica los PRAGMAs necesarios

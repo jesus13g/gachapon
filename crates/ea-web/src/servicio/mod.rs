@@ -13,6 +13,7 @@ use time::OffsetDateTime;
 use crate::AppState;
 
 pub mod acciones;
+pub mod ajustes;
 pub mod boveda;
 pub mod diario;
 pub mod estado;

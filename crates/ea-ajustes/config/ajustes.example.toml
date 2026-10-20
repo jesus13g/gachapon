@@ -1,0 +1,57 @@
+# Ajustes del ecosistema: copia este fichero a
+# ~/.config/ecosistema-asistente/ajustes.toml (o a $EA_CONFIG_DIR/ajustes.toml)
+# o, mejor, cámbialos con `ea ajustes establecer clave=valor` o desde ⚙ Ajustes
+# en ea-web. Todo es opcional: lo que falte toma el valor de la capa siguiente.
+#
+# Precedencia por clave: variable de entorno > este fichero > TOML heredado
+# (orquestador.toml, orchestrator.toml, boveda.toml) > valor por defecto.
+# Un valor inválido deja un aviso (`ea ajustes ver`) y se ignora.
+#
+# ⌨ = solo se cambia en una terminal real con `ea ajustes establecer`.
+# ↓ = desde la web solo se puede bajar (endurecer).
+
+[modelo]
+# nombre = "qwen3-coder-30b"
+# base_url = "http://127.0.0.1:8080/v1"   # solo 127.0.0.1, localhost o [::1]
+# qwen_bin = "qwen"                         # ⌨
+
+[agente]
+# sandbox = true                            # ⌨ Qwen dentro de bubblewrap
+# avisos_escritorio = true
+
+# Techo de los topes de cualquier orden: lo que pida una orden por encima se
+# recorta. Máximo absoluto: 100 / 3600 / 200 / 10.
+[agente.techo_topes]
+# turnos = 100                              # ↓
+# tiempo_s = 3600                           # ↓ (mínimo 60)
+# llamadas_herramienta = 200                # ↓
+# iteraciones = 10                          # ↓
+
+# Skills propias de Qwen: ninguna va activa por defecto; cada trabajo lleva
+# solo las que elija quien tenga la llave.
+[agente.skills]
+# dir = "~/.config/ecosistema-asistente/qwen-skills"   # ⌨
+# habilitadas = []                          # ⌨ vacío: todas las del catálogo
+# max_por_trabajo = 3                       # ↓ (0–5)
+# max_caracteres = 6000                     # ↓ (0–12000)
+# pueden_elegir = ["claude-code"]           # ⌨ ↓ solo "claude-code" o nadie
+
+[orquestador]
+# intervalo_sondeo_s = 5                    # reinicio de ea-orchestrator
+# intervalo_heartbeat_s = 30                # reinicio de los tres servicios
+# rutinas_dir = "~/.config/ecosistema-asistente/rutinas"   # ⌨
+
+# Siempre en 127.0.0.1: el host no se configura.
+[red]
+# puerto_web = 8092                         # o EA_WEB_PORT
+# puerto_mcp = 8765                         # o EA_MCP_PORT (cambia la URL del MCP en Claude Code)
+
+# ⌨ Todas; cada una la puede fijar su variable de entorno.
+[rutas]
+# db = "~/.local/share/ecosistema-asistente/ecosistema.db"   # EA_DB_PATH
+# estado = "~/.local/state/ecosistema-asistente"            # EA_ESTADO_DIR (el hook solo lee la variable)
+# boveda = "~/Obsidian/Ecosistema"                         # EA_BOVEDA_DIR
+
+[web]
+# sondeo_ms = 3000                          # refresco de la página
+# diario_limite = 300                       # eventos que carga Diario

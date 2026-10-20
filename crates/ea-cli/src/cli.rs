@@ -58,8 +58,34 @@ pub enum Command {
         #[command(subcommand)]
         accion: QwenSkillsAccion,
     },
+    /// Ajustes del ecosistema (ajustes.toml): ver, obtener y establecer
+    Ajustes {
+        #[command(subcommand)]
+        accion: AjustesAccion,
+    },
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum AjustesAccion {
+    /// Todos los ajustes efectivos con su origen, quién los cambia y cuándo se aplican
+    Ver {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Solo el valor efectivo de una clave (p. ej. red.puerto_web)
+    Obtener { clave: String },
+    /// Cambia claves en ajustes.toml; exige una terminal interactiva real
+    Establecer {
+        /// Cambios `clave=valor` (listas separadas por comas)
+        cambios: Vec<String>,
+        /// Quita la clave de ajustes.toml (vuelve a mandar la capa siguiente)
+        #[arg(long)]
+        quitar: Vec<String>,
+    },
+    /// Dónde están ajustes.toml y los ficheros heredados
+    Ruta,
 }
 
 #[derive(Subcommand)]

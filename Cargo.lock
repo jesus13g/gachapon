@@ -489,24 +489,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "ea-boveda"
+name = "ea-ajustes"
 version = "0.1.0"
 dependencies = [
  "directories",
- "ea-store",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
- "time",
  "toml",
+ "toml_edit",
+]
+
+[[package]]
+name = "ea-boveda"
+version = "0.1.0"
+dependencies = [
+ "ea-ajustes",
+ "ea-store",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
 ]
 
 [[package]]
 name = "ea-bus"
 version = "0.1.0"
 dependencies = [
- "directories",
+ "ea-ajustes",
  "ea-store",
  "serde",
  "serde_json",
@@ -525,15 +536,16 @@ dependencies = [
  "comfy-table",
  "crossterm 0.28.1",
  "ea-acciones",
+ "ea-ajustes",
  "ea-boveda",
  "ea-bus",
- "ea-orchestrator",
  "ea-store",
  "ea-web",
  "ratatui",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "tempfile",
  "time",
  "tokio",
 ]
@@ -545,9 +557,9 @@ dependencies = [
  "anyhow",
  "axum",
  "ea-acciones",
+ "ea-ajustes",
  "ea-boveda",
  "ea-bus",
- "ea-orchestrator",
  "ea-store",
  "rmcp",
  "schemars",
@@ -566,14 +578,13 @@ name = "ea-orchestrator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "directories",
+ "ea-ajustes",
  "ea-bus",
  "ea-store",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
- "toml",
  "tracing",
  "tracing-subscriber",
 ]
@@ -582,7 +593,7 @@ dependencies = [
 name = "ea-store"
 version = "0.1.0"
 dependencies = [
- "directories",
+ "ea-ajustes",
  "rusqlite",
  "rusqlite_migration",
  "serde",
@@ -600,9 +611,9 @@ dependencies = [
  "axum",
  "directories",
  "ea-acciones",
+ "ea-ajustes",
  "ea-boveda",
  "ea-bus",
- "ea-orchestrator",
  "ea-store",
  "http-body-util",
  "libc",
