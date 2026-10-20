@@ -651,7 +651,7 @@ function filasDiario(evs) {
     const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${new Date(e.ts).toLocaleString()}</p>` +
       (e.detalle ? `<pre>${esc(pretty(e.detalle))}</pre>` : '') +
       (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '') +
-      correccionesDiario(e);
+      correccionesDiario(e) +
       enlacesEvento(e);
     return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
   });
