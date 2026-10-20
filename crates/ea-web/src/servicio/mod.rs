@@ -44,7 +44,9 @@ impl From<StoreError> for ErrorWeb {
         let msg = e.to_string();
         match e {
             StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_) => Self::NoEncontrado(msg),
-            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) => Self::Invalido(msg),
+            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) | StoreError::NotaInvalida(_) => {
+                Self::Invalido(msg)
+            }
             _ => Self::Interno(msg),
         }
     }

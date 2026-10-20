@@ -81,6 +81,10 @@ pub struct EventoVista {
     pub resultado: Option<&'static str>,
     pub duracion_ms: Option<i64>,
     pub detalle: Option<String>,
+    /// Las notas `usuario_nota` que corrigen este evento (el diario es
+    /// append-only: corregir es añadir otro evento que apunta a este).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub corregido_por: Vec<i64>,
 }
 
 // -------------------------------------------------------------- propuestas

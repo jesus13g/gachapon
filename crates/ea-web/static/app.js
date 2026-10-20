@@ -81,6 +81,7 @@ const st = {
   dFin: false,         // no quedan eventos más antiguos
   dFirma: '',          // los filtros con los que se cargó dLista
   dCargando: false,
+  anota: null,         // formulario «✎ anotar» del diario: { v: { texto, trabajo }, corrige: id | null, err }
   armado: null,       // { n, hasta }: reinicio de servicio pendiente de confirmar
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
@@ -514,9 +515,53 @@ function filasDiario(evs) {
       `<span class="n" title="${esc(e.trabajo ?? '')}">${e.trabajo ? esc(e.trabajo.slice(-8)) : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
     const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${new Date(e.ts).toLocaleString()}</p>` +
       (e.detalle ? `<pre>${esc(pretty(e.detalle))}</pre>` : '') +
-      (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '');
+      (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '') +
+      correccionesDiario(e);
     return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
   });
+}
+
+// Las correcciones de un evento: «corrige #m» en una nota del usuario,
+// «corregido por #n» en el evento corregido y «✎ corregir» para añadir otra.
+// El diario es append-only: corregir no toca el evento, añade una nota.
+function correccionesDiario(e) {
+  let corrige = null;
+  if (e.accion === 'usuario_nota') try { corrige = JSON.parse(e.detalle)?.corrige ?? null; } catch { /* detalle no JSON */ }
+  const a = n => btn('ir-evento', '#' + n, 'ir al evento #' + n, { id: n }, 'l');
+  return (corrige != null ? `<p class="m">corrige ${a(corrige)}</p>` : '') +
+    (e.corregido_por?.length ? `<p class="hot">corregido por ${e.corregido_por.map(a).join(' ')}</p>` : '') +
+    `<p>${btn('d-corregir', '✎ corregir', 'añadir una nota que corrige este evento; el evento queda tal cual', { id: e.id, v: trabajoDe(e) ?? '' }, 'l')}</p>`;
+}
+
+// El formulario «✎ anotar» del diario, en línea encima de la lista: una nota
+// del usuario (usuario_nota) que deja constancia de algo o corrige un evento.
+// Lo escrito vive en st.anota.v (el sondeo repinta).
+function formAnotar() {
+  const n = st.anota;
+  if (!n) return [];
+  const v = n.v, corrige = n.corrige != null;
+  const det = '<div class="nm">' +
+    (corrige ? `<p class="m">corrige el evento ${btn('ir-evento', '#' + n.corrige, 'ver el evento que se corrige', { id: n.corrige }, 'l')}, que queda tal cual: la nota lo enlaza.</p>` : '') +
+    `<textarea data-an="texto" rows="3" maxlength="10000" placeholder="${corrige ? 'qué estaba mal y qué pasó de verdad' : 'qué quieres que conste (p. ej. «he reiniciado llama-server a mano»)'}" aria-label="Texto de la nota">${esc(v.texto ?? '')}</textarea>` +
+    `<div class="fm"><input data-an="trabajo" class="wt" maxlength="128" spellcheck="false" placeholder="trabajo (opcional): id del bus" aria-label="Trabajo (opcional)" value="${esc(v.trabajo ?? '')}"></div>` +
+    '<p class="m">Queda en el diario como usuario_nota, con actor usuario, y no se puede editar ni borrar: un error se corrige con otra nota.</p>' +
+    (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
+    '<div class="acc">' + btn('d-anotar-enviar', '✎ anotar', 'añadir la nota al diario', {}, 'coin') +
+    btn(corrige ? 'd-corregir' : 'd-anotar', '✕ descartar', 'cerrar el formulario sin anotar nada', corrige ? { id: n.corrige } : {}) + '</div></div>';
+  const row = '<span class="m">ahora</span><i class="m">✎</i><span class="m w">usuario</span>' +
+    `<span class="x">${corrige ? 'corrección de #' + esc(n.corrige) : 'nota'}</span><span class="n"></span><span class="m"></span>`;
+  return [suelto(`<article class="f o nueva"><div class="r d">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+async function anotaDiario() {
+  const n = st.anota, texto = (n.v.texto ?? '').trim(), trabajo = (n.v.trabajo ?? '').trim();
+  if (!texto) throw new Error('escribe el texto de la nota');
+  const cuerpo = { texto };
+  if (n.corrige != null) cuerpo.corrige = n.corrige;
+  if (trabajo) cuerpo.trabajo = trabajo;
+  const e = await ea.anotarDiario(cuerpo);
+  st.anota = null;
+  avisa(`✓ anotado en el diario: #${e.id}`, true);
 }
 
 // Las entradas de una rutina (con su valor por defecto) y la vista previa de
@@ -1698,7 +1743,7 @@ function construir() {
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
     case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
-    case 'diario': return d ? [...con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)), ...pieDiario(d)] : [];
+    case 'diario': return d ? [...formAnotar(), ...con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)), ...pieDiario(d)] : [];
     case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
       ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', 'última', ''), filasRutinas(d))] : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
@@ -1715,7 +1760,7 @@ const FILTRO = { en_cola: COLOR.mision, ejecutando: COLOR.obra, en_revision: COL
 // Los filtros del diario, que se aplican en el servidor. Los actores y las
 // familias son los que escribe el código (spec 009, «Familias de eventos»).
 const ACTORES = ['usuario', 'claude-code', 'modelo-local', 'orquestador', 'ea-cli'];
-const FAMILIAS = { bus_: 'bus', mcp_: 'mcp', propuesta_: 'propuestas', accion_: 'acciones', boveda_: 'bóveda', memoria_: 'memoria', ajustes_: 'ajustes' };
+const FAMILIAS = { bus_: 'bus', mcp_: 'mcp', propuesta_: 'propuestas', accion_: 'acciones', boveda_: 'bóveda', memoria_: 'memoria', ajustes_: 'ajustes', usuario_: 'notas' };
 const RANGOS = { hoy: 'hoy', ayer: 'ayer', '24h': '24 h', '7d': '7 días' };
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -1826,7 +1871,10 @@ function barra() {
         `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
         `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
-    h = barraDiario();
+    // «✎ anotar» va primero, como «＋ misión»: los filtros pueden desbordar.
+    const on = !!st.anota && st.anota.corrige == null;
+    h = `<button class="c${on ? ' on' : ''}" data-a="d-anotar" title="anotar en el diario: dejar constancia de algo con actor usuario" aria-pressed="${on}">✎ anotar</button>` +
+      barraDiario();
   } else if (st.sec === 'rutinas') {
     const on = st.rutEd?.slug === '';
     h = `<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>`;
@@ -2467,6 +2515,20 @@ async function accion(b) {
       st.dTrabajo = null;
     } else if (a === 'd-mas') {
       await masDiario();
+    } else if (a === 'd-anotar' || a === 'd-corregir') {
+      // Anotar o corregir un evento: el mismo formulario, con `corrige` fijado.
+      const corrige = a === 'd-corregir' ? Number(id) : null;
+      if (st.anota && st.anota.corrige === corrige) st.anota = null;
+      else st.anota = { corrige, err: null, v: { texto: '', trabajo: (a === 'd-corregir' ? v : st.dTrabajo) || '' } };
+      st.html = '';
+      pintar();
+      $('[data-an="texto"]')?.focus();
+      return;
+    } else if (a === 'd-anotar-enviar') {
+      try { await anotaDiario(); } catch (e) { if (st.anota) st.anota.err = e.message; }
+    } else if (a === 'ir-evento') {
+      ir('diario', { fila: String(id), params: {} });
+      return;
     } else if (a === 'prop') {
       st.propTodas = v === '1';
     }
@@ -2695,6 +2757,9 @@ $('#lista').addEventListener('input', ev => {
     if (rf.dataset.rf !== undefined) bo.nota = rf.value; else bo.fase = Number(rf.value);
     return;
   }
+  // Lo escrito en el formulario «✎ anotar» del diario.
+  const an = ev.target.closest('[data-an]');
+  if (an && st.anota) { st.anota.v[an.dataset.an] = an.value; st.anota.err = null; return; }
   // Lo escrito en el formulario «＋ misión».
   const nm = ev.target.closest('[data-nm]');
   if (nm && st.nueva) { st.nueva.v[nm.dataset.nm] = nm.value; st.nueva.err = null; return; }

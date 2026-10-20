@@ -17,6 +17,9 @@ pub enum StoreError {
     #[error("la propuesta #{0} no lleva ninguna acción que ejecutar")]
     PropuestaSinAccion(i64),
 
+    #[error("nota del diario no válida: {0}")]
+    NotaInvalida(String),
+
     #[error("valor de estado inválido: {0}")]
     InvalidStatus(String),
 

@@ -383,6 +383,108 @@ async fn el_diario_rechaza_un_resultado_o_una_accion_no_validos() {
     assert_eq!(s, StatusCode::OK);
 }
 
+// ------------------------------------------------- D4: anotar el diario
+
+/// Todas las filas del diario, latidos incluidos, tal como las guarda la base.
+async fn filas_del_diario(f: &Fixture) -> Vec<ea_store::Event> {
+    let filtro = ea_store::EventFilter::default();
+    f.state.store.lock().await.list_events(&filtro).unwrap()
+}
+
+#[tokio::test]
+async fn anotar_el_diario_anade_un_evento_y_no_modifica_ninguno() {
+    let f = montar();
+    let original = f
+        .state
+        .store
+        .lock()
+        .await
+        .append_event(NewEvent {
+            actor: "orquestador".into(),
+            action: "bus_entregar".into(),
+            trabajo: Some("m-1".into()),
+            outcome: Some(EventOutcome::Error),
+            duration_ms: Some(42),
+            detail: Some("{\"motivo\":\"equivocado\"}".into()),
+        })
+        .unwrap();
+    let antes = filas_del_diario(&f).await;
+
+    // Constancia suelta, con trabajo.
+    let (s, n1) = post(&f, "/api/diario/anotar", json!({"texto": "he reiniciado llama-server a mano", "trabajo": "m-1"})).await;
+    assert_eq!(s, StatusCode::CREATED, "{n1}");
+    assert_eq!(n1["actor"], "usuario");
+    assert_eq!(n1["accion"], "usuario_nota");
+    assert_eq!(n1["trabajo"], "m-1");
+    let d1: Value = serde_json::from_str(n1["detalle"].as_str().unwrap()).unwrap();
+    assert_eq!(d1, json!({"texto": "he reiniciado llama-server a mano", "trabajo": "m-1"}));
+
+    // Corrección del evento original.
+    let (s, n2) = post(&f, "/api/diario/anotar", json!({"texto": "no falló: lo cancelé yo", "corrige": original.id})).await;
+    assert_eq!(s, StatusCode::CREATED, "{n2}");
+    let d2: Value = serde_json::from_str(n2["detalle"].as_str().unwrap()).unwrap();
+    assert_eq!(d2["corrige"], original.id);
+
+    // Dos filas más, y las de antes, idénticas.
+    let despues = filas_del_diario(&f).await;
+    assert_eq!(despues.len(), antes.len() + 2);
+    for e in &antes {
+        let ahora = despues.iter().find(|x| x.id == e.id).expect("sigue estando");
+        assert_eq!(serde_json::to_value(ahora).unwrap(), serde_json::to_value(e).unwrap());
+    }
+
+    // El corregido lo dice en el listado; la nota está en la familia `usuario_`.
+    let (_, d) = get(&f, "/api/diario").await;
+    let fila = d.as_array().unwrap().iter().find(|e| e["id"] == original.id).unwrap();
+    assert_eq!(fila["corregido_por"], json!([n2["id"]]));
+    assert_eq!(fila["detalle"], "{\"motivo\":\"equivocado\"}");
+    let (_, d) = get(&f, "/api/diario?accion=usuario_").await;
+    assert_eq!(acciones(&d), ["usuario_nota", "usuario_nota"]);
+}
+
+#[tokio::test]
+async fn anotar_el_diario_rechaza_lo_invalido_sin_escribir() {
+    let f = montar();
+    let antes = filas_del_diario(&f).await.len();
+    for cuerpo in [
+        json!({"texto": ""}),
+        json!({"texto": "   \n "}),
+        json!({"texto": "x".repeat(10_001)}),
+        json!({"texto": "x", "corrige": 999}),
+        json!({"texto": "x", "trabajo": "../etc"}),
+        json!({"texto": "x", "otro": 1}),
+        json!({"corrige": 1}),
+        json!({"texto": 3}),
+    ] {
+        let (s, r) = post(&f, "/api/diario/anotar", cuerpo.clone()).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{cuerpo}: {r}");
+        assert!(r["error"].is_string(), "mensaje: {r}");
+    }
+    assert_eq!(filas_del_diario(&f).await.len(), antes);
+    // Justo en el tope, sí.
+    let (s, _) = post(&f, "/api/diario/anotar", json!({"texto": "ñ".repeat(10_000)})).await;
+    assert_eq!(s, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn anotar_el_diario_sin_clave_da_403() {
+    let f = montar();
+    for clave in [None, Some("mala")] {
+        let (s, _) = enviar_con_clave(
+            &f,
+            Method::POST,
+            "/api/diario/anotar",
+            "localhost:8092",
+            Some(json!({"texto": "suplantación"})),
+            true,
+            clave,
+        )
+        .await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "{clave:?}");
+    }
+    assert!(filas_del_diario(&f).await.is_empty());
+}
+
 #[tokio::test]
 async fn el_diario_pagina_por_cursor_sin_solapes() {
     let f = montar();

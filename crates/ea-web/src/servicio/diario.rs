@@ -1,6 +1,6 @@
 //! El historial de eventos.
 
-use ea_store::{Event, EventFilter, EventOutcome};
+use ea_store::{Event, EventFilter, EventOutcome, NuevaNota};
 
 use super::{limite, parse_fecha, ts, ErrorWeb, Resultado};
 use crate::vistas::EventoVista;
@@ -60,7 +60,20 @@ pub async fn listar(s: &AppState, f: Filtro) -> Resultado<Vec<EventoVista>> {
         limit: Some(limite(f.limite, 200, 1000)),
     };
     let store = s.store.lock().await;
-    Ok(store.list_events(&filter)?.iter().map(vista).collect())
+    let eventos = store.list_events(&filter)?;
+    let ids: Vec<i64> = eventos.iter().map(|e| e.id).collect();
+    let mut correcciones = store.correcciones_diario(&ids)?;
+    Ok(eventos
+        .iter()
+        .map(|e| EventoVista { corregido_por: correcciones.remove(&e.id).unwrap_or_default(), ..vista(e) })
+        .collect())
+}
+
+/// Añade una nota del usuario (`usuario_nota`) al diario, que puede corregir
+/// otro evento. No toca ningún evento existente: el diario es append-only.
+pub async fn anotar(s: &AppState, nota: NuevaNota) -> Resultado<EventoVista> {
+    let store = s.store.lock().await;
+    Ok(vista(&store.anotar_diario(nota)?))
 }
 
 fn vista(e: &Event) -> EventoVista {
@@ -73,5 +86,6 @@ fn vista(e: &Event) -> EventoVista {
         resultado: e.outcome.map(|o| o.as_str()),
         duracion_ms: e.duration_ms,
         detalle: e.detail.clone(),
+        corregido_por: Vec::new(),
     }
 }

@@ -8,6 +8,7 @@ use crate::models::{
 };
 use crate::repository::boveda;
 use crate::repository::events::{self, EventFilter};
+use crate::repository::notas::{self, NuevaNota};
 use crate::repository::propuestas::{self, PropuestaFilter};
 use crate::repository::trabajos::{self, FilaFase, FilaRutina, FilaTrabajo};
 
@@ -100,6 +101,17 @@ impl Store {
 
     pub fn list_events_by_trabajo(&self, trabajo: &str) -> StoreResult<Vec<Event>> {
         events::list_events_by_trabajo(&self.conn, trabajo)
+    }
+
+    /// Añade una nota del usuario (`usuario_nota`), que puede corregir otro
+    /// evento; valida antes y no escribe nada si algo falla.
+    pub fn anotar_diario(&self, nota: NuevaNota) -> StoreResult<Event> {
+        notas::anotar(&self.conn, nota)
+    }
+
+    /// Las notas que corrigen cada uno de `ids` (solo los que tienen alguna).
+    pub fn correcciones_diario(&self, ids: &[i64]) -> StoreResult<std::collections::BTreeMap<i64, Vec<i64>>> {
+        notas::correcciones(&self.conn, ids)
     }
 
     /// Encola una propuesta (de texto libre o con acción estructurada).
