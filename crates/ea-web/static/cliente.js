@@ -80,6 +80,10 @@ const ea = (() => {
     diff: id => api(`/api/trabajos/${c(id)}/diff`),
     // accion: cerrar, cancelar, continuar, reformular ({ nota }) o confirmar ({ contexto }).
     accionTrabajo: (id, accion, cuerpo = {}) => post(`/api/trabajos/${c(id)}/${accion}`, cuerpo),
+    // Crear una misión: lo que pide el formulario (techo, topes por defecto y
+    // worktrees sugeridos) y el alta ({ modo, titulo, worktree, objetivo, criterio, topes }).
+    nuevoTrabajo: () => api('/api/trabajos/nuevo'),
+    crearTrabajo: cuerpo => post('/api/trabajos', cuerpo),
     colas: () => api('/api/colas'),
     semaforos: () => api('/api/semaforos'),
 

@@ -34,7 +34,7 @@ const TITULOS = {
   ajustes: ['Ajustes', 'Cómo se comporta el ecosistema. Lo marcado ⌨ se cambia en una terminal con `ea ajustes`.'],
 };
 const VACIO = {
-  trabajos: 'No hay trabajos. Se lanzan desde Claude Code con /mision, /obra o /rutina.',
+  trabajos: 'No hay trabajos. Encarga una misión con ＋ misión, o desde Claude Code con /mision, /obra o /rutina.',
   diario: 'El diario está vacío.',
   rutinas: 'No hay rutinas registradas (ea rutina registrar).',
   propuestas: 'Nada espera tu decisión.',
@@ -62,6 +62,7 @@ const st = {
   html: '',
   q: '',
   filtroEstado: null,
+  nueva: null,         // formulario «＋ misión» abierto: { v: valores, form: ea.nuevoTrabajo(), err }
   propTodas: false,
   latidos: false,
   // Filtros del diario (van al servidor y al hash, ver PARAMS.diario).
@@ -284,6 +285,52 @@ function filasTrabajos(ts) {
   });
 }
 
+
+// El formulario «＋ misión», en línea encima de la lista. Lo escrito vive en
+// st.nueva.v (el sondeo repinta). El criterio solo se envía: lo ejecuta el
+// sistema al final de cada iteración, nunca esta página.
+function formMision() {
+  const n = st.nueva;
+  if (!n) return [];
+  const v = n.v, t = n.form.techo;
+  const min = Math.max(1, Math.floor(t.tiempo_s / 60));
+  const campo = (c, ph, extra = '') =>
+    `<input data-nm="${c}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" value="${esc(v[c] ?? '')}"${extra}>`;
+  const tope = (c, et, max) =>
+    `<label>${et} <input data-nm="${c}" type="number" inputmode="numeric" min="1" max="${max}" value="${esc(v[c] ?? '')}" aria-label="${et} (como mucho ${max})"></label>`;
+  const det = '<div class="nm">' +
+    '<div class="fm">' + campo('titulo', 'título', ' maxlength="200"') +
+    campo('worktree', 'worktree: ruta absoluta del repo', ' class="wt" list="nm-wt" spellcheck="false"') +
+    `<datalist id="nm-wt">${n.form.worktrees.map(w => `<option value="${esc(w)}"></option>`).join('')}</datalist></div>` +
+    `<textarea data-nm="objetivo" rows="4" maxlength="20000" placeholder="objetivo: qué tiene que conseguir el modelo local" aria-label="Objetivo">${esc(v.objetivo ?? '')}</textarea>` +
+    '<div class="fm">' + campo('criterio', 'criterio: comando que decide si está hecho (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') +
+    tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
+    `<p class="m">El criterio lo ejecuta el sistema al final de cada iteración, nunca esta página. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>` +
+    (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
+    '<div class="acc">' + btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del modelo local', {}, 'coin') +
+    btn('nueva-mision', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
+  const row = `<span class="est">${capsula(COLOR.mision)}nueva</span><span class="n">—</span>` +
+    `<span class="x">${esc(v.titulo || 'misión sin título')}</span><span class="m w">misión</span>` +
+    '<span class="m">para el modelo local</span><span class="m"></span>';
+  return [suelto(`<article class="f o nueva"><div class="r j">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+async function creaMision() {
+  const n = st.nueva, v = n.v;
+  const num = c => (String(v[c] ?? '').trim() ? Number(v[c]) : undefined);
+  const iteraciones = num('iteraciones'), minutos = num('minutos');
+  for (const [x, nombre] of [[iteraciones, 'iteraciones'], [minutos, 'minutos']]) {
+    if (x !== undefined && !(Number.isInteger(x) && x >= 1)) throw new Error(`'${nombre}' debe ser un número entero mayor que 0`);
+  }
+  const t = await ea.crearTrabajo({
+    modo: 'mision', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', criterio: v.criterio ?? '',
+    topes: { iteraciones, tiempo_s: minutos === undefined ? undefined : minutos * 60 },
+  });
+  st.nueva = null;
+  st.filtroEstado = null;
+  avisa(`✓ misión ${t.id.slice(9, 15)} en la cola del modelo local`, true);
+  abre('trabajos', 'j' + t.id);
+}
 
 function pretty(txt) {
   if (!txt) return '';
@@ -1290,8 +1337,8 @@ function construir() {
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
-    case 'trabajos': return d ? con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
-      filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d)) : [];
+    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
+      filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
     case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
     case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
@@ -1356,9 +1403,11 @@ function barra() {
   const fb = $('#fb');
   let h = '';
   if (st.sec === 'trabajos') {
-    h = Object.keys(EST).map(e =>
-      `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
-      `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
+    // «＋ misión» va primero: los filtros pueden desbordar la barra.
+    h = `<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al modelo local" aria-pressed="${!!st.nueva}">＋ misión</button>` +
+      Object.keys(EST).map(e =>
+        `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
+        `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
     h = barraDiario();
   } else if (st.sec === 'propuestas') {
@@ -1526,7 +1575,7 @@ function pintar() {
 
   const vacio = q ? `Nada coincide con «${esc(st.q.trim())}».`
     : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
-  const html = st.vis.length || st.sec === 'inicio' ? vis.map(f => f.html).join('') : `<p class="vacio">${vacio}</p>`;
+  const html = st.vis.length || st.sec === 'inicio' || vis.some(f => f.fijo) ? vis.map(f => f.html).join('') : `<p class="vacio">${vacio}</p>`;
   if (html !== st.html) {
     const lista = $('#lista');
     const y = lista.scrollTop;
@@ -1811,6 +1860,18 @@ async function accion(b) {
       const cuerpo = a === 'reformular' ? { nota: texto } : a === 'confirmar' ? { contexto: texto } : {};
       await ea.accionTrabajo(id, a, cuerpo);
       avisa(`${id.slice(9, 15)}: ${a}`, true);
+    } else if (a === 'nueva-mision') {
+      if (st.nueva) st.nueva = null;
+      else {
+        const form = await ea.nuevoTrabajo();
+        st.nueva = { form, err: null, v: { worktree: st.proyecto ?? '', iteraciones: form.defecto.iteraciones, minutos: Math.max(1, Math.round(form.defecto.tiempo_s / 60)) } };
+      }
+      st.html = '';
+      pintar();
+      $('[data-nm="titulo"]')?.focus();
+      return;
+    } else if (a === 'crear-mision') {
+      try { await creaMision(); } catch (e) { if (st.nueva) st.nueva.err = e.message; }
     } else if (a === 'diff') {
       if (st.diffs[id] !== undefined) delete st.diffs[id];
       else st.diffs[id] = await ea.diff(id).catch(e => ({ error: e.message }));
@@ -2122,6 +2183,9 @@ $('#lista').addEventListener('input', ev => {
     $$('.sal', ri.closest('.det')).forEach(n => n.remove());
     return;
   }
+  // Lo escrito en el formulario «＋ misión».
+  const nm = ev.target.closest('[data-nm]');
+  if (nm && st.nueva) { st.nueva.v[nm.dataset.nm] = nm.value; st.nueva.err = null; return; }
   const el = ev.target.closest('[data-campo]');
   if (!el) return;
   const c = (st.consola[el.dataset.h] ??= {});
