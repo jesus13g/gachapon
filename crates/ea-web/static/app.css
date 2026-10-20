@@ -435,6 +435,11 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .det.rnueva { margin: 6px 0 10px; padding-top: 6px; background: var(--bg0); border-radius: 6px; }
 .det textarea[data-campo] { width: 100%; max-width: 760px; min-height: 8em; background: var(--bg); color: var(--fg); border: 0; border-radius: 4px; padding: 6px 8px; font: inherit; font-size: 12.5px; white-space: pre; resize: vertical; }
 .acc textarea { flex: 1; min-width: 220px; max-width: 520px; background: var(--bg); color: var(--fg); border: 0; border-radius: 4px; padding: 6px 8px; font: inherit; resize: vertical; }
+/* reformular: las notas anteriores, a lo ancho y encima de la nueva */
+.acc .rf { flex: 0 0 100%; }
+.acc .rf > * { max-width: 680px; }
+.acc .rf .tx { margin: 2px 0; }
+.acc .rf textarea { display: block; width: 100%; margin-top: 6px; overflow: auto; color: var(--fg); font-size: inherit; }
 
 /* «＋ misión»: el formulario va en línea, como el detalle de una fila */
 .f.nueva { margin-bottom: 6px; }

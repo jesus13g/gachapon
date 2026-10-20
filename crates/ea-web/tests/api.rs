@@ -622,6 +622,66 @@ async fn acciones_del_usuario_sobre_los_trabajos() {
     assert_eq!(c["claude-code"][0]["trabajo"], r1.as_str());
 }
 
+/// Obra de tres fases entregada completa (las tres hechas), en revisión.
+fn obra_completa(bus: &ea_bus::Bus) -> String {
+    let fase = |n: u32| ea_bus::Fase {
+        numero: n,
+        titulo: format!("f{n}"),
+        instrucciones: "i".into(),
+        entregable: "e".into(),
+        criterio: "true".into(),
+        skills: vec![],
+    };
+    let o = ea_bus::Orden { criterio_exito: None, fases: vec![fase(1), fase(2), fase(3)], ..orden(ea_bus::Modo::Obra, "O", "/tmp") };
+    let id = bus.crear_trabajo(o).unwrap();
+    bus.aplicar(&id, ea_bus::Evento::Tomar).unwrap();
+    let inf = ea_bus::Informe { fases_hechas: 3, obra_completa: true, ..ea_bus::Informe::nuevo(ea_bus::ResultadoInforme::Terminado) };
+    bus.aplicar(&id, ea_bus::Evento::Entregar(inf)).unwrap();
+    id
+}
+
+#[tokio::test]
+async fn reformular_con_fase_fuera_de_rango_da_400() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let bus = ea_bus::Bus::abrir().unwrap();
+    let o = obra_completa(&bus);
+    let antes = bus.leer_estado(&o).unwrap();
+    for fase in [0, 4] {
+        let (s, r) = post(&f, &format!("/api/trabajos/{o}/reformular"), json!({ "nota": "rehaz", "fase": fase })).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "fase {fase}: {r}");
+    }
+    // Una misión no tiene fases.
+    let m = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "M", "/tmp")).unwrap();
+    bus.aplicar(&m, ea_bus::Evento::Tomar).unwrap();
+    bus.aplicar(&m, ea_bus::Evento::Entregar(ea_bus::Informe::nuevo(ea_bus::ResultadoInforme::Terminado))).unwrap();
+    let (s, _) = post(&f, &format!("/api/trabajos/{m}/reformular"), json!({ "nota": "rehaz", "fase": 1 })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // Nada escrito: ni notas ni estado.
+    assert_eq!(bus.leer_estado(&o).unwrap(), antes);
+    assert!(bus.leer_orden(&o).unwrap().notas_revision.is_empty());
+    assert!(bus.leer_orden(&m).unwrap().notas_revision.is_empty());
+    assert_eq!(bus.leer_estado(&m).unwrap().estado, ea_bus::EstadoTrabajo::EnRevision);
+}
+
+#[tokio::test]
+async fn reformular_una_obra_con_fase_deja_la_fase_actual_en_ella() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let bus = ea_bus::Bus::abrir().unwrap();
+    let o = obra_completa(&bus);
+    let (s, r) = post(&f, &format!("/api/trabajos/{o}/reformular"), json!({ "nota": "rehaz la 2", "fase": 2 })).await;
+    assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("en_cola")));
+    let (_, j) = get(&f, &format!("/api/trabajos/{o}")).await;
+    assert_eq!(j["estado"]["fase_actual"], json!(2));
+    assert_eq!(j["orden"]["notas_revision"], json!(["rehaz la 2"]));
+    // Sin fase, una obra completa rehace la última.
+    let o2 = obra_completa(&bus);
+    let (s, _) = post(&f, &format!("/api/trabajos/{o2}/reformular"), json!({ "nota": "retoca" })).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(bus.leer_estado(&o2).unwrap().fase_actual, Some(3));
+}
+
 #[tokio::test]
 async fn servicios_degradan_con_limpieza() {
     let f = montar();

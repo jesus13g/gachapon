@@ -695,7 +695,8 @@ fn trabajar_obra(
     let mut fases = orden.fases.clone();
     fases.sort_by_key(|f| f.numero);
     let total = fases.len();
-    // Si la obra ya estaba completa y se reformula, se repite la última fase.
+    // `Bus::reformular` deja `fase_actual` en la fase a rehacer (la pedida o
+    // la pendiente; en una obra completa, la última). Sin ella, la última.
     let inicio_idx = fase_actual.and_then(|n| fases.iter().position(|f| f.numero == n)).unwrap_or(total - 1);
 
     let f_ultimo = dir.join("arbol-ultimo.txt");
@@ -1217,7 +1218,7 @@ mod tests {
         let staged = git(wt.path(), &["diff", "--cached", "--name-only"]).unwrap();
         assert!(staged.is_empty(), "índice tocado: {staged}");
 
-        bus.reformular(&id, "").unwrap(); // = ea trabajo continuar
+        bus.reformular(&id, "", None).unwrap(); // = ea trabajo continuar
         ejecutar_uno(&bus, &config(), &ag);
         let inf = bus.leer_informe(&id).unwrap().unwrap();
         assert_eq!((inf.fases_hechas, inf.obra_completa, inf.motivo), (3, true, None));
@@ -1225,6 +1226,30 @@ mod tests {
         let d = inf.diff.unwrap();
         assert!(d.contains("+++ b/f3") && !d.contains("+++ b/f1"));
         assert_eq!(bus.leer_estado(&id).unwrap().fase_actual, Some(4));
+    }
+
+    #[test]
+    fn reformular_una_obra_completa_desde_la_fase_2_rehace_la_2_y_la_3() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let id = bus.crear_trabajo(fases3(wt.path(), None)).unwrap();
+        let ag = doble(SIGUIENTE, 0);
+        ejecutar_uno(&bus, &config(), &ag);
+        assert!(inf_obra_completa(&bus, &id));
+        assert_eq!(ag.visto.lock().unwrap().len(), 3);
+
+        bus.reformular(&id, "rehaz desde la 2", Some(2)).unwrap();
+        ejecutar_uno(&bus, &config(), &ag);
+        let vistos = ag.visto.lock().unwrap();
+        assert_eq!(vistos.len(), 5, "solo las fases 2 y 3 vuelven al agente");
+        assert!(vistos[3].contains("fase 2 de 3") && vistos[4].contains("fase 3 de 3"));
+        let inf = bus.leer_informe(&id).unwrap().unwrap();
+        assert_eq!((inf.fases_hechas, inf.obra_completa), (3, true));
+        assert_eq!(inf.fases.iter().map(|f| f.numero).collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(bus.leer_estado(&id).unwrap().fase_actual, Some(4));
+        let fases = ea_store::Store::open_at(&e.path().join("ea.db")).unwrap().listar_fases(&id).unwrap();
+        assert!(fases.iter().all(|f| f.estado == "hecha"));
     }
 
     #[test]
