@@ -64,11 +64,16 @@ pub async fn listar(s: &AppState) -> Resultado<Vec<RutinaFila>> {
     let mut out = Vec::with_capacity(filas.len());
     for f in filas {
         let r = ea_bus::Rutina::parsear(&f.definicion).ok();
-        let proxima = if s.config.systemctl && ea_bus::slug_valido(&f.slug) {
-            crate::estado::proxima_ejecucion(&f.slug).await
+        let (proxima, timer) = if s.config.systemctl && ea_bus::slug_valido(&f.slug) {
+            match crate::estado::timer_rutina(&f.slug).await {
+                Some((p, t)) => (p, Some(t).filter(|t| !t.is_empty())),
+                None => (None, None),
+            }
         } else {
-            None
+            (None, None)
         };
+        // El horario sale del fichero del timer, sin preguntar a systemd.
+        let calendario = s.config.temporizadores.calendario_actual(&f.slug).ok().flatten();
         let ultima = ultimas.remove(&f.slug);
         out.push(RutinaFila {
             error: r.is_none().then_some("definición ilegible"),
@@ -80,6 +85,8 @@ pub async fn listar(s: &AppState) -> Resultado<Vec<RutinaFila>> {
             version: f.version,
             registrada: f.creada_en,
             proxima,
+            calendario,
+            timer,
             ultima,
         });
     }

@@ -184,6 +184,8 @@ async fn el_modelo_local_como_mucho_propone_reversibles_de_su_proyeccion() {
         ("ea_reiniciar_servicio", json!({ "servicio": "ea-mcp", "simular": true })),
         ("ea_encolar_rutina", json!({ "slug": "vieja", "simular": true })),
         ("ea_registrar_rutina", json!({ "toml": "[rutina]", "simular": true })),
+        ("ea_programar_rutina", json!({ "slug": "vieja", "calendario": "daily", "simular": true })),
+        ("ea_desprogramar_rutina", json!({ "slug": "vieja", "simular": true })),
     ] {
         let err = llamar(&c, n, a).await.unwrap_err();
         assert!(err.contains("no está disponible"), "{n}: {err}");
@@ -205,6 +207,7 @@ async fn lo_desatendido_no_puede_ni_simular_ni_proponer() {
             "ea_escribir_nota" => json!({ "titulo": "a", "contenido": "b" }),
             "ea_promover_nota" => json!({ "ruta": "modelo-local/a.md" }),
             "ea_registrar_rutina" => json!({ "toml": "[rutina]" }),
+            "ea_programar_rutina" => json!({ "slug": "vieja", "calendario": "daily" }),
             _ => json!({ "slug": "vieja" }),
         };
         let err = llamar(&c, h.nombre, args).await.unwrap_err();

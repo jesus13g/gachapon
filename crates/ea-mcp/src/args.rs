@@ -78,6 +78,21 @@ pub struct RegistrarRutinaArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct ProgramarRutinaArgs {
+    /// Nombre (slug) de una rutina registrada, p. ej. "revision-diaria".
+    pub slug: String,
+    /// Expresión `OnCalendar` de systemd, p. ej. "*-*-* 08:00:00" (cada día a
+    /// las 8), "Mon *-*-* 09:00" (los lunes) o "daily". Una sola línea: sin
+    /// saltos de línea ni otros caracteres de control, sin `%` ni `\`; como
+    /// mucho 200 caracteres. La valida `systemd-analyze calendar`.
+    pub calendario: String,
+    /// Si es true, solo describe lo que se haría (con las próximas 3
+    /// ejecuciones). Si es false (por defecto), encola una propuesta que el
+    /// usuario debe aceptar: nada se programa aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReiniciarServicioArgs {
     /// Servicio de la lista cerrada: llama-server, ea-mcp,
     /// ea-orchestrator o ea-web.

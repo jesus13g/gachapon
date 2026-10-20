@@ -11,6 +11,7 @@ use crate::catalogo::{self, Canal, Ejecucion, Herramienta, Riesgo};
 use crate::diff::diff_lineas;
 use crate::error::ErrorAccion;
 use crate::sistema::{slug_valido, Consulta, EstadoServicio, Sistema, SERVICIOS_REINICIABLES};
+use crate::temporizador::{comprobar_calendario, unidad_timer, Calendario, EstadoTimer};
 
 /// Qué haría una herramienta con unos argumentos, sin hacerlo.
 #[derive(Debug, Clone)]
@@ -80,6 +81,23 @@ impl RegistrarRutina {
             )));
         }
         ea_bus::Rutina::parsear(&self.toml).map_err(|e| ErrorAccion::Argumentos(e.to_string()))
+    }
+}
+
+/// `ea_programar_rutina`: la rutina y su `OnCalendar`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProgramarRutina {
+    slug: String,
+    calendario: String,
+}
+
+impl ProgramarRutina {
+    /// Validación sin mirar el mundo: slug y texto del calendario (sin
+    /// caracteres de control, `%` ni `\`). Devuelve el calendario recortado.
+    fn comprobar(&self) -> Result<&str, ErrorAccion> {
+        comprobar_slug(&self.slug)?;
+        comprobar_calendario(&self.calendario).map_err(ErrorAccion::Argumentos)
     }
 }
 
@@ -170,6 +188,8 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
         "ea_registrar_rutina" => parsear::<RegistrarRutina>(args)?.comprobar().map(|_| ()),
         "ea_reiniciar_servicio" => comprobar_servicio(&parsear::<PorServicio>(args)?.servicio),
         "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
+        "ea_programar_rutina" => parsear::<ProgramarRutina>(args)?.comprobar().map(|_| ()),
+        "ea_desprogramar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -197,6 +217,10 @@ const CAMPOS_SERVICIO: &[Campo] =
     &[Campo { opciones: &SERVICIOS_REINICIABLES, ..campo("servicio", "servicio") }];
 const CAMPOS_REGISTRAR: &[Campo] =
     &[Campo { largo: true, ..campo("toml", "definición TOML de la rutina ([rutina], [entradas], [[pasos]])") }];
+const CAMPOS_PROGRAMAR: &[Campo] = &[
+    campo("slug", "rutina"),
+    campo("calendario", "OnCalendar de systemd (p. ej. *-*-* 08:00:00 o Mon *-*-* 09:00)"),
+];
 const CAMPOS_PROMOVER: &[Campo] = &[
     campo("ruta", "ruta de la nota (p. ej. claude-code/tema/nota.md)"),
     Campo { obligatorio: false, ..campo("destino", "destino en «compartida» (opcional)") },
@@ -207,7 +231,8 @@ const CAMPOS_PROMOVER: &[Campo] = &[
 /// una prueba).
 pub fn campos(nombre: &str) -> &'static [Campo] {
     match nombre {
-        "ea_encolar_rutina" | "ea_eliminar_rutina" => CAMPOS_SLUG,
+        "ea_encolar_rutina" | "ea_eliminar_rutina" | "ea_desprogramar_rutina" => CAMPOS_SLUG,
+        "ea_programar_rutina" => CAMPOS_PROGRAMAR,
         "ea_reiniciar_servicio" => CAMPOS_SERVICIO,
         "ea_registrar_rutina" => CAMPOS_REGISTRAR,
         "ea_promover_nota" => CAMPOS_PROMOVER,
@@ -222,6 +247,10 @@ pub fn campos(nombre: &str) -> &'static [Campo] {
 #[derive(Debug, Default, Clone)]
 pub struct Hechos {
     pub servicio: Option<EstadoServicio>,
+    /// El timer de la rutina (programar y desprogramar).
+    pub timer: Option<EstadoTimer>,
+    /// Lo que dice `systemd-analyze calendar` del calendario pedido.
+    pub calendario: Option<Result<Calendario, String>>,
 }
 
 /// Consulta al sistema lo que la simulación de `nombre` necesita.
@@ -230,6 +259,16 @@ pub async fn observar<C: Consulta>(consulta: &C, nombre: &str, args: &Value) -> 
     if nombre == "ea_reiniciar_servicio" {
         if let Some(srv) = args["servicio"].as_str().filter(|s| SERVICIOS_REINICIABLES.contains(s)) {
             h.servicio = Some(consulta.servicio_estado(srv).await.map_err(ErrorAccion::Sistema)?);
+        }
+    }
+    if nombre == "ea_programar_rutina" || nombre == "ea_desprogramar_rutina" {
+        if let Some(slug) = args["slug"].as_str().filter(|s| slug_valido(s)) {
+            h.timer = Some(consulta.timer_estado(slug).await.map_err(ErrorAccion::Sistema)?);
+        }
+    }
+    if nombre == "ea_programar_rutina" {
+        if let Some(c) = args["calendario"].as_str().filter(|c| comprobar_calendario(c).is_ok()) {
+            h.calendario = Some(consulta.calendario_validar(c).await.map_err(ErrorAccion::Sistema)?);
         }
     }
     Ok(h)
@@ -374,6 +413,78 @@ pub fn simular_con<C: Consulta>(
                 json!({ "huella": huella(&contenido), "bytes": contenido.len() }),
             )
         }
+        "ea_programar_rutina" => {
+            let a: ProgramarRutina = parsear(args)?;
+            let c = a.comprobar()?.to_string();
+            // Solo las rutinas registradas: el timer lanza la última versión.
+            let version = store
+                .ultima_rutina(&a.slug)?
+                .ok_or_else(|| {
+                    ErrorAccion::NoAplica(format!("la rutina '{}' no está registrada (ea rutina registrar)", a.slug))
+                })?
+                .version;
+            let cal = match &hechos.calendario {
+                Some(Ok(cal)) => cal.clone(),
+                Some(Err(m)) => return Err(ErrorAccion::Argumentos(format!("calendario no válido: {m}"))),
+                None => return Err(ErrorAccion::Sistema("calendario no observado".into())),
+            };
+            let timer = hechos.timer.clone().ok_or_else(|| ErrorAccion::Sistema("timer no observado".into()))?;
+            let igual = timer.calendario.as_deref().is_some_and(|t| t == c || t == cal.normalizado);
+            if igual && timer.activo.as_deref() == Some("active") {
+                return Err(ErrorAccion::NoAplica(format!(
+                    "la rutina '{}' ya está programada con OnCalendar={c}",
+                    a.slug
+                )));
+            }
+            let ahora = match (&timer.calendario, timer.activo.as_deref()) {
+                (Some(t), Some(act)) => format!("Ahora está programada con OnCalendar={t} ({act}); se sustituye."),
+                (Some(t), None) => format!("Ahora está programada con OnCalendar={t}; se sustituye."),
+                (None, _) => "Ahora no tiene horario.".to_string(),
+            };
+            let proximas = if cal.proximas.is_empty() {
+                "systemd no prevé ninguna ejecución".to_string()
+            } else {
+                format!("próximas ejecuciones: {}", cal.proximas.join("; "))
+            };
+            (
+                json!({ "slug": a.slug, "calendario": c }),
+                format!(
+                    "Programaría la rutina '{}' (versión {version}) con OnCalendar={c} (para systemd: {}); \
+                     {proximas}. Escribe {} en el directorio de unidades de systemd --user, hace \
+                     daemon-reload y lo activa (enable y restart). A cada hora, ea-rutina@{}.service solo \
+                     crea el trabajo (`ea rutina lanzar {}`), con la última versión registrada; además se \
+                     dispara una vez 10 min después de arrancar la sesión, como la plantilla. {ahora}",
+                    a.slug,
+                    cal.normalizado,
+                    unidad_timer(&a.slug),
+                    a.slug,
+                    a.slug
+                ),
+                json!({ "calendario_actual": timer.calendario, "fichero": timer.fichero }),
+            )
+        }
+        "ea_desprogramar_rutina" => {
+            let a: PorSlug = parsear(args)?;
+            comprobar_slug(&a.slug)?;
+            // No exige que esté registrada: también quita el timer de una
+            // rutina retirada.
+            let timer = hechos.timer.clone().ok_or_else(|| ErrorAccion::Sistema("timer no observado".into()))?;
+            if !timer.programado() {
+                return Err(ErrorAccion::NoAplica(format!("la rutina '{}' no tiene timer programado", a.slug)));
+            }
+            let horario = timer.calendario.as_deref().map(|c| format!(" (OnCalendar={c})")).unwrap_or_default();
+            (
+                json!({ "slug": a.slug }),
+                format!(
+                    "Desprogramaría la rutina '{}'{horario}: `systemctl --user disable --now {}`, borra el \
+                     fichero del timer y daemon-reload. La rutina sigue registrada y se puede lanzar a mano \
+                     o volver a programar.",
+                    a.slug,
+                    unidad_timer(&a.slug)
+                ),
+                json!({ "calendario_actual": timer.calendario, "fichero": timer.fichero }),
+            )
+        }
         "ea_promover_nota" => {
             let a: PromoverNota = parsear(args)?;
             comprobar_promocion(&a)?;
@@ -449,6 +560,7 @@ pub fn aplicar_en_store(
             }))
         }
         "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" | "ea_registrar_rutina" => Ok(None),
+        "ea_programar_rutina" | "ea_desprogramar_rutina" => Ok(None),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -492,6 +604,34 @@ pub async fn aplicar_en_sistema<S: Sistema>(
                 texto: format!("Rutina '{slug}' registrada en la versión {version}."),
                 trabajo: None,
                 datos: json!({ "rutina": slug, "version": version }),
+            })
+        }
+        "ea_programar_rutina" => {
+            let a: ProgramarRutina = parsear(args)?;
+            let c = a.comprobar()?.to_string();
+            sistema.timer_programar(&a.slug, &c).await.map_err(ErrorAccion::Sistema)?;
+            let ahora = sistema.timer_estado(&a.slug).await.map_err(ErrorAccion::Sistema)?;
+            Ok(Aplicada {
+                texto: format!(
+                    "Rutina '{}' programada con OnCalendar={c} ({}).",
+                    a.slug,
+                    ahora.activo.as_deref().unwrap_or("estado desconocido")
+                ),
+                trabajo: None,
+                datos: json!({ "rutina": a.slug, "calendario": c, "activo": ahora.activo }),
+            })
+        }
+        "ea_desprogramar_rutina" => {
+            let a: PorSlug = parsear(args)?;
+            let habia = sistema.timer_desprogramar(&a.slug).await.map_err(ErrorAccion::Sistema)?;
+            Ok(Aplicada {
+                texto: if habia {
+                    format!("Timer de la rutina '{}' desactivado y borrado.", a.slug)
+                } else {
+                    format!("La rutina '{}' no tenía timer.", a.slug)
+                },
+                trabajo: None,
+                datos: json!({ "rutina": a.slug, "desprogramada": habia }),
             })
         }
         "ea_eliminar_rutina" => {

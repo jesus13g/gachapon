@@ -71,6 +71,7 @@ fn montar() -> Fixture {
         proyectos_claude_dir: Some(dir.path().join("proyectos")),
         estado_dir: dir.path().join("estado"),
         ajustes: ea_ajustes::Fuentes::aislada(dir.path()),
+        temporizadores: temporizadores_falsos(dir.path()),
     };
     let state = Arc::new(AppState::new(store, config).expect("estado"));
     Fixture { app: api::router(state.clone()), state, _dir: dir }
@@ -2358,4 +2359,113 @@ async fn las_versiones_de_una_rutina_se_listan_y_se_leen() {
     assert_eq!(s, StatusCode::NOT_FOUND);
     let (s, _) = get(&f, "/api/rutinas/revision-diaria").await;
     assert_eq!(s, StatusCode::OK);
+}
+
+// ------------------------------------------- programar una rutina (R4)
+
+/// `systemctl` y `systemd-analyze` falsos para los timers de las rutinas:
+/// nunca el `~/.config/systemd/user` real ni el `systemctl` de verdad. Las
+/// unidades van a `<dir>/systemd-user`; las órdenes, a `<dir>/ordenes.log`.
+fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
+    let log = dir.join("ordenes.log");
+    let unidades = dir.join("systemd-user");
+    let sc = dir.join("systemctl-falso.sh");
+    std::fs::write(
+        &sc,
+        format!(
+            "printf '%s\\n' systemctl \"$@\" >> '{log}'\n\
+             if [ \"$2\" = is-active ]; then\n\
+               if [ -f '{u}/'\"$3\" ]; then echo active; else echo inactive; exit 3; fi\n\
+             fi\n",
+            log = log.display(),
+            u = unidades.display()
+        ),
+    )
+    .unwrap();
+    let sa = dir.join("systemd-analyze-falso.sh");
+    std::fs::write(
+        &sa,
+        "case \"$4\" in *malo*) echo \"Failed to parse calendar specification '$4'\" >&2; exit 1;; esac\n\
+         echo \"Normalized form: $4\"\n\
+         echo '    Next elapse: Thu 2026-10-22 08:00:00 CEST'\n\
+         echo '   Iteration #2: Fri 2026-10-23 08:00:00 CEST'\n\
+         echo '   Iteration #3: Sat 2026-10-24 08:00:00 CEST'\n",
+    )
+    .unwrap();
+    let sh = |p: &std::path::Path| vec!["sh".to_string(), p.display().to_string()];
+    ea_acciones::Temporizadores { unidades_dir: unidades, systemctl: sh(&sc), systemd_analyze: sh(&sa) }
+}
+
+#[tokio::test]
+async fn programar_desde_la_web_pide_simulacion_y_revalida() {
+    let f = montar();
+    let timer = f._dir.path().join("systemd-user/ea-rutina@revision-diaria.timer");
+
+    // La consola ofrece la herramienta con las rutinas registradas como dominio.
+    let (_, cat) = get(&f, "/api/acciones").await;
+    let h = cat.as_array().unwrap().iter().find(|h| h["nombre"] == "ea_programar_rutina").unwrap().clone();
+    assert_eq!(h["confirmable"], true);
+    assert_eq!(h["campos"][0]["opciones"], json!(["revision-diaria"]));
+    assert_eq!(h["campos"][1]["nombre"], "calendario");
+
+    let programar = |cal: &str| {
+        json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "revision-diaria", "calendario": cal } })
+    };
+    // Simular no escribe nada y enseña las próximas ejecuciones.
+    let (s, sim) = post(&f, "/api/acciones/simular", programar("*-*-* 08:00:00")).await;
+    assert_eq!(s, StatusCode::OK, "{sim}");
+    let texto = sim["texto"].as_str().unwrap();
+    assert!(texto.contains("OnCalendar=*-*-* 08:00:00") && texto.contains("Sat 2026-10-24"), "{texto}");
+    assert_eq!(sim["confirmable"], true);
+    assert!(!timer.exists());
+
+    // Calendarios malos (400) y rutinas sin registrar (409): nada escrito.
+    for malo in ["daily\nExecStart=/bin/sh", "muy malo", "%h", ""] {
+        let (s, _) = post(&f, "/api/acciones/simular", programar(malo)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{malo:?}");
+    }
+    let (s, _) = post(
+        &f,
+        "/api/acciones/simular",
+        json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "no-existe", "calendario": "daily" } }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    assert!(!timer.exists());
+
+    // El mundo cambia entre simular y guardar: la revalidación lo para.
+    std::fs::create_dir_all(timer.parent().unwrap()).unwrap();
+    std::fs::write(&timer, "[Timer]\nOnCalendar=daily\n").unwrap();
+    let ejecutar = |sim: &Value| {
+        json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] })
+    };
+    let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar(&sim)).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{r}");
+    assert_eq!(std::fs::read_to_string(&timer).unwrap(), "[Timer]\nOnCalendar=daily\n");
+
+    // Simulado otra vez sobre lo que hay, se guarda.
+    let (_, sim) = post(&f, "/api/acciones/simular", programar("*-*-* 08:00:00")).await;
+    assert!(sim["texto"].as_str().unwrap().contains("OnCalendar=daily"), "dice el horario actual: {sim}");
+    let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar(&sim)).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(std::fs::read_to_string(&timer).unwrap().contains("\nOnCalendar=*-*-* 08:00:00\n"));
+    let ordenes = std::fs::read_to_string(f._dir.path().join("ordenes.log")).unwrap();
+    assert!(ordenes.contains("systemctl\n--user\nenable\nea-rutina@revision-diaria.timer\n"), "{ordenes}");
+    let (_, rs) = get(&f, "/api/rutinas").await;
+    assert_eq!(rs[0]["calendario"], "*-*-* 08:00:00");
+
+    // Desprogramar: igual, simular y ejecutar lo simulado.
+    let quitar = json!({ "herramienta": "ea_desprogramar_rutina", "argumentos": { "slug": "revision-diaria" } });
+    let (s, sim) = post(&f, "/api/acciones/simular", quitar).await;
+    assert_eq!(s, StatusCode::OK, "{sim}");
+    let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar(&sim)).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(!timer.exists());
+    let (_, rs) = get(&f, "/api/rutinas").await;
+    assert_eq!(rs[0]["calendario"], Value::Null);
+
+    // Todo queda en el diario: el intento parado y los dos que salieron.
+    let ev = f.state.store.lock().await.list_events(&ea_store::EventFilter { limit: Some(50), ..Default::default() }).unwrap();
+    let de = |a: &str| ev.iter().filter(|e| e.action == a && e.detail.as_deref().unwrap_or("").contains("_rutina")).count();
+    assert_eq!((de("accion_fallida"), de("accion_ejecutada")), (1, 2));
 }

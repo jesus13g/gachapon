@@ -24,7 +24,7 @@ use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
     BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
-    EncolarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
+    EncolarRutinaArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
 };
 
 /// Deriva el actor que este servidor escribe en el diario, a partir del nombre que el cliente MCP declaró al conectar
@@ -658,6 +658,50 @@ impl EaTools {
     }
 
     #[tool(
+        description = "[Riesgo: mutación reversible] Programa una rutina registrada con un \
+            timer de systemd --user (ea-rutina@<slug>.timer con OnCalendar=<calendario>): a \
+            cada hora el timer solo crea el trabajo de la rutina (ea rutina lanzar), que \
+            ejecuta el agente local. Si ya tenía horario, lo sustituye. NO lo programa: con \
+            simular=true valida el calendario con systemd-analyze y describe lo que haría, \
+            con las próximas 3 ejecuciones; sin él encola una propuesta que el usuario debe \
+            aceptar (terminal o panel web). Se deshace con ea_desprogramar_rutina.",
+        annotations(
+            title = "Programar rutina",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_programar_rutina(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<ProgramarRutinaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let a = json!({ "slug": args.slug, "calendario": args.calendario });
+        self.mutante(context, "ea_programar_rutina", a, args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Quita el timer de systemd de una rutina \
+            (systemctl --user disable --now ea-rutina@<slug>.timer y borra su fichero). La \
+            rutina sigue registrada. NO lo hace: con simular=true lo describe; sin él encola \
+            una propuesta que el usuario debe aceptar (terminal o panel web).",
+        annotations(
+            title = "Desprogramar rutina",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true
+        )
+    )]
+    async fn ea_desprogramar_rutina(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<RutinaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_desprogramar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
         description = "[Riesgo: mutación reversible] Reinicia un servicio del ecosistema \
             (lista cerrada: llama-server, ea-mcp, ea-orchestrator, ea-web). \
             NO lo ejecuta: con simular=true lo describe; sin él encola una propuesta \
@@ -709,7 +753,8 @@ impl ServerHandler for EaTools {
                  bus (solo lectura: crear o decidir trabajo se hace con la CLI y las \
                  skills); ea_listar_diario consulta el historial de eventos. Las \
                  herramientas que cambian el sistema (ea_encolar_rutina, \
-                 ea_registrar_rutina, ea_reiniciar_servicio, ea_eliminar_rutina, ea_promover_nota) nunca se \
+                 ea_registrar_rutina, ea_programar_rutina, ea_desprogramar_rutina, \
+                 ea_reiniciar_servicio, ea_eliminar_rutina, ea_promover_nota) nunca se \
                  ejecutan desde aquí: con simular=true describen lo que harían; sin él \
                  encolan una propuesta que solo el usuario puede aceptar. Las \
                  irreversibles solo se confirman desde una terminal. La bóveda de \

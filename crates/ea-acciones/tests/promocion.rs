@@ -22,7 +22,7 @@ fn entorno() -> Entorno {
 
 impl Entorno {
     fn real(&self) -> SistemaReal {
-        SistemaReal { rutinas_dir: self.dir.path().join("rutinas"), boveda: self.boveda.clone(), propio: None }
+        SistemaReal { rutinas_dir: self.dir.path().join("rutinas"), boveda: self.boveda.clone(), propio: None, temporizadores: ea_acciones::Temporizadores::usuario() }
     }
     fn consulta(&self) -> SoloConsulta {
         SoloConsulta { rutinas_dir: self.dir.path().join("rutinas"), boveda: self.boveda.clone() }

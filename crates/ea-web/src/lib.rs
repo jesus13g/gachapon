@@ -5,8 +5,10 @@
 //! modelo local (solo mira qué sesiones de Claude Code hay abiertas). Las únicas
 //! rutas que salen de la base de datos son el reinicio de servicios, la
 //! memoria de Claude Code, el editor de la bóveda (este, siempre a través
-//! de `ea-boveda`, su único escritor) y los ajustes (`ajustes.toml`, a través
-//! de `ea-ajustes`), que el usuario edita a mano desde la página.
+//! de `ea-boveda`, su único escritor), los ajustes (`ajustes.toml`, a través
+//! de `ea-ajustes`), que el usuario edita a mano desde la página, y el timer
+//! de systemd de una rutina (`ea_programar_rutina` y `ea_desprogramar_rutina`,
+//! a través de `ea-acciones`: `~/.config/systemd/user/ea-rutina@<slug>.timer`).
 
 use std::path::PathBuf;
 
@@ -52,6 +54,10 @@ pub struct WebConfig {
     pub estado_dir: PathBuf,
     /// De dónde se leen (en cada petición) y adónde se escriben los ajustes.
     pub ajustes: ea_ajustes::Fuentes,
+    /// Dónde se escriben los timers de las rutinas y con qué órdenes
+    /// (`systemctl`, `systemd-analyze`). En las pruebas, un directorio
+    /// temporal y órdenes simuladas.
+    pub temporizadores: ea_acciones::Temporizadores,
 }
 
 impl WebConfig {
@@ -80,6 +86,7 @@ impl WebConfig {
             proyectos_claude_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/projects")),
             estado_dir: a.rutas.estado,
             ajustes: fuentes,
+            temporizadores: ea_acciones::Temporizadores::usuario(),
         }
     }
 }
