@@ -67,8 +67,9 @@ en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
   y el orquestador solo reciben la capa `SoloConsulta`. No añadas atajos.
 - **El criterio de éxito lo ejecuta el sistema**, nunca el agente; un criterio
   vacío no es éxito.
-- **El modelo se nombra solo en `orquestador.toml`** (`ConfigOrquestador`).
-  Nada de nombres de modelo ni endpoints en el código.
+- **El modelo se nombra solo en `ajustes.toml`** (o el heredado
+  `orquestador.toml`); en el código, solo en los valores por defecto de
+  `ea-ajustes`. El endpoint tiene que ser local.
 - **El diario es append-only a nivel de motor** (triggers): un error se corrige
   con otro evento. El estado del bus se escribe con `fs_atomico`.
 - **Solo local**: todo escucha en `127.0.0.1`; `ea-web` filtra el `Host`.
