@@ -1730,3 +1730,122 @@ async fn validar_y_registrar_sin_clave_dan_403() {
     let (s, _) = get(&f, "/api/rutinas/validar").await;
     assert_eq!(s, StatusCode::NOT_FOUND);
 }
+
+// ------------------------------------------------- ficha completa (T6, H18)
+
+/// `git` en `wt` con el índice que se pida (para las instantáneas sin tocar
+/// el índice del repo, como hace el ejecutor). Devuelve stdout recortado.
+fn git_en(wt: &std::path::Path, indice: Option<&std::path::Path>, args: &[&str]) -> String {
+    let mut c = std::process::Command::new("git");
+    c.arg("-C").arg(wt).args(["-c", "user.name=prueba", "-c", "user.email=prueba@localhost", "-c", "commit.gpgsign=false"]);
+    if let Some(i) = indice {
+        c.env("GIT_INDEX_FILE", i);
+    }
+    let o = c.args(args).output().unwrap();
+    assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+    String::from_utf8_lossy(&o.stdout).trim().to_string()
+}
+
+/// Instantánea del árbol de trabajo con un índice aparte, como al cerrar una fase.
+fn instantanea(wt: &std::path::Path) -> String {
+    let idx = wt.parent().unwrap().join("indice-instantanea");
+    let _ = std::fs::remove_file(&idx);
+    git_en(wt, Some(&idx), &["add", "-A"]);
+    git_en(wt, Some(&idx), &["write-tree"])
+}
+
+#[tokio::test]
+async fn diff_de_una_fase_usa_las_instantaneas() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let wt = f._dir.path().join("obra");
+    std::fs::create_dir_all(&wt).unwrap();
+    git_en(&wt, None, &["init", "-q"]);
+    std::fs::write(wt.join("base.txt"), "base\n").unwrap();
+    git_en(&wt, None, &["add", "-A"]);
+    git_en(&wt, None, &["commit", "-q", "-m", "inicio"]);
+    let inicio = git_en(&wt, None, &["rev-parse", "HEAD"]);
+
+    let fase = |n: u32| -> ea_bus::Fase {
+        serde_json::from_value(json!({
+            "numero": n, "titulo": format!("fase {n}"), "instrucciones": format!("haz la {n}"),
+            "entregable": format!("f{n}.txt"), "criterio": format!("test -f f{n}.txt"),
+        }))
+        .unwrap()
+    };
+    let mut o = orden(ea_bus::Modo::Obra, "Obra en tres fases", wt.to_str().unwrap());
+    o.criterio_exito = None;
+    o.fases = vec![fase(1), fase(2), fase(3)];
+    let store = f.state.store.lock().await.duplicar().unwrap();
+    let bus = ea_bus::Bus::abrir().unwrap().con_store(store);
+    let id = bus.crear_trabajo(o).unwrap();
+
+    // La obra cierra las fases 1 y 2 con su instantánea; la 3 sigue pendiente.
+    std::fs::write(wt.join("f1.txt"), "uno\n").unwrap();
+    let a1 = instantanea(&wt);
+    bus.registrar_fase(&id, 1, "hecha", &json!({ "diff_stat": " f1.txt | 1 +", "arbol": a1 })).unwrap();
+    std::fs::write(wt.join("f2.txt"), "dos\n").unwrap();
+    std::fs::write(wt.join("base.txt"), "base cambiada\n").unwrap();
+    let a2 = instantanea(&wt);
+    bus.registrar_fase(&id, 2, "hecha", &json!({ "diff_stat": " 2 files changed", "arbol": a2 })).unwrap();
+
+    // Sin informe todavía: la fase 2 ya tiene base (la instantánea de la 1);
+    // la 1 no (le falta commit_inicio) y lo dice con un 404 claro.
+    let (s, d) = get(&f, &format!("/api/trabajos/{id}/diff?fase=2")).await;
+    assert_eq!(s, StatusCode::OK, "{d}");
+    assert!(d["commit_inicio"].is_null());
+    let (s, e) = get(&f, &format!("/api/trabajos/{id}/diff?fase=1")).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert!(e["error"].as_str().unwrap().contains("commit_inicio"), "{e}");
+
+    bus.escribir_informe(
+        &id,
+        &serde_json::from_value(json!({ "resultado": "terminado", "commit_inicio": inicio })).unwrap(),
+    )
+    .unwrap();
+
+    let (s, d1) = get(&f, &format!("/api/trabajos/{id}/diff?fase=1")).await;
+    assert_eq!(s, StatusCode::OK, "{d1}");
+    let t1 = d1["diff"].as_str().unwrap();
+    assert_eq!((d1["fase"].as_u64(), d1["truncado"].as_bool()), (Some(1), Some(false)));
+    assert!(t1.contains("f1.txt") && t1.contains("+uno"), "{t1}");
+    assert!(!t1.contains("f2.txt") && !t1.contains("base cambiada"), "solo lo de la fase 1: {t1}");
+
+    let (_, d2) = get(&f, &format!("/api/trabajos/{id}/diff?fase=2")).await;
+    let t2 = d2["diff"].as_str().unwrap();
+    assert!(t2.contains("f2.txt") && t2.contains("+base cambiada"), "{t2}");
+    assert!(!t2.contains("f1.txt"), "solo lo de la fase 2: {t2}");
+
+    // Sin instantánea: 404 con el motivo. Fase 0 o no entera: 400.
+    let (s, e) = get(&f, &format!("/api/trabajos/{id}/diff?fase=3")).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert!(e["error"].as_str().unwrap().contains("no hay instantánea de árbol de la fase 3"), "{e}");
+    let (s, _) = get(&f, &format!("/api/trabajos/{id}/diff?fase=0")).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = get(&f, &format!("/api/trabajos/{id}/diff?fase=dos")).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = get(&f, "/api/trabajos/no-existe/diff?fase=1").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    // Sin fase, el diff completo de siempre.
+    let (s, d) = get(&f, &format!("/api/trabajos/{id}/diff")).await;
+    assert_eq!((s, d["fase"].is_null()), (StatusCode::OK, true));
+    assert!(d["diff"].as_str().unwrap().contains("f2.txt"));
+
+    // La ficha: estado de cada fase, si tiene diff y el resumen del agente.
+    let (_, j) = get(&f, &format!("/api/trabajos/{id}")).await;
+    let fases = j["fases"].as_array().unwrap();
+    assert_eq!(fases.len(), 3);
+    assert_eq!((fases[0]["estado"].as_str(), fases[0]["instantanea"].as_bool()), (Some("hecha"), Some(true)));
+    assert_eq!(fases[1]["diff_stat"], " 2 files changed");
+    assert_eq!((fases[2]["estado"].as_str(), fases[2]["instantanea"].as_bool()), (Some("pendiente"), Some(false)));
+    assert_eq!(j["orden"]["fases"][2]["criterio"], "test -f f3.txt");
+    assert_eq!(j["orden"]["creada_por"], "test");
+    assert!(j["resumen_agente"].is_null());
+    let dir = bus.raiz().join("trabajos").join(&id);
+    std::fs::write(dir.join("salida-qwen.json"), r#"[{"type":"result","result":"  hecho: f1 y f2  "}]"#).unwrap();
+    let (_, j) = get(&f, &format!("/api/trabajos/{id}")).await;
+    assert_eq!(j["resumen_agente"], "hecho: f1 y f2");
+
+    // Todo esto es lectura: el trabajo sigue donde estaba.
+    assert_eq!(j["estado"]["estado"], "en_cola");
+}

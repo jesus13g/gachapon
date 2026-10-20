@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado, ACTOR};
 use crate::vistas::{
-    ColaEntrada, Colas, Diff, EstadoTrabajo, FormularioTrabajo, Semaforo, TrabajoDetalle, TrabajoResumen,
+    ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, Semaforo, TrabajoDetalle, TrabajoResumen,
 };
 use crate::AppState;
 
@@ -59,7 +59,31 @@ pub fn listar(s: &AppState) -> Resultado<Vec<TrabajoResumen>> {
     Ok(v)
 }
 
-pub fn ver(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
+/// El resumen del agente se recorta a esto (caracteres).
+const RESUMEN_MAX: usize = 8_000;
+
+pub async fn ver(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
+    let mut d = ver_bus(s, id)?;
+    d.fases = s
+        .store
+        .lock()
+        .await
+        .listar_fases(id)?
+        .into_iter()
+        .map(|f| FaseVista {
+            diff_stat: ea_bus::diff_stat_de_fase(&f),
+            instantanea: u32::try_from(f.numero).is_ok_and(|n| ea_bus::arbol_de_fase(std::slice::from_ref(&f), n).is_some()),
+            numero: f.numero,
+            titulo: f.titulo,
+            estado: f.estado,
+            cerrado_en: f.cerrado_en,
+        })
+        .collect();
+    Ok(d)
+}
+
+/// Lo que sale de los ficheros del bus (sin las fases de SQLite).
+fn ver_bus(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
     let bus = bus_lectura(s)?;
     let orden = bus.leer_orden(id)?;
     let estado = bus.leer_estado(id)?;
@@ -74,22 +98,44 @@ pub fn ver(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
         .filter_map(|l| serde_json::from_str(l).ok())
         .collect();
     let paquete = std::fs::read_to_string(dir.join("paquete-correccion.md")).ok();
-    Ok(TrabajoDetalle { id: id.into(), orden: a_valor(orden)?, estado: a_valor(estado)?, informe, historial, paquete })
+    let resumen_agente = std::fs::read_to_string(dir.join("salida-qwen.json"))
+        .ok()
+        .map(|b| ea_bus::resumen_salida_agente(&b))
+        .map(|r| r.trim().chars().take(RESUMEN_MAX).collect::<String>())
+        .filter(|r| !r.is_empty());
+    Ok(TrabajoDetalle {
+        id: id.into(),
+        orden: a_valor(orden)?,
+        estado: a_valor(estado)?,
+        informe,
+        historial,
+        paquete,
+        fases: vec![],
+        resumen_agente,
+    })
 }
 
 const DIFF_MAX: usize = 200_000;
 
-/// Lo mismo que `ea trabajo diff`: lo cambiado desde `commit_inicio` más los
-/// ficheros nuevos sin seguimiento. Recortado a `DIFF_MAX` bytes.
-pub async fn diff(s: &AppState, id: &str) -> Resultado<Diff> {
+/// Lo mismo que `ea trabajo diff [--fase N]`. Sin fase: lo cambiado desde
+/// `commit_inicio` más los ficheros nuevos sin seguimiento. Con fase: entre
+/// la instantánea de árbol de la fase anterior (o `commit_inicio` para la
+/// primera) y la suya (`ea_bus::rango_diff_fase`); sin instantánea, 404.
+/// Recortado a `DIFF_MAX` bytes. Solo lectura.
+pub async fn diff(s: &AppState, id: &str, fase: Option<u32>) -> Resultado<Diff> {
     let bus = bus_lectura(s)?;
     let orden = bus.leer_orden(id)?;
-    let inicio = bus
-        .leer_informe(id)?
-        .and_then(|i| i.commit_inicio)
-        .ok_or_else(|| ErrorWeb::Conflicto("el trabajo aún no tiene informe con commit_inicio".into()))?;
+    let inicio = bus.leer_informe(id)?.and_then(|i| i.commit_inicio);
+    if let Some(n) = fase {
+        let fases = s.store.lock().await.listar_fases(id)?;
+        let (base, fin) = ea_bus::rango_diff_fase(inicio.as_deref(), &fases, n)?;
+        let (texto, truncado) = crate::git::diff_entre(&orden.worktree, &base, &fin, DIFF_MAX).await?;
+        return Ok(Diff { id: id.into(), fase: Some(n), commit_inicio: inicio, diff: texto, truncado });
+    }
+    let inicio =
+        inicio.ok_or_else(|| ErrorWeb::Conflicto("el trabajo aún no tiene informe con commit_inicio".into()))?;
     let (texto, truncado) = crate::git::diff_desde(&orden.worktree, &inicio, DIFF_MAX).await?;
-    Ok(Diff { id: id.into(), commit_inicio: inicio, diff: texto, truncado })
+    Ok(Diff { id: id.into(), fase: None, commit_inicio: Some(inicio), diff: texto, truncado })
 }
 
 // ------------------------------------------------------------------- crear

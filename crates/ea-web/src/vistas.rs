@@ -207,12 +207,32 @@ pub struct TrabajoDetalle {
     pub informe: Value,
     pub historial: Vec<Value>,
     pub paquete: Option<String>,
+    /// Las fases de una obra en `trabajo_fases` (vacío en misiones y rutinas).
+    pub fases: Vec<FaseVista>,
+    /// El texto final del agente en su última ejecución (`salida-qwen.json`).
+    pub resumen_agente: Option<String>,
+}
+
+/// El estado de una fase en `trabajo_fases`; el plan (instrucciones,
+/// entregable, criterio) está en `orden.fases`.
+#[derive(Serialize)]
+pub struct FaseVista {
+    pub numero: i64,
+    pub titulo: String,
+    pub estado: String,
+    pub cerrado_en: Option<String>,
+    pub diff_stat: Option<String>,
+    /// Si guardó instantánea de árbol, es decir, si tiene diff de fase.
+    pub instantanea: bool,
 }
 
 #[derive(Serialize)]
 pub struct Diff {
     pub id: String,
-    pub commit_inicio: String,
+    /// La fase, si es el diff de una fase (`?fase=N`).
+    pub fase: Option<u32>,
+    /// `null` en el diff de una fase de una obra que aún no ha entregado.
+    pub commit_inicio: Option<String>,
     pub diff: String,
     pub truncado: bool,
 }

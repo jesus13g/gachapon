@@ -54,6 +54,8 @@ const st = {
   datos: null,         // datos de la sección visible
   detalle: {},         // detalle cargado de las filas abiertas
   diffs: {},           // diff de los trabajos con el diff desplegado (id -> respuesta)
+  faseDiff: {},        // diff de las fases desplegadas ('<id>:<n>' -> respuesta)
+  fasePlan: new Set(), // fases con el plan desplegado ('<id>:<n>')
   abiertos: new Set(), // claves abiertas (j<id>, r<slug>, …)
   sel: null,           // clave seleccionada
   enlace: null,        // clave de la fila que va en el hash (#seccion/<fila>)
@@ -252,6 +254,46 @@ function diffHtml(id) {
   return h;
 }
 
+// Ficha completa (H16): metadatos de la orden, el plan de la obra con el
+// estado y el diff de cada fase, y el resumen del agente. Solo lectura.
+function metaTrabajo(o) {
+  const t = o.topes || {};
+  const sk = o.skills?.length ? 'skills: ' + o.skills.map(esc).join(', ') : 'sin skills';
+  const topes = `topes: ${t.iteraciones} it. · ${Math.round((t.tiempo_s || 0) / 60)} min · ${t.turnos} turnos · ${t.llamadas_herramienta} llamadas`;
+  const rut = o.rutina ? ` · rutina ${esc(o.rutina.slug)} v${o.rutina.version}` : '';
+  return `<p class="m">${sk} · ${topes} · creada por ${esc(o.creada_por || '—')}${rut}</p>`;
+}
+
+const FASE_IC = { hecha: ['✓', ''], pendiente: ['·', 'm'], bloqueada: ['✕', 'hot'], cancelada: ['⊘', 'm'], 'en curso': ['▶', ''] };
+
+function planObra(id, d) {
+  const fs = d.orden.fases || [];
+  if (!fs.length) return '';
+  const est = Object.fromEntries((d.fases || []).map(f => [f.numero, f]));
+  const actual = d.estado?.estado === 'ejecutando' ? d.estado.fase_actual : null;
+  return '<p class="et">plan de la obra</p><div class="fo">' + fs.map(f => {
+    const e = { ...est[f.numero] };
+    if (f.numero === actual && e.estado === 'pendiente') e.estado = 'en curso';
+    const k = id + ':' + f.numero;
+    const [ic, cls] = FASE_IC[e.estado] ?? ['◌', 'hot'];
+    const plan = st.fasePlan.has(k), dif = st.faseDiff[k];
+    let h = `<i class="${cls}">${ic}</i><span class="x">${f.numero}. ${esc(f.titulo)}</span>` +
+      `<span class="m">${esc(e.estado || '—')}${e.cerrado_en ? ' · ' + hora(e.cerrado_en) : ''}${e.diff_stat ? ' · ' + esc(e.diff_stat.trim().split('\n').pop()) : ''}</span>` +
+      `<span>${btn('plan-fase', (plan ? '▾' : '▸') + ' plan', 'instrucciones, entregable y criterio de la fase', { id, v: f.numero }, 'l')}` +
+      (e.instantanea ? ' ' + btn('diff-fase', (dif !== undefined ? '▾' : '▸') + ' diff', 'lo que cambió en esta fase (instantáneas de árbol)', { id, v: f.numero }, 'l') : '') + '</span>';
+    if (plan) h += `<div class="ex"><p class="et">instrucciones</p><pre class="tx">${esc(f.instrucciones)}</pre>` +
+      `<p class="et">entregable</p><p class="tx">${esc(f.entregable)}</p><p class="et">criterio</p><pre class="tx">${esc(f.criterio)}</pre>` +
+      (f.skills?.length ? `<p class="m">skills: ${f.skills.map(esc).join(', ')}</p>` : '') + '</div>';
+    if (dif) h += '<div class="ex">' + (dif.error ? `<p class="hot">${esc(dif.error)}</p>`
+      : `<pre class="diff">${colorDiff(dif.diff || '(sin cambios)')}${dif.truncado ? '\n… (recortado)' : ''}</pre>`) + '</div>';
+    return h;
+  }).join('') + '</div>';
+}
+
+function resumenAgente(d) {
+  return d.resumen_agente ? `<p class="et">resumen del agente</p><pre class="tx">${esc(d.resumen_agente)}</pre>` : '';
+}
+
 // Cada línea del diff con su color: cabeceras y stat apagados, hunks en el
 // acento, añadidos y borrados en verde y rojo.
 function colorDiff(txt) {
@@ -276,8 +318,11 @@ function filasTrabajos(ts) {
       const o = d.orden;
       det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
         `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
+        metaTrabajo(o) +
         (o.notas_revision?.length ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
         informeHtml(d) +
+        resumenAgente(d) +
+        planObra(t.id, d) +
         (d.paquete ? `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>` : '') +
         (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
         `<p class="et">historial ${btn('ir-diario', '→ diario', 'los eventos de este trabajo en el diario', { id: t.id }, 'l')}</p><div class="evs">` + d.historial.map(h =>
@@ -1989,6 +2034,13 @@ async function accion(b) {
     } else if (a === 'diff') {
       if (st.diffs[id] !== undefined) delete st.diffs[id];
       else st.diffs[id] = await ea.diff(id).catch(e => ({ error: e.message }));
+    } else if (a === 'diff-fase') {
+      const k = id + ':' + v;
+      if (st.faseDiff[k] !== undefined) delete st.faseDiff[k];
+      else st.faseDiff[k] = await ea.diff(id, Number(v)).catch(e => ({ error: e.message }));
+    } else if (a === 'plan-fase') {
+      const k = id + ':' + v;
+      if (st.fasePlan.has(k)) st.fasePlan.delete(k); else st.fasePlan.add(k);
     } else if (a === 'decidir') {
       const k = 'p' + id;
       if (v === 'aceptar' && b.dataset.ac && !(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
