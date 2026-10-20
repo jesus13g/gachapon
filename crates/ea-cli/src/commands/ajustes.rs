@@ -91,6 +91,8 @@ pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
     }
     let f = Fuentes::sistema();
     let aplicados = escribir(&f, Canal::Terminal, None, &lote)?;
+    // Antes de imprimir: si la salida se corta, el diario ya lo tiene.
+    apuntar(&f, &aplicados);
     let mut reiniciar: Vec<&str> = Vec::new();
     for a in &aplicados {
         println!("  {}: {} → {}", a.clave, mostrar(&a.antes), mostrar(&a.despues));
@@ -104,7 +106,6 @@ pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
     if !reiniciar.is_empty() {
         println!("Requiere reiniciar: {} (systemctl --user restart {})", reiniciar.join(", "), reiniciar.join(" "));
     }
-    apuntar(&f, &aplicados);
     Ok(())
 }
 
