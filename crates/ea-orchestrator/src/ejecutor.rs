@@ -14,7 +14,8 @@
 //! Seguridad: Qwen Code 0.25 solo trae sandbox con Docker/seatbelt, y aquí no
 //! se usa. Con `sandbox = true` (por defecto; probado con Qwen real), `qwen`
 //! se lanza dentro de bubblewrap (sistema de ficheros de solo lectura salvo el
-//! worktree, `/tmp` propio y `~/.qwen`; la red queda abierta para llegar a
+//! worktree, `/tmp` propio y `~/.qwen`; `$XDG_RUNTIME_DIR` tapado, para que
+//! no lea la clave del panel web; la red queda abierta para llegar a
 //! llama-server). Con `sandbox = false` el agente corre con
 //! `--approval-mode yolo`: puede escribir y ejecutar en cualquier sitio donde
 //! escriba el usuario. Se limita además con los topes de la orden (recortados
@@ -62,14 +63,8 @@ impl AgenteLocal for QwenCode {
         let mut args: Vec<String> = Vec::new();
         let mut cmd = if config.sandbox {
             let home = std::env::var("HOME").unwrap_or_default();
-            let wt = worktree.to_string_lossy().to_string();
-            for a in [
-                "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
-                "--bind", &format!("{home}/.qwen"), &format!("{home}/.qwen"),
-                "--bind", &wt, &wt, "--chdir", &wt, "--unshare-pid", "--die-with-parent",
-            ] {
-                args.push(a.into());
-            }
+            let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir());
+            args.extend(argumentos_bwrap(&home, worktree, ejecucion.as_deref()));
             args.push(config.qwen_bin.clone());
             Command::new("bwrap")
         } else {
@@ -103,6 +98,32 @@ impl AgenteLocal for QwenCode {
         let resumen = texto_final(&bruta);
         SalidaAgente { codigo, bruta, resumen }
     }
+}
+
+/// Argumentos de `bwrap` (sin el programa): `/` en solo lectura, `/tmp`
+/// propio, `~/.qwen` y el worktree escribibles. El directorio de ejecución
+/// de la sesión (`$XDG_RUNTIME_DIR`), si existe, queda tapado por un tmpfs
+/// vacío: ahí está la clave de sesión del panel web (con ella el agente,
+/// que tiene la red abierta, podría escribir por `127.0.0.1:8092`), y
+/// también los sockets de D-Bus y de `systemd --user`, que no necesita. Se
+/// tapa entero y no solo `ea-web/`: así no hace falta que exista ese
+/// subdirectorio (bwrap no puede crear el punto de montaje en un `/` de
+/// solo lectura) y no queda ningún otro socket de la sesión a su alcance.
+fn argumentos_bwrap(home: &str, worktree: &Path, ejecucion: Option<&Path>) -> Vec<String> {
+    let wt = worktree.to_string_lossy().to_string();
+    let qwen = format!("{home}/.qwen");
+    let mut args: Vec<String> =
+        ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"].map(String::from).into();
+    if let Some(d) = ejecucion {
+        args.push("--tmpfs".into());
+        args.push(d.to_string_lossy().into());
+    }
+    // Los bind escribibles van después del tmpfs: si alguno cayera dentro del
+    // directorio de ejecución, se montaría encima y seguiría visible.
+    for a in ["--bind", &qwen, &qwen, "--bind", &wt, &wt, "--chdir", &wt, "--unshare-pid", "--die-with-parent"] {
+        args.push(a.into());
+    }
+    args
 }
 
 /// Texto del último elemento `type=result` del array JSON de Qwen.
@@ -208,9 +229,48 @@ fn construir_prompt(orden: &Orden, titulo: &str, cuerpo: &str, criterio: &str) -
     p
 }
 
-fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str) {
-    if config.avisos_escritorio {
-        let _ = Command::new("notify-send").arg(format!("ea: {titulo}")).arg(resultado).status();
+/// El lanzador del panel web del checkout con que se compiló el ejecutor:
+/// abre `ea-web` en un enlace profundo (`ea-web-open '#trabajos/<id>'`).
+const EA_WEB_OPEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../ea-web/bin/ea-web-open");
+
+/// La orden del aviso de escritorio. Con `abrir`, el aviso lleva la acción
+/// «abrir», que lanza `abrir '#trabajos/<id>'`. `notify-send --action` espera
+/// a que se pulse o se descarte el aviso; si no admite acciones (o falla), se
+/// avisa sin ella. Los textos van como argumentos, nunca dentro del guion.
+fn orden_aviso(titulo: &str, resultado: &str, id: &str, abrir: Option<&Path>) -> Command {
+    let titulo = format!("ea: {titulo}");
+    let Some(abrir) = abrir else {
+        let mut c = Command::new("notify-send");
+        c.arg(titulo).arg(resultado);
+        return c;
+    };
+    let mut c = Command::new("sh");
+    c.arg("-c")
+        .arg(r#"r=$(notify-send --action=abrir=abrir "$1" "$2") || exec notify-send "$1" "$2"; [ "$r" = abrir ] && exec "$3" "$4"; exit 0"#)
+        .arg("ea-aviso")
+        .arg(titulo)
+        .arg(resultado)
+        .arg(abrir)
+        .arg(format!("#trabajos/{id}"));
+    c
+}
+
+/// Aviso de escritorio sobre un trabajo. Desacoplado: el ejecutor no lo
+/// espera (un hilo recoge el proceso cuando acaba, para no dejar zombis).
+fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str, id: &str) {
+    if !config.avisos_escritorio {
+        return;
+    }
+    let abrir = Path::new(EA_WEB_OPEN);
+    let mut c = orden_aviso(titulo, resultado, id, abrir.is_file().then_some(abrir));
+    c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    match c.spawn() {
+        Ok(mut hijo) => {
+            std::thread::spawn(move || {
+                let _ = hijo.wait();
+            });
+        }
+        Err(e) => tracing::debug!(error = %e, "no se pudo lanzar el aviso de escritorio"),
     }
 }
 
@@ -286,7 +346,7 @@ fn entregar(bus: &Bus, config: &ConfigOrquestador, id: &str, orden: &Orden, info
         return;
     }
     if orden.modo != Modo::Rutina {
-        avisar(config, &orden.titulo, &motivo.unwrap_or_else(|| "terminado".into()));
+        avisar(config, &orden.titulo, &motivo.unwrap_or_else(|| "terminado".into()), id);
         return;
     }
     let slug = orden.rutina.as_ref().map(|r| r.slug.as_str()).unwrap_or("?");
@@ -297,12 +357,12 @@ fn entregar(bus: &Bus, config: &ConfigOrquestador, id: &str, orden: &Orden, info
         if let Err(e) = bus.aplicar(id, Evento::PonerEnEspera) {
             tracing::error!(%id, error = %e, "no se pudo poner en espera");
         }
-        avisar(config, &format!("rutina {slug} falló"), "paquete en espera");
+        avisar(config, &format!("rutina {slug} falló"), "paquete en espera", id);
     } else {
         if let Err(e) = bus.aplicar(id, Evento::Cerrar) {
             tracing::error!(%id, error = %e, "no se pudo cerrar la rutina");
         }
-        avisar(config, &format!("rutina {slug}"), "terminada");
+        avisar(config, &format!("rutina {slug}"), "terminada", id);
     }
 }
 
@@ -614,8 +674,75 @@ mod tests {
             SalidaAgente { codigo: Some(self.codigo), bruta: "[]".into(), resumen: "hecho".into() }
         }
     }
+    fn argumentos(c: &Command) -> Vec<String> {
+        c.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+    }
+
+    #[test]
+    fn el_aviso_sin_lanzador_es_el_de_siempre() {
+        let c = orden_aviso("t", "terminado", "x", None);
+        assert_eq!(c.get_program(), "notify-send");
+        assert_eq!(argumentos(&c), ["ea: t", "terminado"]);
+    }
+
+    #[test]
+    fn el_aviso_lleva_la_accion_abrir_con_el_enlace_al_trabajo() {
+        // El lanzador existe en el checkout (si se mueve, que falle aquí).
+        assert!(Path::new(EA_WEB_OPEN).is_file(), "{EA_WEB_OPEN}");
+        let c = orden_aviso("misión $(rm -rf ~)", "terminado", "20261020-101500-ab12", Some(Path::new("/x/ea-web-open")));
+        assert_eq!(c.get_program(), "sh");
+        let a = argumentos(&c);
+        assert!(a[1].contains("--action=abrir=abrir"));
+        // Los textos van como argumentos posicionales, no dentro del guion.
+        assert!(!a[1].contains("rm -rf"));
+        assert_eq!(&a[2..], ["ea-aviso", "ea: misión $(rm -rf ~)", "terminado", "/x/ea-web-open", "#trabajos/20261020-101500-ab12"]);
+    }
+
+    #[test]
+    fn el_guion_del_aviso_lanza_el_enlace_solo_si_se_pulsa_abrir() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let bin = d.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let abierto = d.path().join("abierto");
+        let escribe = |nombre: &str, cuerpo: String| {
+            let r = bin.join(nombre);
+            std::fs::write(&r, format!("#!/bin/sh\n{cuerpo}\n")).unwrap();
+            std::fs::set_permissions(&r, std::fs::Permissions::from_mode(0o755)).unwrap();
+            r
+        };
+        let abrir = escribe("abrir", format!("printf %s \"$1\" > '{}'", abierto.display()));
+        for (respuesta, esperado) in [("abrir", "#trabajos/x"), ("", "")] {
+            let _ = std::fs::remove_file(&abierto);
+            escribe("notify-send", format!("echo '{respuesta}'"));
+            let st = orden_aviso("t", "r", "x", Some(&abrir))
+                .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+                .status()
+                .unwrap();
+            assert!(st.success());
+            assert_eq!(std::fs::read_to_string(&abierto).unwrap_or_default(), esperado, "respuesta {respuesta:?}");
+        }
+    }
+
     fn doble(script: &'static str, codigo: i32) -> Doble {
         Doble { script, codigo, visto: Mutex::new(vec![]), sistemas: Mutex::new(vec![]), topes: Mutex::new(vec![]) }
+    }
+
+    #[test]
+    fn bwrap_oculta_el_directorio_de_ejecucion() {
+        let ejecucion = tempfile::tempdir().unwrap();
+        let ej = ejecucion.path().to_string_lossy().to_string();
+        let args = argumentos_bwrap("/home/u", Path::new("/w/repo"), Some(ejecucion.path()));
+        let pos = |par: [&str; 2]| args.windows(2).position(|w| w[0] == par[0] && w[1] == par[1]);
+        let tmpfs = pos(["--tmpfs", &ej]).expect("tmpfs sobre el directorio de ejecución");
+        // Encima del / de solo lectura y antes de los bind escribibles.
+        assert!(pos(["--ro-bind", "/"]).unwrap() < tmpfs);
+        assert!(tmpfs < pos(["--bind", "/w/repo"]).unwrap());
+        assert!(tmpfs < pos(["--bind", "/home/u/.qwen"]).unwrap());
+        assert!(args.ends_with(&["--unshare-pid".into(), "--die-with-parent".into()]));
+        // Sin directorio de ejecución no hay nada que tapar.
+        let sin = argumentos_bwrap("/home/u", Path::new("/w/repo"), None);
+        assert_eq!(sin.iter().filter(|a| *a == "--tmpfs").count(), 1, "solo el de /tmp");
     }
 
     fn repo() -> tempfile::TempDir {

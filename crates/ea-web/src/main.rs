@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use ea_store::Store;
-use ea_web::{api, AppState, WebConfig};
+use ea_web::{api, clave, AppState, WebConfig};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -20,18 +20,43 @@ async fn main() -> anyhow::Result<()> {
 
     let bind_addr = format!("127.0.0.1:{}", config.puerto);
     let estado = AppState::new(store, config).context("no se pudo abrir la conexión de acciones")?;
-    let router = api::router(Arc::new(estado));
+    let estado = Arc::new(estado);
+    let router = api::router(estado.clone());
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
 
-    tracing::info!(%bind_addr, "ea-web arrancado");
+    // La clave se escribe después de escuchar: si ya corría otro ea-web, el
+    // bind falla antes de pisarle el fichero con una clave que él no conoce.
+    // Sin directorio de ejecución el panel queda en solo lectura.
+    let fichero_clave = match ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso) {
+        Some(dir) => match clave::guardar(&dir, &estado.clave) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                tracing::error!(error = %e, "no se pudo guardar la clave de sesión: el panel queda en solo lectura");
+                None
+            }
+        },
+        None => {
+            tracing::error!("sin $XDG_RUNTIME_DIR no hay dónde dejar la clave de sesión: el panel queda en solo lectura");
+            None
+        }
+    };
+
+    tracing::info!(%bind_addr, clave = ?fichero_clave, "ea-web arrancado");
 
     axum::serve(listener, router)
         .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
+            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending().await } } => {}
+            }
         })
         .await?;
 
+    if let Some(f) = fichero_clave {
+        clave::retirar(&f, &estado.clave);
+    }
     Ok(())
 }

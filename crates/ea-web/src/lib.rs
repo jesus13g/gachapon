@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use ea_store::Store;
 use tokio::sync::Mutex;
 
+pub mod clave;
 pub mod estado;
 mod git;
 pub mod http;
@@ -94,6 +95,10 @@ pub struct AppState {
     pub config: WebConfig,
     /// Serializa las escrituras de `ajustes.toml` desde la página.
     pub ajustes_escritura: Mutex<()>,
+    /// Clave de sesión de este arranque: toda petición que no sea GET/HEAD
+    /// la trae en `X-EA-Clave`. `main` la deja en `$XDG_RUNTIME_DIR`; las
+    /// pruebas la leen de aquí.
+    pub clave: clave::ClaveSesion,
 }
 
 impl AppState {
@@ -104,6 +109,8 @@ impl AppState {
             boveda: config.boveda.clone(),
             config,
             ajustes_escritura: Mutex::new(()),
+            // Sin /dev/urandom no hay forma honesta de proteger las escrituras.
+            clave: clave::ClaveSesion::nueva().expect("no se pudo leer /dev/urandom para la clave de sesión"),
         })
     }
 }
