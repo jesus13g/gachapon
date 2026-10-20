@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 
-use crate::{tema, AppState};
+use crate::{clave, tema, AppState};
 
 mod error;
 mod rutas;
@@ -71,8 +71,16 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/memoria/{proyecto}/{fichero}/mostrar", post(memoria_mostrar))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
         .route("/api/ajustes", get(ajustes_ver).post(ajustes_cambiar))
-        .layer(middleware::from_fn(guardia))
+        .route("/api/sesion", get(sesion))
+        .layer(middleware::from_fn_with_state(state.clone(), guardia))
         .with_state(state)
+}
+
+/// Si la clave que trae la página (en `X-EA-Clave`, opcional) es la de este
+/// arranque: la página lo pregunta al cargar para saber si puede escribir.
+async fn sesion(State(s): State<Arc<AppState>>, headers: header::HeaderMap) -> Response {
+    let escritura = headers.get(clave::CABECERA).is_some_and(|v| s.clave.coincide(v.as_bytes()));
+    axum::Json(serde_json::json!({ "escritura": escritura })).into_response()
 }
 
 /// Defensa de una API local frente a páginas ajenas abiertas en el mismo
@@ -80,7 +88,11 @@ pub fn router(state: Arc<AppState>) -> Router {
 /// reenlace DNS llega con otro host) y toda escritura debe declarar
 /// `application/json`, lo que obliga a una petición previa (preflight) que
 /// este servidor nunca autoriza.
-async fn guardia(req: Request, next: Next) -> Response {
+///
+/// Frente a otros procesos locales (el agente local tiene la red abierta),
+/// todo lo que no sea GET/HEAD debe traer además la clave de sesión del
+/// arranque en `X-EA-Clave` (ver `clave`).
+async fn guardia(State(s): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     let host_ok = req
         .headers()
         .get(header::HOST)
@@ -97,6 +109,21 @@ async fn guardia(req: Request, next: Next) -> Response {
     }
 
     if !matches!(*req.method(), Method::GET | Method::HEAD) {
+        let mensaje = match req.headers().get(clave::CABECERA) {
+            None => Some(
+                "falta la clave de sesión del panel (cabecera X-EA-Clave): ábrelo con ea-web-open para poder cambiar nada",
+            ),
+            Some(v) if !s.clave.coincide(v.as_bytes()) => Some(
+                "la clave de sesión del panel no es válida (¿se reinició ea-web?): cierra la ventana y vuelve a abrirla con ea-web-open",
+            ),
+            Some(_) => None,
+        };
+        if let Some(m) = mensaje {
+            let mut r = ApiError::new(StatusCode::FORBIDDEN, m).into_response();
+            // Para que la página sepa que es la clave y pase a solo lectura.
+            r.headers_mut().insert(clave::CABECERA, header::HeaderValue::from_static("requerida"));
+            return r;
+        }
         let es_json = req
             .headers()
             .get(header::CONTENT_TYPE)

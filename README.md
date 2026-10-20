@@ -71,8 +71,10 @@ Los fallos, bloqueos y paquetes en espera avisan con `notify-send`.
 ### Seguridad
 
 Qwen Code corre dentro de **bubblewrap** (`bwrap`): sistema de ficheros de solo
-lectura salvo el worktree, un `/tmp` propio y `~/.qwen`; la red queda abierta para
-llegar a `llama-server`. Con `sandbox = false` el agente corre con aprobación
+lectura salvo el worktree, un `/tmp` propio y `~/.qwen`, con `$XDG_RUNTIME_DIR`
+tapado por un tmpfs vacío (ahí están la clave de sesión del panel web y los
+sockets de D-Bus y `systemd --user`); la red queda abierta para llegar a
+`llama-server`. Con `sandbox = false` el agente corre con aprobación
 total y puede escribir donde escriba tu usuario. Además: topes por ejecución
 (turnos, tiempo, llamadas a herramientas, iteraciones; recortados al techo de los
 ajustes), exclusión de las
@@ -388,10 +390,15 @@ vía directa del usuario en terminal.
 
 Límite honesto: el modelo de seguridad delega en el sistema operativo la
 frontera de *quién escribe en la terminal*; un proceso con la misma cuenta de
-usuario y capacidad de simular un TTY o de hablar con `127.0.0.1:8092` podría
-saltarse la confirmación reversible. La defensa es no darle a los agentes
-ningún camino por las herramientas, los permisos de su propio entorno y que lo
-irreversible exija escribir una frase en una terminal real.
+usuario y capacidad de simular un TTY podría saltarse la confirmación
+reversible. La defensa es no darle a los agentes ningún camino por las
+herramientas, los permisos de su propio entorno y que lo irreversible exija
+escribir una frase en una terminal real. Las escrituras de `127.0.0.1:8092`
+exigen la clave de sesión del panel, que el agente local no puede leer desde
+`bwrap`; **eso no protege frente a Claude Code** ni frente a otro proceso sin
+sandbox de tu usuario, que leen el fichero de la clave igual que `ea-web-open`.
+Y la clave pasa por el perfil del navegador (historial, `sessionStorage`), que
+está en `$HOME` y el agente local sí puede leer: es una fuga conocida.
 
 ### Bóveda compartida (fase 7)
 
@@ -623,6 +630,24 @@ defecto, rango, origen, edición, quién la fija y si pide reinicio; `version` y
 `cliente`) y `POST /api/ajustes` (`{"version": "...", "cambios": {"clave": valor}}`,
 `null` quita la clave; 400 inválido, 403 solo terminal o aflojar un techo, 409
 versión vieja o fijada por el entorno). Solo atiende `Host: localhost|127.0.0.1`.
+
+Clave de sesión: al arrancar, `ea-web` genera una clave aleatoria y la deja en
+`$XDG_RUNTIME_DIR/ea-web/clave` (0600; cambia en cada arranque y se borra al
+parar). Todo lo que no sea GET/HEAD tiene que llevarla en la cabecera
+`X-EA-Clave`; sin ella o con otra, 403. Los GET no la piden, y
+`GET /api/sesion` dice si la que se manda vale (`{"escritura": true|false}`).
+`ea-web-open` abre `http://localhost:8092/#clave=<clave>`; la página la guarda
+en `sessionStorage` y la quita de la barra de direcciones. Abierta a mano, o
+tras reiniciar `ea-web`, la cabecera marca **⊘ solo lectura** y cada botón que
+cambia algo avisa de que hay que cerrarla y abrirla con `ea-web-open`. Desde
+la terminal:
+
+```bash
+curl -X POST -H 'Content-Type: application/json' \
+     -H "X-EA-Clave: $(cat "$XDG_RUNTIME_DIR/ea-web/clave")" \
+     -d '{}' http://localhost:8092/api/rutinas/<slug>/lanzar
+```
+
 Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 

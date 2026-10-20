@@ -12,6 +12,7 @@
 
 mod cargar;
 pub mod claves;
+mod ejecucion;
 mod error;
 mod escribir;
 mod fuentes;
@@ -20,6 +21,7 @@ mod vista;
 
 pub use cargar::{cargar, cargar_de, Efectivos, Origen};
 pub use claves::{clave, Aplica, Canal, Clave, Edicion, Tipo, CLAVES, SECCIONES};
+pub use ejecucion::{dir_ejecucion, fichero_clave_web, DIR_WEB, FICHERO_CLAVE};
 pub use error::ErrorAjustes;
 pub use escribir::{escribir_atomico, establecer, huella, interpretar, Aplicado};
 pub use fuentes::{

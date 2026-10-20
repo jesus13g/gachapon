@@ -14,7 +14,8 @@
 //! Seguridad: Qwen Code 0.25 solo trae sandbox con Docker/seatbelt, y aquí no
 //! se usa. Con `sandbox = true` (por defecto; probado con Qwen real), `qwen`
 //! se lanza dentro de bubblewrap (sistema de ficheros de solo lectura salvo el
-//! worktree, `/tmp` propio y `~/.qwen`; la red queda abierta para llegar a
+//! worktree, `/tmp` propio y `~/.qwen`; `$XDG_RUNTIME_DIR` tapado, para que
+//! no lea la clave del panel web; la red queda abierta para llegar a
 //! llama-server). Con `sandbox = false` el agente corre con
 //! `--approval-mode yolo`: puede escribir y ejecutar en cualquier sitio donde
 //! escriba el usuario. Se limita además con los topes de la orden (recortados
@@ -62,14 +63,8 @@ impl AgenteLocal for QwenCode {
         let mut args: Vec<String> = Vec::new();
         let mut cmd = if config.sandbox {
             let home = std::env::var("HOME").unwrap_or_default();
-            let wt = worktree.to_string_lossy().to_string();
-            for a in [
-                "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
-                "--bind", &format!("{home}/.qwen"), &format!("{home}/.qwen"),
-                "--bind", &wt, &wt, "--chdir", &wt, "--unshare-pid", "--die-with-parent",
-            ] {
-                args.push(a.into());
-            }
+            let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir());
+            args.extend(argumentos_bwrap(&home, worktree, ejecucion.as_deref()));
             args.push(config.qwen_bin.clone());
             Command::new("bwrap")
         } else {
@@ -103,6 +98,32 @@ impl AgenteLocal for QwenCode {
         let resumen = texto_final(&bruta);
         SalidaAgente { codigo, bruta, resumen }
     }
+}
+
+/// Argumentos de `bwrap` (sin el programa): `/` en solo lectura, `/tmp`
+/// propio, `~/.qwen` y el worktree escribibles. El directorio de ejecución
+/// de la sesión (`$XDG_RUNTIME_DIR`), si existe, queda tapado por un tmpfs
+/// vacío: ahí está la clave de sesión del panel web (con ella el agente,
+/// que tiene la red abierta, podría escribir por `127.0.0.1:8092`), y
+/// también los sockets de D-Bus y de `systemd --user`, que no necesita. Se
+/// tapa entero y no solo `ea-web/`: así no hace falta que exista ese
+/// subdirectorio (bwrap no puede crear el punto de montaje en un `/` de
+/// solo lectura) y no queda ningún otro socket de la sesión a su alcance.
+fn argumentos_bwrap(home: &str, worktree: &Path, ejecucion: Option<&Path>) -> Vec<String> {
+    let wt = worktree.to_string_lossy().to_string();
+    let qwen = format!("{home}/.qwen");
+    let mut args: Vec<String> =
+        ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"].map(String::from).into();
+    if let Some(d) = ejecucion {
+        args.push("--tmpfs".into());
+        args.push(d.to_string_lossy().into());
+    }
+    // Los bind escribibles van después del tmpfs: si alguno cayera dentro del
+    // directorio de ejecución, se montaría encima y seguiría visible.
+    for a in ["--bind", &qwen, &qwen, "--bind", &wt, &wt, "--chdir", &wt, "--unshare-pid", "--die-with-parent"] {
+        args.push(a.into());
+    }
+    args
 }
 
 /// Texto del último elemento `type=result` del array JSON de Qwen.
@@ -616,6 +637,23 @@ mod tests {
     }
     fn doble(script: &'static str, codigo: i32) -> Doble {
         Doble { script, codigo, visto: Mutex::new(vec![]), sistemas: Mutex::new(vec![]), topes: Mutex::new(vec![]) }
+    }
+
+    #[test]
+    fn bwrap_oculta_el_directorio_de_ejecucion() {
+        let ejecucion = tempfile::tempdir().unwrap();
+        let ej = ejecucion.path().to_string_lossy().to_string();
+        let args = argumentos_bwrap("/home/u", Path::new("/w/repo"), Some(ejecucion.path()));
+        let pos = |par: [&str; 2]| args.windows(2).position(|w| w[0] == par[0] && w[1] == par[1]);
+        let tmpfs = pos(["--tmpfs", &ej]).expect("tmpfs sobre el directorio de ejecución");
+        // Encima del / de solo lectura y antes de los bind escribibles.
+        assert!(pos(["--ro-bind", "/"]).unwrap() < tmpfs);
+        assert!(tmpfs < pos(["--bind", "/w/repo"]).unwrap());
+        assert!(tmpfs < pos(["--bind", "/home/u/.qwen"]).unwrap());
+        assert!(args.ends_with(&["--unshare-pid".into(), "--die-with-parent".into()]));
+        // Sin directorio de ejecución no hay nada que tapar.
+        let sin = argumentos_bwrap("/home/u", Path::new("/w/repo"), None);
+        assert_eq!(sin.iter().filter(|a| *a == "--tmpfs").count(), 1, "solo el de /tmp");
     }
 
     fn repo() -> tempfile::TempDir {

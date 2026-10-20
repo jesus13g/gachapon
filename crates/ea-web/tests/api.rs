@@ -76,6 +76,8 @@ fn montar() -> Fixture {
     Fixture { app: api::router(state.clone()), state, _dir: dir }
 }
 
+/// Como el panel abierto con `ea-web-open`: con la clave de sesión del
+/// estado de prueba (que nunca se escribe en el `$XDG_RUNTIME_DIR` real).
 async fn enviar(
     f: &Fixture,
     metodo: Method,
@@ -84,7 +86,23 @@ async fn enviar(
     cuerpo: Option<Value>,
     json_ct: bool,
 ) -> (StatusCode, String) {
+    let clave = f.state.clave.texto().to_string();
+    enviar_con_clave(f, metodo, ruta, host, cuerpo, json_ct, Some(&clave)).await
+}
+
+async fn enviar_con_clave(
+    f: &Fixture,
+    metodo: Method,
+    ruta: &str,
+    host: &str,
+    cuerpo: Option<Value>,
+    json_ct: bool,
+    clave: Option<&str>,
+) -> (StatusCode, String) {
     let mut req = Request::builder().method(metodo).uri(ruta).header("host", host);
+    if let Some(c) = clave {
+        req = req.header("x-ea-clave", c);
+    }
     if json_ct {
         req = req.header("content-type", "application/json");
     }
@@ -131,6 +149,97 @@ async fn las_escrituras_exigen_json() {
     )
     .await;
     assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+}
+
+/// Rutas de escritura representativas (una por zona de la API).
+const ESCRITURAS: [(&str, &str); 6] = [
+    ("/api/rutinas/revision-diaria/lanzar", "{}"),
+    ("/api/propuestas/1/decidir", r#"{"decision":"rechazar"}"#),
+    ("/api/acciones/simular", r#"{"herramienta":"ea_status","argumentos":{}}"#),
+    ("/api/boveda/crear", r#"{"ruta":"compartida/x.md"}"#),
+    ("/api/ajustes", r#"{"version":"","cambios":{}}"#),
+    ("/api/servicios/ea-mcp/reiniciar", "{}"),
+];
+
+#[tokio::test]
+async fn las_escrituras_sin_clave_dan_403() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let id = f.state.store.lock().await.crear_propuesta(texto("x")).unwrap().id;
+    assert_eq!(id, 1);
+    let otra = "0".repeat(64);
+    for (ruta, cuerpo) in ESCRITURAS {
+        let cuerpo: Value = serde_json::from_str(cuerpo).unwrap();
+        for clave in [None, Some(""), Some("mala"), Some(otra.as_str()), Some(&f.state.clave.texto()[..63])] {
+            for metodo in [Method::POST, Method::PUT, Method::DELETE] {
+                let (s, t) =
+                    enviar_con_clave(&f, metodo.clone(), ruta, "localhost:8092", Some(cuerpo.clone()), true, clave).await;
+                assert_eq!(s, StatusCode::FORBIDDEN, "{metodo} {ruta} con {clave:?}");
+                assert!(t.contains("ea-web-open"), "mensaje claro: {t}");
+            }
+        }
+    }
+    // Nada ha cambiado: la propuesta sigue pendiente y no se lanzó la rutina.
+    let (_, p) = get(&f, "/api/propuestas?estado=pendiente").await;
+    assert_eq!(p.as_array().map(Vec::len), Some(1), "{p}");
+    let (_, t) = get(&f, "/api/trabajos").await;
+    assert_eq!(t.as_array().map(Vec::len), Some(0), "{t}");
+    // El 403 lleva la marca para que la página pase a solo lectura.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/rutinas/revision-diaria/lanzar")
+        .header("host", "localhost")
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let r = f.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(r.headers().get("x-ea-clave").unwrap(), "requerida");
+}
+
+#[tokio::test]
+async fn con_la_clave_correcta_funcionan() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let id = f.state.store.lock().await.crear_propuesta(texto("x")).unwrap().id;
+    let clave = f.state.clave.texto().to_string();
+    let (s, _) = enviar_con_clave(
+        &f, Method::POST, &format!("/api/propuestas/{id}/decidir"), "localhost:8092",
+        Some(json!({ "decision": "rechazar" })), true, Some(&clave),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, t) = enviar_con_clave(
+        &f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", Some(json!({})), true, Some(&clave),
+    )
+    .await;
+    assert!(s.is_success(), "{s} {t}");
+    // La clave no exime del resto de la guardia.
+    let (s, _) = enviar_con_clave(
+        &f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", Some(json!({})), false, Some(&clave),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let (s, _) = enviar_con_clave(
+        &f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "evil.example", Some(json!({})), true, Some(&clave),
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn las_lecturas_no_piden_clave_y_la_sesion_dice_si_vale() {
+    let f = montar();
+    for ruta in ["/", "/app.js", "/cliente.js", "/api/estado", "/api/trabajos", "/api/ajustes", "/api/propuestas"] {
+        let (s, _) = enviar_con_clave(&f, Method::GET, ruta, "localhost:8092", None, false, None).await;
+        assert_eq!(s, StatusCode::OK, "{ruta}");
+    }
+    let (s, t) = enviar_con_clave(&f, Method::GET, "/api/sesion", "localhost", None, false, None).await;
+    assert_eq!((s, serde_json::from_str::<Value>(&t).unwrap()), (StatusCode::OK, json!({ "escritura": false })));
+    let (_, t) = enviar_con_clave(&f, Method::GET, "/api/sesion", "localhost", None, false, Some("mala")).await;
+    assert_eq!(serde_json::from_str::<Value>(&t).unwrap(), json!({ "escritura": false }));
+    let clave = f.state.clave.texto().to_string();
+    let (_, t) = enviar_con_clave(&f, Method::GET, "/api/sesion", "localhost", None, false, Some(&clave)).await;
+    assert_eq!(serde_json::from_str::<Value>(&t).unwrap(), json!({ "escritura": true }));
 }
 
 #[tokio::test]

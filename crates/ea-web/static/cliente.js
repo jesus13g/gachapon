@@ -2,12 +2,48 @@
 // rutas HTTP. Cada función devuelve el JSON de la respuesta o lanza un
 // Error con el mensaje del servidor.
 
+//
+// Clave de sesión: `ea-web-open` abre la página con `#clave=<clave>`. El hash
+// son partes separadas por `&` (la sección, `clave=…` y, más adelante,
+// enlaces profundos): aquí se saca la clave, se guarda en sessionStorage y se
+// deja el resto del hash tal cual con history.replaceState, antes de que
+// app.js lo lea. Toda petición que no sea GET lleva la clave en X-EA-Clave;
+// sin ella (o si el servidor la rechaza) el panel queda en solo lectura y las
+// escrituras fallan con el aviso, sin llegar al servidor.
+
 const ea = (() => {
+  const AVISO_LECTURA = 'Panel en solo lectura: ábrelo con ea-web-open para poder cambiar nada.';
+  let clave = null;
+  try { clave = sessionStorage.getItem('ea-clave'); } catch { /* sin almacenamiento */ }
+  {
+    const partes = location.hash.slice(1).split('&').filter(Boolean);
+    const resto = partes.filter(p => !p.startsWith('clave='));
+    if (resto.length !== partes.length) {
+      const nueva = decodeURIComponent(partes.find(p => p.startsWith('clave=')).slice(6));
+      if (nueva) {
+        clave = nueva;
+        try { sessionStorage.setItem('ea-clave', clave); } catch { /* sin almacenamiento: vale para esta carga */ }
+      }
+      history.replaceState(null, '', location.pathname + location.search + (resto.length ? '#' + resto.join('&') : ''));
+    }
+  }
+  const oyentes = [];
+  function soloLectura() {
+    clave = null;
+    try { sessionStorage.removeItem('ea-clave'); } catch { /* sin almacenamiento */ }
+    oyentes.forEach(f => f(false));
+  }
+
   async function api(ruta, opts = {}) {
-    const r = await fetch(ruta, { headers: { 'Content-Type': 'application/json' }, ...opts });
+    const escribe = opts.method && opts.method !== 'GET';
+    if (escribe && !clave) throw Object.assign(new Error(AVISO_LECTURA), { status: 403 });
+    const headers = { 'Content-Type': 'application/json' };
+    if (clave) headers['X-EA-Clave'] = clave;
+    const r = await fetch(ruta, { ...opts, headers });
     const txt = await r.text();
     let data = null;
     try { data = JSON.parse(txt); } catch { /* cuerpo no JSON */ }
+    if (r.status === 403 && r.headers.get('X-EA-Clave') === 'requerida') soloLectura();
     if (!r.ok) throw Object.assign(new Error((data && data.error) || txt || r.statusText), { status: r.status });
     return data;
   }
@@ -15,6 +51,19 @@ const ea = (() => {
   const c = encodeURIComponent;
 
   return {
+    // Sesión: `escritura()` dice si hay clave (sin preguntar); `sesion()`
+    // pregunta al servidor si vale y, si no, pasa a solo lectura;
+    // `alCambiarSesion(f)` avisa con f(false) al perder la clave.
+    escritura: () => !!clave,
+    sesion: async () => {
+      if (!clave) return false;
+      const { escritura } = await api('/api/sesion');
+      if (!escritura) soloLectura();
+      return escritura;
+    },
+    alCambiarSesion: f => oyentes.push(f),
+    avisoLectura: AVISO_LECTURA,
+
     estado: () => api('/api/estado'),
     sesiones: () => api('/api/sesiones'),
 

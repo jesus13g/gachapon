@@ -2041,6 +2041,14 @@ addEventListener('hashchange', () => {
   proyectos();
   // La primera vez, el recorrido guiado.
   try { if (!localStorage.getItem('ea-tour-visto')) tour.iniciar(); } catch { /* sin almacenamiento */ }
+  // Sin clave de sesión válida, la cabecera lo dice y las escrituras avisan.
+  const lectura = () => {
+    const sin = !ea.escritura();
+    if (sin && $('#lectura').hidden) avisa(ea.avisoLectura);
+    $('#lectura').hidden = !sin;
+  };
+  ea.alCambiarSesion(lectura);
+  ea.sesion().catch(() => {}).finally(lectura);
   tick();
   // El refresco sale de los ajustes (web.sondeo_ms); sin ellos, cada 3 s.
   ea.ajustes().then(a => aplicaCliente(a.cliente)).catch(() => {}).finally(programaSondeo);
