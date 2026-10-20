@@ -26,7 +26,7 @@ async fn git(wt: &str, args: &[&str]) -> Resultado<String> {
 /// Lo cambiado desde `inicio` más los ficheros nuevos sin seguimiento,
 /// recortado a `max` bytes. Devuelve el texto y si se recortó.
 pub async fn diff_desde(wt: &str, inicio: &str, max: usize) -> Resultado<(String, bool)> {
-    let mut texto = git(wt, &["diff", inicio, "--", ".", ":(exclude,glob)**/__pycache__/**"]).await?;
+    let mut texto = git(wt, &["diff", inicio, "--", ".", ea_bus::EXCLUIR_DIFF]).await?;
     let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"]).await?;
     for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {
         match std::fs::read(std::path::Path::new(wt).join(f)) {
@@ -36,6 +36,17 @@ pub async fn diff_desde(wt: &str, inicio: &str, max: usize) -> Resultado<(String
             _ => texto.push_str(&format!("\n=== fichero nuevo sin seguimiento: {f} (binario o ilegible) ===\n")),
         }
     }
+    Ok(recortar(texto, max))
+}
+
+/// `git diff base fin` entre dos árboles (las instantáneas de una fase,
+/// `ea_bus::rango_diff_fase`), recortado a `max` bytes.
+pub async fn diff_entre(wt: &str, base: &str, fin: &str, max: usize) -> Resultado<(String, bool)> {
+    let texto = git(wt, &["diff", base, fin, "--", ".", ea_bus::EXCLUIR_DIFF]).await?;
+    Ok(recortar(texto, max))
+}
+
+fn recortar(mut texto: String, max: usize) -> (String, bool) {
     let truncado = texto.len() > max;
     if truncado {
         let mut fin = max;
@@ -44,7 +55,7 @@ pub async fn diff_desde(wt: &str, inicio: &str, max: usize) -> Resultado<(String
         }
         texto.truncate(fin);
     }
-    Ok((texto, truncado))
+    (texto, truncado)
 }
 
 /// Si `wt` está dentro de un árbol de trabajo de git. Sin shell y sin

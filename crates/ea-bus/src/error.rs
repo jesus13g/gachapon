@@ -20,6 +20,10 @@ pub enum ErrorBus {
     /// habilitadas o exceden los topes de `[agente.skills]`.
     #[error("skills: {0}")]
     Skills(String),
+    /// Falta la instantánea de árbol (o el `commit_inicio`) que pide el
+    /// diff de una fase.
+    #[error("{0}")]
+    SinInstantanea(String),
 }
 
 pub type Resultado<T> = Result<T, ErrorBus>;

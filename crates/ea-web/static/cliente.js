@@ -77,7 +77,8 @@ const ea = (() => {
 
     trabajos: () => api('/api/trabajos'),
     trabajo: id => api('/api/trabajos/' + c(id)),
-    diff: id => api(`/api/trabajos/${c(id)}/diff`),
+    // Con `fase`, el diff de esa fase de una obra (entre sus instantáneas).
+    diff: (id, fase) => api(`/api/trabajos/${c(id)}/diff${fase ? '?fase=' + Number(fase) : ''}`),
     // accion: cerrar, cancelar, continuar, reformular ({ nota, fase? }: fase,
     // solo en obras, desde la que se rehace) o confirmar ({ contexto }).
     accionTrabajo: (id, accion, cuerpo = {}) => post(`/api/trabajos/${c(id)}/${accion}`, cuerpo),

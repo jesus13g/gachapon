@@ -162,11 +162,17 @@ pub async fn trabajo_formulario(State(s): Estado) -> Api<FormularioTrabajo> {
 }
 
 pub async fn trabajo_ver(State(s): Estado, Path(id): Path<String>) -> Api<TrabajoDetalle> {
-    ok(servicio::trabajos::ver(&s, &id))
+    ok(servicio::trabajos::ver(&s, &id).await)
 }
 
-pub async fn trabajo_diff(State(s): Estado, Path(id): Path<String>) -> Api<Diff> {
-    ok(servicio::trabajos::diff(&s, &id).await)
+/// `?fase=N`: el diff de esa fase de una obra (entero ≥ 1; si no, 400).
+#[derive(Deserialize)]
+pub struct DiffQuery {
+    fase: Option<u32>,
+}
+
+pub async fn trabajo_diff(State(s): Estado, Path(id): Path<String>, Query(q): Query<DiffQuery>) -> Api<Diff> {
+    ok(servicio::trabajos::diff(&s, &id, q.fase).await)
 }
 
 #[derive(Deserialize, Default)]

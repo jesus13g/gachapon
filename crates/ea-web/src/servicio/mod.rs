@@ -72,7 +72,7 @@ impl From<ErrorBus> for ErrorWeb {
     fn from(e: ErrorBus) -> Self {
         let msg = e.to_string();
         match &e {
-            ErrorBus::NoExiste(_) => Self::NoEncontrado(msg),
+            ErrorBus::NoExiste(_) | ErrorBus::SinInstantanea(_) => Self::NoEncontrado(msg),
             ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado => Self::Conflicto(msg),
             ErrorBus::Argumentos(_) | ErrorBus::Skills(_) => Self::Invalido(msg),
             _ => Self::Interno(msg),

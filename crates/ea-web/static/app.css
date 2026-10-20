@@ -286,6 +286,9 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .ev, .pa { display: grid; gap: 0 12px; font-size: 12.5px; line-height: 1.8; }
 .ev { grid-template-columns: 96px 18px 1fr 120px 56px; }
 .pa { grid-template-columns: 18px 150px 1fr; margin-left: 0; }
+/* el plan de una obra: una línea por fase, con su plan y su diff debajo */
+.fo { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; gap: 0 12px; font-size: 12.5px; line-height: 1.8; max-width: 900px; }
+.fo .ex { grid-column: 2 / -1; padding-bottom: 6px; min-width: 0; }
 .pa .m { grid-column: 3; }
 .acc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
 .det button:not(.l):not(.coin) { background: var(--bg); color: var(--fg); }
@@ -416,6 +419,8 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   .det { padding-left: 38px; }
   .ev { grid-template-columns: 64px 18px 1fr 48px; }
   .ev > :nth-child(4) { display: none; }
+  .fo { grid-template-columns: 18px minmax(0, 1fr) auto; }
+  .fo > span.m { display: none; }
 }
 
 /* Con el dedo, los controles crecen hasta un objetivo cómodo. */

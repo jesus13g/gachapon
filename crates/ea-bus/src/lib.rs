@@ -8,6 +8,7 @@ mod candado;
 pub mod config;
 mod error;
 mod fs_atomico;
+mod instantanea;
 mod rutina;
 pub mod skills;
 mod tipos;
@@ -18,6 +19,7 @@ pub use config::ConfigOrquestador;
 pub use skills::{bloque_prompt, ConfigSkills, Skill};
 pub use rutina::{slug_valido, validar_entradas, CabeceraRutina, Paso, Rutina, MAX_DEFINICION, MAX_ENTRADAS, MAX_VALOR_ENTRADA};
 pub use error::{ErrorBus, Resultado};
+pub use instantanea::{arbol_de_fase, diff_stat_de_fase, rango_diff_fase, resumen_salida_agente, EXCLUIR_DIFF};
 pub use tipos::{
     Agente, Estado, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Modo, Orden, ResultadoInforme, RutinaRef, Topes, transicion,
 };

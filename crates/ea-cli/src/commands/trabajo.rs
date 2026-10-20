@@ -134,27 +134,18 @@ pub fn diff(id: &str, fase: Option<u32>) -> Result<()> {
     let b = Bus::abrir()?;
     let orden = b.leer_orden(id)?;
     let wt = orden.worktree.as_str();
-    let inicio = b
-        .leer_informe(id)?
-        .and_then(|i| i.commit_inicio)
-        .ok_or_else(|| anyhow!("el trabajo {id} no tiene informe con commit_inicio"))?;
-    let excl = ":(exclude,glob)**/__pycache__/**";
+    let inicio = b.leer_informe(id)?.and_then(|i| i.commit_inicio);
+    let excl = ea_bus::EXCLUIR_DIFF;
     if let Some(n) = fase {
-        // Árboles guardados por la obra en el informe de cada fase (SQLite).
+        // Árboles guardados por la obra en el informe de cada fase (SQLite);
+        // el rango lo calcula `ea-bus`, igual que para `ea-web`.
         let store = ea_store::Store::open().map_err(|e| anyhow!("sin acceso al store: {e}"))?;
         let fases = store.listar_fases(id)?;
-        let arbol = |num: i64| -> Option<String> {
-            let f = fases.iter().find(|f| f.numero == num)?;
-            let v: serde_json::Value = serde_json::from_str(f.informe.as_deref()?).ok()?;
-            v.get("arbol")?.as_str().map(String::from)
-        };
-        let Some(fin) = arbol(i64::from(n)) else {
-            bail!("no hay instantánea de árbol de la fase {n} (la obra no la guardó o el store no la tiene)");
-        };
-        let base = if n <= 1 { format!("{inicio}^{{tree}}") } else { arbol(i64::from(n) - 1).ok_or_else(|| anyhow!("no hay instantánea de la fase {}", n - 1))? };
+        let (base, fin) = ea_bus::rango_diff_fase(inicio.as_deref(), &fases, n)?;
         print!("{}", git(wt, &["diff", &base, &fin, "--", ".", excl])?);
         return Ok(());
     }
+    let inicio = inicio.ok_or_else(|| anyhow!("el trabajo {id} no tiene informe con commit_inicio"))?;
     print!("{}", git(wt, &["diff", &inicio, "--", ".", excl])?);
     let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"])?;
     for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {

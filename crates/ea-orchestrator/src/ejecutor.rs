@@ -165,16 +165,7 @@ fn argumentos_bwrap(home: &str, worktree: &Path, ejecucion: Option<&Path>) -> Ve
 
 /// Texto del último elemento `type=result` del array JSON de Qwen.
 fn texto_final(bruta: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(bruta)
-        .ok()
-        .and_then(|v| {
-            v.as_array()?
-                .iter()
-                .rev()
-                .find(|m| m["type"] == "result")
-                .and_then(|m| m["result"].as_str().map(str::to_string))
-        })
-        .unwrap_or_default()
+    ea_bus::resumen_salida_agente(bruta)
 }
 
 /// Ejecuta con `timeout`; devuelve (código, stdout, stderr). Código `None`
