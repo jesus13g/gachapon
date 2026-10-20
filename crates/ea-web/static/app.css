@@ -185,7 +185,7 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 }
 .r.j { grid-template-columns: 132px 60px 1fr 120px 200px 44px; }
 .r.d { grid-template-columns: 96px 18px 120px 1fr 56px 56px; }
-.r.u { grid-template-columns: 18px minmax(120px, 220px) 40px 1fr 90px 150px; min-height: 38px; }
+.r.u { grid-template-columns: 18px minmax(120px, 220px) 40px 1fr 90px 140px 150px; min-height: 38px; }
 .r.p { grid-template-columns: 18px 48px 1fr 220px 44px 260px; }
 .r.s { grid-template-columns: 18px 190px 1fr 60px 120px; }
 .r.b { grid-template-columns: 18px 1fr minmax(120px, 280px) 100px 48px; }
@@ -397,7 +397,7 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   #barra { gap: 8px; }
   #q { flex: 1 0 120px; }
   .r.u { grid-template-columns: 18px 1fr 40px 130px; }
-  .r.u .m:nth-child(4), .r.u .m:nth-child(5) { display: none; }
+  .r.u .m:nth-child(4), .r.u .m:nth-child(5), .r.u .m:nth-child(6) { display: none; }
   .r.s { grid-template-columns: 18px 1fr 60px 120px; }
   .r.s > :nth-child(3) { display: none; }
   .hd { display: none !important; }

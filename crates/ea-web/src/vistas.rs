@@ -125,6 +125,8 @@ pub struct RutinaFila {
     pub error: Option<&'static str>,
     pub registrada: String,
     pub proxima: Option<i64>,
+    /// El trabajo más reciente de la rutina en el bus, si lo hay.
+    pub ultima: Option<RutinaEjecucion>,
 }
 
 #[derive(Serialize)]
@@ -132,6 +134,23 @@ pub struct RutinaDetalle {
     pub slug: String,
     pub version: i64,
     pub contenido: String,
+    /// Las últimas ejecuciones (trabajos del bus), la más reciente primero.
+    pub ejecuciones: Vec<RutinaEjecucion>,
+}
+
+/// Una ejecución de una rutina: un trabajo del bus en modo rutina, con la
+/// versión con la que se lanzó y, si ya entregó informe, su resultado y lo
+/// que tardó el agente.
+#[derive(Serialize)]
+pub struct RutinaEjecucion {
+    pub trabajo: String,
+    pub estado: &'static str,
+    pub version: u32,
+    pub resultado: Option<&'static str>,
+    pub duracion_s: Option<u64>,
+    pub detalle: Option<String>,
+    pub creado: String,
+    pub actualizado: String,
 }
 
 #[derive(Serialize)]

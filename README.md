@@ -691,6 +691,16 @@ defecto, rango, origen, edición, quién la fija y si pide reinicio; `version` y
 `null` quita la clave; 400 inválido, 403 solo terminal o aflojar un techo, 409
 versión vieja o fijada por el entorno). Solo atiende `Host: localhost|127.0.0.1`.
 
+Ejecuciones de las rutinas (solo lectura, leídas del bus): en ↻ Rutinas, la
+columna «última» de cada fila dice el estado de su trabajo más reciente y hace
+cuánto, y la ficha empieza por las últimas 10 ejecuciones (estado, versión de
+la rutina, duración y detalle), cada una con un botón a la ficha de su trabajo
+(`#trabajos/<id>`). En la API, cada fila de `GET /api/rutinas` lleva `ultima` (el trabajo más reciente de la rutina, o
+`null`) y `GET /api/rutinas/<slug>` lleva `ejecuciones` (los 10 más recientes,
+el más nuevo primero), con `{trabajo, estado, version, resultado, duracion_s,
+detalle, creado, actualizado}`; `resultado` y `duracion_s` salen del informe y
+son `null` mientras no lo haya.
+
 Clave de sesión: al arrancar, `ea-web` genera una clave aleatoria y la deja en
 `$XDG_RUNTIME_DIR/ea-web/clave` (0600; cambia en cada arranque y se borra al
 parar). Todo lo que no sea GET/HEAD tiene que llevarla en la cabecera

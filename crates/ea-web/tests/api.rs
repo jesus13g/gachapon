@@ -487,6 +487,72 @@ async fn rutinas_listar_ver_y_lanzar() {
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
 
+#[tokio::test]
+async fn la_ficha_de_una_rutina_lista_sus_ejecuciones_mas_recientes_primero() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let bus = ea_bus::Bus::abrir().unwrap();
+
+    // Sin trabajos: la fila no tiene última y la ficha no tiene ejecuciones.
+    let (_, l) = get(&f, "/api/rutinas").await;
+    assert!(l[0]["ultima"].is_null(), "{l}");
+    let (_, r) = get(&f, "/api/rutinas/revision-diaria").await;
+    assert_eq!(r["ejecuciones"], json!([]));
+
+    // Doce ejecuciones (v1 las seis primeras, v2 el resto), intercaladas con
+    // una misión y con otra rutina. Los ids fijan el orden (empiezan por la
+    // fecha); se crean desordenados para que no cuente el orden de creación.
+    let de_rutina = |n: u32, slug: &str, version: u32| {
+        let mut o = orden(ea_bus::Modo::Rutina, slug, "/tmp");
+        o.id = format!("20260101T0000{n:02}-0000aaaa");
+        o.rutina = Some(ea_bus::RutinaRef { slug: slug.into(), version });
+        o
+    };
+    for n in (1..=12).rev() {
+        bus.crear_trabajo(de_rutina(n, "revision-diaria", if n <= 6 { 1 } else { 2 })).unwrap();
+    }
+    let mut otra = de_rutina(13, "otra-rutina", 1);
+    otra.id = "20260101T000013-0000bbbb".into();
+    bus.crear_trabajo(otra).unwrap();
+    let mut mision = orden(ea_bus::Modo::Mision, "Una misión", "/tmp");
+    mision.id = "20260101T000014-0000cccc".into();
+    bus.crear_trabajo(mision).unwrap();
+    // La más reciente entregó informe; la anterior se canceló.
+    let ultimo = "20260101T000012-0000aaaa";
+    bus.aplicar(ultimo, ea_bus::Evento::Tomar).unwrap();
+    let informe = ea_bus::Informe { duracion_s: 42, ..ea_bus::Informe::nuevo(ea_bus::ResultadoInforme::Bloqueado) };
+    bus.aplicar(ultimo, ea_bus::Evento::Entregar(informe)).unwrap();
+    bus.aplicar("20260101T000011-0000aaaa", ea_bus::Evento::Cancelar).unwrap();
+    let estado_ultimo = bus.leer_estado(ultimo).unwrap().estado.as_str();
+
+    let (s, r) = get(&f, "/api/rutinas/revision-diaria").await;
+    assert_eq!(s, StatusCode::OK);
+    let ej = r["ejecuciones"].as_array().unwrap();
+    let ids: Vec<&str> = ej.iter().map(|e| e["trabajo"].as_str().unwrap()).collect();
+    let esperados: Vec<String> = (3..=12).rev().map(|n| format!("20260101T0000{n:02}-0000aaaa")).collect();
+    assert_eq!(ids, esperados, "las diez más recientes, la más nueva primero, solo de esta rutina");
+    assert_eq!(ej[0]["estado"], estado_ultimo);
+    assert_eq!(ej[0]["version"], 2);
+    assert_eq!(ej[0]["resultado"], "bloqueado");
+    assert_eq!(ej[0]["duracion_s"], 42);
+    assert_eq!(ej[1]["estado"], "cancelado");
+    assert!(ej[1]["resultado"].is_null() && ej[1]["duracion_s"].is_null());
+    assert_eq!(ej[2]["estado"], "en_cola");
+    assert_eq!(ej[9]["version"], 1, "la v1 de las primeras");
+    assert!(ej[0]["creado"].as_str().is_some_and(|c| !c.is_empty()));
+    assert!(ej[0]["actualizado"].as_str().is_some_and(|c| !c.is_empty()));
+
+    // La fila lleva solo la última, la misma que encabeza la ficha.
+    let (_, l) = get(&f, "/api/rutinas").await;
+    assert_eq!(l[0]["ultima"]["trabajo"], ultimo);
+    assert_eq!(l[0]["ultima"]["estado"], estado_ultimo);
+    assert_eq!(l[0]["ultima"]["resultado"], "bloqueado");
+
+    // Solo lectura: ni trabajos nuevos ni cambios de estado.
+    assert_eq!(bus.listar_trabajos().unwrap().len(), 14);
+    assert_eq!(bus.leer_estado(ultimo).unwrap().estado.as_str(), estado_ultimo);
+}
+
 fn orden(modo: ea_bus::Modo, titulo: &str, worktree: &str) -> ea_bus::Orden {
     ea_bus::Orden {
         id: String::new(),
