@@ -22,17 +22,24 @@ pub struct Resultado {
     pub texto: String,
     pub trabajo: Option<String>,
     pub datos: Value,
+    /// El id del evento `accion_ejecutada` que lo dejó en el diario, si se
+    /// pudo escribir (las interfaces enlazan con él).
+    pub evento: Option<i64>,
 }
 
-fn evento(store: &Store, actor: &str, action: &str, trabajo: Option<&str>, ok: bool, detalle: Value) {
-    let _ = store.append_event(NewEvent {
+/// Deja el evento en el diario y devuelve su id. Un diario que no se puede
+/// escribir no deshace la acción: el id es `None`.
+fn evento(store: &Store, actor: &str, action: &str, trabajo: Option<&str>, ok: bool, detalle: Value) -> Option<i64> {
+    store.append_event(NewEvent {
         actor: actor.to_string(),
         action: action.to_string(),
         trabajo: trabajo.map(str::to_string),
         outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
         duration_ms: None,
         detail: Some(detalle.to_string()),
-    });
+    })
+    .ok()
+    .map(|e| e.id)
 }
 
 /// Encola una propuesta con acción estructurada. La simulación se hace aquí
@@ -142,7 +149,7 @@ pub async fn ejecutar<S: Sistema>(
 
     match intento {
         Ok(a) => {
-            evento(
+            let ev = evento(
                 store,
                 actor,
                 "accion_ejecutada",
@@ -150,7 +157,7 @@ pub async fn ejecutar<S: Sistema>(
                 true,
                 contexto(json!({ "resultado": a.datos, "texto": a.texto })),
             );
-            Ok(Resultado { texto: a.texto, trabajo: a.trabajo, datos: a.datos })
+            Ok(Resultado { texto: a.texto, trabajo: a.trabajo, datos: a.datos, evento: ev })
         }
         Err(e) => {
             evento(
@@ -232,6 +239,19 @@ pub async fn aceptar_propuesta<S: Sistema>(
     actor: &str,
     canal: Canal,
 ) -> Result<Propuesta, ErrorAccion> {
+    Ok(aceptar_propuesta_con_resultado(store, sistema, id, actor, canal).await?.0)
+}
+
+/// Como [`aceptar_propuesta`], y además devuelve el [`Resultado`] de la
+/// acción cuando se ejecutó bien (trabajo, datos y evento del diario), para
+/// que la interfaz enlace con lo que produjo.
+pub async fn aceptar_propuesta_con_resultado<S: Sistema>(
+    store: &mut Store,
+    sistema: &S,
+    id: i64,
+    actor: &str,
+    canal: Canal,
+) -> Result<(Propuesta, Option<Resultado>), ErrorAccion> {
     let previa = store.get_propuesta(id)?;
     let Some(accion) = previa.accion.clone() else {
         let p = store.decidir_propuesta(id, EstadoPropuesta::Aceptada)?;
@@ -243,7 +263,7 @@ pub async fn aceptar_propuesta<S: Sistema>(
             true,
             json!({ "propuesta": id, "estado": "aceptada", "canal": canal.nombre() }),
         );
-        return Ok(p);
+        return Ok((p, None));
     };
 
     // La política de canal se comprueba antes de reclamar: una web que
@@ -275,7 +295,7 @@ pub async fn aceptar_propuesta<S: Sistema>(
         }),
     );
 
-    let (estado, detalle) = match ejecutar(
+    let (estado, detalle, resultado) = match ejecutar(
         store,
         sistema,
         actor,
@@ -287,10 +307,10 @@ pub async fn aceptar_propuesta<S: Sistema>(
     )
     .await
     {
-        Ok(r) => (EstadoEjecucion::Ejecutada, r.texto),
-        Err(e) => (EstadoEjecucion::Fallida, e.to_string()),
+        Ok(r) => (EstadoEjecucion::Ejecutada, r.texto.clone(), Some(r)),
+        Err(e) => (EstadoEjecucion::Fallida, e.to_string(), None),
     };
-    Ok(store.registrar_ejecucion_propuesta(id, estado, &detalle)?)
+    Ok((store.registrar_ejecucion_propuesta(id, estado, &detalle)?, resultado))
 }
 
 pub fn rechazar_propuesta(

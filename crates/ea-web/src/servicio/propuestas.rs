@@ -4,7 +4,7 @@ use ea_acciones::Canal;
 use ea_store::{EstadoPropuesta, Propuesta, PropuestaFilter};
 
 use super::{sistema, ts, ErrorWeb, Resultado, ACTOR};
-use crate::vistas::{AccionPropuesta, Ejecucion, PropuestaVista};
+use crate::vistas::{AccionPropuesta, Ejecucion, PropuestaVista, ResultadoAccion};
 use crate::AppState;
 
 pub(super) fn vista(p: &Propuesta) -> PropuestaVista {
@@ -26,6 +26,7 @@ pub(super) fn vista(p: &Propuesta) -> PropuestaVista {
             detalle: e.detalle.clone(),
             cuando: e.ejecutada_en.map(ts),
         }),
+        resultado: None,
     }
 }
 
@@ -52,10 +53,12 @@ pub async fn decidir(s: &AppState, id: i64, decision: &str) -> Resultado<Propues
 
     let sis = sistema(s);
     let mut store = s.acciones.lock().await;
-    let p = if aceptar {
-        ea_acciones::aceptar_propuesta(&mut store, &sis, id, ACTOR, Canal::Web).await?
+    let (p, r) = if aceptar {
+        ea_acciones::aceptar_propuesta_con_resultado(&mut store, &sis, id, ACTOR, Canal::Web).await?
     } else {
-        ea_acciones::rechazar_propuesta(&store, id, ACTOR, Canal::Web)?
+        (ea_acciones::rechazar_propuesta(&store, id, ACTOR, Canal::Web)?, None)
     };
-    Ok(vista(&p))
+    let mut v = vista(&p);
+    v.resultado = r.map(|r| ResultadoAccion { texto: r.texto, trabajo: r.trabajo, datos: r.datos, evento: r.evento });
+    Ok(v)
 }

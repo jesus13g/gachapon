@@ -99,6 +99,10 @@ pub struct PropuestaVista {
     pub decidida: Option<String>,
     pub accion: Option<AccionPropuesta>,
     pub ejecutada: Option<Ejecucion>,
+    /// Solo en la respuesta de aceptarla, si la acción se ejecutó: lo que
+    /// produjo, para enlazar con ello (como en la consola de acciones).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resultado: Option<ResultadoAccion>,
 }
 
 #[derive(Serialize)]
@@ -356,6 +360,8 @@ pub struct ResultadoAccion {
     pub texto: String,
     pub trabajo: Option<String>,
     pub datos: Value,
+    /// El evento `accion_ejecutada` del diario (para «≡ en el diario»).
+    pub evento: Option<i64>,
 }
 
 // ------------------------------------------------------------------ bóveda
