@@ -18,7 +18,7 @@ Claude Code **formaliza y encola**. NO implementa el trabajo, ni siquiera "para 
    - `objetivo`: texto concreto para el agente: ficheros y funciones nombrados, firmas, comportamiento esperado. Sin ambigüedad.
    - `criterio_exito`: UN comando de shell que pase o falle, ejecutado desde el worktree: tests (`python test_x.py`, `cargo test -p x`), `test -f ruta`, `grep -q patrón fichero` o un script. Debe fallar ahora y pasar solo si el objetivo se cumple. Si no existe, el objetivo incluye crear el test, pero prefiere escribir tú el test antes (es formalizar, no implementar) si es corto.
    - `skills`: las skills de Qwen que necesita la tarea (ver abajo).
-   - `topes`: `iteraciones` 3-5 (por defecto 5); `tiempo_s` 900 por iteración; `turnos` 30; `llamadas_herramienta` 60. Sube solo con motivo.
+   - `topes`: `iteraciones` 3-5 (por defecto 5); `tiempo_s` 900 por iteración; `turnos` 30; `llamadas_herramienta` 60. Sube solo con motivo; el ejecutor recorta lo que pase del techo de los ajustes (`ea ajustes ver`, sección agente).
 3. **Escribe la orden** en un temporal (`mktemp`) con este formato (`id`, `creada_en` vacíos; se rellenan solos):
 
 ```json

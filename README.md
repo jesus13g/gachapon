@@ -74,27 +74,85 @@ Qwen Code corre dentro de **bubblewrap** (`bwrap`): sistema de ficheros de solo
 lectura salvo el worktree, un `/tmp` propio y `~/.qwen`; la red queda abierta para
 llegar a `llama-server`. Con `sandbox = false` el agente corre con aprobación
 total y puede escribir donde escriba tu usuario. Además: topes por ejecución
-(turnos, tiempo, llamadas a herramientas, iteraciones), exclusión de las
+(turnos, tiempo, llamadas a herramientas, iteraciones; recortados al techo de los
+ajustes), exclusión de las
 herramientas web y semáforo para que los dos agentes no escriban a la vez.
 
-### Configuración (`orquestador.toml`)
+### Configuración (`ajustes.toml`)
 
-`~/.config/ecosistema-asistente/orquestador.toml`, todo opcional (plantilla en
-`crates/ea-bus/config/orquestador.example.toml`). Es el único sitio donde se
-nombra el modelo.
+Un único fichero, `~/.config/ecosistema-asistente/ajustes.toml` (o
+`$EA_CONFIG_DIR/ajustes.toml`), todo opcional (plantilla comentada en
+`crates/ea-ajustes/config/ajustes.example.toml`). Lo lee `ea-ajustes`, la base de
+todos los crates. Precedencia **por clave**: variable de entorno >
+`ajustes.toml` > TOML heredado > valor por defecto. Un valor inválido (fuera de
+rango, una URL que no es local, un fichero que no es TOML) deja un aviso en
+`ea ajustes ver` y en ⚙ Ajustes y cae a la capa siguiente: nunca impide arrancar.
 
-```toml
-base_url = "http://127.0.0.1:8080/v1"
-modelo = "qwen3-coder-30b"
-qwen_bin = "qwen"
-avisos_escritorio = true
-sandbox = true
+Los ficheros antiguos se siguen leyendo, como fuentes heredadas de solo lectura
+(el sistema nunca los escribe): `orquestador.toml` (`modelo` → `modelo.nombre`,
+`base_url`, `qwen_bin`, `sandbox`, `avisos_escritorio` y las secciones `[topes]`
+→ `agente.techo_topes` y `[skills]` → `agente.skills`), `orchestrator.toml`
+(`intervalo_sondeo_s`, `intervalo_heartbeat_s`, `rutinas_dir` → `orquestador.*`) y
+`boveda.toml` (`raiz` → `rutas.boveda`). El sistema solo escribe `ajustes.toml`
+(de forma atómica y conservando comentarios y claves ajenas).
 
-[topes]
-turnos = 30
-tiempo_s = 900
-llamadas_herramienta = 60
-iteraciones = 5
+| Clave | Defecto | Rango o forma | Entorno | Quién la cambia | Aplica |
+|---|---|---|---|---|---|
+| `modelo.nombre` | `qwen3-coder-30b` | texto | | web y terminal | en caliente |
+| `modelo.base_url` | `http://127.0.0.1:8080/v1` | solo `127.0.0.1`, `localhost` o `[::1]` | | web y terminal | en caliente |
+| `modelo.qwen_bin` | `qwen` | texto | | solo terminal | en caliente |
+| `agente.sandbox` | `true` | sí/no | | solo terminal | en caliente |
+| `agente.avisos_escritorio` | `true` | sí/no | | web y terminal | en caliente |
+| `agente.techo_topes.turnos` | 100 | 1–100 | | web solo baja; terminal | en caliente |
+| `agente.techo_topes.tiempo_s` | 3600 | 60–3600 | | web solo baja; terminal | en caliente |
+| `agente.techo_topes.llamadas_herramienta` | 200 | 1–200 | | web solo baja; terminal | en caliente |
+| `agente.techo_topes.iteraciones` | 10 | 1–10 | | web solo baja; terminal | en caliente |
+| `agente.skills.dir` | `<config>/qwen-skills` | ruta (`~`) | | solo terminal | en caliente |
+| `agente.skills.habilitadas` | `[]` (todas) | lista | | solo terminal | en caliente |
+| `agente.skills.max_por_trabajo` | 3 | 0–5 | | web solo baja; terminal | en caliente |
+| `agente.skills.max_caracteres` | 6000 | 0–12000 | | web solo baja; terminal | en caliente |
+| `agente.skills.pueden_elegir` | `["claude-code"]` | ⊆ `["claude-code"]` | | solo terminal | en caliente |
+| `orquestador.intervalo_sondeo_s` | 5 | 1–300 | | web y terminal | reiniciar `ea-orchestrator` |
+| `orquestador.intervalo_heartbeat_s` | 30 | 5–600 | | web y terminal | reiniciar los tres servicios |
+| `orquestador.rutinas_dir` | `<config>/rutinas` | ruta | | solo terminal | reiniciar `ea-web`, `ea-mcp` |
+| `red.puerto_web` | 8092 | 1024–65535 | `EA_WEB_PORT` | web y terminal | reiniciar `ea-web` |
+| `red.puerto_mcp` | 8765 | 1024–65535 | `EA_MCP_PORT` | web y terminal | reiniciar `ea-mcp` (y cambiar la URL del MCP en Claude Code) |
+| `rutas.db` | `~/.local/share/ecosistema-asistente/ecosistema.db` | ruta | `EA_DB_PATH` | solo terminal | reiniciar todo |
+| `rutas.estado` | `~/.local/state/ecosistema-asistente` | ruta | `EA_ESTADO_DIR` | solo terminal | reiniciar todo (el hook de subagentes solo lee la variable) |
+| `rutas.boveda` | `~/.local/share/ecosistema-asistente/boveda` | ruta | `EA_BOVEDA_DIR` | solo terminal | reiniciar `ea-web`, `ea-mcp` |
+| `web.sondeo_ms` | 3000 | 1000–60000 | | web y terminal | en caliente (la página) |
+| `web.diario_limite` | 300 | 10–1000 | | web y terminal | en caliente (la página) |
+
+`<config>` es `~/.config/ecosistema-asistente` (o `$EA_CONFIG_DIR`, pensado sobre
+todo para aislar pruebas). `red.puerto_web` y `red.puerto_mcp` no pueden
+coincidir; el host no se configura (siempre `127.0.0.1`). Una clave que fija su
+variable de entorno no se cambia desde ningún canal mientras esté definida.
+
+**Techo de topes.** Los topes de cada orden (`turnos`, `tiempo_s`,
+`llamadas_herramienta`, `iteraciones`; por defecto 30/900/60/5) los pone quien la
+escribe. El ejecutor los recorta a `agente.techo_topes` antes de lanzar a Qwen
+(mínimo por campo, al menos una iteración) y lo deja en el log. El techo nunca
+pasa de 100/3600/200/10. Un `[topes]` en un `orquestador.toml` antiguo pasa a ser
+ese techo.
+
+**Quién cambia qué.** `ea ajustes establecer` exige una terminal interactiva real
+(sin TTY se rechaza, como las acciones irreversibles). ⚙ Ajustes en `ea-web` es un
+gesto directo del usuario, como el editor de Memoria: solo llega a las claves
+marcadas «web», los techos y topes de skills solo bajan desde ahí, pide un
+segundo clic y comprueba la versión del fichero (409 si cambió). Lo que toca la
+seguridad del agente local (sandbox, binario de Qwen, quién elige skills, rutas)
+es solo de terminal. Cada cambio queda en el diario como `ajustes_cambiados`
+(actor `usuario`, con el canal y los valores antes y después). Ni `ea-mcp` ni el
+orquestador tienen forma de leer o escribir los ajustes. Claude Code sí podría
+editar `ajustes.toml` con su herramienta de ficheros, igual que antes
+`orquestador.toml`.
+
+```bash
+ea ajustes ver [--json]                      # valor, origen, quién lo cambia y cuándo se aplica; avisos debajo
+ea ajustes obtener red.puerto_web            # solo el valor
+ea ajustes establecer agente.techo_topes.turnos=60 web.sondeo_ms=5000
+ea ajustes establecer --quitar modelo.nombre # vuelve a mandar la capa siguiente
+ea ajustes ruta                              # ajustes.toml y los heredados, con si existen
 ```
 
 ### Cambiar de modelo
@@ -107,8 +165,9 @@ ln -sf qwen3-coder-30b.env ~/.config/llama-cpp/activo.env
 systemctl --user restart llama-server
 ```
 
-Después ajusta `modelo` (y `base_url` si cambia) en `orquestador.toml` y reinicia
-`ea-orchestrator`. No hay que tocar código.
+Después ajusta el nombre (y la URL si cambia) con
+`ea ajustes establecer modelo.nombre=<modelo>` (o desde ⚙ Ajustes). Se aplica en
+caliente: el ejecutor relee los ajustes en cada ciclo. No hay que tocar código.
 
 ## Actualizar desde una versión anterior
 
@@ -122,10 +181,13 @@ volver a arrancar los servicios.
 
 ## Estructura
 
+- `crates/ea-ajustes`: los ajustes (`ajustes.toml` y los TOML heredados), con
+  su registro de claves, validación y escritura atómica; no depende de ningún
+  otro crate.
 - `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
   propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
-  del worktree, rutinas versionadas y `orquestador.toml`.
+  del worktree, rutinas versionadas y la configuración del ejecutor.
 - `crates/ea-orchestrator`: binario `ea-orchestrator`, el ejecutor del agente
   local y el heartbeat.
 - `crates/ea-acciones`: catálogo único de herramientas con riesgo, simulación,
@@ -184,8 +246,9 @@ orquestador inyecta solo esas en el system prompt de Qwen con
 `--append-system-prompt`. El texto inyectado queda en
 `trabajos/<id>/skills-qwen.md`.
 
-Las elige Claude Code al formalizar (`/mision`, `/obra`). La sección `[skills]`
-de `orquestador.toml` decide qué se puede elegir y quién:
+Las elige Claude Code al formalizar (`/mision`, `/obra`). `[agente.skills]` de
+`ajustes.toml` (o el heredado `[skills]` de `orquestador.toml`) decide qué se
+puede elegir y quién:
 
 - `habilitadas`: lista blanca del catálogo (vacía = todas).
 - `max_por_trabajo` y `max_caracteres`: topes de contexto.
@@ -235,11 +298,12 @@ ea diario listar|ver <id>                    # listar acepta --trabajo <id>
 ea propuestas listar|ver|decidir <id> --aceptar|--rechazar
 ea acciones listar|simular|ejecutar          # catálogo de herramientas
 ea boveda estado|listar|buscar|leer|promover|reindexar
+ea ajustes ver|obtener|establecer|ruta       # ajustes.toml (establecer: solo con TTY)
 ea tui                                       # interfaz interactiva
 ```
 
 La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
-(o en `$EA_DB_PATH`). Servicios de sesión (`systemd --user`): `llama-server`,
+(o en `rutas.db` de los ajustes, o en `$EA_DB_PATH`). Servicios de sesión (`systemd --user`): `llama-server`,
 `ea-orchestrator`, `ea-mcp` y `ea-web`; las rutinas se programan con
 `ea-rutina@<slug>.timer`, que solo crea el trabajo en el bus.
 
@@ -247,7 +311,7 @@ La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
 
 ```bash
 ./target/release/ea-mcp        # arranque manual, escucha en 127.0.0.1:8765
-# puerto configurable con $EA_MCP_PORT
+# puerto: red.puerto_mcp de los ajustes o $EA_MCP_PORT
 ```
 
 Herramientas expuestas (un solo catálogo, `ea-acciones`), con su nivel de
@@ -334,10 +398,12 @@ irreversible exija escribir una frase en una terminal real.
 Implementa §8.3: el sustrato de notas que se leen meses después, compartido
 por el modelo local, Claude Code y el usuario.
 
-**Dónde está.** La raíz se resuelve en este orden: la variable
-`EA_BOVEDA_DIR`, el fichero `~/.config/ecosistema-asistente/boveda.toml` y,
-si no hay ninguno, `~/.local/share/ecosistema-asistente/boveda/`. En esta
-instalación `boveda.toml` apunta a la bóveda de Obsidian `Ecosistema`:
+**Dónde está.** La raíz es `rutas.boveda` de los ajustes y se resuelve en este
+orden: la variable `EA_BOVEDA_DIR`, `ajustes.toml`, el heredado
+`~/.config/ecosistema-asistente/boveda.toml` y, si no hay ninguno,
+`~/.local/share/ecosistema-asistente/boveda/`. En esta instalación
+`boveda.toml` apunta a la bóveda de Obsidian `Ecosistema` (se puede pasar a
+`ajustes.toml` con `ea ajustes establecer rutas.boveda=~/Obsidian/Ecosistema`):
 
 ```toml
 raiz = "~/Obsidian/Ecosistema"
@@ -505,8 +571,9 @@ muestra las dos colas, el semáforo del worktree y los trabajos con su estado
 registradas con su versión, como `ea rutina listar`.
 
 `ea-web` es un panel local en `http://localhost:8092` (solo `127.0.0.1`; puerto
-con `$EA_WEB_PORT`): una página sin dependencias, a base de símbolos, con los
-colores del tema activo de Omarchy. Se actualiza sola cada 3 s. Nunca habla con
+en `red.puerto_web` de los ajustes o `$EA_WEB_PORT`): una página sin
+dependencias, a base de símbolos, con los colores del tema activo de Omarchy. Se
+actualiza sola cada 3 s (`web.sondeo_ms`). Nunca habla con
 Claude Code ni con el modelo; lee del bus y de SQLite, y sus acciones pasan por
 el mismo `Bus` que la CLI. La cabecera ocupa una sola línea: la bola de gashapon y
 el estado (servicios, orquestador y salud) a la izquierda, el nombre de la sección
@@ -523,6 +590,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
 | ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista y ↺ restaurar). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera | `8` |
 | ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. Apunta `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
+| ⚙ | Ajustes: los de `ajustes.toml` por secciones, con valor, origen (por defecto, `ajustes.toml`, heredado o entorno) y si se aplican en caliente o piden reinicio; avisos arriba. ◐ se cambia aquí (✓ guardar y ↺ por defecto piden un segundo clic; los techos solo bajan), ⌨ solo en una terminal (la fila da el comando) y ⊘ lo fija una variable de entorno. Apunta `ajustes_cambiados` en el diario | `0` |
 
 `/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
 abre la ayuda y `t` abre el recorrido guiado, que va de vista en vista
@@ -550,7 +618,11 @@ cambió en disco, 400 si cambia la firma), `POST /api/boveda/crear` (`{"ruta",
 `POST /api/boveda/eliminar` (`{"ruta", "version"}`: a la papelera),
 `POST /api/boveda/carpeta` (`{"ruta"}`; 201), `POST /api/boveda/mostrar`
 (`{"ruta"}`), `GET /api/boveda/papelera` y `POST /api/boveda/papelera/restaurar`
-(`{"id"}`). Solo atiende `Host: localhost|127.0.0.1`.
+(`{"id"}`); los ajustes, por `GET /api/ajustes` (secciones con cada clave: valor,
+defecto, rango, origen, edición, quién la fija y si pide reinicio; `version` y
+`cliente`) y `POST /api/ajustes` (`{"version": "...", "cambios": {"clave": valor}}`,
+`null` quita la clave; 400 inválido, 403 solo terminal o aflojar un techo, 409
+versión vieja o fijada por el entorno). Solo atiende `Host: localhost|127.0.0.1`.
 Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 
