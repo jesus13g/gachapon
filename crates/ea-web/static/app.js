@@ -323,26 +323,33 @@ function filasTrabajos(ts) {
 function formMision() {
   const n = st.nueva;
   if (!n) return [];
-  const v = n.v, t = n.form.techo;
+  const v = n.v, t = n.form.techo, obra = n.modo === 'obra';
   const min = Math.max(1, Math.floor(t.tiempo_s / 60));
   const campo = (c, ph, extra = '') =>
     `<input data-nm="${c}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" value="${esc(v[c] ?? '')}"${extra}>`;
   const tope = (c, et, max) =>
     `<label>${et} <input data-nm="${c}" type="number" inputmode="numeric" min="1" max="${max}" value="${esc(v[c] ?? '')}" aria-label="${et} (como mucho ${max})"></label>`;
-  const det = '<div class="nm">' +
+  const det = '<div class="nm">' + modosNueva(n) +
     '<div class="fm">' + campo('titulo', 'título', ' maxlength="200"') +
     campo('worktree', 'worktree: ruta absoluta del repo', ' class="wt" list="nm-wt" spellcheck="false"') +
     `<datalist id="nm-wt">${n.form.worktrees.map(w => `<option value="${esc(w)}"></option>`).join('')}</datalist></div>` +
-    `<textarea data-nm="objetivo" rows="4" maxlength="20000" placeholder="objetivo: qué tiene que conseguir el modelo local" aria-label="Objetivo">${esc(v.objetivo ?? '')}</textarea>` +
-    '<div class="fm">' + campo('criterio', 'criterio: comando que decide si está hecho (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') +
-    tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
-    `<p class="m">El criterio lo ejecuta el sistema al final de cada iteración, nunca esta página. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>` +
+    (obra
+      ? `<textarea data-nm="objetivo" rows="3" maxlength="20000" placeholder="objetivo general: el contexto que reciben todas las fases" aria-label="Objetivo general">${esc(v.objetivo ?? '')}</textarea>` +
+        fasesObra(n) + '<div class="fm">' + revisarCada(n) + tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
+        `<p class="m">Cada fase pasa cuando su criterio pasa; lo ejecuta el sistema, nunca esta página. Cada cuántas fases revisa Claude Code lo eliges tú. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`
+      : `<textarea data-nm="objetivo" rows="4" maxlength="20000" placeholder="objetivo: qué tiene que conseguir el modelo local" aria-label="Objetivo">${esc(v.objetivo ?? '')}</textarea>` +
+        '<div class="fm">' + campo('criterio', 'criterio: comando que decide si está hecho (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') +
+        tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
+        `<p class="m">El criterio lo ejecuta el sistema al final de cada iteración, nunca esta página. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`) +
     (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
-    '<div class="acc">' + btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del modelo local', {}, 'coin') +
+    '<div class="acc">' + (obra
+      ? btn('crear-mision', '▶ encolar obra', 'crear la obra y ponerla en la cola del modelo local', {}, 'coin')
+      : btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del modelo local', {}, 'coin')) +
     btn('nueva-mision', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
-  const row = `<span class="est">${capsula(COLOR.mision)}nueva</span><span class="n">—</span>` +
-    `<span class="x">${esc(v.titulo || 'misión sin título')}</span><span class="m w">misión</span>` +
-    '<span class="m">para el modelo local</span><span class="m"></span>';
+  const nombre = obra ? 'obra' : 'misión';
+  const row = `<span class="est">${capsula(obra ? COLOR.obra : COLOR.mision)}nueva</span><span class="n">—</span>` +
+    `<span class="x">${esc(v.titulo || nombre + ' sin título')}</span><span class="m w">${nombre}</span>` +
+    `<span class="m">${obra ? `${n.fases.length} ${n.fases.length === 1 ? 'fase' : 'fases'}` : 'para el modelo local'}</span><span class="m"></span>`;
   return [suelto(`<article class="f o nueva"><div class="r j">${row}</div><div class="det">${det}</div></article>`, true)];
 }
 
@@ -353,14 +360,85 @@ async function creaMision() {
   for (const [x, nombre] of [[iteraciones, 'iteraciones'], [minutos, 'minutos']]) {
     if (x !== undefined && !(Number.isInteger(x) && x >= 1)) throw new Error(`'${nombre}' debe ser un número entero mayor que 0`);
   }
-  const t = await ea.crearTrabajo({
-    modo: 'mision', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', criterio: v.criterio ?? '',
-    topes: { iteraciones, tiempo_s: minutos === undefined ? undefined : minutos * 60 },
-  });
+  const topes = { iteraciones, tiempo_s: minutos === undefined ? undefined : minutos * 60 };
+  const obra = n.modo === 'obra';
+  if (obra && !v.revisar) throw new Error('elige cada cuántas fases revisa Claude Code');
+  const t = await ea.crearTrabajo(obra
+    ? {
+      modo: 'obra', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', topes,
+      fases: n.fases.map(f => ({ titulo: f.titulo ?? '', instrucciones: f.instrucciones ?? '', entregable: f.entregable ?? '', criterio: f.criterio ?? '' })),
+      revisar_cada: v.revisar === 'fin' ? null : Number(v.revisar),
+    }
+    : { modo: 'mision', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', criterio: v.criterio ?? '', topes });
   st.nueva = null;
   st.filtroEstado = null;
-  avisa(`✓ misión ${t.id.slice(9, 15)} en la cola del modelo local`, true);
+  avisa(`✓ ${obra ? 'obra' : 'misión'} ${t.id.slice(9, 15)} en la cola del modelo local`, true);
   abre('trabajos', 'j' + t.id);
+}
+
+// ----------------------------------------------- «＋ misión» en modo obra
+// Lo escrito en las fases vive en st.nueva.fases (el sondeo repinta); el
+// número de cada fase es su posición. Las fases se añaden, quitan y
+// reordenan con botones; cada una lleva su criterio, que solo se envía.
+
+const FASES_MAX = 20;
+const faseVacia = () => ({ titulo: '', instrucciones: '', entregable: '', criterio: '' });
+
+// Misión u obra, si el servidor anuncia las obras en `modos`.
+function modosNueva(n) {
+  if (!n.form.modos.includes('obra')) return '';
+  const m = (modo, et, titulo) =>
+    `<button class="b${n.modo === modo ? ' on' : ''}" data-a="nm-modo" data-v="${modo}" title="${esc(titulo)}" aria-pressed="${n.modo === modo}">${et}</button>`;
+  return '<div class="seg" role="group" aria-label="Modo">' +
+    m('mision', '● misión', 'un objetivo y un criterio') + m('obra', '◎ obra', 'un plan por fases, cada una con su criterio') + '</div>';
+}
+
+function fasesObra(n) {
+  const total = n.fases.length;
+  return '<ol class="fases">' + n.fases.map((f, i) => {
+    const c = (campo, ph, extra = '') =>
+      `<input data-nf="${i}" data-nc="${campo}" placeholder="${esc(ph)}" aria-label="Fase ${i + 1}: ${esc(ph)}" value="${esc(f[campo] ?? '')}"${extra}>`;
+    return `<li class="fase"><div class="fm"><b class="nf">${i + 1}</b>` + c('titulo', 'título de la fase', ' maxlength="200"') +
+      (i > 0 ? btn('nf-subir', '↑', `subir la fase ${i + 1}`, { n: i }) : '') +
+      (i < total - 1 ? btn('nf-bajar', '↓', `bajar la fase ${i + 1}`, { n: i }) : '') +
+      (total > 1 ? btn('nf-quitar', '✕', `quitar la fase ${i + 1}`, { n: i }, 'hot') : '') + '</div>' +
+      `<textarea data-nf="${i}" data-nc="instrucciones" rows="2" maxlength="20000" placeholder="instrucciones: qué hacer en esta fase" aria-label="Fase ${i + 1}: instrucciones">${esc(f.instrucciones ?? '')}</textarea>` +
+      '<div class="fm">' + c('entregable', 'entregable: qué queda hecho', ' maxlength="2000"') +
+      c('criterio', 'criterio: comando que decide si la fase está hecha (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') + '</div></li>';
+  }).join('') + '</ol>' +
+    (total < FASES_MAX ? '<div class="acc">' + btn('nf-mas', '＋ fase', 'añadir una fase al final') + '</div>' : '');
+}
+
+// Cada cuántas fases revisa Claude Code (art. IV.4): sin valor por defecto;
+// hasta que se elige, el formulario no se envía.
+function revisarCada(n) {
+  const total = n.fases.length, v = n.v.revisar ?? '';
+  const op = (valor, et) => `<option value="${valor}"${v === valor ? ' selected' : ''}>${et}</option>`;
+  return `<label>revisión <select data-nm="revisar" aria-label="Cada cuántas fases revisa Claude Code"${v ? '' : ' class="falta"'}>` +
+    op('', '— elige —') + op('fin', 'solo al final') +
+    Array.from({ length: total }, (_, i) => op(String(i + 1), i ? `cada ${i + 1} fases` : 'tras cada fase')).join('') + '</select></label>';
+}
+
+// Las acciones de los botones del modo obra; true si era una de ellas.
+function accionFase(a, i) {
+  const n = st.nueva;
+  if (!n || !['nm-modo', 'nf-mas', 'nf-subir', 'nf-bajar', 'nf-quitar'].includes(a)) return false;
+  const f = n.fases;
+  if (a === 'nm-modo') n.modo = i;
+  else if (a === 'nf-mas' && f.length < FASES_MAX) f.push(faseVacia());
+  else if (a === 'nf-quitar' && f.length > 1) f.splice(Number(i), 1);
+  else if (a === 'nf-subir' || a === 'nf-bajar') {
+    const j = Number(i), k = a === 'nf-subir' ? j - 1 : j + 1;
+    if (k >= 0 && k < f.length) [f[j], f[k]] = [f[k], f[j]];
+  }
+  // Una revisión que ya no cabe en el número de fases se vuelve a elegir.
+  if (Number(n.v.revisar) > f.length) n.v.revisar = '';
+  n.err = null;
+  st.html = '';
+  document.activeElement?.blur(); // con un campo enfocado, pintar() no repinta
+  pintar();
+  if (a === 'nf-mas') $(`[data-nf="${f.length - 1}"][data-nc="titulo"]`)?.focus();
+  return true;
 }
 
 function pretty(txt) {
@@ -2007,11 +2085,13 @@ async function accion(b) {
       if (st.nueva) st.nueva = null;
       else {
         const form = await ea.nuevoTrabajo();
-        st.nueva = { form, err: null, v: { worktree: st.proyecto ?? '', iteraciones: form.defecto.iteraciones, minutos: Math.max(1, Math.round(form.defecto.tiempo_s / 60)) } };
+        st.nueva = { form, err: null, modo: 'mision', fases: [faseVacia()], v: { worktree: st.proyecto ?? '', iteraciones: form.defecto.iteraciones, minutos: Math.max(1, Math.round(form.defecto.tiempo_s / 60)) } };
       }
       st.html = '';
       pintar();
       $('[data-nm="titulo"]')?.focus();
+      return;
+    } else if (accionFase(a, a === 'nm-modo' ? v : n)) {
       return;
     } else if (a === 'crear-mision') {
       try { await creaMision(); } catch (e) { if (st.nueva) st.nueva.err = e.message; }
@@ -2384,6 +2464,9 @@ $('#lista').addEventListener('input', ev => {
   // Lo escrito en el formulario «＋ misión».
   const nm = ev.target.closest('[data-nm]');
   if (nm && st.nueva) { st.nueva.v[nm.dataset.nm] = nm.value; st.nueva.err = null; return; }
+  // Lo escrito en una fase de la obra.
+  const nf = ev.target.closest('[data-nf]');
+  if (nf && st.nueva?.fases[nf.dataset.nf]) { st.nueva.fases[nf.dataset.nf][nf.dataset.nc] = nf.value; st.nueva.err = null; return; }
   const el = ev.target.closest('[data-campo]');
   if (!el) return;
   const c = (st.consola[el.dataset.h] ??= {});

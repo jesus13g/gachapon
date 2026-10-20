@@ -1510,9 +1510,25 @@ async fn la_web_no_afloja_ni_toca_lo_de_terminal() {
 
 // ------------------------------------------------------- crear una misión
 
-/// Un repo git de verdad dentro del directorio temporal de la prueba.
+/// Un repo git de verdad dentro del directorio temporal de la prueba, con
+/// un commit inicial (el ejecutor arranca con `rev-parse HEAD`).
 fn repo_git(f: &Fixture) -> std::path::PathBuf {
-    let wt = f._dir.path().join("repo");
+    let wt = repo_git_vacio(f, "repo");
+    let ok = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&wt)
+        .args(["-c", "user.name=prueba", "-c", "user.email=prueba@localhost", "-c", "commit.gpgsign=false"])
+        .args(["commit", "-q", "--allow-empty", "-m", "inicial"])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "git commit");
+    wt
+}
+
+/// Un repo recién iniciado, sin ningún commit.
+fn repo_git_vacio(f: &Fixture, nombre: &str) -> std::path::PathBuf {
+    let wt = f._dir.path().join(nombre);
     std::fs::create_dir_all(&wt).unwrap();
     let ok = std::process::Command::new("git").arg("init").arg("-q").arg(&wt).status().unwrap().success();
     assert!(ok, "git init");
@@ -1537,7 +1553,7 @@ async fn crear_una_mision_desde_la_web_la_encola() {
     // El formulario da los modos, el techo y los topes por defecto.
     let (s, form) = get(&f, "/api/trabajos/nuevo").await;
     assert_eq!(s, StatusCode::OK, "{form}");
-    assert_eq!(form["modos"], json!(["mision"]));
+    assert_eq!(form["modos"], json!(["mision", "obra"]));
     let techo_tiempo = form["techo"]["tiempo_s"].as_u64().unwrap();
     assert!(form["defecto"]["iteraciones"].as_u64().unwrap() <= form["techo"]["iteraciones"].as_u64().unwrap());
 
@@ -1663,6 +1679,159 @@ async fn crear_exige_json_host_local_y_clave() {
     let (s, r) =
         enviar_con_clave(&f, Method::POST, "/api/trabajos", "127.0.0.1:8092", Some(cuerpo), true, Some(&clave)).await;
     assert_eq!(s, StatusCode::CREATED, "{r}");
+}
+
+// --------------------------------------------------------- crear una obra
+
+fn fase(n: u32) -> Value {
+    json!({
+        "titulo": format!("Fase {n}"),
+        "instrucciones": format!("Crea f{n}.txt."),
+        "entregable": format!("f{n}.txt"),
+        "criterio": format!("test -f f{n}.txt"),
+    })
+}
+
+fn obra(wt: &str) -> Value {
+    json!({
+        "modo": "obra",
+        "titulo": "Tres ficheros",
+        "worktree": wt,
+        "objetivo": "Crea f1.txt, f2.txt y f3.txt, uno por fase.",
+        "fases": [fase(1), fase(2), fase(3)],
+        "revisar_cada": 2,
+        "topes": { "iteraciones": 2, "tiempo_s": 999_999 },
+    })
+}
+
+/// Nada en el bus: ni trabajos, ni colas, ni eventos de creación.
+async fn bus_vacio(f: &Fixture) {
+    let (_, t) = get(f, "/api/trabajos").await;
+    assert_eq!(t.as_array().map(Vec::len), Some(0), "{t}");
+    let (_, colas) = get(f, "/api/colas").await;
+    assert_eq!(colas["modelo-local"].as_array().map(Vec::len), Some(0), "{colas}");
+    let (_, ev) = get(f, "/api/diario").await;
+    assert!(!acciones_del_diario(&ev).iter().any(|a| a == "bus_crear"));
+    let trabajos = std::fs::read_dir(f._dir.path().join("estado/trabajos")).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(trabajos, 0);
+}
+
+#[tokio::test]
+async fn crear_una_obra_valida_cada_fase() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let wt = repo_git(&f);
+    let wt = wt.to_str().unwrap();
+    let con = |campo: &str, valor: Value| {
+        let mut o = obra(wt);
+        o[campo] = valor;
+        o
+    };
+    let sin = |campo: &str| {
+        let mut o = obra(wt);
+        o.as_object_mut().unwrap().remove(campo);
+        o
+    };
+    let fase_con = |campo: &str, valor: Value| {
+        let mut o = obra(wt);
+        o["fases"][1][campo] = valor;
+        o
+    };
+    let fase_sin = |campo: &str| {
+        let mut o = obra(wt);
+        o["fases"][1].as_object_mut().unwrap().remove(campo);
+        o
+    };
+    let casos = [
+        // Una fase sin criterio: la rechaza el bus antes de escribir nada.
+        (fase_con("criterio", json!("")), "la fase 2 no tiene criterio"),
+        (fase_con("criterio", json!("   ")), "la fase 2 no tiene criterio"),
+        (fase_sin("criterio"), "la fase 2 no tiene criterio"),
+        // revisar_cada se elige expresamente: sin él no hay valor por defecto.
+        (sin("revisar_cada"), "revisar_cada"),
+        (con("revisar_cada", json!(0)), "revisar_cada"),
+        (con("revisar_cada", json!(4)), "revisar_cada"),
+        (con("revisar_cada", json!(-1)), "revisar_cada"),
+        (con("revisar_cada", json!("2")), "revisar_cada"),
+        (sin("fases"), "al menos una fase"),
+        (con("fases", json!([])), "al menos una fase"),
+        (con("fases", json!((1..=21).map(fase).collect::<Vec<_>>())), "como mucho"),
+        (con("criterio", json!("test -f todo")), "cada fase"),
+        (fase_con("titulo", json!("")), "fase 2: titulo"),
+        (fase_con("titulo", json!("dos\nlineas")), "fase 2: titulo"),
+        (fase_con("instrucciones", json!(" ")), "fase 2: instrucciones"),
+        (fase_sin("entregable"), "entregable"),
+        (fase_con("criterio", json!("x".repeat(2_001))), "fase 2: criterio"),
+        // Ni skills ni número por fase: no se eligen desde la web.
+        (fase_con("skills", json!(["git"])), "skills"),
+        (fase_con("numero", json!(7)), "numero"),
+        (con("fases", json!("no es una lista")), "petición inválida"),
+        (con("skills", json!(["git"])), "skills"),
+        // Una misión no lleva fases ni revisar_cada.
+        (con("modo", json!("mision")), "modo 'obra'"),
+    ];
+    for (c, motivo) in casos {
+        let (s, r) = post(&f, "/api/trabajos", c.clone()).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{c} -> {r}");
+        assert!(r["error"].as_str().is_some_and(|e| e.contains(motivo)), "{motivo}: {r}");
+    }
+    bus_vacio(&f).await;
+
+    // Una obra válida: 201, en cola, en la fase 1, con las fases numeradas
+    // por su orden y sin criterio general.
+    let (s, r) = post(&f, "/api/trabajos", obra(wt)).await;
+    assert_eq!(s, StatusCode::CREATED, "{r}");
+    assert_eq!(r["estado"], "en_cola");
+    let id = r["id"].as_str().unwrap().to_string();
+    let (_, d) = get(&f, &format!("/api/trabajos/{id}")).await;
+    assert_eq!(d["estado"]["fase_actual"], 1, "{d}");
+    let o = &d["orden"];
+    assert_eq!(o["modo"], "obra");
+    assert_eq!(o["creada_por"], "usuario");
+    assert_eq!(o["revisar_cada"], 2);
+    assert!(o["criterio_exito"].is_null(), "{o}");
+    assert!(o.get("skills").is_none(), "sin skills: {o}");
+    assert_eq!(o["topes"]["iteraciones"], 2);
+    let fases = o["fases"].as_array().unwrap();
+    assert_eq!(fases.len(), 3);
+    for (i, fz) in fases.iter().enumerate() {
+        assert_eq!(fz["numero"], i + 1);
+        assert_eq!(fz["criterio"], format!("test -f f{}.txt", i + 1));
+        assert!(fz.get("skills").is_none(), "{fz}");
+    }
+    // Lo mismo en el orden.json del bus.
+    let disco: Value = serde_json::from_str(
+        &std::fs::read_to_string(f._dir.path().join("estado/trabajos").join(&id).join("orden.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(disco["fases"], o["fases"]);
+    // El criterio no se ha ejecutado y el diario apunta al usuario.
+    assert!(d["informe"].is_null());
+    let (_, ev) = get(&f, "/api/diario").await;
+    let creado = ev.as_array().unwrap().iter().find(|e| e["accion"] == "bus_crear").expect("bus_crear en el diario");
+    assert_eq!(creado["actor"], "usuario");
+    let (_, lista) = get(&f, "/api/trabajos").await;
+    assert_eq!(lista[0]["fases_total"], 3);
+
+    // `revisar_cada: null` (solo al final) es una elección válida.
+    let (s, r) = post(&f, "/api/trabajos", con("revisar_cada", Value::Null)).await;
+    assert_eq!(s, StatusCode::CREATED, "{r}");
+    let (_, d) = get(&f, &format!("/api/trabajos/{}", r["id"].as_str().unwrap())).await;
+    assert!(d["orden"]["revisar_cada"].is_null());
+}
+
+#[tokio::test]
+async fn crear_en_un_repo_sin_commits_da_400() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let vacio = repo_git_vacio(&f, "sin-commits");
+    let vacio = vacio.to_str().unwrap();
+    for cuerpo in [mision(vacio), obra(vacio)] {
+        let (s, r) = post(&f, "/api/trabajos", cuerpo).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{r}");
+        assert!(r["error"].as_str().unwrap().contains("el repo no tiene ningún commit"), "{r}");
+    }
+    bus_vacio(&f).await;
 }
 
 // ------------------------------------------- registrar rutinas desde la web

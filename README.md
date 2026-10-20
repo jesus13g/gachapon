@@ -631,7 +631,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | Símbolo | Sección | Tecla |
 |---|---|---|
 | ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
-| ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (nota amplia con las notas anteriores encima y, en una obra, «rehacer desde la fase N» con la pendiente preseleccionada), continuar, confirmar y cancelar según el estado. **＋ misión** (en la barra) abre en línea un formulario para encargar una misión al modelo local: título, worktree (sugiere los de las sesiones de Claude Code y los de trabajos anteriores), objetivo, criterio (obligatorio) e iteraciones y minutos, acotados al techo de `ajustes.toml`; al encolarla se abre su ficha. El criterio lo ejecuta el sistema, nunca la página | `2` |
+| ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (nota amplia con las notas anteriores encima y, en una obra, «rehacer desde la fase N» con la pendiente preseleccionada), continuar, confirmar y cancelar según el estado. **＋ misión** (en la barra) abre en línea un formulario para encargar una misión al modelo local: título, worktree (sugiere los de las sesiones de Claude Code y los de trabajos anteriores), objetivo, criterio (obligatorio) e iteraciones y minutos, acotados al techo de `ajustes.toml`; al encolarla se abre su ficha. En modo **obra**, el mismo formulario lleva un objetivo general y una lista de fases (título, instrucciones, entregable y criterio cada una) que se añaden, quitan y reordenan, y obliga a elegir cada cuántas fases revisa Claude Code (o solo al final). El worktree tiene que ser un repo con al menos un commit. El criterio lo ejecuta el sistema, nunca la página | `2` |
 | ≡ | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros | `3` |
 | ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
@@ -670,11 +670,16 @@ API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`
 application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformular,confirmar}`
 (`reformular` lleva `{"nota": "...", "fase"?: N}` —`fase` solo en obras; fuera
 de rango o en una misión, 400 sin escribir nada—, `confirmar` `{"contexto": "..."}`),
-`POST /api/trabajos` (crea una misión: `{"modo"?: "mision", "titulo", "worktree",
+`POST /api/trabajos` (crea una misión o una obra; misión: `{"modo"?: "mision", "titulo", "worktree",
 "objetivo", "criterio", "topes"?: {"iteraciones"?, "tiempo_s"?}}` → 201 `{id, estado}`;
 `creada_por` es `usuario` y no admite skills ni otros campos; 400 si falta el
-criterio o el worktree no es una ruta absoluta existente dentro de un repo git;
-los topes se recortan al techo), `GET /api/trabajos/nuevo` (techo, topes por
+criterio o el worktree no es una ruta absoluta existente dentro de un repo git
+con al menos un commit; los topes se recortan al techo; una obra es `{"modo":
+"obra", "titulo", "worktree", "objetivo", "fases": [{"titulo", "instrucciones",
+"entregable", "criterio"}], "revisar_cada": n|null, "topes"?}`, sin `criterio`
+general, con 1-20 fases numeradas por su orden y `revisar_cada` obligatorio
+—`null` es «solo al final», si no entre 1 y el número de fases—; 400 si falta
+o una fase no tiene criterio), `GET /api/trabajos/nuevo` (modos, techo, topes por
 defecto y worktrees sugeridos para el formulario) y
 `POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale o la versión no sube; deja `rutina_registrada` en el diario); la memoria de Claude Code va por
 `GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
