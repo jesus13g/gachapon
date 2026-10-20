@@ -88,7 +88,8 @@ const ea = (() => {
 
     rutinas: () => api('/api/rutinas'),
     rutina: slug => api('/api/rutinas/' + c(slug)),
-    lanzarRutina: slug => post(`/api/rutinas/${c(slug)}/lanzar`),
+    lanzarRutina: (slug, entradas = {}) => post(`/api/rutinas/${c(slug)}/lanzar`, { entradas }),
+    previaRutina: (slug, entradas = {}) => post(`/api/rutinas/${c(slug)}/previa`, { entradas }),
 
     propuestas: ({ pendientes = false } = {}) => api('/api/propuestas' + (pendientes ? '?estado=pendiente' : '')),
     decidir: (id, decision) => post(`/api/propuestas/${id}/decidir`, { decision }),

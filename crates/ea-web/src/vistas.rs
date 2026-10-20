@@ -140,6 +140,15 @@ pub struct RutinaLanzada {
     pub rutina: String,
 }
 
+/// La orden que recibiría el agente con unas entradas, sin crear trabajo.
+#[derive(Serialize)]
+pub struct RutinaPrevia {
+    pub rutina: String,
+    pub version: u32,
+    pub objetivo: String,
+    pub criterio: String,
+}
+
 // ---------------------------------------------------------------- trabajos
 
 #[derive(Serialize)]

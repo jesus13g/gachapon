@@ -23,7 +23,7 @@ fn texto(descripcion: &str) -> ea_store::NuevaPropuesta {
     ea_store::NuevaPropuesta { proponente: "claude-code".into(), descripcion: descripcion.into(), accion: None }
 }
 
-const RUTINA_BUS: &str = "[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"revisa\"\n";
+const RUTINA_BUS: &str = "[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"revisa y escribe {salida}\"\n";
 
 /// Las pruebas que lanzan rutinas comparten la variable de entorno del
 /// directorio de estado del bus: una a una, cada cual con el suyo.
@@ -359,14 +359,54 @@ async fn rutinas_listar_ver_y_lanzar() {
     assert_eq!(s, StatusCode::OK);
     assert!(r["contenido"].as_str().unwrap().contains("revisa"));
 
-    let (s, t) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
+    assert_eq!(lista[0]["entradas"]["salida"], "informe.md");
+    let trabajos = || ea_bus::Bus::abrir().unwrap().listar_trabajos().unwrap().len();
+
+    // Vista previa: lo sustituido, sin crear trabajo.
+    let (s, p) = post(&f, "/api/rutinas/revision-diaria/previa", json!({ "entradas": { "salida": "otro.md" } })).await;
+    assert_eq!(s, StatusCode::OK, "{p}");
+    assert_eq!(p["criterio"], "test -f otro.md");
+    assert!(p["objetivo"].as_str().unwrap().contains("revisa y escribe otro.md"));
+    assert_eq!(p["version"], 1);
+    let (s, p) = post(&f, "/api/rutinas/revision-diaria/previa", json!({})).await;
+    assert_eq!((s, p["criterio"].as_str()), (StatusCode::OK, Some("test -f informe.md")));
+    let (s, _) = post(&f, "/api/rutinas/revision-diaria/previa", json!({ "entradas": { "noexiste": "1" } })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = post(&f, "/api/rutinas/revision-diaria/previa", json!({ "entradas": { "salida": "a\nrm x" } })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "sin saltos de línea");
+    let (s, _) = post(&f, "/api/rutinas/no-existe/previa", json!({})).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    // La vista previa pasa por la guardia de la clave como toda escritura.
+    let (s, _) = enviar_con_clave(&f, Method::POST, "/api/rutinas/revision-diaria/previa", "localhost:8092", Some(json!({})), true, None).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert_eq!(trabajos(), 0, "la vista previa no crea trabajo");
+
+    // Una entrada no declarada: 400 y ningún trabajo.
+    let (s, e) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({ "entradas": { "noexiste": "1" } })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(e["error"].as_str().unwrap().contains("noexiste"));
+    let (s, _) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({ "otra": 1 })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "campo desconocido en el cuerpo");
+    assert_eq!(trabajos(), 0);
+
+    let (s, t) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({ "entradas": { "salida": "otro.md" } })).await;
     assert_eq!(s, StatusCode::CREATED);
     assert_eq!(t["rutina"], "revision-diaria");
     let id = t["trabajo"].as_str().unwrap().to_string();
     let (_, j) = get(&f, &format!("/api/trabajos/{id}")).await;
     assert_eq!(j["estado"]["estado"], "en_cola");
+    let orden = ea_bus::Bus::abrir().unwrap().leer_orden(&id).unwrap();
+    assert_eq!(orden.criterio_exito.as_deref(), Some("test -f otro.md"));
+    assert!(orden.objetivo.contains("revisa y escribe otro.md"));
+    assert!(!orden.objetivo.contains("informe.md"));
     let (s, _) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
     assert_eq!(s, StatusCode::CONFLICT, "ya hay una ejecución en curso");
+    // Cuerpo vacío: los valores por defecto (lo que ya hacía la página).
+    ea_bus::Bus::abrir().unwrap().aplicar(&id, ea_bus::Evento::Cancelar).unwrap();
+    let (s, t) = enviar(&f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", None, true).await;
+    assert_eq!(s, StatusCode::CREATED, "{t}");
+    let id: String = serde_json::from_str::<Value>(&t).unwrap()["trabajo"].as_str().unwrap().into();
+    assert_eq!(ea_bus::Bus::abrir().unwrap().leer_orden(&id).unwrap().criterio_exito.as_deref(), Some("test -f informe.md"));
 
     let (s, _) = get(&f, "/api/rutinas/no-existe").await;
     assert_eq!(s, StatusCode::NOT_FOUND);

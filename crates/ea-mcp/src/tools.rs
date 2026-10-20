@@ -24,7 +24,7 @@ use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
     BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
-    PromoverNotaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
+    EncolarRutinaArgs, PromoverNotaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
 };
 
 /// Deriva el actor que este servidor escribe en el diario, a partir del nombre que el cliente MCP declaró al conectar
@@ -611,9 +611,11 @@ impl EaTools {
     }
 
     #[tool(
-        description = "[Riesgo: mutación reversible] Encola la ejecución de una rutina \
-            (se ejecuta de solo lectura). NO lo ejecuta: con simular=true lo describe; \
-            sin él encola una propuesta que el usuario debe aceptar.",
+        description = "[Riesgo: mutación reversible] Lanza una rutina registrada: crea un \
+            trabajo en el bus que ejecuta el agente local en el worktree de la rutina (puede \
+            escribir en él). Acepta `entradas` opcionales que sustituyen a las de por defecto. \
+            NO lo ejecuta: con simular=true lo describe, con el criterio resultante; sin él \
+            encola una propuesta que el usuario debe aceptar.",
         annotations(
             title = "Encolar rutina",
             read_only_hint = false,
@@ -624,9 +626,13 @@ impl EaTools {
     async fn ea_encolar_rutina(
         &self,
         context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<RutinaArgs>,
+        Parameters(args): Parameters<EncolarRutinaArgs>,
     ) -> Result<CallToolResult, McpError> {
-        self.mutante(context, "ea_encolar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
+        let mut a = json!({ "slug": args.slug });
+        if let Some(e) = args.entradas.filter(|e| !e.is_empty()) {
+            a["entradas"] = json!(e);
+        }
+        self.mutante(context, "ea_encolar_rutina", a, args.simular.unwrap_or(false)).await
     }
 
     #[tool(

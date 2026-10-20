@@ -38,6 +38,28 @@ struct PorSlug {
     slug: String,
 }
 
+/// `ea_encolar_rutina`: la rutina y, si se quieren cambiar, sus entradas
+/// (`{clave: valor}`, con la política de `ea_bus::validar_entradas`).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EncolarRutina {
+    slug: String,
+    #[serde(default)]
+    entradas: std::collections::BTreeMap<String, String>,
+}
+
+impl EncolarRutina {
+    fn pares(&self) -> Vec<(String, String)> {
+        self.entradas.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    }
+
+    /// Validación sin mirar el mundo: slug y límites de las entradas.
+    fn comprobar(&self) -> Result<(), ErrorAccion> {
+        comprobar_slug(&self.slug)?;
+        ea_bus::validar_entradas(&self.pares()).map_err(|e| ErrorAccion::Argumentos(e.to_string()))
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PorServicio {
@@ -120,7 +142,8 @@ fn comprobar_slug(slug: &str) -> Result<(), ErrorAccion> {
 pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion> {
     supervisada(nombre)?;
     match nombre {
-        "ea_encolar_rutina" | "ea_eliminar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
+        "ea_encolar_rutina" => parsear::<EncolarRutina>(args)?.comprobar(),
+        "ea_eliminar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
         "ea_reiniciar_servicio" => comprobar_servicio(&parsear::<PorServicio>(args)?.servicio),
         "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
@@ -196,8 +219,8 @@ pub fn simular_con<C: Consulta>(
     let h = supervisada(nombre)?;
     let (argumentos, texto, precondicion) = match nombre {
         "ea_encolar_rutina" => {
-            let a: PorSlug = parsear(args)?;
-            comprobar_slug(&a.slug)?;
+            let a: EncolarRutina = parsear(args)?;
+            a.comprobar()?;
             consulta
                 .rutina_contenido(&a.slug)
                 .map_err(ErrorAccion::Sistema)?
@@ -209,6 +232,13 @@ pub fn simular_con<C: Consulta>(
                 })?
                 .version;
             let bus = bus_de(store, "simulacion")?;
+            // La orden que saldría, con las mismas comprobaciones que al
+            // lanzar (entrada no declarada, límites): así el usuario ve el
+            // criterio que ejecutará el sistema antes de aceptar.
+            let orden = bus
+                .rutina(&a.slug)
+                .and_then(|r| r.a_orden(&a.pares()))
+                .map_err(|e| ErrorAccion::Argumentos(e.to_string()))?;
             let activos = bus.trabajos_activos_de_rutina(&a.slug).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
             if let Some(t) = activos.first() {
                 return Err(ErrorAccion::NoAplica(format!(
@@ -216,13 +246,23 @@ pub fn simular_con<C: Consulta>(
                     a.slug
                 )));
             }
+            let entradas = if a.entradas.is_empty() {
+                "con las entradas por defecto".to_string()
+            } else {
+                let lista: Vec<String> = a.entradas.iter().map(|(k, v)| format!("{k} = {v:?}")).collect();
+                format!("con las entradas {}", lista.join(", "))
+            };
+            // Sin entradas, los argumentos quedan como antes ({slug}).
+            let argumentos =
+                if a.entradas.is_empty() { json!({ "slug": a.slug }) } else { json!({ "slug": a.slug, "entradas": a.entradas }) };
             (
-                json!({ "slug": a.slug }),
+                argumentos,
                 format!(
-                    "Lanzaría la rutina '{}' (versión {version}) por el bus del orquestador: crea un \
+                    "Lanzaría la rutina '{}' (versión {version}) {entradas} por el bus del orquestador: crea un \
                      trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla \
-                     y tú lo confirmas.",
-                    a.slug
+                     y tú lo confirmas. Criterio que ejecutará el sistema: `{}`.",
+                    a.slug,
+                    orden.criterio_exito.as_deref().unwrap_or_default()
                 ),
                 json!({ "trabajos_activos": 0, "version": version }),
             )
@@ -330,9 +370,9 @@ pub fn aplicar_en_store(
 ) -> Result<Option<Aplicada>, ErrorAccion> {
     match nombre {
         "ea_encolar_rutina" => {
-            let a: PorSlug = parsear(args)?;
+            let a: EncolarRutina = parsear(args)?;
             let bus = bus_de(store, actor)?;
-            let id = bus.lanzar_rutina(&a.slug, &[]).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
+            let id = bus.lanzar_rutina(&a.slug, &a.pares()).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
             let _ = canal;
             Ok(Some(Aplicada {
                 texto: format!("Rutina '{}' lanzada: trabajo {id} en la cola del agente local.", a.slug),

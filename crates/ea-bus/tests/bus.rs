@@ -366,6 +366,21 @@ fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
 }
 
 #[test]
+fn las_entradas_tienen_limites_y_no_admiten_caracteres_de_control() {
+    let r = ea_bus::Rutina::parsear(RUTINA).unwrap();
+    let e = |v: &str| vec![("fichero".to_string(), v.to_string())];
+    assert!(r.a_orden(&e("b.txt")).is_ok());
+    for malo in ["a\nrm -rf x", "a\rb", "a\tb", "a\u{0}b"] {
+        let err = r.a_orden(&e(malo)).unwrap_err().to_string();
+        assert!(err.contains("caracteres de control"), "{malo:?}: {err}");
+    }
+    assert!(r.a_orden(&e(&"x".repeat(ea_bus::MAX_VALOR_ENTRADA))).is_ok());
+    assert!(r.a_orden(&e(&"x".repeat(ea_bus::MAX_VALOR_ENTRADA + 1))).unwrap_err().to_string().contains("demasiado larga"));
+    let muchas = vec![("fichero".to_string(), "a".to_string()); ea_bus::MAX_ENTRADAS + 1];
+    assert!(r.a_orden(&muchas).unwrap_err().to_string().contains("demasiadas"));
+}
+
+#[test]
 fn confirmar_encola_en_claude_code_con_el_contexto() {
     let d = tempfile::tempdir().unwrap();
     let bus = Bus::abrir_en(d.path()).unwrap();

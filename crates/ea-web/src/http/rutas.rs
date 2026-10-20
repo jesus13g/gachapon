@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -71,11 +72,34 @@ pub async fn rutina_ver(State(s): Estado, Path(slug): Path<String>) -> Api<Rutin
     ok(servicio::rutinas::ver(&s, &slug).await)
 }
 
+/// `{"entradas": {"clave": "valor"}}`; un cuerpo vacío es lo mismo que `{}`.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct EntradasBody {
+    entradas: servicio::rutinas::Entradas,
+}
+
+fn entradas_de(cuerpo: &[u8]) -> Result<EntradasBody, ApiError> {
+    if cuerpo.iter().all(u8::is_ascii_whitespace) {
+        return Ok(EntradasBody::default());
+    }
+    serde_json::from_slice(cuerpo).map_err(|e| {
+        ApiError::new(StatusCode::BAD_REQUEST, format!("cuerpo inválido: se espera {{\"entradas\": {{\"clave\": \"valor\"}}}} ({e})"))
+    })
+}
+
 pub async fn rutina_lanzar(
     State(s): Estado,
     Path(slug): Path<String>,
+    cuerpo: Bytes,
 ) -> Result<(StatusCode, Json<RutinaLanzada>), ApiError> {
-    Ok((StatusCode::CREATED, Json(servicio::rutinas::lanzar(&s, &slug).await?)))
+    let b = entradas_de(&cuerpo)?;
+    Ok((StatusCode::CREATED, Json(servicio::rutinas::lanzar(&s, &slug, &b.entradas).await?)))
+}
+
+pub async fn rutina_previa(State(s): Estado, Path(slug): Path<String>, cuerpo: Bytes) -> Api<RutinaPrevia> {
+    let b = entradas_de(&cuerpo)?;
+    ok(servicio::rutinas::previa(&s, &slug, &b.entradas).await)
 }
 
 // ---------------------------------------------------------------- trabajos

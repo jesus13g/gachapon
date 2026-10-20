@@ -68,6 +68,7 @@ const st = {
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
   consola: {},         // por herramienta: { v: valores, sim, res, err }
+  rutEnt: {},          // por rutina: { v: entradas escritas, previa, err }
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
   ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
   sondeoMs: null,      // web.sondeo_ms de los ajustes (null: 3000)
@@ -301,6 +302,24 @@ function filasDiario(evs) {
   });
 }
 
+// Las entradas de una rutina (con su valor por defecto) y la vista previa de
+// la orden que recibirá el agente. Lo de .sal caduca al cambiar un campo.
+function formEntradas(r) {
+  if (r.error) return '';
+  const re = st.rutEnt[r.slug] || {};
+  const ents = Object.entries(r.entradas ?? {});
+  let h = '<div class="fm">' + (ents.length ? ents.map(([k, def]) =>
+    `<label class="m">${esc(k)} <input data-rent="${esc(r.slug)}" data-ent="${esc(k)}" value="${esc(re.v?.[k] ?? def)}" ` +
+    `title="entrada ${esc(k)} (por defecto: ${esc(def)})" aria-label="entrada ${esc(k)}"></label>`).join('') : '<span class="m">sin entradas</span>') +
+    btn('rprevia', '◌ vista previa', 'muestra el objetivo y el criterio que recibirá el agente, sin lanzar nada', { slug: r.slug }) + '</div>';
+  if (re.previa) {
+    h += `<p class="tx sal">criterio: <b>${esc(re.previa.criterio)}</b></p><pre class="toml sal">${esc(re.previa.objetivo)}</pre>` +
+      `<div class="acc sal">${btn('lanzar', '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha', 'lanzar con estas entradas', { slug: r.slug }, 'coin')}</div>`;
+  }
+  if (re.err) h += `<p class="hot sal">✕ ${esc(re.err)}</p>`;
+  return h;
+}
+
 function filasRutinas(rs) {
   return rs.map(r => {
     const k = 'r' + r.slug;
@@ -316,9 +335,10 @@ function filasRutinas(rs) {
       `<span class="m">${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
       (r.error ? '<span class="hot fuera">fuera de servicio</span>'
         : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
-          `Lanzar ahora la rutina ${r.slug}: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
+          `Lanzar ahora la rutina ${r.slug} con las entradas de su ficha: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
     const d = st.detalle[k];
-    const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p><pre class="toml">${esc(d.contenido ?? '')}</pre>` : '';
+    const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
+      formEntradas(r) + `<pre class="toml">${esc(d.contenido ?? '')}</pre>` : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
 }
@@ -1736,9 +1756,30 @@ async function accion(b) {
       const p = await ea.decidir(id, v);
       if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
     } else if (a === 'lanzar') {
-      const t = await ea.lanzarRutina(slug);
-      avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
-      st.abiertos.add('j' + t.trabajo);
+      // Con lo escrito en la ficha; los fallos se quedan junto al formulario.
+      const re = st.rutEnt[slug];
+      let t;
+      try {
+        t = await ea.lanzarRutina(slug, re?.v ?? {});
+      } catch (e) {
+        if (!re || e.status === 403) throw e;
+        re.previa = null;
+        re.err = e.message;
+      }
+      if (t) {
+        delete st.rutEnt[slug];
+        avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
+        st.abiertos.add('j' + t.trabajo);
+      }
+    } else if (a === 'rprevia') {
+      const re = (st.rutEnt[slug] ??= {});
+      re.previa = re.err = null;
+      try {
+        re.previa = await ea.previaRutina(slug, re.v ?? {});
+      } catch (e) {
+        if (e.status === 403) throw e;
+        re.err = e.message;
+      }
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;
@@ -1992,6 +2033,16 @@ $('#lista').addEventListener('input', ev => {
       $('.sin-guardar', nota)?.toggleAttribute('hidden', !sucio(e));
       if (!e.conflicto) $('[data-si-sucio]', nota)?.toggleAttribute('hidden', !sucio(e));
     }
+    return;
+  }
+  // Las entradas de una rutina: la vista previa deja de valer.
+  const ri = ev.target.closest('[data-rent]');
+  if (ri) {
+    const re = (st.rutEnt[ri.dataset.rent] ??= {});
+    (re.v ??= {})[ri.dataset.ent] = ri.value;
+    re.previa = re.err = null;
+    st.html = '';
+    $$('.sal', ri.closest('.det')).forEach(n => n.remove());
     return;
   }
   const el = ev.target.closest('[data-campo]');

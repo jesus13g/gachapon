@@ -43,6 +43,42 @@ pub fn slug_valido(slug: &str) -> bool {
     !slug.is_empty() && slug.len() <= 64 && slug.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// Como mucho tantas entradas por ejecución (RF-013 de la spec 004).
+pub const MAX_ENTRADAS: usize = 32;
+/// Tamaño máximo, en bytes, del valor de una entrada.
+pub const MAX_VALOR_ENTRADA: usize = 1024;
+
+/// La política única de las entradas que se pasan al lanzar, la misma para
+/// la CLI, la web y `ea_encolar_rutina` (todas pasan por [`Rutina::a_orden`]).
+///
+/// Ojo: `{clave}` se sustituye tal cual, también en `criterio_exito`, que el
+/// sistema ejecuta con `sh -c`. Un valor con `;` o `$(…)` es código de shell
+/// igual que uno con un salto de línea; esto no lo hace seguro. La defensa es
+/// que solo el usuario da entradas (su terminal, el panel con la clave o una
+/// propuesta que acepta tras ver el criterio resultante). Los caracteres de
+/// control se rechazan porque romperían la estructura de la orden (un salto
+/// de línea podría fingir una sección «## Pasos») o esconderían parte del
+/// criterio en una vista previa.
+pub fn validar_entradas(entradas: &[(String, String)]) -> Resultado<()> {
+    if entradas.len() > MAX_ENTRADAS {
+        return Err(ErrorBus::Argumentos(format!("demasiadas entradas ({}; como mucho {MAX_ENTRADAS})", entradas.len())));
+    }
+    for (k, v) in entradas {
+        if v.len() > MAX_VALOR_ENTRADA {
+            return Err(ErrorBus::Argumentos(format!(
+                "la entrada {k:?} es demasiado larga ({} bytes; como mucho {MAX_VALOR_ENTRADA})",
+                v.len()
+            )));
+        }
+        if v.chars().any(char::is_control) {
+            return Err(ErrorBus::Argumentos(format!(
+                "la entrada {k:?} lleva caracteres de control (saltos de línea, tabuladores…), que no se admiten"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn sustituir(texto: &str, entradas: &BTreeMap<String, String>) -> String {
     entradas.iter().fold(texto.to_string(), |t, (k, v)| t.replace(&format!("{{{k}}}"), v))
 }
@@ -77,8 +113,10 @@ impl Rutina {
 
     /// Orden de trabajo de una ejecución, con las entradas por defecto
     /// sobrescritas por `entradas`. Una entrada que la rutina no declara es
-    /// un error (casi siempre una errata).
+    /// un error (casi siempre una errata), igual que saltarse los límites de
+    /// [`validar_entradas`]. No escribe nada: sirve también de vista previa.
     pub fn a_orden(&self, entradas: &[(String, String)]) -> Resultado<Orden> {
+        validar_entradas(entradas)?;
         let mut vals = self.entradas.clone();
         for (k, v) in entradas {
             if !vals.contains_key(k) {
