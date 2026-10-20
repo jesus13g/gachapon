@@ -50,6 +50,21 @@ pub struct RutinaArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct EncolarRutinaArgs {
+    /// Nombre (slug) de la rutina, p. ej. "revision-diaria".
+    pub slug: String,
+    /// Entradas que sustituyen a los valores por defecto, como
+    /// {"clave": "valor"}. Solo las que la rutina declara; como mucho 32,
+    /// de 1024 bytes cada una y sin saltos de línea ni otros caracteres de
+    /// control. Se sustituyen tal cual en los pasos y en el criterio (un
+    /// comando de shell): la simulación muestra el criterio resultante.
+    pub entradas: Option<std::collections::BTreeMap<String, String>>,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReiniciarServicioArgs {
     /// Servicio de la lista cerrada: llama-server, ea-mcp,
     /// ea-orchestrator o ea-web.

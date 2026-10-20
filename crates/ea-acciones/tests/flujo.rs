@@ -24,6 +24,14 @@ fn store() -> (Store, tempfile::TempDir) {
         })
         .unwrap();
     }
+    s.guardar_rutina(&ea_store::FilaRutina {
+        slug: "con-entradas".into(),
+        version: 1,
+        definicion: "[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n".into(),
+        creada_en: "2026-01-01T00:00:00Z".into(),
+        creada_por: "test".into(),
+    })
+    .unwrap();
     (s, dir)
 }
 
@@ -33,6 +41,7 @@ fn sistema() -> SistemaSimulado {
         .con_rutina("vieja", "[rutina]\ndescripcion = \"x\"\n")
         .con_rutina("revision-diaria", "[rutina]\ndescripcion = \"y\"\n")
         .con_rutina("nocturna", "[rutina]\ndescripcion = \"z\"\n")
+        .con_rutina("con-entradas", "[rutina]\ndescripcion = \"e\"\n")
 }
 
 fn acciones(s: &Store) -> Vec<String> {
@@ -271,6 +280,32 @@ async fn las_propuestas_de_texto_libre_siguen_siendo_constancia() {
     assert!(p.ejecucion.is_none());
     assert!(sis.mutaciones().is_empty());
     assert!(acciones(&s).contains(&"propuesta_decidida".to_string()));
+}
+
+#[tokio::test]
+async fn encolar_rutina_con_entradas_muestra_el_criterio_y_las_valida() {
+    let (mut s, _d) = store();
+    let sis = sistema();
+    let args = json!({ "slug": "con-entradas", "entradas": { "salida": "otro.md" } });
+    validar_argumentos("ea_encolar_rutina", &args).unwrap();
+    let sim = simular(&s, &sis, "ea_encolar_rutina", &args).await.unwrap();
+    assert!(sim.texto.contains("`test -f otro.md`"), "{}", sim.texto);
+    assert!(sim.texto.contains("salida = \"otro.md\""), "{}", sim.texto);
+    assert_eq!(sim.argumentos, args);
+    // Sin entradas, los argumentos normalizados no cambian y el criterio es el de por defecto.
+    let sim = simular(&s, &sis, "ea_encolar_rutina", &json!({ "slug": "con-entradas" })).await.unwrap();
+    assert_eq!(sim.argumentos, json!({ "slug": "con-entradas" }));
+    assert!(sim.texto.contains("`test -f informe.md`"));
+
+    let noexiste = json!({ "slug": "con-entradas", "entradas": { "noexiste": "1" } });
+    assert!(matches!(simular(&s, &sis, "ea_encolar_rutina", &noexiste).await, Err(ErrorAccion::Argumentos(_))));
+    let salto = json!({ "slug": "con-entradas", "entradas": { "salida": "a\nrm x" } });
+    assert!(matches!(validar_argumentos("ea_encolar_rutina", &salto), Err(ErrorAccion::Argumentos(_))));
+    assert!(matches!(proponer_(&s, &sis, "claude-code", "ea_encolar_rutina", &salto).await, Err(ErrorAccion::Argumentos(_))));
+
+    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &args).await.unwrap();
+    let orden = ea_bus::Bus::abrir().unwrap().leer_orden(r.trabajo.as_deref().unwrap()).unwrap();
+    assert_eq!(orden.criterio_exito.as_deref(), Some("test -f otro.md"));
 }
 
 #[tokio::test]
