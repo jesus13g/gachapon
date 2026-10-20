@@ -152,8 +152,9 @@ async fn las_escrituras_exigen_json() {
 }
 
 /// Rutas de escritura representativas (una por zona de la API).
-const ESCRITURAS: [(&str, &str); 6] = [
+const ESCRITURAS: [(&str, &str); 7] = [
     ("/api/rutinas/revision-diaria/lanzar", "{}"),
+    ("/api/trabajos", r#"{"titulo":"x","worktree":"/tmp","objetivo":"x","criterio":"true"}"#),
     ("/api/propuestas/1/decidir", r#"{"decision":"rechazar"}"#),
     ("/api/acciones/simular", r#"{"herramienta":"ea_status","argumentos":{}}"#),
     ("/api/boveda/crear", r#"{"ruta":"compartida/x.md"}"#),
@@ -1326,4 +1327,161 @@ async fn la_web_no_afloja_ni_toca_lo_de_terminal() {
     let (_, v) = get(&f, "/api/ajustes").await;
     assert_eq!(clave_de(&v, "agente.techo_topes.turnos")["valor"], 20);
     assert_eq!(clave_de(&v, "agente.sandbox")["valor"], true);
+}
+
+// ------------------------------------------------------- crear una misión
+
+/// Un repo git de verdad dentro del directorio temporal de la prueba.
+fn repo_git(f: &Fixture) -> std::path::PathBuf {
+    let wt = f._dir.path().join("repo");
+    std::fs::create_dir_all(&wt).unwrap();
+    let ok = std::process::Command::new("git").arg("init").arg("-q").arg(&wt).status().unwrap().success();
+    assert!(ok, "git init");
+    wt.canonicalize().unwrap()
+}
+
+fn mision(wt: &str) -> Value {
+    json!({
+        "titulo": "Añadir un saludo",
+        "worktree": wt,
+        "objetivo": "Crea hola.txt con un saludo.",
+        "criterio": "test -f hola.txt",
+        "topes": { "iteraciones": 3, "tiempo_s": 999_999 },
+    })
+}
+
+#[tokio::test]
+async fn crear_una_mision_desde_la_web_la_encola() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let wt = repo_git(&f);
+    // El formulario da los modos, el techo y los topes por defecto.
+    let (s, form) = get(&f, "/api/trabajos/nuevo").await;
+    assert_eq!(s, StatusCode::OK, "{form}");
+    assert_eq!(form["modos"], json!(["mision"]));
+    let techo_tiempo = form["techo"]["tiempo_s"].as_u64().unwrap();
+    assert!(form["defecto"]["iteraciones"].as_u64().unwrap() <= form["techo"]["iteraciones"].as_u64().unwrap());
+
+    // Sin canonicalizar: la orden lleva la ruta canónica.
+    let (s, r) = post(&f, "/api/trabajos", mision(&format!("{}/./", wt.display()))).await;
+    assert_eq!(s, StatusCode::CREATED, "{r}");
+    assert_eq!(r["estado"], "en_cola");
+    let id = r["id"].as_str().unwrap().to_string();
+
+    let (_, colas) = get(&f, "/api/colas").await;
+    let ml = colas["modelo-local"].as_array().unwrap();
+    assert!(ml.iter().any(|e| e["trabajo"] == id.as_str()), "{colas}");
+
+    let (s, d) = get(&f, &format!("/api/trabajos/{id}")).await;
+    assert_eq!(s, StatusCode::OK);
+    let o = &d["orden"];
+    assert_eq!(o["creada_por"], "usuario");
+    assert_eq!(o["modo"], "mision");
+    assert_eq!(o["worktree"], wt.to_str().unwrap());
+    assert_eq!(o["criterio_exito"], "test -f hola.txt");
+    assert!(o.get("skills").is_none(), "sin skills: {o}");
+    assert_eq!(o["topes"]["iteraciones"], 3);
+    // Lo que pasa del techo se recorta, como hace el ejecutor.
+    assert_eq!(o["topes"]["tiempo_s"].as_u64().unwrap(), techo_tiempo);
+    // El criterio no se ha ejecutado: no hay informe.
+    assert!(d["informe"].is_null());
+
+    // El diario apunta la creación con el usuario como actor.
+    let (_, ev) = get(&f, "/api/diario").await;
+    let creado = ev.as_array().unwrap().iter().find(|e| e["accion"] == "bus_crear").expect("bus_crear en el diario");
+    assert_eq!(creado["actor"], "usuario");
+
+    // Y el worktree queda sugerido para la próxima.
+    let (_, form) = get(&f, "/api/trabajos/nuevo").await;
+    assert!(form["worktrees"].as_array().unwrap().iter().any(|w| w == wt.to_str().unwrap()), "{form}");
+}
+
+#[tokio::test]
+async fn crear_sin_criterio_o_worktree_invalido_da_400_y_no_escribe() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let wt = repo_git(&f);
+    let wt = wt.to_str().unwrap();
+    let sin_repo = f._dir.path().join("sin-repo");
+    std::fs::create_dir_all(&sin_repo).unwrap();
+    let fichero = f._dir.path().join("fichero.txt");
+    std::fs::write(&fichero, "x").unwrap();
+    let con = |campo: &str, valor: Value| {
+        let mut m = mision(wt);
+        m[campo] = valor;
+        m
+    };
+    let sin = |campo: &str| {
+        let mut m = mision(wt);
+        m.as_object_mut().unwrap().remove(campo);
+        m
+    };
+    let casos = [
+        con("criterio", json!("")),
+        con("criterio", json!("   ")),
+        sin("criterio"),
+        con("criterio", json!("x".repeat(2_001))),
+        con("worktree", json!("")),
+        con("worktree", json!("relativo/a/algo")),
+        con("worktree", json!("/no/existe/de/ninguna/manera")),
+        con("worktree", json!(sin_repo.to_str().unwrap())),
+        con("worktree", json!(fichero.to_str().unwrap())),
+        sin("worktree"),
+        con("titulo", json!("")),
+        con("titulo", json!("dos\nlineas")),
+        con("titulo", json!("t".repeat(201))),
+        con("objetivo", json!("")),
+        con("modo", json!("obra")),
+        con("modo", json!("rutina")),
+        con("skills", json!(["git"])),
+        con("creada_por", json!("claude-code")),
+        con("topes", json!({ "iteraciones": 0 })),
+        con("topes", json!({ "turnos": 99 })),
+        json!("no es un objeto"),
+    ];
+    for c in casos {
+        let (s, r) = post(&f, "/api/trabajos", c.clone()).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{c} -> {r}");
+        assert!(r["error"].as_str().is_some_and(|e| !e.is_empty()), "mensaje: {r}");
+    }
+    // Un JSON roto también es 400.
+    let (s, _) = enviar(&f, Method::POST, "/api/trabajos", "localhost", None, true).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // Nada en el bus: ni trabajos, ni colas, ni eventos de creación.
+    let (_, t) = get(&f, "/api/trabajos").await;
+    assert_eq!(t.as_array().map(Vec::len), Some(0), "{t}");
+    let (_, colas) = get(&f, "/api/colas").await;
+    assert_eq!(colas["modelo-local"].as_array().map(Vec::len), Some(0), "{colas}");
+    let (_, ev) = get(&f, "/api/diario").await;
+    assert!(!acciones_del_diario(&ev).iter().any(|a| a == "bus_crear"));
+    let trabajos = std::fs::read_dir(f._dir.path().join("estado/trabajos")).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(trabajos, 0);
+}
+
+#[tokio::test]
+async fn crear_exige_json_host_local_y_clave() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let wt = repo_git(&f);
+    let cuerpo = mision(wt.to_str().unwrap());
+    let clave = f.state.clave.texto().to_string();
+    // Sin clave o con una mala: 403.
+    for c in [None, Some("mala")] {
+        let (s, t) = enviar_con_clave(&f, Method::POST, "/api/trabajos", "localhost", Some(cuerpo.clone()), true, c).await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "{c:?}: {t}");
+    }
+    // Con la clave pero sin JSON: 415.
+    let (s, _) =
+        enviar_con_clave(&f, Method::POST, "/api/trabajos", "localhost", Some(cuerpo.clone()), false, Some(&clave)).await;
+    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    // Con la clave desde otro host: 403.
+    let (s, _) =
+        enviar_con_clave(&f, Method::POST, "/api/trabajos", "evil.example", Some(cuerpo.clone()), true, Some(&clave)).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (_, t) = get(&f, "/api/trabajos").await;
+    assert_eq!(t.as_array().map(Vec::len), Some(0), "{t}");
+    // Con todo en regla, se crea.
+    let (s, r) =
+        enviar_con_clave(&f, Method::POST, "/api/trabajos", "127.0.0.1:8092", Some(cuerpo), true, Some(&clave)).await;
+    assert_eq!(s, StatusCode::CREATED, "{r}");
 }

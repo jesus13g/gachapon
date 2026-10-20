@@ -185,6 +185,17 @@ pub struct EstadoTrabajo {
     pub estado: &'static str,
 }
 
+/// Lo que necesita el formulario «＋ misión»: los modos que se pueden crear
+/// desde la web, el techo de los topes (`ajustes.toml`), los topes por
+/// defecto ya recortados a ese techo y los worktrees que se sugieren.
+#[derive(Serialize)]
+pub struct FormularioTrabajo {
+    pub modos: Vec<&'static str>,
+    pub techo: ea_bus::Topes,
+    pub defecto: ea_bus::Topes,
+    pub worktrees: Vec<String>,
+}
+
 /// Por agente (`modelo-local`, `claude-code`).
 pub type Colas = BTreeMap<&'static str, Vec<ColaEntrada>>;
 

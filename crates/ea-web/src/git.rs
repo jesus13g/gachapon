@@ -46,3 +46,13 @@ pub async fn diff_desde(wt: &str, inicio: &str, max: usize) -> Resultado<(String
     }
     Ok((texto, truncado))
 }
+
+/// Si `wt` está dentro de un árbol de trabajo de git. Sin shell y sin
+/// fsmonitor (que podría lanzar un programa del repo).
+pub async fn es_repo(wt: &str) -> Resultado<bool> {
+    match git(wt, &["-c", "core.fsmonitor=false", "rev-parse", "--is-inside-work-tree"]).await {
+        Ok(salida) => Ok(salida.trim() == "true"),
+        Err(ErrorWeb::Tiempo(m)) => Err(ErrorWeb::Tiempo(m)),
+        Err(_) => Ok(false),
+    }
+}

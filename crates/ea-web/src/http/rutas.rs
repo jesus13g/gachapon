@@ -84,6 +84,14 @@ pub async fn trabajos_listar(State(s): Estado) -> Api<Vec<TrabajoResumen>> {
     ok(servicio::trabajos::listar(&s))
 }
 
+pub async fn trabajo_crear(State(s): Estado, Json(b): Json<Value>) -> Result<(StatusCode, Json<EstadoTrabajo>), ApiError> {
+    Ok((StatusCode::CREATED, Json(servicio::trabajos::crear(&s, b).await?)))
+}
+
+pub async fn trabajo_formulario(State(s): Estado) -> Api<FormularioTrabajo> {
+    ok(servicio::trabajos::formulario(&s))
+}
+
 pub async fn trabajo_ver(State(s): Estado, Path(id): Path<String>) -> Api<TrabajoDetalle> {
     ok(servicio::trabajos::ver(&s, &id))
 }

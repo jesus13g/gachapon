@@ -425,6 +425,15 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .paq p { margin: 4px 0; }
 .paq .acc { margin-top: 8px; }
 .acc textarea { flex: 1; min-width: 220px; max-width: 520px; background: var(--bg); color: var(--fg); border: 0; border-radius: 4px; padding: 6px 8px; font: inherit; resize: vertical; }
+
+/* «＋ misión»: el formulario va en línea, como el detalle de una fila */
+.f.nueva { margin-bottom: 6px; }
+.nm .fm input.wt, .nm .fm input.cr { width: 52ch; }
+.nm .fm input[type="number"] { width: 7ch; }
+.nm label { display: inline-flex; align-items: center; gap: 6px; }
+.nm textarea { display: block; box-sizing: border-box; width: 100%; max-width: 760px; margin-top: 8px; background: var(--bg); color: var(--fg); border: 0; border-radius: 4px; padding: 6px 8px; font: inherit; resize: vertical; }
+.nm .fm + p { margin-top: 8px; }
+.nm p.m { white-space: normal; }
 .det pre.diff { max-height: 420px; overflow: auto; background: var(--bg0); padding: 8px 10px; border-radius: 4px; font-size: 12px; white-space: pre; }
 @media (max-width: 1100px) and (min-width: 761px) { .tablero.t5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .tablero.t5 { grid-template-columns: 1fr; } }

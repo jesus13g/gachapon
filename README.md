@@ -595,7 +595,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | Símbolo | Sección | Tecla |
 |---|---|---|
 | ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
-| ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (con nota), continuar, confirmar y cancelar según el estado | `2` |
+| ▤ | Trabajos: lista con filtro por estado y ficha con informe, fases, diff plegable e historial; cerrar, reformular (con nota), continuar, confirmar y cancelar según el estado. **＋ misión** (en la barra) abre en línea un formulario para encargar una misión al modelo local: título, worktree (sugiere los de las sesiones de Claude Code y los de trabajos anteriores), objetivo, criterio (obligatorio) e iteraciones y minutos, acotados al techo de `ajustes.toml`; al encolarla se abre su ficha. El criterio lo ejecuta el sistema, nunca la página | `2` |
 | ≡ | Diario (♡/♥ muestra u oculta los latidos) | `3` |
 | ↻ | Rutinas registradas, con versión y próxima ejecución; ▶ lanzar | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
@@ -627,7 +627,13 @@ ejecutor llevan una acción **abrir** que hace justo eso.
 API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`,
 `/api/colas`, `/api/semaforos`, `/api/rutinas`; y, con `Content-Type:
 application/json`, `POST /api/trabajos/<id>/{cerrar,cancelar,continuar,reformular,confirmar}`
-(`reformular` lleva `{"nota": "..."}`, `confirmar` `{"contexto": "..."}`) y
+(`reformular` lleva `{"nota": "..."}`, `confirmar` `{"contexto": "..."}`),
+`POST /api/trabajos` (crea una misión: `{"modo"?: "mision", "titulo", "worktree",
+"objetivo", "criterio", "topes"?: {"iteraciones"?, "tiempo_s"?}}` → 201 `{id, estado}`;
+`creada_por` es `usuario` y no admite skills ni otros campos; 400 si falta el
+criterio o el worktree no es una ruta absoluta existente dentro de un repo git;
+los topes se recortan al techo), `GET /api/trabajos/nuevo` (techo, topes por
+defecto y worktrees sugeridos para el formulario) y
 `POST /api/rutinas/<slug>/lanzar`; la memoria de Claude Code va por
 `GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
 `POST /api/memoria/<proyecto>/<fichero>` (`{"contenido": "...", "version": "..."}`;

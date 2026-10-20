@@ -1,11 +1,14 @@
 //! Trabajos del bus, sus colas y semáforos, y las decisiones del usuario
 //! sobre ellos.
 
-use ea_bus::{Agente, Bus, Evento};
+use ea_bus::{Agente, Bus, Evento, Modo, Orden, Topes};
+use serde::Deserialize;
 use serde_json::Value;
 
-use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado};
-use crate::vistas::{ColaEntrada, Colas, Diff, EstadoTrabajo, Semaforo, TrabajoDetalle, TrabajoResumen};
+use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado, ACTOR};
+use crate::vistas::{
+    ColaEntrada, Colas, Diff, EstadoTrabajo, FormularioTrabajo, Semaforo, TrabajoDetalle, TrabajoResumen,
+};
 use crate::AppState;
 
 fn a_valor<T: serde::Serialize>(v: T) -> Resultado<Value> {
@@ -76,6 +79,140 @@ pub async fn diff(s: &AppState, id: &str) -> Resultado<Diff> {
         .ok_or_else(|| ErrorWeb::Conflicto("el trabajo aún no tiene informe con commit_inicio".into()))?;
     let (texto, truncado) = crate::git::diff_desde(&orden.worktree, &inicio, DIFF_MAX).await?;
     Ok(Diff { id: id.into(), commit_inicio: inicio, diff: texto, truncado })
+}
+
+// ------------------------------------------------------------------- crear
+
+/// Los modos que se crean desde la web. Las obras llegarán con T2, por el
+/// mismo formulario y la misma ruta.
+const MODOS_WEB: [&str; 1] = ["mision"];
+const TITULO_MAX: usize = 200;
+const OBJETIVO_MAX: usize = 20_000;
+const CRITERIO_MAX: usize = 2_000;
+const WORKTREE_MAX: usize = 4_096;
+const SUGERENCIAS_MAX: usize = 30;
+
+/// Cuerpo de `POST /api/trabajos`. Cualquier otro campo (`skills`,
+/// `creada_por`, `fases`…) se rechaza: desde la web no se eligen.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NuevoTrabajo {
+    #[serde(default)]
+    modo: Option<String>,
+    titulo: String,
+    worktree: String,
+    objetivo: String,
+    criterio: String,
+    #[serde(default)]
+    topes: Option<TopesPedidos>,
+}
+
+/// Los topes que se pueden pedir desde el formulario; el resto, por defecto.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct TopesPedidos {
+    iteraciones: Option<u32>,
+    tiempo_s: Option<u64>,
+}
+
+/// El techo de los topes de los ajustes efectivos (se relee en cada petición).
+fn techo(s: &AppState) -> Topes {
+    ea_bus::ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes).techo_topes
+}
+
+/// Lo que el formulario necesita: techo, topes por defecto y los worktrees
+/// que se sugieren (los `cwd` de las sesiones vivas de Claude Code y los de
+/// los trabajos anteriores, del más reciente al más antiguo, sin repetir).
+pub fn formulario(s: &AppState) -> Resultado<FormularioTrabajo> {
+    let techo = techo(s);
+    let mut worktrees: Vec<String> = super::estado::sesiones(s).sesiones.into_iter().map(|x| x.cwd).collect();
+    worktrees.extend(listar(s)?.into_iter().map(|t| t.worktree));
+    let mut vistos = std::collections::HashSet::new();
+    worktrees.retain(|w| !w.is_empty() && vistos.insert(w.clone()));
+    worktrees.truncate(SUGERENCIAS_MAX);
+    Ok(FormularioTrabajo { modos: MODOS_WEB.to_vec(), techo, defecto: Topes::default().acotar(&techo), worktrees })
+}
+
+/// Ruta absoluta, existente, directorio y dentro de un repo git; devuelve
+/// la forma canónica, que es la que va a la orden (y al semáforo).
+async fn validar_worktree(wt: &str) -> Resultado<String> {
+    let wt = wt.trim();
+    if wt.is_empty() {
+        return Err(ErrorWeb::Invalido("'worktree' no puede estar vacío".into()));
+    }
+    if wt.len() > WORKTREE_MAX {
+        return Err(ErrorWeb::Invalido(format!("'worktree' supera {WORKTREE_MAX} bytes")));
+    }
+    let ruta = std::path::Path::new(wt);
+    if !ruta.is_absolute() {
+        return Err(ErrorWeb::Invalido("'worktree' debe ser una ruta absoluta".into()));
+    }
+    let canon = std::fs::canonicalize(ruta)
+        .map_err(|_| ErrorWeb::Invalido(format!("el worktree '{wt}' no existe")))?;
+    if !canon.is_dir() {
+        return Err(ErrorWeb::Invalido(format!("el worktree '{wt}' no es un directorio")));
+    }
+    let canon = canon
+        .to_str()
+        .ok_or_else(|| ErrorWeb::Invalido("la ruta del worktree no es UTF-8".into()))?
+        .to_string();
+    if !crate::git::es_repo(&canon).await? {
+        return Err(ErrorWeb::Invalido(format!("'{canon}' no está dentro de un repositorio git")));
+    }
+    Ok(canon)
+}
+
+/// Crea una misión encargada por el usuario desde la página. Todo se valida
+/// antes de tocar el bus; después, `Bus::crear_trabajo` (que vuelve a
+/// exigir el criterio y valida skills) la escribe, la encola en
+/// `modelo-local` y apunta `bus_crear` en el diario con actor `usuario`.
+/// El criterio no se ejecuta aquí: solo el ejecutor lo corre (arts. III y V).
+pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
+    if cuerpo.get("skills").is_some() {
+        return Err(ErrorWeb::Invalido("las skills no se eligen desde la web".into()));
+    }
+    let n: NuevoTrabajo =
+        serde_json::from_value(cuerpo).map_err(|e| ErrorWeb::Invalido(format!("petición inválida: {e}")))?;
+    let modo = n.modo.as_deref().unwrap_or("mision");
+    if !MODOS_WEB.contains(&modo) {
+        return Err(ErrorWeb::Invalido(format!("modo '{modo}': desde la web solo se crean misiones")));
+    }
+    let titulo = texto_no_vacio(&n.titulo, "titulo", TITULO_MAX)?;
+    if titulo.chars().any(char::is_control) {
+        return Err(ErrorWeb::Invalido("'titulo' debe ser una sola línea".into()));
+    }
+    let objetivo = texto_no_vacio(&n.objetivo, "objetivo", OBJETIVO_MAX)?;
+    let criterio = texto_no_vacio(&n.criterio, "criterio", CRITERIO_MAX)?;
+    let pedidos = n.topes.unwrap_or_default();
+    if pedidos.iteraciones == Some(0) || pedidos.tiempo_s == Some(0) {
+        return Err(ErrorWeb::Invalido("los topes deben ser al menos 1".into()));
+    }
+    let worktree = validar_worktree(&n.worktree).await?;
+    let d = Topes::default();
+    let topes = Topes {
+        iteraciones: pedidos.iteraciones.unwrap_or(d.iteraciones),
+        tiempo_s: pedidos.tiempo_s.unwrap_or(d.tiempo_s),
+        ..d
+    }
+    .acotar(&techo(s));
+    let orden = Orden {
+        id: String::new(),
+        modo: Modo::Mision,
+        titulo,
+        worktree,
+        objetivo,
+        criterio_exito: Some(criterio),
+        fases: vec![],
+        revisar_cada: None,
+        topes,
+        rutina: None,
+        notas_revision: vec![],
+        skills: vec![],
+        creada_en: String::new(),
+        creada_por: ACTOR.into(),
+    };
+    let id = bus_con_store(s).await?.crear_trabajo(orden)?;
+    Ok(EstadoTrabajo { id, estado: ea_bus::EstadoTrabajo::EnCola.as_str() })
 }
 
 /// Lo que el usuario decide sobre un trabajo entregado o en espera.
