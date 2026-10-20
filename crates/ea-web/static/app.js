@@ -286,6 +286,7 @@ function filasTrabajos(ts) {
     } else {
       det += accionesTrabajo(t, null);
     }
+    if (d && FINAL.includes(t.estado)) det += botonClonar(t);
     return fila(k, 'j', row, `${t.titulo} ${t.modo} ${t.id} ${EST[t.estado][1]} ${t.resultado ?? ''}`, det, FINAL.includes(t.estado) ? ' fin' : '');
   });
 }
@@ -315,6 +316,7 @@ function formMision() {
         '<div class="fm">' + campo('criterio', 'criterio: comando que decide si está hecho (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') +
         tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
         `<p class="m">El criterio lo ejecuta el sistema al final de cada iteración, nunca esta página. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`) +
+    (n.aviso ? `<p class="m">⧉ ${esc(n.aviso)}</p>` : '') +
     (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
     '<div class="acc">' + (obra
       ? btn('crear-mision', '▶ encolar obra', 'crear la obra y ponerla en la cola del modelo local', {}, 'coin')
@@ -413,6 +415,61 @@ function accionFase(a, i) {
   pintar();
   if (a === 'nf-mas') $(`[data-nf="${f.length - 1}"][data-nc="titulo"]`)?.focus();
   return true;
+}
+
+// ------------------------------------- «⧉ lanzar de nuevo» (clonar, T7)
+// Un trabajo cerrado o cancelado se vuelve a encargar desde «＋ misión»,
+// relleno con su orden: título, worktree, objetivo, criterio, topes y, en
+// una obra, fases y revisar_cada. No se copian el id, las notas de revisión,
+// el informe ni las skills (desde la web no se eligen); una rutina vuelve
+// como misión normal. Nada se envía solo: el usuario lo revisa y lo encola,
+// y POST /api/trabajos le da un id nuevo.
+
+function botonClonar(t) {
+  const armado = st.armado?.n === 'k' + t.id && st.armado.hasta > Date.now();
+  return '<div class="acc">' + (armado
+    ? btn('clonar', '⧉ reemplazar el formulario abierto', 'segundo clic: lo escrito en «＋ misión» se pierde', { id: t.id }, 'hot')
+    : btn('clonar', '⧉ lanzar de nuevo', 'abrir «＋ misión» relleno con esta orden para revisarla y encolarla', { id: t.id })) + '</div>';
+}
+
+async function clonaTrabajo(id) {
+  const o = st.detalle['j' + id]?.orden;
+  if (!o) throw new Error('la ficha del trabajo aún no ha cargado');
+  // Con el formulario ya abierto, un segundo clic confirma que se reemplaza.
+  if (st.nueva && !(st.armado && st.armado.n === 'k' + id && st.armado.hasta > Date.now())) {
+    st.armado = { n: 'k' + id, hasta: Date.now() + 3000 };
+    st.html = '';
+    pintar();
+    setTimeout(() => { st.armado = null; st.html = ''; pintar(); }, 3100);
+    return;
+  }
+  st.armado = null;
+  const form = await ea.nuevoTrabajo();
+  const techo = form.techo, minTecho = Math.max(1, Math.floor(techo.tiempo_s / 60));
+  const it = o.topes?.iteraciones ?? form.defecto.iteraciones;
+  const min = Math.max(1, Math.round((o.topes?.tiempo_s ?? form.defecto.tiempo_s) / 60));
+  const obra = o.modo === 'obra' && o.fases?.length > 0;
+  const fases = obra
+    ? o.fases.map(f => ({ titulo: f.titulo ?? '', instrucciones: f.instrucciones ?? '', entregable: f.entregable ?? '', criterio: f.criterio ?? '' }))
+    : [faseVacia()];
+  const revisar = !obra ? '' : o.revisar_cada == null ? 'fin' : o.revisar_cada <= fases.length ? String(o.revisar_cada) : '';
+  const avisos = [`copia de ${id.slice(9, 15)}: revísala antes de encolar; tendrá un id nuevo`];
+  if (o.modo === 'rutina') avisos.push(`viene de la rutina ${o.rutina?.slug ?? ''}: se lanza como misión normal, no como rutina`);
+  if (o.skills?.length || o.fases?.some(f => f.skills?.length)) avisos.push('las skills de la orden original no se copian (desde la web no se eligen)');
+  if (it > techo.iteraciones || min > minTecho) avisos.push('los topes se han recortado al techo de ajustes.toml');
+  if (st.sec !== 'trabajos' && ir('trabajos') === false) return;
+  st.nueva = {
+    form, err: null, modo: obra ? 'obra' : 'mision', fases, aviso: avisos.join(' · '),
+    v: {
+      titulo: o.titulo ?? '', worktree: o.worktree ?? '', objetivo: o.objetivo ?? '', criterio: obra ? '' : o.criterio_exito ?? '',
+      iteraciones: Math.min(it, techo.iteraciones), minutos: Math.min(min, minTecho), revisar,
+    },
+  };
+  st.html = '';
+  document.activeElement?.blur();
+  pintar();
+  $('#lista').scrollTop = 0;
+  $('[data-nm="titulo"]')?.focus();
 }
 
 function pretty(txt) {
@@ -2052,6 +2109,9 @@ async function accion(b) {
       await ea.accionTrabajo(id, a, cuerpo);
       const enCurso = a === 'cancelar' && st.trabajos.some(t => t.id === id && t.estado === 'ejecutando');
       avisa(`${id.slice(9, 15)}: ${a}${enCurso ? ' · ' + NO_SE_DESHACE : ''}`, true);
+    } else if (a === 'clonar') {
+      await clonaTrabajo(id);
+      return;
     } else if (a === 'nueva-mision') {
       if (st.nueva) st.nueva = null;
       else {
