@@ -306,6 +306,10 @@ pub async fn accion_ejecutar(State(s): Estado, Json(b): Json<AccionBody>) -> Api
     ok(servicio::acciones::ejecutar(&s, &b.herramienta, &b.argumentos, &b.precondicion).await)
 }
 
+pub async fn accion_historial(State(s): Estado, Path(nombre): Path<String>) -> Api<Vec<EventoHerramienta>> {
+    ok(servicio::acciones::historial(&s, &nombre).await)
+}
+
 // ------------------------------------------------------------------ bóveda
 
 #[derive(Deserialize)]

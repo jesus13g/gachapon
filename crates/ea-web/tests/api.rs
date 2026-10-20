@@ -1216,6 +1216,91 @@ async fn la_consola_valida_y_no_ejecuta_irreversibles() {
     assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
 }
 
+fn evento_mcp(actor: &str, accion: &str, ok: bool) -> NewEvent {
+    NewEvent {
+        actor: actor.into(),
+        action: accion.into(),
+        trabajo: None,
+        outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
+        duration_ms: Some(3),
+        detail: Some(json!({ "args": {} }).to_string()),
+    }
+}
+
+#[tokio::test]
+async fn el_historial_de_una_herramienta_incluye_simulaciones_y_ejecuciones() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    {
+        let store = f.state.store.lock().await;
+        store.append_event(evento_mcp("claude-code", "mcp_encolar_rutina_simulada", true)).unwrap();
+        store.append_event(evento_mcp("modelo-local", "mcp_encolar_rutina_denegada", false)).unwrap();
+        // Ruido: otra herramienta, otra familia y un `accion_*` sin JSON.
+        store.append_event(evento_mcp("claude-code", "mcp_registrar_rutina", true)).unwrap();
+        store.append_event(evento_mcp("claude-code", "mcp_status", true)).unwrap();
+        store
+            .append_event(NewEvent { detail: Some("no es json".into()), ..evento_mcp("usuario", "accion_fallida", false) })
+            .unwrap();
+    }
+    // Una propuesta (propuesta_encolada) que el usuario rechaza: el rechazo
+    // solo trae el id de la propuesta.
+    let id = proponer_accion(&f, "ea_encolar_rutina", json!({ "slug": "revision-diaria" })).await;
+    let (s, _) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "rechazar" })).await;
+    assert_eq!(s, StatusCode::OK);
+    // Y una ejecución desde la consola (accion_ejecutada, canal web).
+    let cuerpo = json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "revision-diaria" } });
+    let (_, sim) = post(&f, "/api/acciones/simular", cuerpo).await;
+    let (s, _) = post(
+        &f,
+        "/api/acciones/ejecutar",
+        json!({ "herramienta": "ea_encolar_rutina", "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+
+    let (s, h) = get(&f, "/api/acciones/ea_encolar_rutina/historial").await;
+    assert_eq!(s, StatusCode::OK);
+    let h = h.as_array().unwrap();
+    let acciones: Vec<&str> = h.iter().map(|e| e["accion"].as_str().unwrap()).collect();
+    assert_eq!(
+        acciones,
+        [
+            "accion_ejecutada",
+            "propuesta_decidida",
+            "propuesta_encolada",
+            "mcp_encolar_rutina_denegada",
+            "mcp_encolar_rutina_simulada",
+        ],
+        "lo más reciente primero, sin lo de otras herramientas"
+    );
+    assert_eq!(h[0]["canal"], "web");
+    assert_eq!(h[0]["actor"], "usuario");
+    assert_eq!(h[0]["resultado"], "ok");
+    assert_eq!(h[1]["propuesta"], id);
+    assert_eq!(h[2]["actor"], "claude-code");
+    assert_eq!(h[3]["canal"], "mcp");
+    assert_eq!(h[3]["resultado"], "error");
+    // Cada fila lleva el id de su evento en el diario.
+    let (_, d) = get(&f, "/api/diario").await;
+    let ids: Vec<i64> = d.as_array().unwrap().iter().map(|e| e["id"].as_i64().unwrap()).collect();
+    assert!(h.iter().all(|e| ids.contains(&e["id"].as_i64().unwrap())));
+
+    // Las directas también tienen historial; y como mucho diez eventos.
+    {
+        let store = f.state.store.lock().await;
+        for _ in 0..12 {
+            store.append_event(evento_mcp("claude-code", "mcp_status", true)).unwrap();
+        }
+    }
+    let (s, h) = get(&f, "/api/acciones/ea_status/historial").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(h.as_array().unwrap().len(), 10);
+    assert!(h.as_array().unwrap().iter().all(|e| e["accion"] == "mcp_status"));
+
+    let (s, _) = get(&f, "/api/acciones/ea_no_existe/historial").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
 #[tokio::test]
 async fn las_sesiones_de_claude_code_solo_cuentan_si_el_proceso_vive() {
     let f = montar();

@@ -103,6 +103,12 @@ impl Store {
         events::list_events_by_trabajo(&self.conn, trabajo)
     }
 
+    /// Los últimos `limit` eventos de una herramienta del catálogo: sus
+    /// invocaciones por MCP y los `accion_*`/`propuesta_*` que la nombran.
+    pub fn list_events_herramienta(&self, herramienta: &str, limit: i64) -> StoreResult<Vec<Event>> {
+        events::list_events_herramienta(&self.conn, herramienta, limit)
+    }
+
     /// Añade una nota del usuario (`usuario_nota`), que puede corregir otro
     /// evento; valida antes y no escribe nada si algo falla.
     pub fn anotar_diario(&self, nota: NuevaNota) -> StoreResult<Event> {

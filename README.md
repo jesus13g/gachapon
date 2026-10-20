@@ -639,7 +639,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ≡ | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`, `usuario_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. ✎ anotar abre en línea una nota del usuario (texto y, si quieres, trabajo) que queda como `usuario_nota`; en el detalle de un evento, ✎ corregir abre lo mismo apuntando a ese evento, que no se toca: el corregido muestra «corregido por #n» y la nota «corrige #m», enlazados. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros. Al pie, ↓ más antiguos añade la página siguiente con los mismos filtros (desaparece cuando no queda nada); el sondeo refresca solo la primera sin perder las cargadas, y cambiar un filtro vuelve a la primera | `3` |
 | ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada. «▸ versiones» lista las registradas (número, fecha y quién) con «ver» (su TOML) y «diff» (qué cambió frente a la anterior), solo lectura | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
-| ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
+| ▶ | Acciones: simular y ejecutar las herramientas supervisadas; en la ficha de cada una (también de las directas), sus últimos 10 eventos del diario | `6` |
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
 | ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista y ↺ restaurar). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera | `8` |
 | ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. Apunta `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
@@ -738,6 +738,17 @@ la rutina, duración y detalle), cada una con un botón a la ficha de su trabajo
 el más nuevo primero), con `{trabajo, estado, version, resultado, duracion_s,
 detalle, creado, actualizado}`; `resultado` y `duracion_s` salen del informe y
 son `null` mientras no lo haya.
+
+Historial de una herramienta (solo lectura, leído del diario): la ficha de
+cada herramienta de ▶ Acciones, también de las directas, termina con sus
+últimos 10 eventos: `accion_ejecutada`/`accion_fallida`, `propuesta_encolada`
+y `propuesta_decidida` (también el rechazo, que solo nombra la propuesta) y las
+invocaciones por MCP (`mcp_<x>`, `mcp_<x>_simulada`, `mcp_<x>_denegada`), con
+hora, resultado, actor y canal; «#n» lleva al evento en el diario y «◇ n», a su
+propuesta. En la API, `GET /api/acciones/<nombre>/historial` devuelve
+`[{id, ts, actor, accion, resultado, canal, proponente, propuesta, trabajo,
+error, duracion_ms}]`, el más reciente primero (`canal` es el del evento o
+`mcp`; 404 si la herramienta no está en el catálogo).
 
 Clave de sesión: al arrancar, `ea-web` genera una clave aleatoria y la deja en
 `$XDG_RUNTIME_DIR/ea-web/clave` (0600; cambia en cada arranque y se borra al
