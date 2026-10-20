@@ -552,3 +552,12 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   .arbol-col { max-height: 34vh; box-shadow: inset 0 -1px 0 var(--line); }
   .arbol { padding: 0 0 8px; }
 }
+
+/* Versiones de una rutina en su ficha: número, fecha, quién y ver/diff. */
+.ev.rv { grid-template-columns: 48px 110px minmax(0, 140px) 1fr; }
+.ev.rv .b.l { margin-right: 8px; }
+@media (max-width: 760px) {
+  .ev.rv { grid-template-columns: 40px 84px 1fr; }
+  .ev.rv > :nth-child(3) { display: none; }
+  .ev.rv > :nth-child(4) { display: block; }
+}

@@ -143,6 +143,19 @@ pub fn ultima_rutina(conn: &Connection, slug: &str) -> StoreResult<Option<FilaRu
         .optional()?)
 }
 
+/// Todas las versiones de una rutina, la más reciente primero (vacío si no existe).
+pub fn listar_versiones_rutina(conn: &Connection, slug: &str) -> StoreResult<Vec<FilaRutina>> {
+    let mut st = conn.prepare(
+        "SELECT slug, version, definicion, creada_en, creada_por FROM rutinas WHERE slug = ?1 ORDER BY version DESC",
+    )?;
+    let filas = st
+        .query_map(params![slug], |r| {
+            Ok(FilaRutina { slug: r.get(0)?, version: r.get(1)?, definicion: r.get(2)?, creada_en: r.get(3)?, creada_por: r.get(4)? })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(filas)
+}
+
 /// La última versión de cada rutina, ordenadas por slug.
 pub fn listar_rutinas(conn: &Connection) -> StoreResult<Vec<FilaRutina>> {
     let mut st = conn.prepare(

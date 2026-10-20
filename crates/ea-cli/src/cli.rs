@@ -206,7 +206,12 @@ pub enum RutinaAccion {
     /// Lista las rutinas registradas, con su última ejecución
     Listar,
     /// Muestra la definición registrada de una rutina y su historial
-    Ver { slug: String },
+    Ver {
+        slug: String,
+        /// Muestra esa versión registrada en vez de la última
+        #[arg(long)]
+        version: Option<i64>,
+    },
     /// Crea un trabajo de la rutina en el bus (lo que hace el disparador `systemd`)
     #[command(alias = "encolar")]
     Lanzar {

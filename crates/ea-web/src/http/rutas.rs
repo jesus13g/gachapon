@@ -147,6 +147,14 @@ pub async fn rutina_ver_registrar(s: Estado) -> Api<RutinaDetalle> {
     rutina_ver(s, Path("registrar".into())).await
 }
 
+pub async fn rutina_versiones(State(s): Estado, Path(slug): Path<String>) -> Api<Vec<RutinaVersionFila>> {
+    ok(servicio::rutinas::versiones(&s, &slug).await)
+}
+
+pub async fn rutina_version(State(s): Estado, Path((slug, n)): Path<(String, String)>) -> Api<RutinaVersion> {
+    ok(servicio::rutinas::version(&s, &slug, &n).await)
+}
+
 // ---------------------------------------------------------------- trabajos
 
 pub async fn trabajos_listar(State(s): Estado) -> Api<Vec<TrabajoResumen>> {
