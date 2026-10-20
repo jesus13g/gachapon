@@ -7,14 +7,20 @@
 # La clave de sesión que ea-web deja al arrancar en $XDG_RUNTIME_DIR/ea-web/clave
 # viaja en el fragmento (#clave=…), que no llega al servidor ni cambia la clase
 # de la ventana; la página la guarda y la quita de la barra de direcciones.
+# Un argumento opcional es un enlace profundo (#trabajos/<id>, #diario?latidos=1):
+# va en el mismo fragmento, delante de la clave. Con él se abre siempre una
+# ventana nueva en esa vista (a una ventana ya abierta no se le puede cambiar
+# el hash desde fuera); sin él, se enfoca la que haya.
 PORT="${EA_WEB_PORT:-$("$HOME/Proyectos/ecosistema-asistente/target/release/ea" ajustes obtener red.puerto_web 2>/dev/null || echo 8092)}"
 URL="http://localhost:${PORT}/"
 CLAVE_FICHERO="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ea-web/clave"
 CLASS="chrome-localhost__-Default"
 WORKSPACE=4
+FRAGMENTO="${1#\#}"
 
 if hyprctl -j clients | grep -q "\"class\": \"$CLASS\""; then
-  exec hyprctl dispatch "hl.dsp.focus({ workspace = \"$WORKSPACE\" })" >/dev/null
+  [ -z "$FRAGMENTO" ] && exec hyprctl dispatch "hl.dsp.focus({ workspace = \"$WORKSPACE\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.focus({ workspace = \"$WORKSPACE\" })" >/dev/null
 fi
 
 # Al iniciar sesión el servicio puede tardar un poco en arrancar.
@@ -28,7 +34,7 @@ for _ in $(seq 1 5); do
   sleep 1
 done
 if [ -r "$CLAVE_FICHERO" ] && CLAVE="$(cat "$CLAVE_FICHERO")" && [ -n "$CLAVE" ]; then
-  exec omarchy-launch-webapp "${URL}#clave=${CLAVE}"
+  exec omarchy-launch-webapp "${URL}#${FRAGMENTO:+${FRAGMENTO}&}clave=${CLAVE}"
 fi
 echo "ea-web-open: no encuentro la clave de sesión en $CLAVE_FICHERO; el panel se abre en solo lectura" >&2
-exec omarchy-launch-webapp "$URL"
+exec omarchy-launch-webapp "${URL}${FRAGMENTO:+#${FRAGMENTO}}"

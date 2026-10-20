@@ -56,6 +56,8 @@ const st = {
   diffs: {},           // diff de los trabajos con el diff desplegado (id -> respuesta)
   abiertos: new Set(), // claves abiertas (j<id>, r<slug>, …)
   sel: null,           // clave seleccionada
+  enlace: null,        // clave de la fila que va en el hash (#seccion/<fila>)
+  irA: null,           // clave de la fila que hay que enseñar al pintarla
   vis: [],             // claves visibles, en orden
   html: '',
   q: '',
@@ -1420,6 +1422,7 @@ function proyectos(cambiar = false) {
 }
 
 function pintar() {
+  escribeHash(false); // el hash sigue a la vista (filtros, fila abierta)
   // No pisar lo que se está escribiendo dentro de un detalle.
   const foco = document.activeElement;
   if (foco && foco.matches('input, select, textarea') && foco.closest('#lista')) return relojes();
@@ -1457,6 +1460,11 @@ function pintar() {
     $('#filas').innerHTML = html; // la escena, encima, no se repinta
     lista.scrollTop = y;
     if (foco) $(`#filas [data-k="${CSS.escape(foco)}"]`)?.focus({ preventScroll: true });
+  }
+  // La fila de un enlace profundo: que se vea en cuanto llega.
+  if (st.irA) {
+    const f = $(`#filas .f[data-k="${CSS.escape(st.irA)}"]`);
+    if (f) { st.irA = null; f.scrollIntoView({ block: 'nearest' }); }
   }
   relojes();
   barra();
@@ -1551,15 +1559,90 @@ function marco() {
   }
 }
 
-function ir(sec) {
-  if (sec !== st.sec && !sueltaBorradores()) { location.hash = st.sec; return false; }
+// ------------------------------------------------------- enlaces profundos
+//
+// El hash dice la sección, la fila desplegada y los filtros (la gramática,
+// en enlaces.js): #trabajos/<id>, #diario?latidos=1&q=texto. Al cargar y al
+// cambiar el hash (atrás, adelante, un enlace) se aplica; al navegar se
+// reescribe: cambiar de sección o abrir una fila crea una entrada del
+// historial, lo demás la reemplaza (pintar() lo mantiene al día).
+
+// Prefijo de la clave de las filas que se pueden enlazar, por sección. Bóveda
+// y Memoria no llevan fila: su nota abierta la recuerda el navegador.
+const FILA = { inicio: 'j', trabajos: 'j', diario: 'e', rutinas: 'r', propuestas: 'p', acciones: 'a', sistema: 's', ajustes: 'g' };
+
+// Los parámetros de cada sección en el hash: nombre -> { lee(valor), escribe() }.
+// `lee` recibe el texto del hash (undefined si no está: el valor por
+// defecto) y lo deja en el estado; `escribe` da el texto del hash o null.
+// Un filtro nuevo se añade aquí y, al cambiarlo, basta con repintar.
+// `q` (el cuadro de filtrar) vale en todas las secciones.
+const bandera = campo => ({ lee: v => { st[campo] = v === '1'; }, escribe: () => (st[campo] ? '1' : null) });
+const texto = (campo, vale = () => true) => ({
+  lee: v => { st[campo] = v && vale(v) ? v : null; },
+  escribe: () => st[campo] || null,
+});
+const PARAMS = {
+  trabajos: { estado: texto('filtroEstado', v => v in EST) },
+  diario: { latidos: bandera('latidos') },
+  propuestas: { todas: bandera('propTodas') },
+};
+const Q = { lee: v => { st.q = v ?? ''; }, escribe: () => st.q || null };
+const paramsDe = sec => ({ ...PARAMS[sec], q: Q });
+
+// El hash de la vista actual, sin '#'.
+function hashActual() {
+  const params = {};
+  for (const [n, p] of Object.entries(paramsDe(st.sec))) params[n] = p.escribe();
+  const pre = FILA[st.sec];
+  const fila = pre && st.enlace?.startsWith(pre) && st.abiertos.has(st.enlace) ? st.enlace.slice(pre.length) : null;
+  return enlaces.escribir({ sec: st.sec, fila, params });
+}
+
+// Lleva la vista al hash: push crea una entrada del historial.
+function escribeHash(push) {
+  const h = hashActual();
+  if (location.hash.slice(1) === h) return;
+  history[push ? 'pushState' : 'replaceState'](null, '', location.pathname + location.search + '#' + h);
+}
+
+// Pone en la sección actual los filtros y la fila de un enlace ({ fila, params }).
+function aplicaEnlace({ fila, params }) {
+  for (const [n, p] of Object.entries(paramsDe(st.sec))) p.lee(params[n]);
+  $('#q').value = st.q;
+  const pre = FILA[st.sec];
+  const k = pre && fila != null ? pre + fila : null;
+  if (st.enlace && st.enlace !== k) st.abiertos.delete(st.enlace);
+  if (k) { st.abiertos.add(k); st.sel = k; st.irA = k; }
+  st.enlace = k;
+}
+
+// El hash cambió desde fuera (atrás, adelante, un enlace, la barra de direcciones).
+function alCambiarHash(hash) {
+  if (hash.replace(/^#/, '') === hashActual()) return;
+  const e = enlaces.leer(hash);
+  const sec = SECCIONES.includes(e.sec) ? e.sec : st.sec;
+  if (sec !== st.sec) { ir(sec, e); return; }
+  aplicaEnlace(e);
+  escribeHash(false);
+  st.html = '';
+  pintar();
+  tick();
+}
+
+// Cambia de sección. Con `enlace` ({ fila, params }), la abre así y reemplaza
+// la entrada del historial; sin él, conserva los filtros y crea una.
+function ir(sec, enlace = null) {
+  if (sec !== st.sec && !sueltaBorradores()) { escribeHash(false); return false; }
+  const cambia = sec !== st.sec;
   st.sec = sec;
   st.datos = null;
   st.html = '';
   st.sel = null;
   st.q = '';
   $('#q').value = '';
-  location.hash = sec;
+  st.enlace = null;
+  if (enlace) aplicaEnlace(enlace);
+  escribeHash(cambia && !enlace);
   marco();
   $('#lista').scrollTop = 0;
   pintar();
@@ -1567,8 +1650,17 @@ function ir(sec) {
 }
 
 async function alterna(k) {
-  if (st.abiertos.has(k)) st.abiertos.delete(k);
-  else { st.abiertos.add(k); await cargaDetalle(k); }
+  // Abrir una fila enlazable crea una entrada del historial (atrás la cierra).
+  const enlazable = FILA[st.sec] && k.startsWith(FILA[st.sec]);
+  if (st.abiertos.has(k)) {
+    st.abiertos.delete(k);
+    if (st.enlace === k) st.enlace = null;
+    escribeHash(false);
+  } else {
+    st.abiertos.add(k);
+    if (enlazable) { st.enlace = k; escribeHash(true); }
+    await cargaDetalle(k);
+  }
   pintar();
   // Desde una tarjeta del tablero la ficha se abre más abajo: que se vea.
   if (st.abiertos.has(k)) $(`.f[data-k="${CSS.escape(k)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -1608,6 +1700,7 @@ function abre(sec, k) {
   if (ir(sec) === false) return;
   st.abiertos.add(k);
   st.sel = k;
+  if (FILA[sec] && k.startsWith(FILA[sec])) { st.enlace = k; st.irA = k; escribeHash(false); }
 }
 
 
@@ -1967,6 +2060,7 @@ document.addEventListener('keydown', ev => {
     else {
       st.abiertos.clear();
       st.sel = null;
+      st.enlace = null;
     }
     st.html = '';
     pintar();
@@ -2011,16 +2105,16 @@ document.addEventListener('visibilitychange', tick);
 addEventListener('beforeunload', ev => {
   if (Object.values(st.ed).some(E => sucio(E.borrador))) { ev.preventDefault(); ev.returnValue = ''; }
 });
-addEventListener('hashchange', () => {
-  const h = location.hash.slice(1);
-  if (SECCIONES.includes(h) && h !== st.sec) ir(h);
-});
+// popstate llega antes que un repintado pudiera pisar el hash nuevo; hashchange
+// trae la URL nueva en el propio evento. Aplicar dos veces no hace nada.
+addEventListener('popstate', () => alCambiarHash(location.hash));
+addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
 
 // -------------------------------------------------------------------- arranque
 
 {
-  const h = location.hash.slice(1);
-  if (SECCIONES.includes(h)) st.sec = h;
+  const enlace = enlaces.leer(location.hash);
+  if (SECCIONES.includes(enlace.sec)) st.sec = enlace.sec;
   try {
     // Las claves antiguas de la memoria (ea-mem-*) pasan a ea-memoria-*.
     for (const [viejo, nuevo] of [['ea-mem-plegados', 'ea-memoria-plegados'], ['ea-mem-sel', 'ea-memoria-sel']]) {
@@ -2034,6 +2128,7 @@ addEventListener('hashchange', () => {
       E.sel = localStorage.getItem(`ea-${sec}-sel`);
     }
   } catch { /* sin almacenamiento */ }
+  aplicaEnlace(enlace); // la fila y los filtros del hash (de otra sección, se ignoran por defecto)
   gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
   tour.montar({ ir, seccion: () => st.sec });
   marco();
@@ -2047,7 +2142,8 @@ addEventListener('hashchange', () => {
     if (sin && $('#lectura').hidden) avisa(ea.avisoLectura);
     $('#lectura').hidden = !sin;
   };
-  ea.alCambiarSesion(lectura);
+  // Una clave nueva (pegada en una página ya abierta) se comprueba antes de fiarse.
+  ea.alCambiarSesion(ok => (ok ? ea.sesion().catch(() => {}).finally(lectura) : lectura()));
   ea.sesion().catch(() => {}).finally(lectura);
   tick();
   // El refresco sale de los ajustes (web.sondeo_ms); sin ellos, cada 3 s.

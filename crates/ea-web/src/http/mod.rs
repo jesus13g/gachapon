@@ -25,6 +25,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/app.css", get(app_css))
         .route("/app.js", get(app_js))
         .route("/cliente.js", get(cliente_js))
+        .route("/enlaces.js", get(enlaces_js))
         .route("/gashapon.css", get(gashapon_css))
         .route("/gashapon.js", get(gashapon_js))
         .route("/tour.js", get(tour_js))
@@ -161,6 +162,10 @@ async fn app_js() -> Response {
 
 async fn cliente_js() -> Response {
     estatico("text/javascript; charset=utf-8", include_str!("../../static/cliente.js").into())
+}
+
+async fn enlaces_js() -> Response {
+    estatico("text/javascript; charset=utf-8", include_str!("../../static/enlaces.js").into())
 }
 
 async fn gashapon_css() -> Response {

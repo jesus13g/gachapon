@@ -66,7 +66,9 @@ iteraciones; en una obra recorre las fases, guarda una instantánea del árbol t
 cada una y se detiene cada `revisar_cada`. Entrega un informe (resultado, motivo,
 evidencia, diff stat, fases, `obra_completa`) y encola el trabajo en `claude-code`.
 Una rutina que pasa se cierra sola. Al arrancar recupera lo que se quedó a medias.
-Los fallos, bloqueos y paquetes en espera avisan con `notify-send`.
+Los fallos, bloqueos y paquetes en espera avisan con `notify-send`; el aviso
+lleva una acción **abrir** que lanza `ea-web-open '#trabajos/<id>'` (el proceso
+del aviso va aparte: el ejecutor no lo espera).
 
 ### Seguridad
 
@@ -602,6 +604,21 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 `/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
 abre la ayuda y `t` abre el recorrido guiado, que va de vista en vista
 iluminando cada zona (solo mira, nunca lanza nada; arranca solo la primera vez).
+
+Enlaces profundos: el hash dice la sección, la fila desplegada y los filtros,
+`#<seccion>[/<fila>][?<param>=<valor>&…]`. Por ejemplo
+`localhost:8092/#trabajos/<id>` abre la ficha de un trabajo,
+`#rutinas/<slug>`, `#acciones/<herramienta>` o `#propuestas/<n>` despliegan
+esa fila, y `#diario?latidos=1&q=texto`, `#trabajos?estado=en_revision` o
+`#propuestas?todas=1` abren la sección con esos filtros (`q` es el cuadro de
+filtrar y vale en todas). Navegar reescribe el hash: cambiar de sección o abrir
+una fila deja una entrada en el historial (el botón atrás vuelve), y recargar
+conserva la vista. La fila y los valores van con `encodeURIComponent`; la
+gramática y sus pruebas están en `crates/ea-web/static/enlaces.js` y
+`crates/ea-web/tests/js/` (`node --test crates/ea-web/tests/js/`; `cargo test`
+las lanza si hay `node`). `ea-web-open '#trabajos/<id>'` abre una ventana en esa
+vista con la clave (`#trabajos/<id>&clave=…`), y los avisos de escritorio del
+ejecutor llevan una acción **abrir** que hace justo eso.
 
 API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff`,
 `/api/colas`, `/api/semaforos`, `/api/rutinas`; y, con `Content-Type:

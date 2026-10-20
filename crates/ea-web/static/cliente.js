@@ -4,8 +4,8 @@
 
 //
 // Clave de sesión: `ea-web-open` abre la página con `#clave=<clave>`. El hash
-// son partes separadas por `&` (la sección, `clave=…` y, más adelante,
-// enlaces profundos): aquí se saca la clave, se guarda en sessionStorage y se
+// son partes separadas por `&` (`clave=…` y el enlace profundo: sección,
+// fila y filtros, ver enlaces.js): aquí se saca la clave, se guarda en sessionStorage y se
 // deja el resto del hash tal cual con history.replaceState, antes de que
 // app.js lo lea. Toda petición que no sea GET lleva la clave en X-EA-Clave;
 // sin ella (o si el servidor la rechaza) el panel queda en solo lectura y las
@@ -15,7 +15,8 @@ const ea = (() => {
   const AVISO_LECTURA = 'Panel en solo lectura: ábrelo con ea-web-open para poder cambiar nada.';
   let clave = null;
   try { clave = sessionStorage.getItem('ea-clave'); } catch { /* sin almacenamiento */ }
-  {
+  const oyentes = [];
+  function recogeClave() {
     const partes = location.hash.slice(1).split('&').filter(Boolean);
     const resto = partes.filter(p => !p.startsWith('clave='));
     if (resto.length !== partes.length) {
@@ -23,11 +24,17 @@ const ea = (() => {
       if (nueva) {
         clave = nueva;
         try { sessionStorage.setItem('ea-clave', clave); } catch { /* sin almacenamiento: vale para esta carga */ }
+        oyentes.forEach(f => f(true));
       }
       history.replaceState(null, '', location.pathname + location.search + (resto.length ? '#' + resto.join('&') : ''));
     }
   }
-  const oyentes = [];
+  recogeClave();
+  // También si la clave llega a una página ya abierta (se pega en la barra de
+  // direcciones): estos oyentes van antes que los de app.js, que ya ven el
+  // hash sin ella.
+  addEventListener('popstate', recogeClave);
+  addEventListener('hashchange', recogeClave);
   function soloLectura() {
     clave = null;
     try { sessionStorage.removeItem('ea-clave'); } catch { /* sin almacenamiento */ }
@@ -53,7 +60,8 @@ const ea = (() => {
   return {
     // Sesión: `escritura()` dice si hay clave (sin preguntar); `sesion()`
     // pregunta al servidor si vale y, si no, pasa a solo lectura;
-    // `alCambiarSesion(f)` avisa con f(false) al perder la clave.
+    // `alCambiarSesion(f)` avisa con f(false) al perder la clave y con
+    // f(true) al recibir una nueva en una página ya abierta.
     escritura: () => !!clave,
     sesion: async () => {
       if (!clave) return false;
