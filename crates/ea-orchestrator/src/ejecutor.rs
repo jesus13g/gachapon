@@ -39,7 +39,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use ea_bus::{
-    Agente, Bus, CandadoWorktree, ConfigOrquestador, Evento, FaseInforme, Informe, Modo, Ocupante,
+    Bus, Rol, CandadoWorktree, ConfigOrquestador, Evento, FaseInforme, Informe, Modo, Ocupante,
     Orden, ResultadoInforme, Topes,
 };
 
@@ -61,7 +61,7 @@ const ESPERA_SALIDA: Duration = Duration::from_secs(5);
 pub struct SalidaAgente {
     /// Código de salida (`None` si murió por señal, por tiempo, o no arrancó).
     pub codigo: Option<i32>,
-    /// Salida en bruto (para `salida-qwen.json`).
+    /// Salida en bruto (para `salida-agente.json`).
     pub bruta: String,
     /// Texto final del agente (resumen), si se pudo extraer.
     pub resumen: String,
@@ -102,16 +102,16 @@ impl AgenteLocal for QwenCode {
             let home = std::env::var("HOME").unwrap_or_default();
             let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir());
             args.extend(argumentos_bwrap(&home, worktree, ejecucion.as_deref()));
-            args.push(config.qwen_bin.clone());
+            args.push(config.ejecutor.bin.clone());
             Command::new("bwrap")
         } else {
-            Command::new(&config.qwen_bin)
+            Command::new(&config.ejecutor.bin)
         };
         // `--exclude-tools` es un array: va antes de las demás opciones para
         // que no se trague la orden, que va la última.
         for a in [
             "--exclude-tools", "web_fetch", "web_search", "get_goal", "update_goal", "notebook_edit", "--bare", "--auth-type", "openai",
-            "--openai-base-url", &config.base_url, "--openai-api-key", "local", "-m", &config.modelo,
+            "--openai-base-url", &config.ejecutor.modelo.base_url, "--openai-api-key", "local", "-m", &config.ejecutor.modelo.nombre,
             "--approval-mode", "yolo",
         ] {
             args.push(a.into());
@@ -165,7 +165,7 @@ fn argumentos_bwrap(home: &str, worktree: &Path, ejecucion: Option<&Path>) -> Ve
 
 /// Texto del último elemento `type=result` del array JSON de Qwen.
 fn texto_final(bruta: &str) -> String {
-    ea_bus::resumen_salida_agente(bruta)
+    ea_bus::resumen_salida_agente(ea_bus::TipoAgente::QwenCode, bruta)
 }
 
 /// Ejecuta con `timeout`; devuelve (código, stdout, stderr). Código `None`
@@ -391,7 +391,7 @@ pub fn ejecutar_uno(bus: &Bus, config: &ConfigOrquestador, agente: &dyn AgenteLo
 }
 
 fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn AgenteLocal, espera: Duration) -> Option<String> {
-    let id = match bus.tomar(Agente::ModeloLocal) {
+    let id = match bus.tomar(Rol::Ejecutor) {
         Ok(Some(id)) => id,
         Ok(None) => return None,
         Err(e) => {
@@ -416,16 +416,17 @@ fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn A
 
     // Candado antes de pasar a Ejecutando: si está ocupado, el trabajo sigue
     // EnCola y solo se vuelve a poner en la cola.
-    let ocupante = Ocupante { agente: "modelo-local".into(), trabajo: id.clone(), pid: 0, desde: String::new() };
+    let ocupante =
+        Ocupante { agente: config.ejecutor.id.clone(), trabajo: id.clone(), pid: 0, desde: String::new(), rol: Some(Rol::Ejecutor) };
     let candado = match CandadoWorktree::adquirir_en(bus.raiz(), wt, ocupante, espera) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(%id, error = %e, "worktree ocupado; se vuelve a encolar");
-            let _ = bus.encolar(Agente::ModeloLocal, &id, "worktree ocupado");
+            let _ = bus.encolar(Rol::Ejecutor, &id, "worktree ocupado");
             return Some(id);
         }
     };
-    let fase_actual = match bus.aplicar(&id, Evento::Tomar) {
+    let fase_actual = match bus.tomar_con(&id, config.ejecutor.ejecutado_por()) {
         Ok(e) => e.fase_actual,
         Err(e) => {
             tracing::warn!(%id, error = %e, "no se pudo pasar a ejecutando");
@@ -433,6 +434,14 @@ fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn A
         }
     };
     let inicio = Instant::now();
+
+    // Provisional hasta que existan los adaptadores de Codex y OpenCode
+    // (spec 017, T-004): no se lanza un binario con argumentos que no son suyos.
+    if config.ejecutor.tipo != ea_bus::TipoAgente::QwenCode {
+        let motivo = format!("el ejecutor {} aún no tiene adaptador en el orquestador", config.ejecutor.id);
+        entregar(bus, config, &id, &orden, bloqueado(&motivo, String::new()));
+        return Some(id);
+    }
 
     // El candado se mantiene durante todo el bucle de iteraciones y fases.
     match trabajar(bus, config, agente, &id, &orden, fase_actual, wt, inicio) {
@@ -569,7 +578,7 @@ fn bucle(
         Err(e) => return Some(Bucle { pasa: false, evidencia: e.to_string(), motivo: Some(e.to_string()) }),
     };
     if !sistema.is_empty() {
-        let _ = std::fs::write(dir.join("skills-qwen.md"), &sistema);
+        let _ = std::fs::write(dir.join(ea_bus::SKILLS_AGENTE), &sistema);
     }
     let base = construir_prompt(orden, titulo, cuerpo, criterio);
     let max = orden.topes.iteraciones.max(1);
@@ -589,7 +598,7 @@ fn bucle(
             ),
         };
         let salida = agente.ejecutar(&prompt, &sistema, wt, &orden.topes, config, &cancelado);
-        let _ = std::fs::write(dir.join("salida-qwen.json"), &salida.bruta);
+        let _ = std::fs::write(dir.join(ea_bus::SALIDA_AGENTE), &salida.bruta);
         if salida.cancelado || cancelado() {
             return None;
         }
@@ -730,7 +739,7 @@ fn trabajar_obra(
         if !r.pasa {
             let stat = instantanea(wt, &dir).map(|t| diff_entre(wt, &previo, &t, true)).unwrap_or_default();
             let _ = bus.registrar_fase(id, f.numero, "bloqueada", &serde_json::json!({ "motivo": r.motivo, "diff_stat": stat }));
-            informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: "bloqueada".into(), diff_stat: stat });
+            informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: "bloqueada".into(), diff_stat: stat, ejecutado_por: Some(config.ejecutor.ejecutado_por()) });
             fallo = Some((format!("fase {}: {}", f.numero, r.motivo.unwrap_or_default()), r.evidencia));
             break;
         }
@@ -740,7 +749,7 @@ fn trabajar_obra(
         };
         let stat = diff_entre(wt, &previo, &arbol, true);
         let _ = bus.registrar_fase(id, f.numero, "hecha", &serde_json::json!({ "diff_stat": stat, "arbol": arbol }));
-        informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: "hecha".into(), diff_stat: stat });
+        informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: "hecha".into(), diff_stat: stat, ejecutado_por: Some(config.ejecutor.ejecutado_por()) });
         previo = arbol;
         let _ = std::fs::write(&f_ultimo, &previo);
         idx += 1;
@@ -992,8 +1001,11 @@ mod tests {
         assert_eq!(inf.resultado, ResultadoInforme::Terminado);
         assert!(inf.diff_stat.unwrap().contains("ok.txt"));
         assert!(inf.commit_inicio.is_some());
-        assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap()[0].trabajo, id);
-        assert!(e.path().join("trabajos").join(&id).join("salida-qwen.json").exists());
+        assert_eq!(bus.listar_cola(Rol::Planificador).unwrap()[0].trabajo, id);
+        assert!(e.path().join("trabajos").join(&id).join(ea_bus::SALIDA_AGENTE).exists());
+        let por = config().ejecutor.ejecutado_por();
+        assert_eq!(bus.leer_estado(&id).unwrap().ejecutado_por.as_ref(), Some(&por));
+        assert_eq!(inf.ejecutado_por.as_ref(), Some(&por), "el informe dice quién lo hizo");
         assert_eq!(ejecutar_uno(&bus, &config(), &ag), None);
     }
 
@@ -1039,7 +1051,7 @@ mod tests {
         assert!(s.contains("Usa cargo test."));
         assert!(!s.contains("Prueba primero."));
         assert!(!ag.visto.lock().unwrap()[0].contains("Usa cargo test."));
-        assert!(e.path().join("trabajos").join(&id).join("skills-qwen.md").exists());
+        assert!(e.path().join("trabajos").join(&id).join(ea_bus::SKILLS_AGENTE).exists());
         assert_eq!(bus.leer_informe(&id).unwrap().unwrap().resultado, ResultadoInforme::Terminado);
     }
 
@@ -1094,7 +1106,7 @@ mod tests {
         assert_eq!(inf.resultado, ResultadoInforme::Bloqueado);
         assert_eq!(inf.motivo.as_deref(), Some("iteraciones agotadas"));
         assert!(inf.evidencia.contains("roto"));
-        assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap()[0].motivo, "bloqueado");
+        assert_eq!(bus.listar_cola(Rol::Planificador).unwrap()[0].motivo, "bloqueado");
     }
 
     #[test]
@@ -1130,14 +1142,14 @@ mod tests {
         let e = tempfile::tempdir().unwrap();
         let bus = Bus::abrir_en(e.path()).unwrap();
         let id = bus.crear_trabajo(orden(wt.path(), "true")).unwrap();
-        let ocupante = Ocupante { agente: "claude-code".into(), trabajo: "x".into(), pid: 0, desde: String::new() };
+        let ocupante = Ocupante { agente: "claude-code".into(), trabajo: "x".into(), pid: 0, desde: String::new(), rol: Some(Rol::Planificador) };
         let _c = CandadoWorktree::adquirir_en(e.path(), wt.path(), ocupante, Duration::from_secs(1)).unwrap();
         assert_eq!(
             ejecutar_uno_con_espera(&bus, &config(), &doble("true", 0), Duration::from_millis(200)),
             Some(id.clone())
         );
         assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
-        assert_eq!(bus.listar_cola(Agente::ModeloLocal).unwrap()[0].motivo, "worktree ocupado");
+        assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap()[0].motivo, "worktree ocupado");
     }
 
     #[test]
@@ -1155,7 +1167,7 @@ mod tests {
         let inf = bus.leer_informe(&id).unwrap().unwrap();
         assert_eq!(inf.resultado, ResultadoInforme::Terminado);
         assert_eq!(bus.leer_estado(&id).unwrap().iteracion, 2);
-        assert_eq!(bus.listar_cola(Agente::ClaudeCode).unwrap().len(), 1);
+        assert_eq!(bus.listar_cola(Rol::Planificador).unwrap().len(), 1);
     }
 
     #[test]
@@ -1210,13 +1222,28 @@ mod tests {
         assert!(staged.is_empty(), "índice tocado: {staged}");
 
         bus.reformular(&id, "", None).unwrap(); // = ea trabajo continuar
-        ejecutar_uno(&bus, &config(), &ag);
+        // Entre medias cambia el ejecutor: la fase 3 la hace el nuevo.
+        let mut otro = config();
+        otro.ejecutor.id = "codex".into();
+        ejecutar_uno(&bus, &otro, &ag);
         let inf = bus.leer_informe(&id).unwrap().unwrap();
         assert_eq!((inf.fases_hechas, inf.obra_completa, inf.motivo), (3, true, None));
         assert_eq!(inf.fases.len(), 3);
+        let quien: Vec<_> = inf.fases.iter().map(|f| f.ejecutado_por.as_ref().unwrap().agente.as_str()).collect();
+        assert_eq!(quien, ["qwen-code", "qwen-code", "codex"]);
         let d = inf.diff.unwrap();
         assert!(d.contains("+++ b/f3") && !d.contains("+++ b/f1"));
         assert_eq!(bus.leer_estado(&id).unwrap().fase_actual, Some(4));
+
+        // Un ejecutor sin adaptador no se lanza: el trabajo queda bloqueado.
+        let id = bus.crear_trabajo(fases3(wt.path(), None)).unwrap();
+        otro.ejecutor.tipo = ea_bus::TipoAgente::Codex;
+        let n = ag.visto.lock().unwrap().len();
+        ejecutar_uno(&bus, &otro, &ag);
+        let inf = bus.leer_informe(&id).unwrap().unwrap();
+        assert_eq!(inf.resultado, ResultadoInforme::Bloqueado);
+        assert!(inf.motivo.unwrap().contains("codex"));
+        assert_eq!(ag.visto.lock().unwrap().len(), n, "no se llamó al agente");
     }
 
     #[test]
@@ -1267,8 +1294,8 @@ mod tests {
         let id = bus.crear_trabajo(rutina_orden(wt.path(), "test -f ok.txt")).unwrap();
         ejecutar_uno(&bus, &config(), &doble("echo hola > ok.txt", 0));
         assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::Cerrado);
-        assert!(bus.listar_cola(Agente::ClaudeCode).unwrap().is_empty());
-        assert!(bus.listar_cola(Agente::ModeloLocal).unwrap().is_empty());
+        assert!(bus.listar_cola(Rol::Planificador).unwrap().is_empty());
+        assert!(bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
         assert!(!e.path().join("trabajos").join(&id).join("paquete-correccion.md").exists());
     }
 
@@ -1285,11 +1312,11 @@ mod tests {
         let id = bus.lanzar_rutina("prueba", &[]).unwrap();
         ejecutar_uno(&bus, &config(), &doble("true", 0));
         assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnEspera);
-        assert!(bus.listar_cola(Agente::ClaudeCode).unwrap().is_empty());
+        assert!(bus.listar_cola(Rol::Planificador).unwrap().is_empty());
         let p = std::fs::read_to_string(e.path().join("estado/trabajos").join(&id).join("paquete-correccion.md")).unwrap();
         assert!(p.contains("slug = \"prueba\"") && p.contains("test -f ok.txt") && p.contains("iteraciones agotadas"));
         bus.confirmar(&id, "revisa la ruta").unwrap();
-        let c = bus.listar_cola(Agente::ClaudeCode).unwrap();
+        let c = bus.listar_cola(Rol::Planificador).unwrap();
         assert_eq!((c.len(), c[0].trabajo.as_str(), c[0].motivo.as_str()), (1, id.as_str(), "corrección de rutina"));
         let p = std::fs::read_to_string(e.path().join("estado/trabajos").join(&id).join("paquete-correccion.md")).unwrap();
         assert!(p.contains("revisa la ruta"));
@@ -1335,8 +1362,8 @@ mod tests {
     fn queda_cancelado_y_suelto(bus: &Bus, id: &str, wt: &Path) {
         assert_eq!(bus.leer_estado(id).unwrap().estado, EstadoTrabajo::Cancelado);
         assert!(bus.leer_informe(id).unwrap().is_none());
-        assert!(bus.listar_cola(Agente::ClaudeCode).unwrap().is_empty());
-        assert!(bus.listar_cola(Agente::ModeloLocal).unwrap().is_empty());
+        assert!(bus.listar_cola(Rol::Planificador).unwrap().is_empty());
+        assert!(bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
         assert!(CandadoWorktree::ocupante_en(bus.raiz(), wt).is_none(), "el semáforo sigue cogido");
     }
 
@@ -1429,7 +1456,8 @@ mod tests {
         let qwen = bin.path().join("qwen-falso");
         std::fs::write(&qwen, "#!/bin/sh\nsleep 600 &\necho $! > pid-nieto\nwait\n").unwrap();
         std::fs::set_permissions(&qwen, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let cfg = ConfigOrquestador { sandbox: false, qwen_bin: qwen.to_string_lossy().into(), ..config() };
+        let mut cfg = ConfigOrquestador { sandbox: false, ..config() };
+        cfg.ejecutor.bin = qwen.to_string_lossy().into();
         let mut o = orden(wt.path(), "touch criterio-corrio; false");
         o.topes.iteraciones = 3;
         let id = bus.crear_trabajo(o).unwrap();

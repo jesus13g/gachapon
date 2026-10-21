@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_bus::{Agente, Bus};
+use ea_bus::{Bus, Rol};
 use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 
 use super::fmt_ts;
@@ -82,7 +82,7 @@ fn mostrar_bus() {
     }
     println!("{table}");
 
-    for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+    for a in Rol::TODOS {
         let n = bus.listar_cola(a).map(|c| c.len()).unwrap_or(0);
         println!("Cola {}: {n}", a.as_str());
     }

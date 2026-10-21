@@ -45,7 +45,7 @@ pub enum Command {
     },
     /// Entradas de una cola del bus (por defecto, las dos)
     Cola {
-        /// modelo-local o claude-code
+        /// planificador o ejecutor (también claude-code o modelo-local)
         agente: Option<String>,
         /// Salida en JSON
         #[arg(long)]

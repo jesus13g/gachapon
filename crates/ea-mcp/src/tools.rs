@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use ea_bus::{Agente, Bus};
+use ea_bus::{Bus, Rol};
 use ea_store::{Event, EventFilter, EventOutcome, NewEvent, Store};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -110,7 +110,7 @@ fn resumen_bus() -> (serde_json::Value, serde_json::Value, serde_json::Value) {
                 *n = json!(n.as_i64().unwrap_or(0) + 1);
             }
         }
-        for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+        for a in Rol::TODOS {
             let ids: Vec<_> = bus.listar_cola(a).unwrap_or_default().into_iter().map(|e| e.trabajo).collect();
             colas.insert(a.as_str().into(), json!(ids));
         }

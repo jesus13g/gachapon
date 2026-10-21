@@ -4,21 +4,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{ErrorBus, Resultado};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Agente {
-    #[serde(rename = "modelo-local")]
-    ModeloLocal,
-    #[serde(rename = "claude-code")]
-    ClaudeCode,
-}
+/// El rol de una cola: el planificador (`claude-code` en disco) o el
+/// ejecutor (`modelo-local`). Lo define `ea-ajustes` (spec 017, RF-001).
+pub use ea_ajustes::Rol;
 
-impl Agente {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Agente::ModeloLocal => "modelo-local",
-            Agente::ClaudeCode => "claude-code",
-        }
-    }
+/// Quién ejecutó una iteración: el agente (id del catálogo) y el nombre del
+/// modelo con el que se tomó el trabajo (spec 017, RF-008). Opcional en todo
+/// lo que se guarda, para leer trabajos de antes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EjecutadoPor {
+    pub agente: String,
+    pub modelo: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,7 +71,7 @@ pub struct Fase {
     pub entregable: String,
     /// Comando de shell que decide si la fase está hecha.
     pub criterio: String,
-    /// Skills de Qwen para esta fase; si está vacío, las de la orden.
+    /// Skills del ejecutor para esta fase; si está vacío, las de la orden.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
 }
@@ -109,7 +105,7 @@ pub struct Orden {
     /// Notas que añade la revisión al reformular.
     #[serde(default)]
     pub notas_revision: Vec<String>,
-    /// Skills de Qwen que lleva el trabajo (las elige quien tenga la llave).
+    /// Skills del ejecutor que lleva el trabajo (las elige quien tenga la llave).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
     pub creada_en: String,
@@ -150,6 +146,9 @@ pub struct Estado {
     pub actualizado_en: String,
     #[serde(default)]
     pub detalle: Option<String>,
+    /// El agente y el modelo con los que se tomó por última vez.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ejecutado_por: Option<EjecutadoPor>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +167,8 @@ pub struct FaseInforme {
     pub resultado: String,
     #[serde(default)]
     pub diff_stat: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ejecutado_por: Option<EjecutadoPor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,8 +197,14 @@ pub struct Informe {
     /// Obra: diff de las fases desde la última revisión (recortado).
     #[serde(default)]
     pub diff: Option<String>,
+    /// Con qué agente y modelo se hizo esta iteración.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ejecutado_por: Option<EjecutadoPor>,
 }
 
+// Un evento vive lo que dura una transición: no compensa meter el informe en
+// una caja.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Evento {
     Tomar,
@@ -259,6 +266,7 @@ impl Informe {
             obra_completa: false,
             fases: vec![],
             diff: None,
+            ejecutado_por: None,
         }
     }
 }

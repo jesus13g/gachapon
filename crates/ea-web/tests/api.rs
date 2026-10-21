@@ -786,7 +786,7 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     let _candado = ea_bus::CandadoWorktree::adquirir_en(
         bus.raiz(),
         std::path::Path::new("/tmp"),
-        ea_bus::Ocupante { agente: "modelo-local".into(), trabajo: id.clone(), pid: 0, desde: "2026-10-14T10:00:00Z".into() },
+        ea_bus::Ocupante { agente: "modelo-local".into(), trabajo: id.clone(), pid: 0, desde: "2026-10-14T10:00:00Z".into(), rol: None },
         std::time::Duration::from_millis(50),
     )
     .unwrap();

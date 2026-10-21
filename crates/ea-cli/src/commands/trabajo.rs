@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Result};
-use ea_bus::{Agente, Bus, Evento, Modo, Orden, Topes};
+use ea_bus::{Bus, Rol, Evento, Modo, Orden, Topes};
 
 pub(super) fn bus() -> Result<Bus> {
     let b = Bus::abrir()?.con_actor("ea-cli");
@@ -185,10 +185,11 @@ pub fn confirmar(id: &str, contexto: &str) -> Result<()> {
 pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
     let b = Bus::abrir()?;
     let agentes = match agente {
-        None => vec![Agente::ModeloLocal, Agente::ClaudeCode],
-        Some("modelo-local") => vec![Agente::ModeloLocal],
-        Some("claude-code") => vec![Agente::ClaudeCode],
-        Some(otro) => bail!("agente desconocido: {otro} (modelo-local o claude-code)"),
+        None => Rol::TODOS.to_vec(),
+        Some(nombre) => match Rol::desde(nombre) {
+            Some(rol) => vec![rol],
+            None => bail!("rol desconocido: {nombre} (planificador o ejecutor; también claude-code o modelo-local)"),
+        },
     };
     if json {
         let mut m = serde_json::Map::new();
@@ -204,7 +205,7 @@ pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
         return Ok(());
     }
     for a in agentes {
-        println!("[{}]", a.as_str());
+        println!("[{} · cola {}]", a.nombre(), a.as_str());
         for e in b.listar_cola(a)? {
             println!("  {}  {}  ({})", e.encolado_en, e.trabajo, e.motivo);
         }

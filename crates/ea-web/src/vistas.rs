@@ -266,7 +266,8 @@ pub struct TrabajoDetalle {
     pub paquete: Option<String>,
     /// Las fases de una obra en `trabajo_fases` (vacío en misiones y rutinas).
     pub fases: Vec<FaseVista>,
-    /// El texto final del agente en su última ejecución (`salida-qwen.json`).
+    /// El texto final del agente en su última ejecución (`salida-agente.json`,
+    /// o `salida-qwen.json` en los trabajos de antes).
     pub resumen_agente: Option<String>,
 }
 

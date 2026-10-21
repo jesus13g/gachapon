@@ -48,7 +48,8 @@ guarda el historial y el diario.
 colas/modelo-local/       órdenes por ejecutar (un .json por entrada)
 colas/claude-code/        trabajos entregados que esperan revisión
 trabajos/<id>/            orden.json, estado.json, informe.json,
-                          historial.jsonl, paquete-correccion.md (rutinas)
+                          historial.jsonl, paquete-correccion.md (rutinas),
+                          salida-agente.json, skills-agente.md
 semaforos/                un .lock por worktree: quién lo tiene y desde cuándo
 ```
 
@@ -141,7 +142,7 @@ comentarios y claves ajenas).
 | `agente.skills.habilitadas` | `[]` (todas) | lista | | solo terminal | en caliente |
 | `agente.skills.max_por_trabajo` | 3 | 0–5 | | web solo baja; terminal | en caliente |
 | `agente.skills.max_caracteres` | 6000 | 0–12000 | | web solo baja; terminal | en caliente |
-| `agente.skills.pueden_elegir` | `["claude-code"]` | ⊆ `["claude-code"]` | | solo terminal | en caliente |
+| `agente.skills.pueden_elegir` | `["claude-code"]` | ⊆ `["claude-code", "planificador"]` | | solo terminal | en caliente |
 | `orquestador.intervalo_sondeo_s` | 5 | 1–300 | | web y terminal | reiniciar `ea-orchestrator` |
 | `orquestador.intervalo_heartbeat_s` | 30 | 5–600 | | web y terminal | reiniciar los tres servicios |
 | `orquestador.rutinas_dir` | `<config>/rutinas` | ruta | | solo terminal | reiniciar `ea-web`, `ea-mcp` |
@@ -165,8 +166,12 @@ reglas no se escribe; si están rotas en un `ajustes.toml` editado a mano, `ea
 ajustes ver` lo avisa y se usan los valores por defecto de lo afectado. Un
 perfil nuevo se crea en un solo cambio: `ea ajustes establecer
 modelos.rapido.nombre=qwen3-8b modelos.rapido.base_url=http://127.0.0.1:8081/v1`.
-Por ahora el orquestador sigue lanzando a Qwen Code con el perfil del ejecutor;
-los adaptadores de Codex y OpenCode llegan en las siguientes tareas de la 017.
+Cada trabajo anota en `estado.json`, en `historial.jsonl` y en su informe (y en
+cada fase de una obra) con qué agente y modelo se ejecutó (`ejecutado_por`); el
+que está en curso conserva el suyo aunque cambie `roles.ejecutor`. Por ahora el
+orquestador solo sabe lanzar a Qwen Code: con otro ejecutor el trabajo se
+entrega bloqueado hasta que lleguen los adaptadores de Codex y OpenCode
+(siguientes tareas de la 017).
 
 **Techo de topes.** Los topes de cada orden (`turnos`, `tiempo_s`,
 `llamadas_herramienta`, `iteraciones`; por defecto 30/900/60/5) los pone quien la
@@ -284,7 +289,7 @@ propia de skills cortas (~150-250 tokens cada una) en `qwen/skills/<nombre>.md`:
 orden el campo `skills` (y cada fase de una obra puede llevar las suyas), y el
 orquestador inyecta solo esas en el system prompt de Qwen con
 `--append-system-prompt`. El texto inyectado queda en
-`trabajos/<id>/skills-qwen.md`.
+`trabajos/<id>/skills-agente.md` (`skills-qwen.md` en los trabajos de antes).
 
 Las elige Claude Code al formalizar (`/mision`, `/obra`). `[agente.skills]` de
 `ajustes.toml` (o el heredado `[skills]` de `orquestador.toml`) decide qué se
@@ -292,9 +297,12 @@ puede elegir y quién:
 
 - `habilitadas`: lista blanca del catálogo (vacía = todas).
 - `max_por_trabajo` y `max_caracteres`: topes de contexto.
-- `pueden_elegir`: la llave, los valores de `creada_por` autorizados (por defecto
-  `claude-code`). Un trabajo con skills de otro origen se rechaza al crearlo y
-  vuelve a validarse al ejecutarse: si no pasa, se bloquea sin llamar a Qwen.
+- `pueden_elegir`: la llave. Por defecto la tiene el rol planificador
+  (`claude-code`, su nombre en disco, o `planificador`): vale un `creada_por`
+  igual a `planificador`, a `claude-code` o al agente que ocupa
+  `roles.planificador` al crear el trabajo. Un trabajo con skills de otro origen
+  se rechaza al crearlo y vuelve a validarse al ejecutarse: si no pasa, se
+  bloquea sin llamar al agente.
 
 La validación al crear (llave, existencia, habilitación y topes, en la orden y
 en cada fase) la hace `Bus::crear_trabajo`, así que la heredan todos los puntos
@@ -328,7 +336,7 @@ ea trabajo cerrar|cancelar <id>
 ea trabajo reformular <id> --nota "..." [--fase N]  # vuelve al agente local (obra: desde la fase N)
 ea trabajo continuar <id>                    # aprueba una revisión intermedia de una obra
 ea trabajo confirmar <id> [--contexto "..."] # paquete de corrección -> claude-code
-ea cola [modelo-local|claude-code] [--json]  # colas
+ea cola [planificador|ejecutor] [--json]     # colas (valen claude-code y modelo-local)
 ea semaforos                                 # quién tiene el worktree
 
 # Rutinas versionadas

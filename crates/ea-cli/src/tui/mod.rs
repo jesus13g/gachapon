@@ -154,7 +154,7 @@ pub fn run(store: &mut Store) -> Result<()> {
 
 /// Colas, semáforos y trabajos del bus; si no se puede leer, vacío.
 fn datos_bus() -> orquestador_view::DatosOrquestador {
-    use ea_bus::{Agente, Bus, EstadoTrabajo, ResultadoInforme};
+    use ea_bus::{Bus, Rol, EstadoTrabajo, ResultadoInforme};
     let mut d = orquestador_view::DatosOrquestador {
         cola_modelo_local: vec![],
         cola_claude_code: vec![],
@@ -163,7 +163,7 @@ fn datos_bus() -> orquestador_view::DatosOrquestador {
     };
     let Ok(bus) = Bus::abrir() else { return d };
     let titulo = |id: &str| bus.leer_orden(id).map(|o| o.titulo).unwrap_or_else(|_| id.to_string());
-    for (agente, destino) in [(Agente::ModeloLocal, &mut d.cola_modelo_local), (Agente::ClaudeCode, &mut d.cola_claude_code)] {
+    for (agente, destino) in [(Rol::Ejecutor, &mut d.cola_modelo_local), (Rol::Planificador, &mut d.cola_claude_code)] {
         *destino = bus
             .listar_cola(agente)
             .unwrap_or_default()

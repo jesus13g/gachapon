@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use ea_bus::{Agente, Bus, Evento, Modo, Orden, Topes};
+use ea_bus::{Bus, Rol, Evento, Modo, Orden, Topes};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -51,7 +51,7 @@ pub fn listar(s: &AppState) -> Resultado<Vec<TrabajoResumen>> {
     // no se ha enterado (sondea cada 2 s y espera al agente): «cancelando…».
     let en_curso: HashSet<String> = ea_bus::listar_semaforos_en(bus.raiz())
         .into_iter()
-        .filter(|(_, o)| o.agente == "modelo-local")
+        .filter(|(_, o)| o.es_ejecutor())
         .map(|(_, o)| o.trabajo)
         .collect();
     let mut v: Vec<_> = bus.listar_trabajos()?.iter().filter_map(|id| resumen(&bus, id, &en_curso)).collect();
@@ -98,9 +98,9 @@ fn ver_bus(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
         .filter_map(|l| serde_json::from_str(l).ok())
         .collect();
     let paquete = std::fs::read_to_string(dir.join("paquete-correccion.md")).ok();
-    let resumen_agente = std::fs::read_to_string(dir.join("salida-qwen.json"))
-        .ok()
-        .map(|b| ea_bus::resumen_salida_agente(&b))
+    let tipo = ea_bus::tipo_ejecutor(estado.ejecutado_por.as_ref());
+    let resumen_agente = ea_bus::leer_salida_agente(&dir)
+        .map(|b| ea_bus::resumen_salida_agente(tipo, &b))
         .map(|r| r.trim().chars().take(RESUMEN_MAX).collect::<String>())
         .filter(|r| !r.is_empty());
     Ok(TrabajoDetalle {
@@ -401,7 +401,7 @@ pub async fn decidir(s: &AppState, id: &str, d: Decision<'_>) -> Resultado<Estad
 pub fn colas(s: &AppState) -> Resultado<Colas> {
     let bus = bus_lectura(s)?;
     let mut m = Colas::new();
-    for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+    for a in Rol::TODOS {
         let v = bus
             .listar_cola(a)?
             .into_iter()

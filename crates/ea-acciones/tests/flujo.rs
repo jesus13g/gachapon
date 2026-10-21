@@ -388,7 +388,7 @@ async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
     let trabajo = r.datos["trabajo"].as_str().unwrap().to_string();
     let bus = ea_bus::Bus::abrir().unwrap();
     assert_eq!(bus.leer_orden(&trabajo).unwrap().rutina.unwrap().slug, "nocturna");
-    assert_eq!(bus.listar_cola(ea_bus::Agente::ModeloLocal).unwrap().iter().filter(|e| e.trabajo == trabajo).count(), 1);
+    assert_eq!(bus.listar_cola(ea_bus::Rol::Ejecutor).unwrap().iter().filter(|e| e.trabajo == trabajo).count(), 1);
     // No se lanza dos veces la misma rutina mientras la anterior no termina.
     assert!(ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" }))
         .await
