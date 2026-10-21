@@ -1729,6 +1729,22 @@ function enlacesResultado(h, r) {
   return out.length ? `<p class="sal">${out.join(' ')}</p>` : '';
 }
 
+// Formularios guiados de la consola: pasado este tiempo, la simulación se
+// avisa como vieja (ejecutar sigue revalidando contra el mundo de ahora).
+const SIM_CADUCA_S = 60;
+const ESTADO_OPCION = { active: 'en marcha', inactive: 'parado', failed: 'fallido', activating: 'arrancando', deactivating: 'parando' };
+const estadoOpcion = e => ESTADO_OPCION[e] ?? e;
+// La precondición en un renglón: «huella 3f9a1c2b…, bytes 120».
+function textoPrecondicion(p) {
+  if (!p || typeof p !== 'object') return '';
+  return Object.entries(p).map(([k, v]) => {
+    let t = v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    if (k === 'huella' && t.length > 12) t = t.slice(0, 12) + '…';
+    else if (t.length > 60) t = t.slice(0, 60) + '…';
+    return `${k.replace(/_/g, ' ')} ${t}`;
+  }).join(', ');
+}
+
 function filasAcciones(hs) {
   return hs.map(h => {
     const c = st.consola[h.nombre] || {};
@@ -1743,15 +1759,25 @@ function filasAcciones(hs) {
       det = '<div class="fm">' + h.campos.map(f => {
         const val = v[f.nombre] ?? '';
         if (f.opciones.length) {
+          // Cada opción con lo que se sabe de ella ahora (el estado de un servicio).
+          const estados = f.estados || {};
           return `<select ${attrs(f)}><option value="">${esc(f.nombre)}</option>` +
-            f.opciones.map(o => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('') + '</select>';
+            f.opciones.map(o => `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(o)}${estados[o] ? ' · ' + esc(estadoOpcion(estados[o])) : ''}</option>`).join('') + '</select>';
         }
         if (f.largo) return `<textarea ${attrs(f)} placeholder="${esc(f.ayuda)}" spellcheck="false" rows="8">${esc(val)}</textarea>`;
-        return `<input ${attrs(f)} placeholder="${esc(f.ayuda)}" value="${esc(val)}"${f.entero ? ' inputmode="numeric" size="8"' : ''}>`;
+        // Un campo libre con sugerencias: se elige de la lista o se escribe otro.
+        const dl = f.sugerencias?.length ? `ac-${h.nombre}-${f.nombre}` : '';
+        return `<input ${attrs(f)} placeholder="${esc(f.ayuda)}" value="${esc(val)}"${f.entero ? ' inputmode="numeric" size="8"' : ''}${dl ? ` list="${esc(dl)}" autocomplete="off"` : ''}>` +
+          (dl ? `<datalist id="${esc(dl)}">${f.sugerencias.map(o => `<option value="${esc(o)}"></option>`).join('')}</datalist>` : '');
       }).join('') + btn('simular', '◌ simular', 'describe lo que haría, sin hacer nada', { h: h.nombre }) + '</div>';
       // Lo que sale de simular o ejecutar (.sal) caduca en cuanto cambia un argumento.
       if (c.sim) {
-        det += `<p class="tx sal">Simulación: ${esc(c.sim.texto)}</p>` + (c.sim.confirmable
+        const pre = textoPrecondicion(c.sim.precondicion);
+        const edad = c.simEn ? Math.floor((Date.now() - c.simEn) / 1000) : 0;
+        det += `<p class="tx sal">Simulación: ${esc(c.sim.texto)}</p>` +
+          (pre ? `<p class="m sal" title="lo que se revalida al ejecutar; si ha cambiado, no se hace nada">se comprobará: ${esc(pre)}</p>` : '') +
+          (edad > SIM_CADUCA_S ? `<p class="hot sal">La simulación es de hace ${unidades(edad)}: el sistema puede haber cambiado. Vuelve a simular; al ejecutar se revalida igualmente.</p>` : '') +
+          (c.sim.confirmable
           ? `<div class="acc sal">${btn('ejecutar', '▶ ejecutar', 'ejecutar lo simulado', { h: h.nombre }, 'hot')}</div>`
           : `<p class="hot sal">Irreversible: solo desde la terminal, con <b>ea acciones ejecutar ${esc(h.nombre)} --args '${esc(JSON.stringify(c.sim.argumentos))}'</b>.</p>`);
       }
@@ -2739,6 +2765,7 @@ async function accion(b) {
       try {
         if (a === 'simular') {
           c.sim = await ea.simular(h, argumentos(h));
+          c.simEn = Date.now();
         } else if (sim) {
           c.res = await ea.ejecutar(h, sim.argumentos, sim.precondicion);
         }
