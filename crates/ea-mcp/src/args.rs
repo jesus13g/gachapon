@@ -50,6 +50,16 @@ pub struct RutinaArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct HerramientaArgs {
+    /// Id del elemento de la biblioteca: `agente/tipo/ámbito/nombre`, p. ej.
+    /// "codex/mcp/usuario/docs" o "claude-code/plugin/usuario/foo@mkt".
+    pub elemento: String,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct EncolarRutinaArgs {
     /// Nombre (slug) de la rutina, p. ej. "revision-diaria".
     pub slug: String,

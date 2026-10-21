@@ -3,7 +3,8 @@
 //! Es la "capa interna" de §7.3; el catálogo y las definiciones MCP solo
 //! nombran estas herramientas.
 
-use ea_store::Store;
+use ea_biblioteca::{Cambio, Id};
+use ea_store::{EventOutcome, NewEvent, Store};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -105,6 +106,21 @@ impl ProgramarRutina {
 #[serde(deny_unknown_fields)]
 struct PorServicio {
     servicio: String,
+}
+
+/// `ea_activar_herramienta` y `ea_desactivar_herramienta`: el id de un
+/// elemento de la biblioteca (`agente/tipo/ámbito/nombre`).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PorElemento {
+    elemento: String,
+}
+
+impl PorElemento {
+    /// Solo ids con la forma del inventario, nunca texto libre.
+    fn comprobar(&self) -> Result<(), ErrorAccion> {
+        Id::analizar(&self.elemento).map(|_| ()).map_err(|e| ErrorAccion::Argumentos(e.to_string()))
+    }
 }
 
 #[derive(Deserialize)]
@@ -214,6 +230,7 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
         "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
         "ea_programar_rutina" => parsear::<ProgramarRutina>(args)?.comprobar().map(|_| ()),
         "ea_desprogramar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => parsear::<PorElemento>(args)?.comprobar(),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -250,6 +267,8 @@ const CAMPOS_PROMOVER: &[Campo] = &[
     Campo { obligatorio: false, ..campo("destino", "destino en «compartida» (opcional)") },
 ];
 
+const CAMPOS_ELEMENTO: &[Campo] = &[campo("elemento", "id del elemento de la biblioteca (agente/tipo/ámbito/nombre, p. ej. codex/mcp/usuario/docs)")];
+
 /// Los argumentos que acepta una herramienta supervisada, en el orden en que
 /// conviene pedirlos. Debe casar con las estructuras de arriba (lo vigila
 /// una prueba).
@@ -261,6 +280,7 @@ pub fn campos(nombre: &str) -> &'static [Campo] {
         "ea_reiniciar_servicio" => CAMPOS_SERVICIO,
         "ea_registrar_rutina" => CAMPOS_REGISTRAR,
         "ea_promover_nota" => CAMPOS_PROMOVER,
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => CAMPOS_ELEMENTO,
         _ => &[],
     }
 }
@@ -621,6 +641,16 @@ pub fn simular_con<C: Consulta>(
                 json!({ "huella": plan.huella, "destino": plan.destino }),
             )
         }
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => {
+            let a: PorElemento = parsear(args)?;
+            a.comprobar()?;
+            let activar = nombre == "ea_activar_herramienta";
+            let cambio = consulta.biblioteca_cambio(&a.elemento, activar).map_err(ErrorAccion::NoAplica)?;
+            // El cambio entero es la precondición: al aceptar se recalcula y debe ser idéntico
+            // (incluida la huella del fichero que se editaría).
+            let precondicion = json!({ "cambio": cambio });
+            (json!({ "elemento": a.elemento }), format!("{} Es reversible: {} lo deshace.", cambio.describir(), if activar { "desactivarlo" } else { "activarlo" }), precondicion)
+        }
         otro => return Err(ErrorAccion::NoSupervisada(otro.to_string())),
     };
     Ok(Simulacion { herramienta: h.nombre, riesgo: h.riesgo, argumentos, texto, precondicion })
@@ -678,6 +708,7 @@ pub fn aplicar_en_store(
         "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" | "ea_registrar_rutina" => Ok(None),
         "ea_programar_rutina" | "ea_desprogramar_rutina" => Ok(None),
         "ea_retirar_rutina" | "ea_restaurar_rutina" => Ok(None),
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => Ok(None),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -779,6 +810,36 @@ pub async fn aplicar_en_sistema<S: Sistema>(
                 ),
                 trabajo: None,
                 datos: json!({ "rutina": a.slug, "desprogramada": habia }),
+            })
+        }
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => {
+            let a: PorElemento = parsear(args)?;
+            let activar = nombre == "ea_activar_herramienta";
+            // Lo que aceptó el usuario es el cambio simulado; la biblioteca lo revalida
+            // contra el estado de ahora y rechaza el que no coincida con lo que habría hecho.
+            let cambio: Cambio = serde_json::from_value(precondicion["cambio"].clone())
+                .map_err(|_| ErrorAccion::NoAplica("la propuesta no lleva el cambio simulado".into()))?;
+            if cambio.id != a.elemento || cambio.activar != activar {
+                return Err(ErrorAccion::NoAplica("el cambio simulado no es el de esta herramienta y este elemento".into()));
+            }
+            let h = sistema.biblioteca_aplicar(&cambio).await.map_err(ErrorAccion::Sistema)?;
+            let datos = json!({
+                "elemento": h.id, "activar": h.activar, "mecanismo": h.mecanismo, "objetivo": h.objetivo,
+                "antes": h.antes, "despues": h.despues, "copia": h.copia,
+            });
+            // Un evento propio con el valor anterior (art. VI): el de la acción lo lleva también en `resultado`.
+            let _ = store.append_event(NewEvent {
+                actor: actor.to_string(),
+                action: "biblioteca_cambio".to_string(),
+                trabajo: None,
+                outcome: Some(EventOutcome::Ok),
+                duration_ms: None,
+                detail: Some(datos.to_string()),
+            });
+            Ok(Aplicada {
+                texto: format!("{} {}: {}.", if activar { "Activado" } else { "Desactivado" }, h.id, h.texto),
+                trabajo: None,
+                datos,
             })
         }
         "ea_restaurar_rutina" => {

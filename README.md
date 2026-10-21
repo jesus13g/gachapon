@@ -531,6 +531,7 @@ riesgo (§7.3):
 | `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone |
 | `ea_programar_rutina` (`slug` de una rutina registrada y `calendario`, un `OnCalendar`; la simulación da las próximas 3 ejecuciones) y `ea_desprogramar_rutina` (`slug`) | mutación reversible | solo simula o propone |
 | `ea_retirar_rutina` (su TOML a la papelera y su timer desprogramado) y `ea_restaurar_rutina` (vuelve, sin timer), con `slug` | mutación reversible | solo simula o propone |
+| `ea_activar_herramienta` y `ea_desactivar_herramienta` (`elemento`: id `agente/tipo/ámbito/nombre` de la biblioteca; la simulación da el comando o fichero y el valor antes y después; comando oficial, campo `enabled` con copia previa, mover a un almacén o `agente.skills.habilitadas`; nunca `~/.claude.json`) | mutación reversible | solo simula o propone |
 | `ea_eliminar_rutina` (borra para siempre la copia retirada; antes hay que retirarla) | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
 Toda invocación queda registrada en el diario. El actor sale del nombre con

@@ -24,7 +24,7 @@ use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
     BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
-    EncolarRutinaArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
+    EncolarRutinaArgs, HerramientaArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
 };
 
 /// Quién hace una llamada MCP: el actor que se escribe en el diario y del
@@ -812,6 +812,50 @@ impl EaTools {
     }
 
     #[tool(
+        description = "[Riesgo: mutación reversible] Activa un elemento de la biblioteca de \
+            herramientas (skill, plugin, subagente, MCP, comando o extensión de un agente) \
+            por su id `agente/tipo/ámbito/nombre`. NO lo activa: con simular=true describe \
+            qué fichero o comando se usaría y el valor antes y después; sin él encola una \
+            propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con \
+            ea_desactivar_herramienta.",
+        annotations(
+            title = "Activar herramienta",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_activar_herramienta(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<HerramientaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_activar_herramienta", json!({ "elemento": args.elemento }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Desactiva un elemento de la biblioteca de \
+            herramientas (skill, plugin, subagente, MCP, comando o extensión de un agente) \
+            por su id `agente/tipo/ámbito/nombre`. NO lo desactiva: con simular=true describe \
+            qué fichero o comando se usaría y el valor antes y después; sin él encola una \
+            propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con \
+            ea_activar_herramienta.",
+        annotations(
+            title = "Desactivar herramienta",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_desactivar_herramienta(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<HerramientaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_desactivar_herramienta", json!({ "elemento": args.elemento }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
         description = "[Riesgo: mutación IRREVERSIBLE] Borra para siempre la copia retirada de \
             una rutina (la de la papelera; antes hay que retirarla con ea_retirar_rutina). Sus \
             versiones siguen en SQLite. NO lo ejecuta: con simular=true lo describe; sin él \
@@ -846,7 +890,8 @@ impl ServerHandler for EaTools {
                  herramientas que cambian el sistema (ea_encolar_rutina, \
                  ea_registrar_rutina, ea_programar_rutina, ea_desprogramar_rutina, \
                  ea_retirar_rutina, ea_restaurar_rutina, ea_reiniciar_servicio, \
-                 ea_eliminar_rutina, ea_promover_nota) nunca se \
+                 ea_eliminar_rutina, ea_promover_nota, ea_activar_herramienta, \
+                 ea_desactivar_herramienta) nunca se \
                  ejecutan desde aquí: con simular=true describen lo que harían; sin él \
                  encolan una propuesta que solo el usuario puede aceptar. Las \
                  irreversibles solo se confirman desde una terminal. La bóveda de \
