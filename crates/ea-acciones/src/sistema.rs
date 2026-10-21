@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use ea_biblioteca::{Cambio, Contexto, Hecho, Ordenes, OrdenesDoble, OrdenesReales};
 use ea_boveda::{Boveda, ErrorBoveda, PlanPromocion};
 use ea_store::Store;
 use tokio::process::Command;
@@ -56,6 +57,12 @@ pub trait Consulta: Send + Sync {
         &self,
         calendario: &str,
     ) -> impl Future<Output = Result<Result<Calendario, String>, String>> + Send;
+
+    /// Lo que haría activar o desactivar un elemento de la biblioteca (spec
+    /// 018): el [`Cambio`] con su mecanismo, objetivo y valor antes y
+    /// después. Solo lee; falla si no se puede cambiar o falta el binario
+    /// del comando oficial.
+    fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String>;
 }
 
 pub trait Sistema: Consulta {
@@ -94,6 +101,28 @@ pub trait Sistema: Consulta {
     /// Desactiva y borra el timer de una rutina; `Ok(false)` si no lo había
     /// ([`Temporizadores::desprogramar`]). Retirar una rutina lo reutiliza.
     fn timer_desprogramar(&self, slug: &str) -> impl Future<Output = Result<bool, String>> + Send;
+
+    /// Aplica un [`Cambio`] de la biblioteca: revalida contra el estado de
+    /// ahora y lo ejecuta con su mecanismo (comando oficial, campo con copia
+    /// previa, mover o ajustes).
+    fn biblioteca_aplicar(&self, cambio: &Cambio) -> impl Future<Output = Result<Hecho, String>> + Send;
+}
+
+/// Planifica con el entorno real y comprueba que el binario del comando
+/// oficial existe.
+fn planear_real(elemento: &str, activar: bool) -> Result<Cambio, String> {
+    let c = ea_biblioteca::planear(elemento, activar, &Contexto::sistema()).map_err(|e| e.to_string())?;
+    ea_biblioteca::cambio::comprobar_disponible(&c, &OrdenesReales).map_err(|e| e.to_string())?;
+    Ok(c)
+}
+
+/// Aplica en un hilo aparte: puede lanzar una orden de hasta 30 s.
+async fn aplicar_real(cambio: &Cambio) -> Result<Hecho, String> {
+    let c = cambio.clone();
+    tokio::task::spawn_blocking(move || ea_biblioteca::aplicar_con(&c, &Contexto::sistema(), &OrdenesReales))
+        .await
+        .map_err(|e| format!("la tarea del cambio falló: {e}"))?
+        .map_err(|e| e.to_string())
 }
 
 /// Los slugs acaban en una ruta de fichero: nada que no sea `[A-Za-z0-9_-]`.
@@ -182,6 +211,10 @@ impl Consulta for SoloConsulta {
     async fn calendario_validar(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
         Temporizadores::usuario().validar_calendario(calendario).await
     }
+    /// Solo planifica: aplicar exige un [`Sistema`], que este tipo no es.
+    fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
+        planear_real(elemento, activar)
+    }
 }
 
 /// El sistema real, para las interfaces del usuario (`ea`, `ea-web`).
@@ -214,6 +247,9 @@ impl Consulta for SistemaReal {
     }
     async fn calendario_validar(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
         self.temporizadores.validar_calendario(calendario).await
+    }
+    fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
+        planear_real(elemento, activar)
     }
 }
 
@@ -284,6 +320,10 @@ impl Sistema for SistemaReal {
     async fn timer_desprogramar(&self, slug: &str) -> Result<bool, String> {
         self.temporizadores.desprogramar(slug).await
     }
+
+    async fn biblioteca_aplicar(&self, cambio: &Cambio) -> Result<Hecho, String> {
+        aplicar_real(cambio).await
+    }
 }
 
 /// Sistema en memoria para pruebas: no toca `systemd` ni el disco, y apunta
@@ -302,6 +342,11 @@ pub struct SistemaSimulado {
     pub mutaciones: Mutex<Vec<String>>,
     /// Timers programados, por slug: su `OnCalendar` (activos todos).
     pub timers: Mutex<HashMap<String, String>>,
+    /// Raíces y ajustes de prueba de la biblioteca (spec 018); sin ellos, los
+    /// cambios de la biblioteca fallan. Los ficheros son los de esas raíces
+    /// (temporales), y los comandos oficiales van al doble de `ordenes`.
+    pub biblioteca: Mutex<Option<Contexto>>,
+    pub ordenes: OrdenesDoble,
 }
 
 impl SistemaSimulado {
@@ -331,6 +376,15 @@ impl SistemaSimulado {
     pub fn con_timer(self, slug: &str, calendario: &str) -> Self {
         self.timers.lock().unwrap().insert(slug.to_string(), calendario.to_string());
         self
+    }
+
+    pub fn con_biblioteca(self, ctx: Contexto) -> Self {
+        *self.biblioteca.lock().unwrap() = Some(ctx);
+        self
+    }
+
+    fn contexto_biblioteca(&self) -> Result<Contexto, String> {
+        self.biblioteca.lock().unwrap().clone().ok_or_else(|| "la biblioteca no está configurada en el sistema simulado".to_string())
     }
 
     pub fn mutaciones(&self) -> Vec<String> {
@@ -412,6 +466,11 @@ impl Consulta for SistemaSimulado {
             proximas: (1..=crate::temporizador::ITERACIONES).map(|i| format!("ejecución {i} de «{c}»")).collect(),
         }))
     }
+    fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
+        let c = ea_biblioteca::planear(elemento, activar, &self.contexto_biblioteca()?).map_err(|e| e.to_string())?;
+        ea_biblioteca::cambio::comprobar_disponible(&c, &self.ordenes as &dyn Ordenes).map_err(|e| e.to_string())?;
+        Ok(c)
+    }
 }
 
 impl Sistema for SistemaSimulado {
@@ -492,5 +551,10 @@ impl Sistema for SistemaSimulado {
             self.mutaciones.lock().unwrap().push(format!("desprogramar:{slug}"));
         }
         Ok(habia)
+    }
+    async fn biblioteca_aplicar(&self, cambio: &Cambio) -> Result<Hecho, String> {
+        let h = ea_biblioteca::aplicar_con(cambio, &self.contexto_biblioteca()?, &self.ordenes).map_err(|e| e.to_string())?;
+        self.mutaciones.lock().unwrap().push(format!("biblioteca:{}:{}", if h.activar { "activar" } else { "desactivar" }, h.id));
+        Ok(h)
     }
 }

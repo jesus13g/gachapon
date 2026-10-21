@@ -195,6 +195,24 @@ pub const CATALOGO: &[Herramienta] = &[
         local: true,
         resumen: "Propone copiar una nota a la región compartida (la decide el usuario)",
     },
+    // Biblioteca de herramientas (spec 018, F4): activar o desactivar una skill,
+    // plugin, subagente, MCP, comando o extensión de un agente. Reversible (la
+    // una deshace la otra, con copia previa de lo que se edita); lo decide el
+    // usuario. Fuera del modelo local: el ejecutor no se amplía las herramientas.
+    Herramienta {
+        nombre: "ea_activar_herramienta",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Activa un elemento de la biblioteca (skill, plugin, subagente, MCP, comando o extensión)",
+    },
+    Herramienta {
+        nombre: "ea_desactivar_herramienta",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Desactiva un elemento de la biblioteca (skill, plugin, subagente, MCP, comando o extensión)",
+    },
 ];
 
 pub fn buscar(nombre: &str) -> Option<&'static Herramienta> {

@@ -463,6 +463,7 @@ fn los_campos_declarados_casan_con_los_argumentos_que_se_validan() {
         let valor = |c: &Campo| match (c.entero, c.opciones.first(), c.nombre) {
             (true, _, _) => json!(1),
             (_, Some(o), _) => json!(o),
+            (_, _, "elemento") => json!("codex/mcp/usuario/docs"),
             (_, _, "ruta") => json!("claude-code/tema/nota.md"),
             (_, _, "destino") => json!("tema/nota.md"),
             (_, _, "toml") => json!(

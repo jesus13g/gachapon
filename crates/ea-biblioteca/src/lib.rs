@@ -7,6 +7,7 @@
 //! no se puede interpretar queda en [`Inventario::avisos`].
 
 pub mod agentes;
+pub mod cambio;
 mod error;
 mod modelo;
 pub mod raices;
@@ -17,6 +18,7 @@ use std::collections::HashSet;
 use ea_ajustes::{Ajustes, IDS_AGENTES};
 use serde::Serialize;
 
+pub use cambio::{aplicar, aplicar_con, desactivadas, plan_cambio, plan_cambio_con, planear, Cambio, Contexto, Hecho, Objetivo, Ordenes, OrdenesDoble, OrdenesReales};
 pub use error::ErrorBiblioteca;
 pub use modelo::{Activado, Ambito, DefMcp, Elemento, Id, Mecanismo, Tipo, AGENTE_ECOSISTEMA};
 pub use raices::Raices;
