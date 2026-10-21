@@ -376,6 +376,25 @@ pub struct ResultadoAccion {
     pub evento: Option<i64>,
 }
 
+/// Un evento del historial de una herramienta (A3): cuándo, quién, por qué
+/// canal y cómo acabó, con el id para ir al evento en el diario.
+#[derive(Serialize)]
+pub struct EventoHerramienta {
+    pub id: i64,
+    pub ts: String,
+    pub actor: String,
+    pub accion: String,
+    pub resultado: Option<&'static str>,
+    /// `web`, `terminal`, `mcp`…: el del `detail` o, en un `mcp_*`, `mcp`.
+    pub canal: Option<String>,
+    /// Quién la propuso, si el evento viene de una propuesta.
+    pub proponente: Option<String>,
+    pub propuesta: Option<i64>,
+    pub trabajo: Option<String>,
+    pub error: Option<String>,
+    pub duracion_ms: Option<i64>,
+}
+
 // ------------------------------------------------------------------ bóveda
 
 #[derive(Serialize)]

@@ -120,6 +120,8 @@ const ea = (() => {
     simular: (herramienta, argumentos) => post('/api/acciones/simular', { herramienta, argumentos }),
     ejecutar: (herramienta, argumentos, precondicion) =>
       post('/api/acciones/ejecutar', { herramienta, argumentos, precondicion }),
+    // Los últimos eventos de una herramienta en el diario (solo lectura).
+    historialAccion: nombre => api(`/api/acciones/${c(nombre)}/historial`),
 
     boveda: q => api('/api/boveda?q=' + c(q)),
     nota: ruta => api('/api/boveda/nota?ruta=' + c(ruta)),

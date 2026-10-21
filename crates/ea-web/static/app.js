@@ -5,7 +5,7 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
 const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'ajustes'];
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
-const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', boveda: 'b', memoria: 'm' };
+const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
 // Estados de un trabajo: glifo y palabra. El orden es el del recorrido.
 const EST = {
@@ -1784,8 +1784,35 @@ function filasAcciones(hs) {
       if (c.res) det += `<p class="tx sal">✓ ${esc(c.res.texto)}</p>` + enlacesResultado(h.nombre, c.res);
       if (c.err) det += `<p class="hot sal">✕ ${esc(c.err)}</p>`;
     }
+    det += historialHerramienta(st.detalle['a' + h.nombre]);
     return fila('a' + h.nombre, 'a', row, `${h.nombre} ${h.resumen} ${h.riesgo}`, det, h.supervisada ? '' : ' fin');
   });
+}
+
+// ------------------------------------------ historial de una herramienta (A3)
+//
+// En la ficha de cada herramienta, también de las directas, sus últimos
+// eventos del diario (GET /api/acciones/<nombre>/historial): ejecuciones y
+// fallos, propuestas y sus decisiones, invocaciones por MCP (también
+// simuladas y denegadas), con actor y canal. Cada uno lleva al evento en el
+// diario (ir-evento) y, si viene de una propuesta, a ella. Solo lectura.
+
+function historialHerramienta(hs) {
+  if (!hs) return '';
+  if (!hs.length) return '<p class="et">historial</p><p class="m">sin eventos en el diario todavía</p>';
+  const tit = hs.length === 1 ? 'último evento' : `últimos ${hs.length} eventos`;
+  return `<p class="et">${tit}</p><div class="evs">` + hs.map(e => {
+    const mal = e.resultado === 'error';
+    const extra = (e.canal ? ' · ' + esc(e.canal) : '') + (e.proponente ? ' · propuesta por ' + esc(e.proponente) : '') +
+      (e.propuesta != null ? ' ' + btn('ir-prop', '◇ ' + e.propuesta, 'ver la propuesta #' + e.propuesta, { id: e.propuesta }, 'l') : '') +
+      (e.trabajo ? ' ' + btn('ir-trabajo', esc(e.trabajo.slice(9, 15)), 'abrir la ficha del trabajo ' + e.trabajo, { id: e.trabajo }, 'l') : '') +
+      (e.error ? ` · <span class="hot">${esc(e.error)}</span>` : '');
+    return `<div class="ev"><span title="${esc(e.ts)}">${hora(e.ts)}</span>` +
+      `<span class="${mal ? 'hot' : 'm'}" title="${esc(e.resultado ?? '')}">${mal ? '✕' : e.resultado === 'ok' ? '✓' : '·'}</span>` +
+      `<span>${btn('ir-evento', '#' + e.id, 'ir al evento #' + e.id + ' en el diario', { id: e.id }, 'l')} ${esc(e.accion)}${extra}</span>` +
+      `<span class="m" title="${esc(e.actor)}">${esc(e.actor)}</span>` +
+      `<span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span></div>`;
+  }).join('') + '</div>';
 }
 // ------------------------------------------------------------------- ajustes
 
@@ -2324,7 +2351,7 @@ async function cargaDetalle(k) {
     try { st.detalle[k] = await EDITOR[st.sec].carga(k); } catch { delete st.detalle[k]; }
     return;
   }
-  const carga = { j: ea.trabajo, r: ea.rutina, b: ea.nota }[k[0]];
+  const carga = { j: ea.trabajo, r: ea.rutina, a: ea.historialAccion, b: ea.nota }[k[0]];
   try { st.detalle[k] = await carga(k.slice(1)); } catch { delete st.detalle[k]; }
   if (k[0] === 'r' && (st.rutVer[k.slice(1)]?.abierto || selVersion(k.slice(1)))) await cargaVersiones(k.slice(1)).catch(() => {});
 }
