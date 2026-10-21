@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use ea_store::Store;
 use tokio::sync::Mutex;
 
+pub mod agentes;
 pub mod clave;
 pub mod estado;
 mod git;

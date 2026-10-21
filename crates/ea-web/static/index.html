@@ -57,9 +57,9 @@
     <p class="tour-bot"><button class="coin" data-tour="todo">▶ recorrido guiado</button><button data-tour="vista">▸ esta vista</button></p>
     <h2>Cómo funciona</h2>
     <ol>
-      <li><b>Claude Code formaliza.</b> Con <i>/mision</i>, <i>/obra</i> o <i>/rutina</i> deja una orden en la cola del modelo local. Esta página no lanza trabajo nuevo, salvo las rutinas.</li>
-      <li><b>El modelo local ejecuta.</b> El orquestador toma la orden, trabaja en el worktree (con su semáforo) y entrega un informe.</li>
-      <li><b>Claude Code revisa.</b> Cierra el trabajo, lo reformula con una nota o, en una obra, lo deja continuar. Tú también puedes hacerlo desde la ficha.</li>
+      <li><b>El planificador formaliza.</b> Con <i>/mision</i>, <i>/obra</i> o <i>/rutina</i> deja una orden en la cola del ejecutor. Esta página no lanza trabajo nuevo, salvo las rutinas.</li>
+      <li><b>El ejecutor trabaja.</b> El orquestador toma la orden, trabaja en el worktree (con su semáforo) y entrega un informe.</li>
+      <li><b>El planificador revisa.</b> Cierra el trabajo, lo reformula con una nota o, en una obra, lo deja continuar. Tú también puedes hacerlo desde la ficha.</li>
       <li><b>Tú decides lo que falla.</b> Si una rutina falla, su paquete de corrección queda en espera hasta que lo confirmes (con contexto si quieres).</li>
     </ol>
 
@@ -80,15 +80,15 @@
       <dt>▶ seguir girando</dt><dd>continuar una obra con las fases que quedan</dd>
       <dt>↺ volver a girar</dt><dd>reformular, con nota obligatoria</dd>
       <dt>⊘ devolver</dt><dd>cancelar; segundo clic para confirmar</dd>
-      <dt>✓ desatascar</dt><dd>confirmar un paquete de corrección: pasa a Claude Code</dd>
+      <dt>✓ desatascar</dt><dd>confirmar un paquete de corrección: pasa al planificador</dd>
       <dt>✓ aceptar</dt><dd>decidir una propuesta; las irreversibles, solo en terminal</dd>
     </dl>
 
     <h2>Estados de un trabajo</h2>
     <dl class="leyenda">
-      <dt>○ en cola</dt><dd>orden creada; espera al modelo local</dd>
-      <dt>◐ ejecutando</dt><dd>el modelo local trabaja en el worktree</dd>
-      <dt>◇ en revisión</dt><dd>entregado; espera a Claude Code (cerrar, reformular o continuar)</dd>
+      <dt>○ en cola</dt><dd>orden creada; espera al ejecutor</dd>
+      <dt>◐ ejecutando</dt><dd>el ejecutor trabaja en el worktree</dd>
+      <dt>◇ en revisión</dt><dd>entregado; espera al planificador (cerrar, reformular o continuar)</dd>
       <dt class="hot">! en espera</dt><dd>paquete de corrección de una rutina que falló; espera tu confirmación</dd>
       <dt>● cerrado</dt><dd>revisado y dado por bueno</dd>
       <dt>⊘ cancelado</dt><dd>descartado antes de cerrarse</dd>

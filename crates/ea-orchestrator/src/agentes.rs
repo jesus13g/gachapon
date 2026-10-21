@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use ea_ajustes::buscar_binario;
 use ea_bus::{ConfigOrquestador, PerfilEjecutor, TipoAgente, Topes};
 
 use crate::ejecutor::{correr_cancelable, SalidaAgente};
@@ -379,20 +380,6 @@ pub fn argumentos_bwrap(worktree: &Path, ejecucion: Option<&Path>, estado: &[Pat
         args.push(a.into());
     }
     args
-}
-
-/// La ruta del binario: tal cual si lleva `/`, si no, en el `PATH`.
-fn buscar_binario(bin: &str, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    let ejecutable = |p: &Path| p.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-    if bin.is_empty() {
-        return None;
-    }
-    if bin.contains('/') {
-        let p = PathBuf::from(bin);
-        return ejecutable(&p).then_some(p);
-    }
-    std::env::split_paths(path?).map(|d| d.join(bin)).find(|p| ejecutable(p))
 }
 
 #[cfg(test)]

@@ -82,6 +82,7 @@ struct AppData {
     servicios: Vec<ServicioResumen>,
     orquestador: String,
     agentes: Vec<ResumenAgente>,
+    ajustes: ea_ajustes::Ajustes,
     boveda_raiz: String,
     boveda: Vec<ResultadoBusqueda>,
     orquestador_bus: orquestador_view::DatosOrquestador,
@@ -119,6 +120,7 @@ pub fn run(store: &mut Store) -> Result<()> {
         servicios,
         orquestador: crate::commands::status::estado_orquestador(store)?,
         agentes: store.resumen_agentes()?,
+        ajustes: ea_ajustes::cargar(),
         events: store.list_events(&EventFilter {
             limit: Some(200),
             ..Default::default()
@@ -242,7 +244,7 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
                 Tab::Orquestador => orquestador_view::render(frame, chunks[1], &data.orquestador_bus, sel, detalle),
                 Tab::Diario => diario_view::render(frame, chunks[1], &data.events),
                 Tab::Servicios => servicios_view::render(frame, chunks[1], &data.servicios, &data.orquestador),
-                Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes),
+                Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes, &data.ajustes),
                 Tab::Rutinas => rutinas_view::render(frame, chunks[1], &data.rutinas),
                 Tab::Propuestas => propuestas_view::render(frame, chunks[1], &data.propuestas),
                 Tab::Boveda => boveda_view::render(frame, chunks[1], &data.boveda_raiz, &data.boveda),

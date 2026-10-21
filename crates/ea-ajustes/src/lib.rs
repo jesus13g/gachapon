@@ -22,7 +22,7 @@ mod fuentes;
 mod validar;
 mod vista;
 
-pub use agentes::{ficha, id_perfil_valido, por_cliente_mcp, FichaAgente, Rol, CATALOGO, IDS_AGENTES};
+pub use agentes::{buscar_binario, ficha, id_perfil_valido, por_cliente_mcp, FichaAgente, Rol, VistaAgente, CATALOGO, IDS_AGENTES};
 pub use cargar::{cargar, cargar_de, Efectivos, Origen};
 pub use claves::{clave, concretas, sin_alias, titulo, Aplica, Canal, Clave, Edicion, Tipo, ALIAS, CLAVES, SECCIONES};
 pub use ejecucion::{dir_ejecucion, fichero_clave_web, DIR_WEB, FICHERO_CLAVE};

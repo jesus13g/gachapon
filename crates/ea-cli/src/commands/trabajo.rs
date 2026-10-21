@@ -84,6 +84,9 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     if let Some(d) = &estado.detalle {
         println!("detalle   {d}");
     }
+    if let Some(e) = &estado.ejecutado_por {
+        println!("ejecutor  {} ({})", e.agente, e.modelo);
+    }
     println!("worktree  {}", orden.worktree);
     if let Some(c) = &orden.criterio_exito {
         println!("criterio  {c}");
@@ -111,8 +114,12 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     if let Some(c) = &i.commit_inicio {
         println!("commit_inicio {c}");
     }
+    if let Some(e) = &i.ejecutado_por {
+        println!("ejecutado_por {} ({})", e.agente, e.modelo);
+    }
     for f in &i.fases {
-        println!("fase {} [{}] {}", f.numero, f.resultado, f.titulo);
+        let por = f.ejecutado_por.as_ref().map(|e| format!("  · {} ({})", e.agente, e.modelo)).unwrap_or_default();
+        println!("fase {} [{}] {}{por}", f.numero, f.resultado, f.titulo);
     }
     println!("evidencia:\n{}", i.evidencia.trim_end());
     if let Some(d) = &i.diff_stat {

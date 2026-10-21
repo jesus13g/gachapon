@@ -58,6 +58,14 @@ pub enum Command {
         #[command(subcommand)]
         accion: QwenSkillsAccion,
     },
+    /// Agentes del catálogo: qué rol ocupa cada uno, su binario y su modelo
+    Agentes {
+        #[command(subcommand)]
+        accion: Option<AgentesAccion>,
+        /// Salida en JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Ajustes del ecosistema (ajustes.toml): ver, obtener y establecer
     Ajustes {
         #[command(subcommand)]
@@ -65,6 +73,18 @@ pub enum Command {
     },
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum AgentesAccion {
+    /// Pone un agente en un rol (atajo de `ea ajustes establecer roles.<rol>=<agente>`);
+    /// exige una terminal interactiva real
+    Rol {
+        /// planificador o ejecutor
+        rol: String,
+        /// Id del catálogo (claude-code, qwen-code, codex, opencode, antigravity)
+        agente: String,
+    },
 }
 
 #[derive(Subcommand)]

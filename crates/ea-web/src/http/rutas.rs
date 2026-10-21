@@ -29,6 +29,10 @@ pub async fn estado_general(State(s): Estado) -> Api<EstadoGeneral> {
     ok(servicio::estado::general(&s).await)
 }
 
+pub async fn agentes(State(s): Estado) -> Json<AgentesVista> {
+    Json(servicio::estado::agentes(&s).await)
+}
+
 pub async fn inicio(State(s): Estado) -> Api<Inicio> {
     ok(servicio::estado::inicio(&s).await)
 }

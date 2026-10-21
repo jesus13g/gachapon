@@ -6,12 +6,13 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, AjustesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
+use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     salir_en_silencio_si_se_cierra_la_tuberia();
     let args = Cli::parse();
-    // Los ajustes no necesitan la base de datos (y dicen dónde está).
+    // Los ajustes y los agentes no necesitan la base de datos (y los ajustes
+    // dicen dónde está).
     let args = match args.command {
         Command::Ajustes { accion } => {
             return match accion {
@@ -19,6 +20,12 @@ fn main() -> Result<()> {
                 AjustesAccion::Obtener { clave } => commands::ajustes::obtener(&clave),
                 AjustesAccion::Establecer { cambios, quitar } => commands::ajustes::establecer(&cambios, &quitar),
                 AjustesAccion::Ruta => commands::ajustes::ruta(),
+            };
+        }
+        Command::Agentes { accion, json } => {
+            return match accion {
+                None => commands::agentes::listar(json),
+                Some(AgentesAccion::Rol { rol, agente }) => commands::agentes::rol(&rol, &agente),
             };
         }
         otro => Cli { command: otro },
@@ -103,7 +110,7 @@ fn main() -> Result<()> {
         Command::Cola { agente, json } => commands::trabajo::cola(agente.as_deref(), json)?,
         Command::Semaforos => commands::trabajo::semaforos(),
         Command::Tui => tui::run(&mut store)?,
-        Command::Ajustes { .. } => unreachable!("se atiende antes de abrir la base"),
+        Command::Ajustes { .. } | Command::Agentes { .. } => unreachable!("se atiende antes de abrir la base"),
     }
 
     Ok(())

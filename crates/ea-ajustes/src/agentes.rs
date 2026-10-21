@@ -106,3 +106,60 @@ pub fn id_perfil_valido(id: &str) -> bool {
         && id.len() <= 32
         && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_'))
 }
+
+/// La ruta del binario: tal cual si lleva `/`, si no, en el `PATH` dado.
+pub fn buscar_binario(bin: &str, path: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
+    let ejecutable = |p: &Path| p.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    if bin.is_empty() {
+        return None;
+    }
+    if bin.contains('/') {
+        let p = PathBuf::from(bin);
+        return ejecutable(&p).then_some(p);
+    }
+    std::env::split_paths(path?).map(|d| d.join(bin)).find(|p| ejecutable(p))
+}
+
+/// Un agente del catálogo tal como lo enseñan `ea agentes`, la TUI y
+/// `GET /api/agentes`: qué rol ocupa, con qué binario y con qué modelo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VistaAgente {
+    pub id: &'static str,
+    pub nombre: &'static str,
+    /// Roles que puede ocupar (`planificador`, `ejecutor`).
+    pub admite: Vec<&'static str>,
+    /// El rol que ocupa ahora, si ocupa alguno.
+    pub rol: Option<&'static str>,
+    pub bin: String,
+    /// Dónde está el binario; `None`: no se encuentra.
+    pub ruta: Option<String>,
+    /// Id del perfil (`modelos.<id>`); vacío: el modelo propio del agente.
+    pub perfil: String,
+    pub modelo: Option<crate::PerfilModelo>,
+    pub topes: &'static str,
+}
+
+impl crate::Ajustes {
+    /// El catálogo con los ajustes efectivos; el binario se busca en `path`.
+    pub fn vista_agentes(&self, path: Option<&std::ffi::OsStr>) -> Vec<VistaAgente> {
+        CATALOGO
+            .iter()
+            .map(|f| {
+                let config = &self.agentes[f.id];
+                VistaAgente {
+                    id: f.id,
+                    nombre: f.nombre,
+                    admite: f.roles.iter().map(|r| r.nombre()).collect(),
+                    rol: self.rol_de(f.id).map(Rol::nombre),
+                    bin: config.bin.clone(),
+                    ruta: buscar_binario(&config.bin, path).map(|p| p.display().to_string()),
+                    perfil: config.modelo.clone(),
+                    modelo: self.modelo_de(f.id).cloned(),
+                    topes: f.topes,
+                }
+            })
+            .collect()
+    }
+}

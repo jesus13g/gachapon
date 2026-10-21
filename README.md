@@ -185,6 +185,16 @@ roles.ejecutor=codex` (o el selector de la web) vale desde el siguiente trabajo,
 sin reiniciar nada. Si el binario del ejecutor no está (`agentes.<id>.bin`, en
 el `PATH` del servicio), el trabajo se entrega bloqueado con ese motivo.
 
+**Ver y cambiar los agentes.** `ea agentes` lista el catálogo: el rol que ocupa
+cada agente, los roles que admite, su binario (y versión), su perfil de modelo
+y si el endpoint local responde (`GET <base_url>/models`, 2 s; a uno remoto no se
+le pregunta). `ea agentes rol ejecutor codex` es un atajo de `ea ajustes
+establecer roles.ejecutor=codex`, con la misma exigencia de terminal. En la web,
+▦ Sistema tiene una fila por rol con su agente, modelo y última actividad; su
+ficha lista los agentes que admiten el rol con un botón «⇄ poner de …» (segundo
+clic para confirmar) que pasa por `POST /api/ajustes` y deja `ajustes_cambiados`
+en el diario.
+
 **Techo de topes.** Los topes de cada orden (`turnos`, `tiempo_s`,
 `llamadas_herramienta`, `iteraciones`; por defecto 30/900/60/5) los pone quien la
 escribe. El ejecutor los recorta a `agente.techo_topes` antes de lanzar al agente
@@ -342,7 +352,7 @@ cargo build --release
 ea trabajo crear --modo mision --titulo "..." --worktree <dir> --objetivo "..." --criterio "<comando>"
 ea trabajo crear --orden orden.json          # obra completa, con fases
 ea trabajo listar
-ea trabajo ver <id> [--json]                 # orden, estado e informe
+ea trabajo ver <id> [--json]                 # orden, estado e informe (con el agente y modelo que lo ejecutó)
 ea trabajo diff <id> [--fase N]              # diff desde commit_inicio
 ea trabajo cerrar|cancelar <id>
 ea trabajo reformular <id> --nota "..." [--fase N]  # vuelve al agente local (obra: desde la fase N)
@@ -359,7 +369,9 @@ ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si 
 ea rutina retirar|restaurar <slug>           # a la papelera y vuelta (simula y confirma con TTY)
 
 # Resto del ecosistema
-ea status                                    # orquestador, trabajos por estado, colas y semáforos
+ea status                                    # orquestador, roles (agente y modelo), trabajos por estado, colas y semáforos
+ea agentes [--json]                          # catálogo: rol, binario, versión y si responde el modelo
+ea agentes rol <planificador|ejecutor> <agente>  # = ea ajustes establecer roles.<rol>=<agente> (TTY)
 ea diario listar|ver <id>                    # listar: --trabajo, --actor, --desde, --hasta,
                                              #   --resultado ok|error, --accion <prefijo> (bus_, mcp_…),
                                              #   --antes-de <id> (página siguiente, más antiguos)
@@ -713,7 +725,8 @@ ej. un `Inicio.md` en la raíz) ni renombra o borra carpetas.
 `ea tui` es una fotografía de solo lectura. Su primera pestaña, **Orquestador**,
 muestra las dos colas, el semáforo del worktree y los trabajos con su estado
 (↑/↓ para moverse, Enter para ver el resumen del informe); **Rutinas** lista las
-registradas con su versión, como `ea rutina listar`.
+registradas con su versión, como `ea rutina listar`; **Agentes**, cada rol con
+el agente que lo ocupa, su modelo y la última actividad.
 
 `ea-web` es un panel local en `http://localhost:8092` (solo `127.0.0.1`; puerto
 en `red.puerto_web` de los ajustes o `$EA_WEB_PORT`): una página sin
@@ -732,7 +745,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada. «▸ versiones» lista las registradas (número, fecha y quién) con «ver» (su TOML) y «diff» (qué cambió frente a la anterior), solo lectura. «horario» enseña el `OnCalendar` del timer y si está activo; «◷ guardar» simula el horario escrito (próximas 3 ejecuciones) y el segundo clic lo programa; «✕ desprogramar» quita el timer. «▣ retirar» (segundo clic) manda la rutina a la papelera y quita su timer; «▣ retiradas», en la barra, las lista, y su ficha tiene «↺ restaurar» | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas. Los formularios guían: la ruta de `ea_promover_nota` sugiere las notas de `claude-code` y `modelo-local` aún sin promover (se puede escribir otra), el servicio de `ea_reiniciar_servicio` dice el estado de cada uno y el slug elige entre las rutinas registradas (`GET /api/acciones` trae por campo `opciones`, `sugerencias` y `estados`). La simulación dice en un renglón qué se revalidará al ejecutar («se comprobará: huella …») y avisa cuando tiene más de 60 s. En la ficha de cada herramienta (también de las directas), sus últimos 10 eventos del diario | `6` |
-| ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
+| ▦ | Sistema: servicios (reiniciar ↻, pide confirmar), orquestador y una fila por rol (planificador y ejecutor) con su agente, modelo y última actividad. La ficha de un rol lista los agentes que lo admiten (binario ●/✕, modelo, si responde, topes) y cambia el agente con «⇄ poner de …» (segundo clic) | `7` |
 | ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista y ↺ restaurar). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera | `8` |
 | ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. Apunta `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
 | ⚙ | Ajustes: los de `ajustes.toml` por secciones, con valor, origen (por defecto, `ajustes.toml`, heredado o entorno) y si se aplican en caliente o piden reinicio; avisos arriba. ◐ se cambia aquí (✓ guardar y ↺ por defecto piden un segundo clic; los techos solo bajan), ⌨ solo en una terminal (la fila da el comando) y ⊘ lo fija una variable de entorno. Apunta `ajustes_cambiados` en el diario | `0` |
@@ -780,7 +793,12 @@ aceptada sigue a la vista con esos enlaces hasta que se cambia de sección.
 (`evento`: id de ese evento) y `POST /api/propuestas/<id>/decidir`, al aceptar
 una que se ejecuta bien, añade lo mismo en `resultado`.
 
-API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea),
+API (JSON): `GET /api/estado` (servicios, orquestador y una entrada por rol con
+`rol`, `agente`, `agente_nombre`, `modelo` y `ultimo_agente`), `GET /api/agentes`
+(`{version, fijados, agentes}`: cada agente del catálogo con `id`, `nombre`,
+`admite`, `rol`, `bin`, `ruta` (null si no está en el `PATH`), `perfil`, `modelo`,
+`topes` y `modelo_accesible`; `fijados`, los roles que fija una variable de entorno),
+`GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea),
 `/api/colas`, `/api/semaforos`, `/api/rutinas` (las activas; `?retiradas=1`, las
 retiradas; cada fila y la ficha llevan `ubicacion`: `activa`, `retirada` o `sin_fichero`),
 `/api/rutinas/<slug>/versiones` (`[{version, creada_en, creada_por}]`, la más

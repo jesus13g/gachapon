@@ -276,6 +276,17 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .det .tx { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
 .det pre { font: inherit; white-space: pre-wrap; word-break: break-word; margin: 4px 0; }
 .det .hot { color: var(--hot); }
+/* ▦ Sistema: los agentes que pueden ocupar un rol (spec 017). */
+.det .agentes { margin: 8px 0; }
+.det .agentes p { display: grid; grid-template-columns: 7.5em 7em minmax(0, 1fr) auto; align-items: baseline; gap: 8px; }
+.det .agentes .md { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-lo); }
+.det .agentes .ok { color: var(--ok); }
+.r b.ag { font-weight: inherit; color: var(--fg); }
+@media (max-width: 640px) {
+  .det .agentes p { grid-template-columns: 1fr auto; }
+  .det .agentes .md { grid-column: 1 / -1; }
+}
+.det .m.ayuda { white-space: normal; }
 .evs { margin-top: 2px; }
 .ev .ex { grid-column: 3 / -1; color: var(--fg-lo); white-space: pre-wrap; word-break: break-word; line-height: 1.5; padding-bottom: 4px; }
 .ev .ex.hot { color: var(--hot); }

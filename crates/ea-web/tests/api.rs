@@ -1933,6 +1933,39 @@ async fn la_web_no_afloja_ni_toca_lo_de_terminal() {
     assert_eq!(clave_de(&v, "agente.sandbox")["valor"], true);
 }
 
+#[tokio::test]
+async fn los_agentes_dicen_su_rol_y_el_cambio_de_ejecutor_se_ve_en_el_estado() {
+    let f = montar();
+    // Un endpoint cerrado: la prueba no pregunta al llama-server de verdad.
+    let fichero = f.state.config.ajustes.fichero();
+    std::fs::create_dir_all(fichero.parent().unwrap()).unwrap();
+    std::fs::write(&fichero, "[modelos.local]\nbase_url = \"http://127.0.0.1:9/v1\"\n").unwrap();
+    let (s, v) = get(&f, "/api/agentes").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let ag = |v: &Value, id: &str| v["agentes"].as_array().unwrap().iter().find(|a| a["id"] == id).unwrap().clone();
+    let ids: Vec<&str> = v["agentes"].as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ea_ajustes::IDS_AGENTES);
+    assert_eq!(ag(&v, "qwen-code")["rol"], "ejecutor");
+    assert_eq!(ag(&v, "qwen-code")["modelo"]["nombre"], "qwen3-coder-30b");
+    assert_eq!(ag(&v, "qwen-code")["modelo_accesible"], false);
+    assert_eq!(ag(&v, "claude-code")["rol"], "planificador");
+    assert_eq!(ag(&v, "claude-code")["modelo_accesible"], Value::Null);
+    assert_eq!(ag(&v, "antigravity")["admite"], json!(["planificador"]));
+    assert_eq!(v["fijados"], json!({}));
+
+    let (s, r) = post(&f, "/api/ajustes", json!({ "version": v["version"], "cambios": { "roles.ejecutor": "codex" } })).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let (_, v) = get(&f, "/api/agentes").await;
+    assert_eq!(ag(&v, "codex")["rol"], "ejecutor");
+    assert_eq!(ag(&v, "qwen-code")["rol"], Value::Null);
+    let (_, e) = get(&f, "/api/estado").await;
+    let ejecutor = e["agentes"].as_array().unwrap().iter().find(|a| a["rol"] == "ejecutor").unwrap().clone();
+    assert_eq!((ejecutor["nombre"].clone(), ejecutor["agente"].clone()), (json!("modelo-local"), json!("codex")));
+    assert_eq!((ejecutor["agente_nombre"].clone(), ejecutor["modelo"].clone()), (json!("Codex"), json!("qwen3-coder-30b")));
+    let (_, d) = get(&f, "/api/diario?accion=ajustes_").await;
+    assert!(d.to_string().contains("roles.ejecutor"), "{d}");
+}
+
 // ------------------------------------------------------- crear una misión
 
 /// Un repo git de verdad dentro del directorio temporal de la prueba, con

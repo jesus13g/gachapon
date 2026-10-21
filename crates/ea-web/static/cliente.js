@@ -73,6 +73,8 @@ const ea = (() => {
     avisoLectura: AVISO_LECTURA,
 
     estado: () => api('/api/estado'),
+    // Catálogo de agentes: rol, binario, modelo y si responde (spec 017).
+    agentes: () => api('/api/agentes'),
     sesiones: () => api('/api/sesiones'),
 
     trabajos: () => api('/api/trabajos'),
