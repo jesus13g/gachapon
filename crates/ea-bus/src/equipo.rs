@@ -60,6 +60,24 @@ impl Bus {
         let worktree_base = texto(&nuevo.worktree_base, "el worktree base del equipo")?;
         validar_equipo(&nuevo.miembros, ajustes).map_err(ErrorBus::Argumentos)?;
         let _bloqueo = self.bloquear_equipos()?;
+        // Todo ejecutor despierto necesita un trabajador: los ejecutores
+        // distintos de los equipos despiertos y del nuevo caben en `paralelo`.
+        let mut ejecutores: Vec<String> = nuevo.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor).map(|m| m.agente.clone()).collect();
+        for otro in self.listar_equipos()?.iter().filter(|e| e.estado == EstadoEquipo::Despierto) {
+            ejecutores.extend(otro.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor).map(|m| m.agente.clone()));
+        }
+        ejecutores.sort();
+        ejecutores.dedup();
+        let tope = ajustes.orquestador.paralelo as usize;
+        if ejecutores.len() > tope {
+            return Err(ErrorBus::Argumentos(format!(
+                "los equipos despiertos tendrían {} ejecutores ({}) y orquestador.paralelo es {tope}: sube orquestador.paralelo \
+                 (`ea ajustes establecer orquestador.paralelo {}`) o duerme otro equipo",
+                ejecutores.len(),
+                ejecutores.join(", "),
+                ejecutores.len()
+            )));
+        }
         for otro in self.listar_equipos()?.iter().filter(|e| e.estado == EstadoEquipo::Despierto) {
             if let Some(m) = nuevo.miembros.iter().find(|m| otro.miembro(&m.agente).is_some()) {
                 return Err(ErrorBus::Argumentos(format!(
@@ -104,7 +122,9 @@ impl Bus {
         Ok(ids.iter().filter_map(|id| self.leer_equipo(id).ok()).collect())
     }
 
-    /// Duerme el equipo. Los trabajos pendientes se quedan en sus colas.
+    /// Duerme el equipo. Lo pendiente en la cola de cada uno de sus
+    /// ejecutores vuelve a la cola del rol `modelo-local` (motivo «equipo
+    /// dormido»), para que no quede huérfano: lo toma cualquier ejecutor.
     /// Dormir uno dormido no hace nada.
     pub fn dormir_equipo(&self, id: &str) -> Resultado<Equipo> {
         let _bloqueo = self.bloquear_equipos()?;
@@ -114,6 +134,12 @@ impl Bus {
         }
         equipo.estado = EstadoEquipo::Dormido;
         escribir_json(&self.dir_equipo(id)?.join("equipo.json"), &equipo)?;
+        for m in equipo.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor) {
+            let dir = self.dir_cola_agente(&m.agente)?;
+            while let Some(trabajo) = crate::bus::tomar_en(&dir)? {
+                self.encolar(ea_ajustes::Rol::Ejecutor, &trabajo, "equipo dormido")?;
+            }
+        }
         self.diario_equipo("equipo_dormido", &equipo);
         Ok(equipo)
     }
@@ -127,6 +153,14 @@ impl Bus {
             escribir_json(&self.dir_equipo(equipo)?.join("equipo.json"), &e)?;
         }
         Ok(())
+    }
+
+    /// El agente al que va la cola de un trabajo reasignable: `asignado_a`
+    /// solo si su equipo sigue despierto y el agente sigue en él.
+    pub(crate) fn asignado_vigente(&self, o: &Orden) -> Option<String> {
+        let (a, e) = (o.asignado_a.as_ref()?, o.equipo.as_ref()?);
+        let equipo = self.leer_equipo(e).ok()?;
+        (equipo.estado == EstadoEquipo::Despierto && equipo.con_rol(a, RolEquipo::Ejecutor)).then(|| a.clone())
     }
 
     /// Las comprobaciones de `crear_trabajo` que dependen del equipo (RF-004).

@@ -119,7 +119,7 @@ impl Bus {
 
     /// `colas/agentes/<agente>/`. El id tiene que ser del catálogo: así no se
     /// abre ninguna ruta arbitraria (spec 019, RF-005).
-    fn dir_cola_agente(&self, agente: &str) -> Resultado<PathBuf> {
+    pub(crate) fn dir_cola_agente(&self, agente: &str) -> Resultado<PathBuf> {
         if ea_ajustes::ficha(agente).is_none() {
             return Err(ErrorBus::Argumentos(format!("{agente:?} no es un agente del catálogo")));
         }
@@ -427,7 +427,8 @@ impl Bus {
                 // Sin entradas rancias (p. ej. el «terminado» en claude-code si
                 // se reformula sin haberlo tomado, como hace el panel web).
                 self.retirar_de_colas(id)?;
-                match self.leer_orden(id)?.asignado_a {
+                let orden = self.leer_orden(id)?;
+                match self.asignado_vigente(&orden) {
                     Some(agente) => self.encolar_agente(&agente, id, "reformulado")?,
                     None => self.encolar(Rol::Ejecutor, id, "reformulado")?,
                 };
@@ -807,7 +808,7 @@ fn listar_en(dir: &Path) -> Resultado<Vec<EntradaCola>> {
     Ok(nombres.iter().filter_map(|p| fs::read(p).ok()).filter_map(|b| serde_json::from_slice(&b).ok()).collect())
 }
 
-fn tomar_en(dir: &Path) -> Resultado<Option<String>> {
+pub(crate) fn tomar_en(dir: &Path) -> Resultado<Option<String>> {
     let rd = match fs::read_dir(dir) {
         Ok(rd) => rd,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),

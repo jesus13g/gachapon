@@ -458,3 +458,19 @@ fn bwrap_deja_escribible_el_worktree_propio_y_nada_mas() {
     // La captura del sistema, fuera del sandbox, ve lo que el agente escribió.
     assert_eq!(git(&ruta, &["ls-files", "--others", "--exclude-standard"]), "dentro.txt");
 }
+
+#[test]
+fn una_entrada_rancia_se_descarta_sin_worktree_ni_cambio_de_estado() {
+    let e = Entorno::nuevo(1);
+    let r = repo(e.d.path(), "r");
+    let id = e.bus.crear_trabajo(Orden { worktree_propio: true, ..orden(&r) }).unwrap();
+    e.bus.aplicar(&id, ea_bus::Evento::Cancelar).unwrap();
+    e.bus.encolar(Rol::Ejecutor, &id, "rancia").unwrap();
+    let doble = Doble::simple();
+    let cfg = ConfigOrquestador::para_agente(&e.ajustes, "qwen-code").unwrap();
+    assert_eq!(ejecutar_uno(&e.bus, &cfg, &Adaptador(Arc::clone(&doble))), Some(id.clone()));
+    assert!(doble.llamadas().is_empty());
+    assert_eq!(e.estado(&id), EstadoTrabajo::Cancelado);
+    assert!(!e.raiz().join("worktrees").join(&id).exists(), "no se creó el worktree");
+    assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
+}

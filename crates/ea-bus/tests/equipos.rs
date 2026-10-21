@@ -74,7 +74,8 @@ struct Entorno {
 fn entorno() -> Entorno {
     let d = tempfile::tempdir().unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
-    let a = ajustes(d.path());
+    let mut a = ajustes(d.path());
+    a.orquestador.paralelo = 4;
     Entorno { d, bus, a }
 }
 
@@ -112,7 +113,8 @@ fn despertar_y_dormir_un_equipo_deja_rastro_en_el_diario() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store).con_actor("ea-cli");
-    let a = ajustes(d.path());
+    let mut a = ajustes(d.path());
+    a.orquestador.paralelo = 4;
     let eq = bus.crear_equipo(nuevo(miembros()), &a).unwrap();
     assert_eq!(eq.estado, EstadoEquipo::Despierto);
     assert_eq!(bus.leer_equipo(&eq.id).unwrap(), eq);
@@ -376,4 +378,62 @@ fn la_revision_dirigida_no_la_toma_un_ejecutor_con_tomar_para() {
     std::fs::rename(&f, cola.join(format!(".{nombre}.tomada-1"))).unwrap();
     assert_eq!(e.bus.recuperar().unwrap(), vec![id.clone()]);
     assert_eq!(e.bus.listar_cola_revision("antigravity").unwrap()[0].trabajo, id);
+}
+
+#[test]
+fn dormir_un_equipo_devuelve_lo_pendiente_de_sus_ejecutores_a_la_cola_del_rol() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    let o = Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), ..orden(e.d.path()) };
+    let id = e.bus.crear_trabajo(o).unwrap();
+    assert_eq!(e.bus.listar_cola_agente("codex").unwrap().len(), 1);
+    e.bus.dormir_equipo(&eq.id).unwrap();
+    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    let cola = e.bus.listar_cola(Rol::Ejecutor).unwrap();
+    assert_eq!((cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (id.as_str(), "equipo dormido"));
+    // un ejecutor del rol lo toma, queda como ejecutado_por y ya no puede revisarlo
+    assert_eq!(e.bus.tomar_para("qwen-code").unwrap(), Some(id.clone()));
+    e.bus.tomar_con(&id, EjecutadoPor { agente: "qwen-code".into(), modelo: "m".into() }).unwrap();
+    assert_eq!(e.bus.leer_estado(&id).unwrap().ejecutado_por.unwrap().agente, "qwen-code");
+}
+
+#[test]
+fn reformular_un_asignado_de_un_equipo_dormido_va_a_la_cola_del_rol() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    let id = entregar(&e, &eq.id, Some("antigravity"), "codex");
+    e.bus.dormir_equipo(&eq.id).unwrap();
+    e.bus.reformular(&id, "otra vez", None).unwrap();
+    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    assert_eq!(e.bus.listar_cola(Rol::Ejecutor).unwrap()[0].trabajo, id);
+}
+
+#[test]
+fn el_revisor_sigue_sin_poder_ser_quien_ejecuto_aunque_el_equipo_durmiera() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    let o = Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), revisor: Some("claude-code".into()), ..orden(e.d.path()) };
+    let id = e.bus.crear_trabajo(o).unwrap();
+    e.bus.dormir_equipo(&eq.id).unwrap();
+    assert_eq!(e.bus.tomar_para("claude-code").unwrap(), Some(id.clone()));
+    e.bus.tomar_con(&id, EjecutadoPor { agente: "claude-code".into(), modelo: "m".into() }).unwrap();
+    e.bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
+    assert!(e.bus.listar_cola_revision("claude-code").unwrap().is_empty());
+    assert!(e.bus.leer_informe(&id).unwrap().unwrap().aviso.is_some());
+}
+
+#[test]
+fn crear_un_equipo_que_deja_ejecutores_sin_trabajador_se_rechaza() {
+    let mut e = entorno();
+    e.a.orquestador.paralelo = 2;
+    e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap(); // qwen-code y codex: 2
+    // otro equipo con otro ejecutor distinto: 3 > 2
+    let otro = nuevo(vec![m("opencode", RolEquipo::Ejecutor), m("claude-code", RolEquipo::Planificador)]);
+    let msg = error_de(e.bus.crear_equipo(otro, &e.a));
+    assert!(msg.contains("orquestador.paralelo"), "{msg}");
+    assert_eq!(e.bus.listar_equipos().unwrap().len(), 1);
+    e.a.orquestador.paralelo = 3;
+    // claude-code ya está en el primer equipo: el rechazo ahora es ese, no el tope
+    let otro = nuevo(vec![m("opencode", RolEquipo::Ejecutor), m("claude-code", RolEquipo::Planificador)]);
+    assert!(!error_de(e.bus.crear_equipo(otro, &e.a)).contains("orquestador.paralelo"));
 }

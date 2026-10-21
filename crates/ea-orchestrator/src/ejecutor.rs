@@ -352,6 +352,15 @@ pub fn ejecutar_intento(
             return Intento::Hecho(id);
         }
     };
+    // Una entrada rancia (el trabajo ya no está en cola: se canceló, se cerró
+    // o lo tomó otro) se descarta sin crear worktree ni tocar el estado.
+    match bus.leer_estado(&id) {
+        Ok(e) if e.estado == ea_bus::EstadoTrabajo::EnCola => {}
+        otro => {
+            tracing::warn!(%id, estado = ?otro.map(|e| e.estado), "entrada rancia: el trabajo no está en cola; se descarta");
+            return Intento::Hecho(id);
+        }
+    }
     // Ninguna orden pasa del techo de los ajustes, la escriba quien la escriba.
     let acotados = orden.topes.acotar(&config.techo_topes);
     if acotados != orden.topes {
