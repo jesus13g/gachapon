@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use comfy_table::Table;
-use ea_ajustes::{buscar_binario, ficha, Ajustes, Rol, IDS_AGENTES};
+use ea_ajustes::{ficha, Ajustes};
 use ea_bus::{Bus, EstadoEquipo, Miembro, NuevoEquipo, Presencia, RolEquipo, VistaEquipo, INTERVALO_LATIDO_S};
 
 /// Cuántos trabajos del equipo enseña `ver`.
@@ -32,53 +32,13 @@ fn bus() -> Result<Bus> {
 
 /// `agente:rol` → miembro. El rol es `planificador`, `ejecutor` o `revisor`.
 pub fn parse_miembro(texto: &str) -> Result<Miembro> {
-    let (agente, rol) = texto
-        .split_once(':')
-        .with_context(|| format!("{texto:?}: se espera agente:rol (p. ej. codex:ejecutor)"))?;
-    let (agente, rol) = (agente.trim(), rol.trim());
-    if ficha(agente).is_none() {
-        bail!("{agente:?} no es un agente del catálogo ({})", IDS_AGENTES.join(", "));
-    }
-    let rol = RolEquipo::desde(rol).with_context(|| format!("{rol:?} no es un rol de equipo (planificador, ejecutor o revisor)"))?;
-    Ok(Miembro { agente: agente.into(), rol })
+    ea_ajustes::parse_miembro(texto).map_err(|e| anyhow!(e))
 }
 
-/// «Despertar a todos»: los agentes del catálogo cuyo binario está en `path`.
-/// Los que admiten ejecutor van a ejecutor, salvo el que ocupa
-/// `roles.planificador`, que va a planificador; los que solo admiten
-/// planificador (Claude Code, Antigravity) van a planificador. Devuelve los
-/// miembros y los agentes omitidos con el motivo; es un error que alguien
-/// quede en un papel imposible (p. ej. un ejecutor con modelo remoto) o que
-/// falte el planificador de `roles.planificador`.
+/// «Despertar a todos»: el reparto compartido con la web
+/// ([`ea_ajustes::repartir_todos`]).
 pub fn repartir_todos(a: &Ajustes, path: Option<&OsStr>) -> Result<(Vec<Miembro>, Vec<String>)> {
-    let mut miembros = Vec::new();
-    let mut omitidos = Vec::new();
-    for id in IDS_AGENTES {
-        let f = ficha(id).expect("del catálogo");
-        let bin = a.agentes.get(*id).map(|g| g.bin.as_str()).unwrap_or_default();
-        if buscar_binario(bin, path).is_none() {
-            omitidos.push(format!("{} (no está disponible: no se encuentra {bin:?})", f.nombre));
-            continue;
-        }
-        let rol = if *id == a.roles.planificador || !f.admite(Rol::Ejecutor) { RolEquipo::Planificador } else { RolEquipo::Ejecutor };
-        miembros.push(Miembro { agente: (*id).into(), rol });
-    }
-    if !miembros.iter().any(|m| m.agente == a.roles.planificador) {
-        bail!("el planificador de roles.planificador ({}) no está disponible: no se puede despertar a todos", a.roles.planificador);
-    }
-    let planificador = miembros.iter().find(|m| m.rol == RolEquipo::Planificador).cloned().expect("hay uno");
-    let imposibles: Vec<String> = miembros
-        .iter()
-        .filter(|m| m.rol == RolEquipo::Ejecutor)
-        .filter_map(|m| ea_ajustes::validar_equipo(&[m.clone(), planificador.clone()], a).err().map(|e| format!("  - {}: {e}", m.agente)))
-        .collect();
-    if !imposibles.is_empty() {
-        bail!(
-            "no se puede despertar a todos:\n{}\nElige a mano con --miembro agente:rol (o cambia su modelo en `ea ajustes`).",
-            imposibles.join("\n")
-        );
-    }
-    Ok((miembros, omitidos))
+    ea_ajustes::repartir_todos(a, path).map_err(|e| anyhow!(e))
 }
 
 /// El argv que abre la sesión de un agente con un prompt inicial; interactivo
@@ -332,7 +292,7 @@ pub fn sesion(id: &str, agente: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ea_ajustes::Fuentes;
+    use ea_ajustes::{Fuentes, IDS_AGENTES};
 
     fn ajustes() -> (tempfile::TempDir, Ajustes) {
         let d = tempfile::tempdir().unwrap();

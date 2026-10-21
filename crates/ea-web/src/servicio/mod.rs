@@ -17,6 +17,7 @@ pub mod ajustes;
 pub mod biblioteca;
 pub mod boveda;
 pub mod diario;
+pub mod equipos;
 pub mod estado;
 pub mod explorador;
 pub mod memoria;

@@ -3,9 +3,9 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'biblioteca', 'ajustes'];
+const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'biblioteca', 'equipos', 'ajustes'];
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
-const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm' };
+const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm', equipos: 'q' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
 // Estados de un trabajo: glifo y palabra. El orden es el del recorrido.
 const EST = {
@@ -39,6 +39,7 @@ const TITULOS = {
   boveda: ['Bóveda', 'Las notas de los agentes y las tuyas, como en Obsidian. Elige una en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto. El buscador busca también dentro del contenido.'],
   memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Elige una nota en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto.'],
   biblioteca: ['Biblioteca', 'Las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, con su estado y quién los usa. Ábrela para activar o desactivar, o lanza una sesión con solo las que elijas.'],
+  equipos: ['Equipos', 'Grupos de agentes despertados para una tarea: quién es planificador, ejecutor o revisor, quién está despierto, en qué trabaja y qué ha entregado. Despierta uno con ＋ despertar; dormirlo devuelve lo pendiente a la cola.'],
   ajustes: ['Ajustes', 'Cómo se comporta el ecosistema. Lo marcado ⌨ se cambia en una terminal con `ea ajustes`.'],
 };
 const VACIO = {
@@ -48,6 +49,7 @@ const VACIO = {
   propuestas: 'Nada espera tu decisión.',
   boveda: 'No hay notas.',
   memoria: 'Ningún proyecto tiene memoria (~/.claude/projects/*/memory).',
+  equipos: 'No hay equipos. Despierta uno con ＋ despertar, o con ea equipo despertar.',
   biblioteca: 'La biblioteca está vacía: ningún agente tiene herramientas en disco (o los filtros no dejan ninguna).',
 };
 
@@ -108,6 +110,7 @@ const st = {
   bibUso: null,        // uso de la biblioteca: { mapa: id -> uso, en, cargando }
   bibCambio: {},       // por elemento: { sim, res, err } de activar o desactivar
   bibSes: null,        // formulario «▶ sesión con…»: { agente, ids, sim, res, err }
+  eqNuevo: null,       // formulario «＋ despertar» de Equipos: ver formEquipo()
   bibCat: null,        // categoría en edición: { id, v, err }
   ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
   rfBorrador: {},      // trabajo -> { nota, fase }: lo escrito para reformularlo, sin enviar
@@ -317,7 +320,11 @@ function metaTrabajo(o) {
   const sk = o.skills?.length ? 'skills: ' + o.skills.map(esc).join(', ') : 'sin skills';
   const topes = `topes: ${t.iteraciones} it. · ${Math.round((t.tiempo_s || 0) / 60)} min · ${t.turnos} turnos · ${t.llamadas_herramienta} llamadas`;
   const rut = o.rutina ? ` · rutina ${esc(o.rutina.slug)} v${o.rutina.version}` : '';
-  return `<p class="m">${sk} · ${topes} · creada por ${esc(o.creada_por || '—')}${rut}</p>`;
+  const eq = o.equipo
+    ? `<p class="m">equipo ${btn('ir-equipo', esc(o.equipo.slice(9, 15) || o.equipo), 'abrir el equipo ' + o.equipo + ' en ◎ Equipos', { id: o.equipo }, 'l')}` +
+      `${o.asignado_a ? ' · asignado a ' + esc(o.asignado_a) : ''}${o.revisor ? ' · revisor ' + esc(o.revisor) : ''}${o.worktree_propio ? ' · worktree propio' : ''}</p>`
+    : o.worktree_propio ? '<p class="m">worktree propio</p>' : '';
+  return `<p class="m">${sk} · ${topes} · creada por ${esc(o.creada_por || '—')}${rut}</p>` + eq;
 }
 
 const FASE_IC = { hecha: ['✓', ''], pendiente: ['·', 'm'], bloqueada: ['✕', 'hot'], cancelada: ['⊘', 'm'], 'en curso': ['▶', ''] };
@@ -418,6 +425,7 @@ function formMision() {
         '<div class="fm">' + campo('criterio', 'criterio: comando que decide si está hecho (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') +
         tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
         `<p class="m">El criterio lo ejecuta el sistema al final de cada iteración, nunca esta página. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`) +
+    equipoMision(n) +
     (n.aviso ? `<p class="m">⧉ ${esc(n.aviso)}</p>` : '') +
     (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
     '<div class="acc">' + (obra
@@ -429,6 +437,35 @@ function formMision() {
     `<span class="x">${esc(v.titulo || nombre + ' sin título')}</span><span class="m w">${nombre}</span>` +
     `<span class="m">${obra ? `${n.fases.length} ${n.fases.length === 1 ? 'fase' : 'fases'}` : 'para el ejecutor'}</span><span class="m"></span>`;
   return [suelto(`<article class="f o nueva"><div class="r j">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+// Lo opcional del formulario que toca a los equipos (spec 019): el servidor
+// valida que el equipo esté despierto y que asignado y revisor sean suyos.
+function deEquipo(v) {
+  const o = {};
+  for (const [c, campo] of [['equipo', 'equipo'], ['asignado', 'asignado_a'], ['revisor', 'revisor']]) if (v[c]) o[campo] = v[c];
+  if (v.wprop) o.worktree_propio = true;
+  return o;
+}
+
+// «◎ equipo…» de ＋ misión, plegado: el equipo despierto al que va, el
+// ejecutor que la toma, quien revisa la entrega y si trabaja en su propio
+// `git worktree`. Sin equipos despiertos solo ofrece el worktree propio.
+function equipoMision(n) {
+  const abierto = n.eqAbierto || n.v.equipo || n.v.asignado || n.v.revisor || n.v.wprop;
+  const boton = btn('nm-equipo', abierto ? '◎ equipo ▾' : '◎ equipo…', 'elegir equipo, ejecutor asignado, revisor y worktree propio (opcional)');
+  if (!abierto) return `<div class="acc">${boton}</div>`;
+  const despiertos = (n.equipos ?? []).filter(e => e.estado === 'despierto');
+  const elegido = despiertos.find(e => e.id === n.v.equipo);
+  const op = (valor, texto, actual) => `<option value="${esc(valor)}"${valor === (actual ?? '') ? ' selected' : ''}>${esc(texto)}</option>`;
+  const sel = (c, et, ops, actual) =>
+    `<label>${et} <select data-nm="${c}" aria-label="${et}">${op('', '— ninguno —', actual)}${ops.map(([v, t]) => op(v, t, actual)).join('')}</select></label>`;
+  const de = roles => (elegido?.miembros ?? []).filter(m => roles.includes(m.rol)).map(m => [m.agente, `${m.agente} (${m.rol})`]);
+  return `<div class="acc">${boton}</div><div class="fm">` +
+    sel('equipo', 'equipo', despiertos.map(e => [e.id, e.titulo]), n.v.equipo) +
+    (elegido ? sel('asignado', 'asignado a', de(['ejecutor']), n.v.asignado) + sel('revisor', 'revisor', de(['revisor', 'planificador']), n.v.revisor) : '') +
+    `<label><input type="checkbox" data-nm="wprop"${n.v.wprop ? ' checked' : ''}> worktree propio</label></div>` +
+    '<p class="m">Sin asignado la toma cualquier ejecutor despierto. Con worktree propio el sistema crea un <code>git worktree</code> aparte para este trabajo.</p>';
 }
 
 async function creaMision() {
@@ -445,9 +482,9 @@ async function creaMision() {
     ? {
       modo: 'obra', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', topes,
       fases: n.fases.map(f => ({ titulo: f.titulo ?? '', instrucciones: f.instrucciones ?? '', entregable: f.entregable ?? '', criterio: f.criterio ?? '' })),
-      revisar_cada: v.revisar === 'fin' ? null : Number(v.revisar),
+      revisar_cada: v.revisar === 'fin' ? null : Number(v.revisar), ...deEquipo(v),
     }
-    : { modo: 'mision', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', criterio: v.criterio ?? '', topes });
+    : { modo: 'mision', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', criterio: v.criterio ?? '', topes, ...deEquipo(v) });
   st.nueva = null;
   st.filtroEstado = null;
   avisa(`✓ ${obra ? 'obra' : 'misión'} ${t.id.slice(9, 15)} en la cola del ejecutor`, true);
@@ -1813,7 +1850,8 @@ function detalleRol(a, ag) {
       accion = btn('poner-rol', armado ? '⇄ confirmar' : `⇄ poner de ${a.rol}`, armado ? 'confirmar el cambio' : `poner a ${x.nombre} de ${a.rol} (pide confirmar)`,
         { rol: a.rol, agente: x.id }, armado ? 'hot' : '');
     }
-    return `<p><b>${esc(x.nombre)}</b>${bin}<span class="md">${modelo} · <span class="dd">topes: ${esc(x.topes)}</span></span><span class="acc">${accion}</span></p>`;
+    const desp = x.presencia?.viva ? ` · <span class="ok">despierto${x.presencia.equipo ? ' en un equipo' : ''}</span>` : '';
+    return `<p><b>${esc(x.nombre)}</b>${bin}<span class="md">${modelo}${desp} · <span class="dd">topes: ${esc(x.topes)}</span></span><span class="acc">${accion}</span></p>`;
   }).join('') + '</div>';
   return h + `<p class="m ayuda">También desde la terminal: <code>ea agentes</code> y <code>ea agentes rol ${esc(a.rol)} &lt;agente&gt;</code>.</p>`;
 }
@@ -2194,6 +2232,148 @@ const valorAj = v => (esMapaAj(v) ? (Object.keys(v).length ? Object.entries(v).m
 const crudoAj = v => (esMapaAj(v) ? JSON.stringify(v) : Array.isArray(v) ? v.join(',') : String(v ?? ''));
 const armadoAj = n => !!(st.armado && st.armado.n === n && st.armado.hasta > Date.now());
 
+// ------------------------------------------------------------------ equipos
+//
+// ◎ Equipos (spec 019): los grupos de agentes despertados para una tarea. La
+// fila resume (miembros con punto despierto o dormido, nº de trabajos); el
+// detalle (GET /api/equipos/<id>) enseña la presencia, la cola y las entregas
+// de cada miembro. Despertar y dormir son gestos del usuario con la clave de
+// sesión; dormir pide un segundo clic. Los ejecutores empiezan a trabajar
+// cuando el orquestador los recoge; planificadores y revisores, en la
+// terminal que abre «＋ despertar» si se pide.
+
+const ROL_EQ = { planificador: 'planificador', ejecutor: 'ejecutor', revisor: 'revisor' };
+const nombreAg = a => NOMBRE[a] ?? a;
+
+// Los miembros de la fila: un punto por agente (● despierto, ○ no) y su rol.
+const miembrosFila = e => e.miembros.map(m =>
+  `<span class="${m.viva ? 'ok' : 'm'}" title="${esc(m.agente)} · ${esc(m.rol)} · ${m.viva ? 'despierto' : 'dormido'}">${m.viva ? '●' : '○'} ${esc(nombreAg(m.agente))}</span>`).join(' ');
+
+function presenciaMiembro(m) {
+  if (m.viva) return m.trabajo_actual ? `despierto, en <b>${esc(m.trabajo_actual.slice(9, 15))}</b>` : 'despierto, libre';
+  if (m.presencia) return `<span class="hot">presencia caducada</span> (último latido hace ${hace(m.presencia.latido)})`;
+  return 'sin presencia';
+}
+
+function detalleEquipo(e, d) {
+  if (!d) return '<p class="m">cargando el equipo…</p>';
+  const colaDe = m => (m.pendientes
+    ? ` · ${m.rol === 'ejecutor' ? 'órdenes' : 'revisión'} en cola: ${m.pendientes}${m.cola.length ? ' (' + m.cola.map(t => esc(t.slice(9, 15))).join(', ') + ')' : ''}`
+    : '');
+  let h = `<p class="m">${esc(d.id)} · ${esc(d.worktree_base)} · creado ${hora(d.creado_en)} por ${esc(nombreAg(d.creado_por))}</p>` +
+    `<p class="et">objetivo</p><p class="tx">${esc(d.objetivo)}</p><p class="et">miembros</p><div class="agentes">` +
+    d.miembros.map(m => `<p><b>${esc(nombreAg(m.agente))}</b><span>${esc(ROL_EQ[m.rol] ?? m.rol)}</span>` +
+      `<span class="md">${presenciaMiembro(m)}${colaDe(m)}</span><span></span></p>`).join('') + '</div>' +
+    `<p class="et">trabajos (${d.trabajos.length} de ${d.trabajos_total})</p>`;
+  h += d.trabajos.length ? '<div class="agentes">' + d.trabajos.map(t => {
+    const [g] = EST[t.estado] ?? ['·'];
+    const reparto = [t.asignado_a && '→ ' + nombreAg(t.asignado_a), t.revisor && 'revisa ' + nombreAg(t.revisor),
+      t.ejecutado_por && 'ejecutó ' + nombreAg(t.ejecutado_por.agente)].filter(Boolean).join(' · ');
+    const inf = t.informe ? ` · ${t.informe.resultado}: ${t.informe.resumen}` : '';
+    return `<p><span>${g} ${esc(EST[t.estado]?.[1] ?? t.estado)}</span><span>${esc(t.id.slice(9, 15))}</span>` +
+      `<span class="md" title="${esc(t.titulo + inf)}">${esc(t.titulo)}${reparto ? ' · ' + esc(reparto) : ''}${esc(inf)}</span>` +
+      `<span class="acc">${btn('ir-trabajo', '→ trabajo', 'abrir la ficha de ' + t.id, { id: t.id }, 'l')}</span></p>`;
+  }).join('') + '</div>' : '<p class="m">Ningún trabajo todavía: reparte con <code>ea trabajo crear --equipo ' + esc(d.id) + ' --asignar &lt;ejecutor&gt;</code> o con ＋ misión.</p>';
+  if (d.estado === 'despierto') {
+    const n = 'dormir:' + d.id, armado = armadoAj(n);
+    h += '<div class="acc">' + btn('eq-dormir', armado ? '◌ confirmar: dormir' : '◌ dormir', armado ? 'segundo clic: lo pendiente de sus ejecutores vuelve a la cola del ejecutor' : 'dormir el equipo (pide confirmar)', { id: d.id }, armado ? 'hot' : '') + '</div>';
+    if (armado) h += '<p class="m hot">Lo pendiente de sus ejecutores vuelve a la cola del ejecutor; los trabajos en curso terminan. Las terminales abiertas siguen, sin presencia.</p>';
+  }
+  return h;
+}
+
+function filasEquipos(lista) {
+  const out = [...formEquipo()];
+  if (!lista.length) return out;
+  out.push(columnas('q', '', 'equipo', 'estado', 'miembros (● despierto)', 'trabajos'));
+  for (const e of lista) {
+    const k = 'q' + e.id, despierto = e.estado === 'despierto';
+    const row = `<i class="${despierto ? 'ok' : 'n'}">◎</i><span class="x" title="${esc(e.objetivo)}">${esc(e.titulo)}</span>` +
+      `<span class="${despierto ? 'ok' : 'm'}">${despierto ? 'despierto' : 'dormido'}</span><span class="m miem">${miembrosFila(e)}</span>` +
+      `<span class="m">${e.trabajos}</span>`;
+    out.push(fila(k, 'q', row, `${e.titulo} ${e.objetivo} ${e.estado} ${e.miembros.map(m => m.agente + ' ' + m.rol).join(' ')}`,
+      detalleEquipo(e, st.detalle[k])));
+  }
+  return out;
+}
+
+// Los roles que admite un agente del catálogo en un equipo.
+const rolesEq = a => [...(a.admite.includes('ejecutor') ? ['ejecutor'] : []), ...(a.admite.includes('planificador') ? ['planificador', 'revisor'] : [])];
+
+// El formulario «＋ despertar». Lo escrito vive en st.eqNuevo (el sondeo
+// repinta). El servidor valida igual que `ea equipo despertar`: roles que
+// admite cada agente, sin repetir, un ejecutor con modelo local, un
+// planificador como mínimo, el tope orquestador.paralelo y un agente en un
+// solo equipo despierto.
+function formEquipo() {
+  const n = st.eqNuevo;
+  if (!n) return [];
+  const campo = (c, ph, extra = '') =>
+    `<input data-eq="${c}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" value="${esc(n.v[c] ?? '')}"${extra}>`;
+  const lista = n.cat.agentes.map(a => {
+    const roles = rolesEq(a), falta = !a.ruta;
+    const rol = n.rol[a.id] ?? roles[0];
+    return `<label class="bs-el"><input type="checkbox" data-eqm="${esc(a.id)}"${n.marca.has(a.id) ? ' checked' : ''}${falta || n.todos ? ' disabled' : ''}> ` +
+      `<span class="x">${esc(a.nombre)}</span> ` +
+      `<select data-eqr="${esc(a.id)}" aria-label="Rol de ${esc(a.nombre)}"${n.todos ? ' disabled' : ''}>${roles.map(r => `<option value="${r}"${r === rol ? ' selected' : ''}>${r}</option>`).join('')}</select> ` +
+      `<span class="m">${falta ? `<span class="hot">falta el binario ${esc(a.bin)}</span>` : esc(a.modelo ? a.modelo.nombre + (a.modelo.remoto ? ' (remoto)' : '') : 'su modelo propio')}</span></label>`;
+  }).join('');
+  const det = '<div class="nm"><div class="fm">' + campo('titulo', 'título del equipo', ' maxlength="200"') +
+    campo('worktree', 'worktree: ruta absoluta del repo', ' class="wt" list="eq-wt" spellcheck="false"') +
+    `<datalist id="eq-wt">${n.worktrees.map(w => `<option value="${esc(w)}"></option>`).join('')}</datalist></div>` +
+    `<textarea data-eq="objetivo" rows="3" maxlength="4000" placeholder="objetivo: para qué se despierta el equipo" aria-label="Objetivo">${esc(n.v.objetivo ?? '')}</textarea>` +
+    `<div class="fm"><label><input type="checkbox" data-eq-todos${n.todos ? ' checked' : ''}> despertar a todos los disponibles</label>` +
+    `<label><input type="checkbox" data-eq-term${n.terminal ? ' checked' : ''}> abrir terminales (planificadores y revisores)</label></div>` +
+    `<div class="bs-lista">${lista}</div>` +
+    '<p class="m">Un equipo necesita al menos un ejecutor (modelo local) y un planificador; el revisor es opcional. «Todos» reparte según lo que admite cada agente. Un agente solo está en un equipo despierto y los ejecutores caben en <code>orquestador.paralelo</code>.</p>' +
+    (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
+    '<div class="acc">' + btn('eq-despertar', '▶ despertar', 'despertar el equipo con estos miembros', {}, 'coin') + btn('eq-nuevo', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
+  const row = `<i>◎</i><span class="x">${esc(n.v.titulo || 'equipo sin título')}</span><span class="m">nuevo</span><span class="m"></span><span class="m"></span>`;
+  return [suelto(`<article class="f o nueva"><div class="r q">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+async function accionEquipo(a, b) {
+  const { id } = b.dataset;
+  if (a === 'eq-nuevo') {
+    if (st.eqNuevo) { st.eqNuevo = null; return; }
+    const [cat, form] = await Promise.all([ea.agentes(), ea.nuevoTrabajo().catch(() => ({ worktrees: [] }))]);
+    st.eqNuevo = { cat, worktrees: form.worktrees ?? [], v: { worktree: st.proyecto ?? '' }, marca: new Set(), rol: {}, todos: false, terminal: true, err: null };
+    $('#lista').scrollTop = 0;
+  } else if (a === 'eq-despertar') {
+    const n = st.eqNuevo, v = n.v;
+    const cuerpo = { titulo: v.titulo ?? '', objetivo: v.objetivo ?? '', worktree: v.worktree ?? '', terminal: n.terminal };
+    if (n.todos) cuerpo.todos = true;
+    else {
+      cuerpo.miembros = n.cat.agentes.filter(x => n.marca.has(x.id)).map(x => ({ agente: x.id, rol: n.rol[x.id] ?? rolesEq(x)[0] }));
+      if (!cuerpo.miembros.length) { n.err = 'elige a los miembros o marca «todos»'; return; }
+    }
+    try {
+      const r = await ea.despertarEquipo(cuerpo);
+      st.eqNuevo = null;
+      avisa(`✓ equipo ${r.equipo.titulo} despierto`, true);
+      for (const x of r.sesiones.filter(x => x.error)) avisa(`${x.agente}: no se pudo abrir la terminal (${x.error}); ábrela con: ${x.comando}`);
+      abre('equipos', 'q' + r.equipo.id);
+    } catch (e) {
+      if (e.status === 403) throw e;
+      n.err = e.message;
+    }
+  } else if (a === 'eq-dormir') {
+    // Segundo clic para confirmar, como reiniciar un servicio.
+    const clave = 'dormir:' + id;
+    if (!armadoAj(clave)) {
+      st.armado = { n: clave, hasta: Date.now() + 4000 };
+      st.html = '';
+      pintar();
+      setTimeout(() => { st.html = ''; pintar(); }, 4100);
+      return;
+    }
+    st.armado = null;
+    await ea.dormirEquipo(id);
+    delete st.detalle['q' + id];
+    avisa('◌ equipo dormido: lo pendiente volvió a la cola del ejecutor', true);
+  }
+}
+
 function filaAjuste(c) {
   const fijada = !!c.fijada_por;
   const web = c.edicion === 'web' && !fijada;
@@ -2411,6 +2591,7 @@ function construir() {
       ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', 'última', ''), filasRutinas(d))] : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
     case 'biblioteca': return d ? filasBiblioteca(d) : [];
+    case 'equipos': return d ? filasEquipos(d) : [];
     case 'ajustes': return d ? filasAjustes(d) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o rol', 'qué hace', 'desde', ''), ...filasSistema(st.estado, false, d)] : [];
   }
@@ -2548,6 +2729,9 @@ function barra() {
         `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
   }
   else if (st.sec === 'biblioteca') h = barraBiblioteca();
+  else if (st.sec === 'equipos') {
+    h = `<button class="c${st.eqNuevo ? ' on' : ''}" data-a="eq-nuevo" title="despertar un equipo de agentes" aria-pressed="${!!st.eqNuevo}">＋ despertar</button>`;
+  }
   if (fb.dataset.h !== h) { fb.dataset.h = h; fb.innerHTML = h; }
 }
 
@@ -2737,7 +2921,7 @@ async function cargaDetalle(k) {
     try { st.detalle[k] = await EDITOR[st.sec].carga(k); } catch { delete st.detalle[k]; }
     return;
   }
-  const carga = { j: ea.trabajo, r: ea.rutina, a: ea.historialAccion, b: ea.nota }[k[0]];
+  const carga = { j: ea.trabajo, r: ea.rutina, a: ea.historialAccion, b: ea.nota, q: ea.equipo }[k[0]];
   try { st.detalle[k] = await carga(k.slice(1)); } catch { delete st.detalle[k]; }
   if (k[0] === 'r' && (st.rutVer[k.slice(1)]?.abierto || selVersion(k.slice(1)))) await cargaVersiones(k.slice(1)).catch(() => {});
 }
@@ -2756,6 +2940,7 @@ async function cargaSeccion() {
     const filtros = filtrosDiario();
     datos = fundeDiario(await ea.diario(filtros), filtros.limite);
   }
+  else if (sec === 'equipos') datos = await ea.equipos();
   else if (sec === 'biblioteca') {
     datos = await ea.biblioteca();
     cargaUsoBib();
@@ -2837,7 +3022,7 @@ function marco() {
 
 // Prefijo de la clave de las filas que se pueden enlazar, por sección. Bóveda
 // y Memoria no llevan fila: su nota abierta la recuerda el navegador.
-const FILA = { inicio: 'j', trabajos: 'j', diario: 'e', rutinas: 'r', propuestas: 'p', acciones: 'a', sistema: 's', biblioteca: 'l', ajustes: 'g' };
+const FILA = { inicio: 'j', trabajos: 'j', diario: 'e', rutinas: 'r', propuestas: 'p', acciones: 'a', sistema: 's', biblioteca: 'l', equipos: 'q', ajustes: 'g' };
 
 // Los parámetros de cada sección en el hash: nombre -> { lee(valor), escribe() }.
 // `lee` recibe el texto del hash (undefined si no está: el valor por
@@ -3030,12 +3215,15 @@ async function accion(b) {
       if (st.nueva) st.nueva = null;
       else {
         const form = await ea.nuevoTrabajo();
-        st.nueva = { form, err: null, modo: 'mision', fases: [faseVacia()], v: { worktree: st.proyecto ?? '', iteraciones: form.defecto.iteraciones, minutos: Math.max(1, Math.round(form.defecto.tiempo_s / 60)) } };
+        const equipos = await ea.equipos().catch(() => []);
+        st.nueva = { form, equipos, err: null, modo: 'mision', fases: [faseVacia()], v: { worktree: st.proyecto ?? '', iteraciones: form.defecto.iteraciones, minutos: Math.max(1, Math.round(form.defecto.tiempo_s / 60)) } };
       }
       st.html = '';
       pintar();
       $('[data-nm="titulo"]')?.focus();
       return;
+    } else if (a === 'nm-equipo') {
+      if (st.nueva) st.nueva.eqAbierto = !st.nueva.eqAbierto;
     } else if (accionFase(a, a === 'nm-modo' ? v : n)) {
       return;
     } else if (a === 'crear-mision') {
@@ -3187,6 +3375,11 @@ async function accion(b) {
       await guardaAjuste(b.dataset.c, a === 'ajuste-defecto');
     } else if (a.startsWith('bib-')) {
       await accionBiblioteca(a, b);
+    } else if (a === 'ir-equipo') {
+      abre('equipos', 'q' + id);
+      return;
+    } else if (a.startsWith('eq-')) {
+      await accionEquipo(a, b);
     } else if (a === 'ir-trabajo') {
       st.filtroEstado = null;
       abre('trabajos', 'j' + id);
@@ -3496,10 +3689,37 @@ $('#lista').addEventListener('input', ev => {
   if (an && st.anota) { st.anota.v[an.dataset.an] = an.value; st.anota.err = null; return; }
   // Lo escrito en el formulario «＋ misión».
   const nm = ev.target.closest('[data-nm]');
-  if (nm && st.nueva) { st.nueva.v[nm.dataset.nm] = nm.value; st.nueva.err = null; return; }
+  if (nm && st.nueva) {
+    st.nueva.v[nm.dataset.nm] = nm.type === 'checkbox' ? nm.checked : nm.value;
+    st.nueva.err = null;
+    if (nm.dataset.nm === 'equipo') {
+      // Los ejecutores y revisores a elegir son los de ese equipo.
+      st.nueva.v.asignado = st.nueva.v.revisor = '';
+      nm.blur();
+      st.html = '';
+      pintar();
+    }
+    return;
+  }
   // Lo escrito en una fase de la obra.
   const nf = ev.target.closest('[data-nf]');
   if (nf && st.nueva?.fases[nf.dataset.nf]) { st.nueva.fases[nf.dataset.nf][nf.dataset.nc] = nf.value; st.nueva.err = null; return; }
+  // El formulario «＋ despertar» de Equipos: lo escrito, los miembros y los dos interruptores.
+  const eqc = ev.target.closest('[data-eq], [data-eqm], [data-eqr], [data-eq-todos], [data-eq-term]');
+  if (eqc && st.eqNuevo) {
+    const E = st.eqNuevo, d = eqc.dataset;
+    if (d.eq !== undefined) E.v[d.eq] = eqc.value;
+    else if (d.eqm !== undefined) E.marca[eqc.checked ? 'add' : 'delete'](d.eqm);
+    else if (d.eqr !== undefined) { E.rol[d.eqr] = eqc.value; E.marca.add(d.eqr); const c = $(`input[data-eqm="${CSS.escape(d.eqr)}"]`); if (c && !c.disabled) c.checked = true; }
+    else if (d.eqTerm !== undefined) E.terminal = eqc.checked;
+    else if (d.eqTodos !== undefined) {
+      E.todos = eqc.checked;
+      $$('input[data-eqm], select[data-eqr]').forEach(x => { x.disabled = E.todos || (x.matches('input') && !E.cat.agentes.find(a => a.id === x.dataset.eqm)?.ruta); });
+    }
+    E.err = null;
+    st.html = '';
+    return;
+  }
   // El formulario «▶ sesión con…» de la biblioteca: lo simulado deja de valer.
   const bs = ev.target.closest('[data-bs-el], [data-bs-agente]');
   if (bs && st.bibSes) {
@@ -3653,6 +3873,7 @@ document.addEventListener('keydown', ev => {
   else if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
   else if (ev.key === 't') tour.iniciar();
   else if (ev.key === 'b') ir('biblioteca');
+  else if (ev.key === 'e') ir('equipos');
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);

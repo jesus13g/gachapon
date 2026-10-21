@@ -194,6 +194,8 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .r.a { grid-template-columns: 18px minmax(160px, 240px) 1fr 110px; }
 .r.aj { grid-template-columns: 18px minmax(160px, 260px) 1fr 160px 120px; }
 .r.l { grid-template-columns: 18px minmax(140px, 1fr) 110px 150px 56px; }
+.r.q { grid-template-columns: 18px minmax(140px, 1fr) 80px minmax(160px, 1.6fr) 64px; }
+.r.q > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .r.l > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bib-tipo { margin: 6px 10px 0 30px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
 .bs-lista { max-height: 16em; overflow-y: auto; margin: 6px 0; padding: 4px 8px; border-radius: 4px; background: var(--bg); }
@@ -301,6 +303,7 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .fm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
 .fm input { width: 34ch; max-width: 100%; }
 .fm input[inputmode] { width: 10ch; }
+.fm input[type="checkbox"] { width: auto; }
 .fm label { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
 /* Sobre una fila abierta (que ya lleva el fondo de los campos) los campos se hunden. */
 .det input, .det select { background: var(--bg); }
@@ -435,6 +438,8 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   .r.b { grid-template-columns: 18px 1fr 100px 48px; }
   .r.a { grid-template-columns: 18px 1fr 100px; }
   .r.aj { grid-template-columns: 18px 1fr 120px; }
+  .r.q { grid-template-columns: 18px 1fr 80px; }
+  .r.q > :nth-child(4), .r.q > :nth-child(5) { display: none; }
   .r.l { grid-template-columns: 18px 1fr 56px; }
   .r.l > :nth-child(3), .r.l > :nth-child(4) { display: none; }
   .r.aj > :nth-child(4), .r.aj > :nth-child(5) { display: none; }

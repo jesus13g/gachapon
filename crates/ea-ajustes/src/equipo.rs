@@ -7,7 +7,7 @@ use std::ffi::OsStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::agentes::{buscar_binario, ficha, Rol};
+use crate::agentes::{buscar_binario, ficha, Rol, IDS_AGENTES};
 use crate::fuentes::Ajustes;
 
 /// El papel de un agente dentro de un equipo. El revisor es un planificador
@@ -109,6 +109,55 @@ pub fn comprobar_disponibles(miembros: &[Miembro], a: &Ajustes, path: Option<&Os
         }
     }
     Ok(())
+}
+
+/// `agente:rol` → miembro. El rol es `planificador`, `ejecutor` o `revisor`.
+pub fn parse_miembro(texto: &str) -> Result<Miembro, String> {
+    let (agente, rol) = texto.split_once(':').ok_or_else(|| format!("{texto:?}: se espera agente:rol (p. ej. codex:ejecutor)"))?;
+    let (agente, rol) = (agente.trim(), rol.trim());
+    if ficha(agente).is_none() {
+        return Err(format!("{agente:?} no es un agente del catálogo ({})", IDS_AGENTES.join(", ")));
+    }
+    let rol = RolEquipo::desde(rol).ok_or_else(|| format!("{rol:?} no es un rol de equipo (planificador, ejecutor o revisor)"))?;
+    Ok(Miembro { agente: agente.into(), rol })
+}
+
+/// «Despertar a todos»: los agentes del catálogo cuyo binario está en `path`.
+/// Los que admiten ejecutor van a ejecutor, salvo el que ocupa
+/// `roles.planificador`, que va a planificador; los que solo admiten
+/// planificador (Claude Code, Antigravity) van a planificador. Devuelve los
+/// miembros y los agentes omitidos con el motivo; es un error que alguien
+/// quede en un papel imposible (p. ej. un ejecutor con modelo remoto) o que
+/// falte el planificador de `roles.planificador`.
+pub fn repartir_todos(a: &Ajustes, path: Option<&OsStr>) -> Result<(Vec<Miembro>, Vec<String>), String> {
+    let mut miembros = Vec::new();
+    let mut omitidos = Vec::new();
+    for id in IDS_AGENTES {
+        let f = ficha(id).expect("del catálogo");
+        let bin = a.agentes.get(*id).map(|g| g.bin.as_str()).unwrap_or_default();
+        if buscar_binario(bin, path).is_none() {
+            omitidos.push(format!("{} (no está disponible: no se encuentra {bin:?})", f.nombre));
+            continue;
+        }
+        let rol = if *id == a.roles.planificador || !f.admite(Rol::Ejecutor) { RolEquipo::Planificador } else { RolEquipo::Ejecutor };
+        miembros.push(Miembro { agente: (*id).into(), rol });
+    }
+    if !miembros.iter().any(|m| m.agente == a.roles.planificador) {
+        return Err(format!("el planificador de roles.planificador ({}) no está disponible: no se puede despertar a todos", a.roles.planificador));
+    }
+    let planificador = miembros.iter().find(|m| m.rol == RolEquipo::Planificador).cloned().expect("hay uno");
+    let imposibles: Vec<String> = miembros
+        .iter()
+        .filter(|m| m.rol == RolEquipo::Ejecutor)
+        .filter_map(|m| validar_equipo(&[m.clone(), planificador.clone()], a).err().map(|e| format!("  - {}: {e}", m.agente)))
+        .collect();
+    if !imposibles.is_empty() {
+        return Err(format!(
+            "no se puede despertar a todos:\n{}\nElige a mano con --miembro agente:rol (o cambia su modelo en `ea ajustes`).",
+            imposibles.join("\n")
+        ));
+    }
+    Ok((miembros, omitidos))
 }
 
 #[cfg(test)]

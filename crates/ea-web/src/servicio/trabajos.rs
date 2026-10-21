@@ -172,6 +172,23 @@ struct NuevoTrabajo {
     /// `Some(Some(n))`: cada `n` fases. En la obra es obligatorio (art. IV.4).
     #[serde(default, deserialize_with = "presente")]
     revisar_cada: Option<Option<u32>>,
+    /// Equipo despierto para el que se crea (spec 019); el bus valida que
+    /// `asignado_a` sea su ejecutor y `revisor` su revisor o planificador.
+    #[serde(default)]
+    equipo: Option<String>,
+    #[serde(default)]
+    asignado_a: Option<String>,
+    #[serde(default)]
+    revisor: Option<String>,
+    /// El sistema crea un `git worktree` propio para el trabajo.
+    #[serde(default)]
+    worktree_propio: bool,
+}
+
+/// Vacío o solo espacios cuenta como «no enviado» (los selectores del
+/// formulario mandan `""`).
+fn opcional(v: &Option<String>) -> Option<String> {
+    v.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_string)
 }
 
 /// Distingue un campo ausente (`None`, por el `default`) de uno a `null`.
@@ -222,7 +239,7 @@ pub fn formulario(s: &AppState) -> Resultado<FormularioTrabajo> {
 
 /// Ruta absoluta, existente, directorio y dentro de un repo git; devuelve
 /// la forma canónica, que es la que va a la orden (y al semáforo).
-async fn validar_worktree(wt: &str) -> Resultado<String> {
+pub(super) async fn validar_worktree(wt: &str) -> Resultado<String> {
     let wt = wt.trim();
     if wt.is_empty() {
         return Err(ErrorWeb::Invalido("'worktree' no puede estar vacío".into()));
@@ -360,10 +377,10 @@ pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
         rutina: None,
         notas_revision: vec![],
         skills: vec![],
-        equipo: None,
-        asignado_a: None,
-        revisor: None,
-        worktree_propio: false,
+        equipo: opcional(&n.equipo),
+        asignado_a: opcional(&n.asignado_a),
+        revisor: opcional(&n.revisor),
+        worktree_propio: n.worktree_propio,
         creada_en: String::new(),
         creada_por: ACTOR.into(),
     };

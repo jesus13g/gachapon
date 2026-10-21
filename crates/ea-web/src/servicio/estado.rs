@@ -5,8 +5,8 @@ use ea_bus::Bus;
 use ea_store::{EstadoPropuesta, PropuestaFilter};
 use time::OffsetDateTime;
 
-use super::{propuestas::vista as propuesta_vista, ts, Resultado};
-use crate::vistas::{AgentesVista, AgenteVista, EstadoGeneral, Inicio, Orquestador, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento};
+use super::{bus_lectura, propuestas::vista as propuesta_vista, ts, Resultado};
+use crate::vistas::{AgenteConPresencia, AgentesVista, AgenteVista, PresenciaVista, EstadoGeneral, Inicio, Orquestador, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento};
 use crate::AppState;
 
 pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
@@ -101,5 +101,21 @@ pub async fn agentes(s: &AppState) -> AgentesVista {
             _ => None,
         })
         .collect();
-    AgentesVista { version: e.version.clone(), fijados, agentes: crate::agentes::disponibilidad(&e.ajustes).await }
+    let presencias = bus_lectura(s).map(|b| b.presencias()).unwrap_or_default();
+    let agentes = crate::agentes::disponibilidad(&e.ajustes)
+        .await
+        .into_iter()
+        .map(|agente| {
+            let presencia = presencias.iter().find(|(p, _)| p.agente == agente.vista.id).map(|(p, viva)| PresenciaVista {
+                viva: *viva,
+                rol: p.rol.as_str(),
+                equipo: p.equipo.clone(),
+                trabajo: p.trabajo.clone(),
+                desde: p.desde.clone(),
+                latido: p.latido.clone(),
+            });
+            AgenteConPresencia { agente, presencia }
+        })
+        .collect();
+    AgentesVista { version: e.version.clone(), fijados, agentes }
 }

@@ -269,6 +269,27 @@ pub async fn semaforos(State(s): Estado) -> Json<Vec<Semaforo>> {
     Json(servicio::trabajos::semaforos(&s))
 }
 
+// ----------------------------------------------------------------- equipos
+
+pub async fn equipos_listar(State(s): Estado) -> Api<Vec<ea_bus::ResumenEquipo>> {
+    ok(servicio::equipos::listar(&s))
+}
+
+pub async fn equipo_ver(State(s): Estado, Path(id): Path<String>) -> Api<ea_bus::VistaEquipo> {
+    ok(servicio::equipos::ver(&s, &id))
+}
+
+pub async fn equipo_despertar(
+    State(s): Estado,
+    Json(b): Json<Value>,
+) -> Result<(StatusCode, Json<servicio::equipos::Despierto>), ApiError> {
+    Ok((StatusCode::CREATED, Json(servicio::equipos::despertar(&s, b).await?)))
+}
+
+pub async fn equipo_dormir(State(s): Estado, Path(id): Path<String>) -> Api<ea_bus::VistaEquipo> {
+    ok(servicio::equipos::dormir(&s, &id).await)
+}
+
 // -------------------------------------------------------------- propuestas
 
 #[derive(Deserialize)]

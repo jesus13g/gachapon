@@ -21,6 +21,7 @@
   <button data-s="boveda" title="Bóveda (tecla 8)"><i>▥</i><span>Bóveda</span></button>
   <button data-s="memoria" title="Memoria de Claude Code (tecla 9)"><i>✎</i><span>Memoria</span></button>
   <button data-s="biblioteca" title="Biblioteca de herramientas (tecla b)"><i>◫</i><span>Biblioteca</span></button>
+  <button data-s="equipos" title="Equipos de agentes (tecla e)"><i>◎</i><span>Equipos</span></button>
   <button data-s="ajustes" title="Ajustes (tecla 0)"><i>⚙&#xFE0E;</i><span>Ajustes</span></button>
   <button id="bproy" aria-expanded="false" aria-controls="proyectos"><i>◨</i><span>Proyectos</span><b></b></button>
 </nav>
@@ -107,6 +108,7 @@
       <dt>▥ Bóveda</dt><dd>las notas como en Obsidian: árbol por regiones, se leen y se editan (✎; la firma no cambia); ＋ nota en la compartida, ＋ carpeta, papelera que restaura; ⋯ renombra o mueve, promueve, copia la ruta, la muestra en el explorador o la manda a la papelera</dd>
       <dt>✎ Memoria</dt><dd>la memoria de Claude Code: árbol de proyectos y notas; se lee, se edita (✎), y ⋯ renombra, copia la ruta, la muestra en el explorador o la elimina</dd>
       <dt>◫ Biblioteca</dt><dd>las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo, con filtros y su uso por actor. En la ficha, <i>⏻ desactivar / activar</i> simula primero y pide aceptar (los MCP de Claude Code solo se acotan en una sesión), <i>▶ sesión con…</i> abre una terminal con solo las herramientas que elijas y <i>✎ categoría</i> le da una propia. Los secretos de un MCP nunca salen: solo los nombres de sus variables y cabeceras</dd>
+      <dt>◎ Equipos</dt><dd>los grupos de agentes despertados para una tarea: miembros con su rol, quién está despierto (●), en qué trabaja, su cola y lo que han entregado. <i>＋ despertar</i> crea un equipo (y abre una terminal por cada planificador y revisor si lo pides) y <i>◌ dormir</i> lo apaga devolviendo lo pendiente a la cola del ejecutor; ambos piden confirmar</dd>
       <dt>⚙&#xFE0E; Ajustes</dt><dd>cómo se comporta el ecosistema (ajustes.toml), con el origen de cada valor. ◐ se cambia aquí (segundo clic para confirmar; los topes solo bajan), ⌨ solo en una terminal con <i>ea ajustes</i>, ⊘ lo fija una variable de entorno</dd>
     </dl>
 
@@ -118,6 +120,7 @@
       <dt>Tab</dt><dd>recorrer filas y tarjetas; Enter abre la que tiene el foco</dd>
       <dt>Enter</dt><dd>abrir o cerrar la fila seleccionada</dd>
       <dt>b</dt><dd>ir a la Biblioteca</dd>
+      <dt>e</dt><dd>ir a Equipos</dd>
       <dt>p</dt><dd>plegar o desplegar la barra de proyectos; pulsa un proyecto para ver solo sus trabajos y su diario</dd>
       <dt>Esc</dt><dd>cerrar lo abierto</dd>
       <dt>Ctrl+E</dt><dd>en Memoria y Bóveda, alternar lectura y edición (el borrador no se pierde)</dd>

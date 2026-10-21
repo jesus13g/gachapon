@@ -9,7 +9,7 @@
 //! validan contra sus campos) y va como argv, sin shell, como hace
 //! `explorador` con el gestor de ficheros.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use ea_acciones::{Canal, Riesgo};
@@ -163,10 +163,27 @@ async fn validar_propuesta(s: &AppState, id: i64) -> Resultado<Orden> {
     }
 }
 
-fn lanzar(ea: &Path, orden: &Orden) -> Resultado<()> {
-    let mut argv = vec![ea.display().to_string()];
-    argv.extend(orden.argv());
-    ea_acciones::lanzar_en_terminal(&argv).map_err(ErrorWeb::NoDisponible)
+/// Abre una terminal con `ea <args>` según la configuración: la del sistema,
+/// la simulada de las pruebas o ninguna (503). Quien llama ya ha validado los
+/// argumentos contra una lista cerrada.
+pub fn lanzar_argv(s: &AppState, args: &[String]) -> Resultado<()> {
+    match &s.config.terminal {
+        Terminal::Ninguna => return Err(ErrorWeb::NoDisponible("no hay terminal configurada".into())),
+        Terminal::Sistema { ea } => {
+            if !ea.is_file() {
+                return Err(ErrorWeb::NoDisponible(format!("no está el binario {}", ea.display())));
+            }
+            let mut argv = vec![ea.display().to_string()];
+            argv.extend(args.iter().cloned());
+            ea_acciones::lanzar_en_terminal(&argv).map_err(ErrorWeb::NoDisponible)?;
+        }
+        Terminal::Simulada { ea, lanzadas } => {
+            let mut argv = vec![LANZADORES[0].to_string(), ea.display().to_string()];
+            argv.extend(args.iter().cloned());
+            lanzadas.lock().map_err(|_| ErrorWeb::Interno("registro envenenado".into()))?.push(argv);
+        }
+    }
+    Ok(())
 }
 
 /// Abre una terminal con el comando que confirma en ella. Queda en el
@@ -176,20 +193,7 @@ pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
         Ok(id) => validar_propuesta(s, id).await?,
         Err((h, args)) => validar_herramienta(&h, args)?,
     };
-    match &s.config.terminal {
-        Terminal::Ninguna => return Err(ErrorWeb::NoDisponible("no hay terminal configurada".into())),
-        Terminal::Sistema { ea } => {
-            if !ea.is_file() {
-                return Err(ErrorWeb::NoDisponible(format!("no está el binario {}", ea.display())));
-            }
-            lanzar(ea, &orden)?;
-        }
-        Terminal::Simulada { ea, lanzadas } => {
-            let mut argv = vec![LANZADORES[0].to_string(), ea.display().to_string()];
-            argv.extend(orden.argv());
-            lanzadas.lock().map_err(|_| ErrorWeb::Interno("registro envenenado".into()))?.push(argv);
-        }
-    }
+    lanzar_argv(s, &orden.argv())?;
     let evento = NewEvent {
         actor: ACTOR.into(),
         action: "accion_terminal_abierta".into(),
