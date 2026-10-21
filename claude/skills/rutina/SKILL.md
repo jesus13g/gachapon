@@ -49,6 +49,8 @@ El servicio `ea-rutina@<slug>.service` ya existe y solo ejecuta `ea rutina lanza
 
 Para quitar el horario, lo mismo con `ea_desprogramar_rutina` (`slug`). No copies la plantilla ni lances `systemctl` a mano.
 
+Para dejar de usar una rutina, propón `ea_retirar_rutina` (`slug`): su TOML va a la papelera de `rutinas_dir` y se desprograma su timer; es reversible con `ea_restaurar_rutina`, que no vuelve a programarlo. Una rutina retirada no se lanza ni se programa.
+
 ## Corrección (paquete de corrección)
 
 Si una rutina falla, el usuario confirma el paquete y llega a la cola `claude-code` como trabajo `en_revision` con `trabajos/<id>/paquete-correccion.md` (en `~/.local/state/ecosistema-asistente/`). Entonces:

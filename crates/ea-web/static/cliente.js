@@ -102,7 +102,8 @@ const ea = (() => {
     // algo o corrige un evento sin tocarlo (el diario es append-only).
     anotarDiario: cuerpo => post('/api/diario/anotar', cuerpo),
 
-    rutinas: () => api('/api/rutinas'),
+    // Con `retiradas`, las de la papelera (o sin fichero) en vez de las activas.
+    rutinas: (retiradas = false) => api('/api/rutinas' + (retiradas ? '?retiradas=1' : '')),
     rutina: slug => api('/api/rutinas/' + c(slug)),
     lanzarRutina: (slug, entradas = {}) => post(`/api/rutinas/${c(slug)}/lanzar`, { entradas }),
     previaRutina: (slug, entradas = {}) => post(`/api/rutinas/${c(slug)}/previa`, { entradas }),

@@ -722,9 +722,52 @@ impl EaTools {
     }
 
     #[tool(
-        description = "[Riesgo: mutación IRREVERSIBLE] Borra para siempre el fichero de una \
-            rutina del usuario. NO lo ejecuta: con simular=true lo describe; sin él encola \
-            una propuesta que el usuario solo puede confirmar desde una terminal.",
+        description = "[Riesgo: mutación reversible] Retira una rutina: mueve su TOML a la \
+            papelera de rutinas_dir y desprograma su timer, si lo tiene. Deja de listarse y de \
+            poder lanzarse; sus versiones siguen en SQLite. Se deshace con ea_restaurar_rutina. \
+            NO lo hace: con simular=true lo describe; sin él encola una propuesta que el \
+            usuario debe aceptar (terminal o panel web).",
+        annotations(
+            title = "Retirar rutina",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_retirar_rutina(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<RutinaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_retirar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Restaura una rutina retirada: devuelve su \
+            TOML de la papelera a rutinas_dir, y vuelve a listarse y a poder lanzarse. No \
+            vuelve a programar su timer (eso es ea_programar_rutina). NO lo hace: con \
+            simular=true lo describe; sin él encola una propuesta que el usuario debe aceptar \
+            (terminal o panel web).",
+        annotations(
+            title = "Restaurar rutina",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_restaurar_rutina(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<RutinaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_restaurar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación IRREVERSIBLE] Borra para siempre la copia retirada de \
+            una rutina (la de la papelera; antes hay que retirarla con ea_retirar_rutina). Sus \
+            versiones siguen en SQLite. NO lo ejecuta: con simular=true lo describe; sin él \
+            encola una propuesta que el usuario solo puede confirmar desde una terminal.",
         annotations(
             title = "Eliminar rutina",
             read_only_hint = false,
@@ -754,7 +797,8 @@ impl ServerHandler for EaTools {
                  skills); ea_listar_diario consulta el historial de eventos. Las \
                  herramientas que cambian el sistema (ea_encolar_rutina, \
                  ea_registrar_rutina, ea_programar_rutina, ea_desprogramar_rutina, \
-                 ea_reiniciar_servicio, ea_eliminar_rutina, ea_promover_nota) nunca se \
+                 ea_retirar_rutina, ea_restaurar_rutina, ea_reiniciar_servicio, \
+                 ea_eliminar_rutina, ea_promover_nota) nunca se \
                  ejecutan desde aquí: con simular=true describen lo que harían; sin él \
                  encolan una propuesta que solo el usuario puede aceptar. Las \
                  irreversibles solo se confirman desde una terminal. La bóveda de \

@@ -17,7 +17,7 @@ pub enum Command {
         #[command(subcommand)]
         accion: DiarioAccion,
     },
-    /// Rutinas versionadas (registrar, listar, ver, lanzar)
+    /// Rutinas versionadas (registrar, listar, ver, lanzar, retirar, restaurar)
     #[command(alias = "rutinas")]
     Rutina {
         #[command(subcommand)]
@@ -224,8 +224,12 @@ pub enum DiarioAccion {
 pub enum RutinaAccion {
     /// Valida un fichero de rutina y lo registra (la versión debe subir)
     Registrar { fichero: std::path::PathBuf },
-    /// Lista las rutinas registradas, con su última ejecución
-    Listar,
+    /// Lista las rutinas registradas en uso, con su última ejecución
+    Listar {
+        /// Lista en su lugar las retiradas (en la papelera o sin fichero)
+        #[arg(long)]
+        retiradas: bool,
+    },
     /// Muestra la definición registrada de una rutina y su historial
     Ver {
         slug: String,
@@ -241,6 +245,10 @@ pub enum RutinaAccion {
         #[arg(long = "entrada")]
         entrada: Vec<String>,
     },
+    /// Retira una rutina: su TOML va a la papelera y se desprograma su timer (se restaura)
+    Retirar { slug: String },
+    /// Devuelve una rutina retirada a su sitio (no vuelve a programar su timer)
+    Restaurar { slug: String },
 }
 
 #[derive(Subcommand)]

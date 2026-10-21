@@ -38,7 +38,8 @@ fn store() -> (Store, tempfile::TempDir) {
 fn sistema() -> SistemaSimulado {
     SistemaSimulado::default()
         .con_servicio("ea-mcp", "active")
-        .con_rutina("vieja", "[rutina]\ndescripcion = \"x\"\n")
+        // «vieja» está retirada: en la papelera, lo único que se borra para siempre.
+        .con_retirada("vieja", "[rutina]\ndescripcion = \"x\"\n")
         .con_rutina("revision-diaria", "[rutina]\ndescripcion = \"y\"\n")
         .con_rutina("nocturna", "[rutina]\ndescripcion = \"z\"\n")
         .con_rutina("con-entradas", "[rutina]\ndescripcion = \"e\"\n")
@@ -70,6 +71,8 @@ fn todas_las_llamadas() -> Vec<(&'static str, Value)> {
         ("ea_encolar_rutina", json!({ "slug": "revision-diaria" })),
         ("ea_reiniciar_servicio", json!({ "servicio": "ea-mcp" })),
         ("ea_eliminar_rutina", json!({ "slug": "vieja" })),
+        ("ea_retirar_rutina", json!({ "slug": "nocturna" })),
+        ("ea_restaurar_rutina", json!({ "slug": "vieja" })),
     ]
 }
 
@@ -85,7 +88,8 @@ async fn simular_describe_sin_ningun_efecto() {
     }
     assert_eq!(acciones(&s).len(), eventos_antes, "simular no escribe en el diario ni en ningún sitio");
     assert!(sis.mutaciones().is_empty());
-    assert!(sis.rutina_contenido("vieja").unwrap().is_some());
+    assert!(sis.rutina_retirada("vieja").unwrap().is_some());
+    assert!(sis.rutina_contenido("nocturna").unwrap().is_some());
 }
 
 #[tokio::test]
@@ -134,7 +138,7 @@ async fn la_cola_de_propuestas_con_accion_tiene_tope() {
     let (s, _d) = store();
     let mut sis = sistema();
     for i in 0..=MAX_PEND {
-        sis = sis.con_rutina(&format!("r{i}"), "x");
+        sis = sis.con_retirada(&format!("r{i}"), "x");
     }
     for i in 0..MAX_PEND {
         proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": format!("r{i}") })).await
@@ -208,10 +212,10 @@ async fn revalida_antes_de_ejecutar_si_el_estado_cambio() {
     // Rutina que cambia de contenido entre la simulación y la ejecución.
     let (p, _) = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": "vieja" })).await
         .unwrap();
-    sis.rutinas.lock().unwrap().insert("vieja".into(), "otro contenido".into());
+    sis.retiradas.lock().unwrap().insert("vieja".into(), "otro contenido".into());
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
     assert_eq!(p.ejecucion.unwrap().estado, EstadoEjecucion::Fallida);
-    assert!(sis.rutina_contenido("vieja").unwrap().is_some());
+    assert!(sis.rutina_retirada("vieja").unwrap().is_some());
     assert!(sis.mutaciones().is_empty());
 
     // Servicio desinstalado.
@@ -246,7 +250,7 @@ async fn un_irreversible_no_se_confirma_desde_la_web_y_la_propuesta_sigue_pendie
     let e = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap_err();
     assert!(matches!(e, ErrorAccion::Prohibida(_)), "{e}");
     assert_eq!(s.get_propuesta(p.id).unwrap().estado, EstadoPropuesta::Pendiente);
-    assert!(sis.rutina_contenido("vieja").unwrap().is_some());
+    assert!(sis.rutina_retirada("vieja").unwrap().is_some());
     assert!(acciones(&s).contains(&"accion_fallida".to_string()), "el intento por la web queda en el diario");
 
     let e = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_eliminar_rutina", &json!({ "slug": "vieja" }))
@@ -259,7 +263,7 @@ async fn un_irreversible_no_se_confirma_desde_la_web_y_la_propuesta_sigue_pendie
     // Desde la terminal sí.
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
     assert_eq!(p.ejecucion.unwrap().estado, EstadoEjecucion::Ejecutada);
-    assert!(sis.rutina_contenido("vieja").unwrap().is_none());
+    assert!(sis.rutina_retirada("vieja").unwrap().is_none());
     assert_eq!(sis.mutaciones(), vec!["eliminar_rutina:vieja"]);
 }
 

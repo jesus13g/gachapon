@@ -58,11 +58,32 @@ fn ultimas(s: &AppState, slugs: &HashSet<String>) -> HashMap<String, crate::vist
     out
 }
 
-pub async fn listar(s: &AppState) -> Resultado<Vec<RutinaFila>> {
-    let filas = s.store.lock().await.listar_rutinas()?;
+/// Dónde está el TOML de la rutina; un error de lectura cuenta como sin
+/// fichero (no se lanza).
+fn ubicacion(s: &AppState, slug: &str) -> ea_bus::Ubicacion {
+    ea_bus::ubicacion_rutina(&s.config.rutinas_dir, slug).unwrap_or(ea_bus::Ubicacion::SinFichero)
+}
+
+/// Las rutinas registradas cruzadas con su fichero (spec 004, RF-011): las
+/// activas o, con `retiradas`, las que están en la papelera o sin fichero.
+pub async fn listar(s: &AppState, retiradas: bool) -> Resultado<Vec<RutinaFila>> {
+    let filas: Vec<_> = s
+        .store
+        .lock()
+        .await
+        .listar_rutinas()?
+        .into_iter()
+        .map(|f| {
+            let u = ubicacion(s, &f.slug);
+            (f, u)
+        })
+        .filter(|(_, u)| (*u == ea_bus::Ubicacion::Activa) != retiradas)
+        .collect();
+    let filas_u: Vec<ea_bus::Ubicacion> = filas.iter().map(|(_, u)| *u).collect();
+    let filas: Vec<_> = filas.into_iter().map(|(f, _)| f).collect();
     let mut ultimas = ultimas(s, &filas.iter().map(|f| f.slug.clone()).collect());
     let mut out = Vec::with_capacity(filas.len());
-    for f in filas {
+    for (f, u) in filas.into_iter().zip(filas_u) {
         let r = ea_bus::Rutina::parsear(&f.definicion).ok();
         let (proxima, timer) = if s.config.systemctl && ea_bus::slug_valido(&f.slug) {
             match crate::estado::timer_rutina(&f.slug).await {
@@ -84,6 +105,7 @@ pub async fn listar(s: &AppState) -> Resultado<Vec<RutinaFila>> {
             slug: f.slug,
             version: f.version,
             registrada: f.creada_en,
+            ubicacion: u.as_str(),
             proxima,
             calendario,
             timer,
@@ -110,7 +132,8 @@ pub async fn ver(s: &AppState, slug: &str) -> Resultado<RutinaDetalle> {
             .collect(),
         Err(_) => Vec::new(),
     };
-    Ok(RutinaDetalle { slug: slug.into(), version: fila.version, contenido: fila.definicion, ejecuciones })
+    let ubicacion = ubicacion(s, slug).as_str();
+    Ok(RutinaDetalle { slug: slug.into(), version: fila.version, contenido: fila.definicion, ejecuciones, ubicacion })
 }
 
 /// Las versiones registradas de una rutina, la más reciente primero, sin
@@ -231,7 +254,11 @@ pub async fn registrar(s: &AppState, toml: &str) -> Resultado<RutinaRegistrada> 
 pub async fn lanzar(s: &AppState, slug: &str, entradas: &Entradas) -> Resultado<RutinaLanzada> {
     slug_valido(slug)?;
     let bus = bus_con_store(s).await?;
-    let orden = bus.rutina(slug).map_err(|_| no_registrada(slug))?.a_orden(&pares(entradas))?;
+    let rutina = bus.rutina(slug).map_err(|_| no_registrada(slug))?;
+    // Retirada o sin fichero: 409, con el mismo texto que la simulación de
+    // `ea_encolar_rutina` y que `ea rutina lanzar`.
+    ea_bus::comprobar_lanzable(&s.config.rutinas_dir, slug)?;
+    let orden = rutina.a_orden(&pares(entradas))?;
     if !bus.trabajos_activos_de_rutina(slug)?.is_empty() {
         return Err(ErrorWeb::Conflicto(format!("la rutina '{slug}' ya tiene una ejecución en curso")));
     }

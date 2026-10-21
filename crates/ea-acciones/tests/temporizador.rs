@@ -29,7 +29,7 @@ async fn simular<C: Consulta>(s: &Store, c: &C, nombre: &str, args: &Value) -> R
 #[tokio::test]
 async fn programar_rutina_simula_valida_y_rechaza_calendarios_malos() {
     let (s, _d) = store();
-    let sis = SistemaSimulado::default();
+    let sis = SistemaSimulado::default().con_rutina("diaria", "x");
 
     let sim = simular(&s, &sis, "ea_programar_rutina", &json!({ "slug": "diaria", "calendario": " *-*-* 08:00:00 " }))
         .await
@@ -61,7 +61,7 @@ async fn programar_rutina_simula_valida_y_rechaza_calendarios_malos() {
     assert!(sis.mutaciones().is_empty(), "simular no programa nada");
 
     // Ya programada con ese horario: no hay nada que hacer.
-    let sis = SistemaSimulado::default().con_timer("diaria", "daily");
+    let sis = SistemaSimulado::default().con_rutina("diaria", "x").con_timer("diaria", "daily");
     let e = simular(&s, &sis, "ea_programar_rutina", &json!({ "slug": "diaria", "calendario": "daily" }))
         .await
         .unwrap_err();
@@ -71,7 +71,7 @@ async fn programar_rutina_simula_valida_y_rechaza_calendarios_malos() {
 #[tokio::test]
 async fn programar_se_propone_se_revalida_y_al_aceptar_se_programa() {
     let (mut s, _d) = store();
-    let sis = SistemaSimulado::default();
+    let sis = SistemaSimulado::default().con_rutina("diaria", "x");
     let args = json!({ "slug": "diaria", "calendario": "Mon *-*-* 09:00" });
     let h = observar(&sis, "ea_programar_rutina", &args).await.unwrap();
     let (p, _) = proponer(&s, &sis, &h, "claude-code", None, "ea_programar_rutina", &args).unwrap();

@@ -96,8 +96,15 @@ pub async fn diario_anotar(State(s): Estado, cuerpo: Bytes) -> Result<(StatusCod
 
 // ----------------------------------------------------------------- rutinas
 
-pub async fn rutinas_listar(State(s): Estado) -> Api<Vec<RutinaFila>> {
-    ok(servicio::rutinas::listar(&s).await)
+/// `?retiradas=1`: las rutinas retiradas (en la papelera o sin fichero) en
+/// vez de las activas.
+#[derive(Deserialize)]
+pub struct RutinasQuery {
+    retiradas: Option<String>,
+}
+
+pub async fn rutinas_listar(State(s): Estado, Query(q): Query<RutinasQuery>) -> Api<Vec<RutinaFila>> {
+    ok(servicio::rutinas::listar(&s, q.retiradas.as_deref() == Some("1")).await)
 }
 
 pub async fn rutina_ver(State(s): Estado, Path(slug): Path<String>) -> Api<RutinaDetalle> {

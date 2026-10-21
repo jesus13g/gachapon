@@ -314,9 +314,10 @@ ea semaforos                                 # quién tiene el worktree
 
 # Rutinas versionadas
 ea rutina registrar <fichero.toml>           # valida y registra (la versión debe subir)
-ea rutina listar|ver <slug>
+ea rutina listar [--retiradas]|ver <slug>     # --retiradas: las de la papelera (o sin fichero)
 ea rutina ver <slug> --version N             # esa versión registrada y la lista de todas
-ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus
+ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si está retirada)
+ea rutina retirar|restaurar <slug>           # a la papelera y vuelta (simula y confirma con TTY)
 
 # Resto del ecosistema
 ea status                                    # orquestador, trabajos por estado, colas y semáforos
@@ -349,6 +350,20 @@ por shell, y se rechazan los saltos de línea y demás caracteres de control,
 `%` y `\`. Se hace desde la ficha de ↻ Rutinas, desde ▶ Acciones o aceptando
 la propuesta que Claude Code encola por MCP (`/rutina`). Comprobación manual:
 `systemctl --user list-timers 'ea-rutina@*'`.
+
+Una rutina se **retira** de forma reversible: `ea_retirar_rutina` (`{slug}`)
+mueve su TOML de `rutinas_dir/<slug>.toml` a `rutinas_dir/.papelera/<slug>.toml`
+y antes desprograma su timer (la simulación lo dice). La base de datos no
+cambia: sus versiones siguen en SQLite y el fichero decide. Una rutina
+retirada (o sin fichero en `rutinas_dir`) no se lista salvo pidiendo las
+retiradas, y no se lanza: la rechazan `ea rutina lanzar` (y con él su timer),
+`POST /api/rutinas/<slug>/lanzar` (409), `ea_programar_rutina` y la simulación
+de `ea_encolar_rutina`, con el mismo texto. `ea_restaurar_rutina` la devuelve
+a su sitio sin volver a programar el timer; registrar una versión nueva de una
+retirada también la vuelve a poner en uso. Las dos son reversibles (se
+confirman en la terminal, en ▶ Acciones o en la ficha de ↻ Rutinas). Borrar
+para siempre la copia retirada es `ea_eliminar_rutina`, irreversible y solo
+desde la terminal; antes hay que retirarla.
 
 Las entradas de una rutina (`--entrada`, la ficha de la web o `entradas` en
 `ea_encolar_rutina`) siguen una sola política, la de `Rutina::a_orden`: solo
@@ -387,7 +402,8 @@ riesgo (§7.3):
 | `ea_registrar_rutina` (`toml`: la definición entera; la versión debe subir; la simulación muestra el diff frente a la registrada y el criterio resultante; no lanza nada) | mutación reversible | solo simula o propone |
 | `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone |
 | `ea_programar_rutina` (`slug` de una rutina registrada y `calendario`, un `OnCalendar`; la simulación da las próximas 3 ejecuciones) y `ea_desprogramar_rutina` (`slug`) | mutación reversible | solo simula o propone |
-| `ea_eliminar_rutina` | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
+| `ea_retirar_rutina` (su TOML a la papelera y su timer desprogramado) y `ea_restaurar_rutina` (vuelve, sin timer), con `slug` | mutación reversible | solo simula o propone |
+| `ea_eliminar_rutina` (borra para siempre la copia retirada; antes hay que retirarla) | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
 Toda invocación queda registrada en el diario, atribuida al cliente que la hizo
 (`claude-code` por defecto, `modelo-local` si se identifica como Qwen Code —`qwen-code-mcp-client`—, `orquestador` si se identifica como `ea-orchestrator`).
@@ -651,7 +667,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
 | ▤ | Trabajos: lista con filtro por estado y ficha con informe, resumen del agente, metadatos (skills, topes, `creada_por`, rutina vN), el plan de la obra (estado de cada fase, con su plan y su diff plegables), diff plegable e historial; cerrar, reformular (nota amplia con las notas anteriores encima y, en una obra, «rehacer desde la fase N» con la pendiente preseleccionada), continuar, confirmar y cancelar según el estado. **＋ misión** (en la barra) abre en línea un formulario para encargar una misión al modelo local: título, worktree (sugiere los de las sesiones de Claude Code y los de trabajos anteriores), objetivo, criterio (obligatorio) e iteraciones y minutos, acotados al techo de `ajustes.toml`; al encolarla se abre su ficha. En modo **obra**, el mismo formulario lleva un objetivo general y una lista de fases (título, instrucciones, entregable y criterio cada una) que se añaden, quitan y reordenan, y obliga a elegir cada cuántas fases revisa Claude Code (o solo al final). El worktree tiene que ser un repo con al menos un commit. El criterio lo ejecuta el sistema, nunca la página. En la ficha de un trabajo cerrado o cancelado, **⧉ lanzar de nuevo** abre ese formulario relleno con su orden (objetivo, criterio, worktree, topes y, en una obra, fases y revisión) para editarla y encolarla con un id nuevo; no copia las notas, el informe ni las skills, y una rutina vuelve como misión normal | `2` |
 | ≡ | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`, `usuario_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. ✎ anotar abre en línea una nota del usuario (texto y, si quieres, trabajo) que queda como `usuario_nota`; en el detalle de un evento, ✎ corregir abre lo mismo apuntando a ese evento, que no se toca: el corregido muestra «corregido por #n» y la nota «corrige #m», enlazados. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros. Al pie, ↓ más antiguos añade la página siguiente con los mismos filtros (desaparece cuando no queda nada); el sondeo refresca solo la primera sin perder las cargadas, y cambiar un filtro vuelve a la primera | `3` |
-| ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada. «▸ versiones» lista las registradas (número, fecha y quién) con «ver» (su TOML) y «diff» (qué cambió frente a la anterior), solo lectura. «horario» enseña el `OnCalendar` del timer y si está activo; «◷ guardar» simula el horario escrito (próximas 3 ejecuciones) y el segundo clic lo programa; «✕ desprogramar» quita el timer | `4` |
+| ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada. «▸ versiones» lista las registradas (número, fecha y quién) con «ver» (su TOML) y «diff» (qué cambió frente a la anterior), solo lectura. «horario» enseña el `OnCalendar` del timer y si está activo; «◷ guardar» simula el horario escrito (próximas 3 ejecuciones) y el segundo clic lo programa; «✕ desprogramar» quita el timer. «▣ retirar» (segundo clic) manda la rutina a la papelera y quita su timer; «▣ retiradas», en la barra, las lista, y su ficha tiene «↺ restaurar» | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas | `6` |
 | ▦ | Servicios (reiniciar ↻, pide confirmar), orquestador y agentes | `7` |
@@ -692,7 +708,8 @@ inversa, «→ diario» en el historial de la ficha de un trabajo abre el diario
 filtrado por él.
 
 API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea),
-`/api/colas`, `/api/semaforos`, `/api/rutinas`,
+`/api/colas`, `/api/semaforos`, `/api/rutinas` (las activas; `?retiradas=1`, las
+retiradas; cada fila y la ficha llevan `ubicacion`: `activa`, `retirada` o `sin_fichero`),
 `/api/rutinas/<slug>/versiones` (`[{version, creada_en, creada_por}]`, la más
 reciente primero, sin la definición), `/api/rutinas/<slug>/versiones/<n>`
 (`{slug, version, creada_en, creada_por, contenido}`; 404 si no existe, 400 si

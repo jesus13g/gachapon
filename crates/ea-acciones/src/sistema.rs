@@ -39,6 +39,10 @@ pub trait Consulta: Send + Sync {
     /// Contenido del fichero de la rutina, o `None` si no existe.
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String>;
 
+    /// Contenido de la copia retirada de la rutina (en la papelera de
+    /// `rutinas_dir`, [`ea_bus::ruta_retirada`]), o `None` si no la hay.
+    fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String>;
+
     /// Lo que haría promover una nota a la región compartida, sin hacerlo.
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda>;
 
@@ -56,7 +60,15 @@ pub trait Consulta: Send + Sync {
 
 pub trait Sistema: Consulta {
     fn servicio_reiniciar(&self, nombre: &str) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// Borra para siempre la copia retirada de una rutina (la de la papelera).
     fn rutina_eliminar(&self, slug: &str) -> Result<(), String>;
+
+    /// Mueve el TOML de la rutina a la papelera ([`ea_bus::retirar_rutina`]).
+    fn rutina_retirar(&self, slug: &str) -> Result<(), String>;
+
+    /// Devuelve el TOML de la papelera a su sitio ([`ea_bus::restaurar_rutina`]).
+    fn rutina_restaurar(&self, slug: &str) -> Result<(), String>;
 
     /// Registra la definición `texto` (lo mismo que `ea rutina registrar`:
     /// la versión en SQLite y la copia en `rutinas_dir`). Devuelve el slug y
@@ -99,8 +111,15 @@ fn ruta_rutina(dir: &std::path::Path, slug: &str) -> Result<PathBuf, String> {
 }
 
 fn leer_rutina(dir: &std::path::Path, slug: &str) -> Result<Option<String>, String> {
-    let ruta = ruta_rutina(dir, slug)?;
-    match std::fs::read_to_string(&ruta) {
+    leer_opcional(&ruta_rutina(dir, slug)?)
+}
+
+fn leer_retirada(dir: &std::path::Path, slug: &str) -> Result<Option<String>, String> {
+    leer_opcional(&ea_bus::ruta_retirada(dir, slug).map_err(|e| e.to_string())?)
+}
+
+fn leer_opcional(ruta: &std::path::Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(ruta) {
         Ok(c) => Ok(Some(c)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("no se pudo leer {}: {e}", ruta.display())),
@@ -150,6 +169,9 @@ impl Consulta for SoloConsulta {
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
         leer_rutina(&self.rutinas_dir, slug)
     }
+    fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String> {
+        leer_retirada(&self.rutinas_dir, slug)
+    }
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
         self.boveda.planear_promocion(ruta, destino)
     }
@@ -180,6 +202,9 @@ impl Consulta for SistemaReal {
     }
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
         leer_rutina(&self.rutinas_dir, slug)
+    }
+    fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String> {
+        leer_retirada(&self.rutinas_dir, slug)
     }
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
         self.boveda.planear_promocion(ruta, destino)
@@ -218,8 +243,16 @@ impl Sistema for SistemaReal {
     }
 
     fn rutina_eliminar(&self, slug: &str) -> Result<(), String> {
-        let ruta = ruta_rutina(&self.rutinas_dir, slug)?;
+        let ruta = ea_bus::ruta_retirada(&self.rutinas_dir, slug).map_err(|e| e.to_string())?;
         std::fs::remove_file(&ruta).map_err(|e| format!("no se pudo borrar {}: {e}", ruta.display()))
+    }
+
+    fn rutina_retirar(&self, slug: &str) -> Result<(), String> {
+        ea_bus::retirar_rutina(&self.rutinas_dir, slug).map_err(|e| e.to_string())
+    }
+
+    fn rutina_restaurar(&self, slug: &str) -> Result<(), String> {
+        ea_bus::restaurar_rutina(&self.rutinas_dir, slug).map_err(|e| e.to_string())
     }
 
     fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String> {
@@ -259,6 +292,8 @@ impl Sistema for SistemaReal {
 pub struct SistemaSimulado {
     pub servicios: Mutex<HashMap<String, EstadoServicio>>,
     pub rutinas: Mutex<HashMap<String, String>>,
+    /// Rutinas retiradas (su copia en la papelera), por slug.
+    pub retiradas: Mutex<HashMap<String, String>>,
     /// Notas de la bóveda en memoria, por ruta relativa.
     pub notas: Mutex<HashMap<String, String>>,
     /// Si es `Some`, los reinicios fallan con este mensaje.
@@ -280,6 +315,11 @@ impl SistemaSimulado {
 
     pub fn con_rutina(self, slug: &str, contenido: &str) -> Self {
         self.rutinas.lock().unwrap().insert(slug.to_string(), contenido.to_string());
+        self
+    }
+
+    pub fn con_retirada(self, slug: &str, contenido: &str) -> Self {
+        self.retiradas.lock().unwrap().insert(slug.to_string(), contenido.to_string());
         self
     }
 
@@ -313,6 +353,12 @@ impl Consulta for SistemaSimulado {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
         Ok(self.rutinas.lock().unwrap().get(slug).cloned())
+    }
+    fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String> {
+        if !slug_valido(slug) {
+            return Err(format!("slug de rutina inválido: '{slug}'"));
+        }
+        Ok(self.retiradas.lock().unwrap().get(slug).cloned())
     }
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
         let partes = ea_boveda::ruta::validar_ruta(ruta)?;
@@ -377,8 +423,23 @@ impl Sistema for SistemaSimulado {
         Ok(())
     }
     fn rutina_eliminar(&self, slug: &str) -> Result<(), String> {
+        self.retiradas.lock().unwrap().remove(slug).ok_or_else(|| format!("la rutina '{slug}' no está en la papelera"))?;
         self.mutaciones.lock().unwrap().push(format!("eliminar_rutina:{slug}"));
-        self.rutinas.lock().unwrap().remove(slug);
+        Ok(())
+    }
+    fn rutina_retirar(&self, slug: &str) -> Result<(), String> {
+        let c = self.rutinas.lock().unwrap().remove(slug).ok_or_else(|| format!("la rutina '{slug}' no está activa"))?;
+        self.retiradas.lock().unwrap().insert(slug.to_string(), c);
+        self.mutaciones.lock().unwrap().push(format!("retirar:{slug}"));
+        Ok(())
+    }
+    fn rutina_restaurar(&self, slug: &str) -> Result<(), String> {
+        if self.rutinas.lock().unwrap().contains_key(slug) {
+            return Err(format!("la rutina '{slug}' ya está activa"));
+        }
+        let c = self.retiradas.lock().unwrap().remove(slug).ok_or_else(|| format!("la rutina '{slug}' no está en la papelera"))?;
+        self.rutinas.lock().unwrap().insert(slug.to_string(), c);
+        self.mutaciones.lock().unwrap().push(format!("restaurar:{slug}"));
         Ok(())
     }
     /// Con la misma política que el bus (`comprobar_registro`), pero el
@@ -396,6 +457,7 @@ impl Sistema for SistemaSimulado {
             })
             .map_err(|e| e.to_string())?;
         self.rutinas.lock().unwrap().insert(slug.clone(), texto.to_string());
+        self.retiradas.lock().unwrap().remove(&slug);
         self.mutaciones.lock().unwrap().push(format!("registrar_rutina:{slug}@{version}"));
         Ok((slug, version))
     }

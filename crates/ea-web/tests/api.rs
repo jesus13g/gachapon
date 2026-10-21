@@ -1012,6 +1012,9 @@ async fn una_propuesta_cuyo_estado_cambio_falla_con_mensaje_claro() {
 #[tokio::test]
 async fn la_web_no_confirma_irreversibles() {
     let f = montar();
+    // Solo se borra para siempre una rutina retirada (en la papelera).
+    ea_bus::retirar_rutina(&f.state.config.rutinas_dir, "revision-diaria").unwrap();
+    let retirada = ea_bus::ruta_retirada(&f.state.config.rutinas_dir, "revision-diaria").unwrap();
     let id = proponer_accion(&f, "ea_eliminar_rutina", json!({ "slug": "revision-diaria" })).await;
     let (_, lista) = get(&f, "/api/propuestas").await;
     assert_eq!(lista[0]["accion"]["riesgo"], "irreversible");
@@ -1019,14 +1022,14 @@ async fn la_web_no_confirma_irreversibles() {
     let (s, e) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "aceptar" })).await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     assert!(e["error"].as_str().unwrap().contains("terminal"));
-    assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+    assert!(retirada.exists());
     let (_, lista) = get(&f, "/api/propuestas?estado=pendiente").await;
     assert_eq!(lista.as_array().unwrap().len(), 1, "sigue pendiente");
 
     // Rechazarla sí se puede desde la web.
     let (s, p) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "rechazar" })).await;
     assert_eq!((s, p["estado"].as_str()), (StatusCode::OK, Some("rechazada")));
-    assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+    assert!(retirada.exists());
 }
 
 // ------------------------------------------------------------------ bóveda
@@ -1199,6 +1202,7 @@ async fn la_consola_valida_y_no_ejecuta_irreversibles() {
     .await;
     assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
 
+    ea_bus::retirar_rutina(&f.state.config.rutinas_dir, "revision-diaria").unwrap();
     let borrar = json!({ "herramienta": "ea_eliminar_rutina", "argumentos": { "slug": "revision-diaria" } });
     let (s, sim) = post(&f, "/api/acciones/simular", borrar).await;
     assert_eq!(s, StatusCode::OK);
@@ -1214,7 +1218,7 @@ async fn la_consola_valida_y_no_ejecuta_irreversibles() {
     )
     .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
-    assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+    assert!(ea_bus::ruta_retirada(&f.state.config.rutinas_dir, "revision-diaria").unwrap().exists());
 }
 
 #[tokio::test]
@@ -2468,4 +2472,86 @@ async fn programar_desde_la_web_pide_simulacion_y_revalida() {
     let ev = f.state.store.lock().await.list_events(&ea_store::EventFilter { limit: Some(50), ..Default::default() }).unwrap();
     let de = |a: &str| ev.iter().filter(|e| e.action == a && e.detail.as_deref().unwrap_or("").contains("_rutina")).count();
     assert_eq!((de("accion_fallida"), de("accion_ejecutada")), (1, 2));
+}
+
+/// R6 (spec 004, RF-011): retirar manda el TOML a la papelera de
+/// `rutinas_dir` y desprograma el timer; la rutina retirada no se lista
+/// (salvo con `?retiradas=1`) ni se lanza, y la web y la simulación de
+/// `ea_encolar_rutina` por la capa de MCP (`SoloConsulta`) dan la misma
+/// respuesta. Restaurar la devuelve, sin volver a programar el timer.
+#[tokio::test]
+async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let dir = f.state.config.rutinas_dir.clone();
+    let timer = f._dir.path().join("systemd-user/ea-rutina@revision-diaria.timer");
+    let ejecutar = |sim: &Value| {
+        json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] })
+    };
+    let accion = |h: &str| json!({ "herramienta": h, "argumentos": { "slug": "revision-diaria" } });
+
+    // Con horario, para ver que retirar lo quita.
+    let programar =
+        json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "revision-diaria", "calendario": "daily" } });
+    let (_, sim) = post(&f, "/api/acciones/simular", programar).await;
+    let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar(&sim)).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(timer.exists());
+
+    // Retirar es reversible: se confirma desde la web, y la simulación dice
+    // que desprograma el timer.
+    let (s, sim) = post(&f, "/api/acciones/simular", accion("ea_retirar_rutina")).await;
+    assert_eq!(s, StatusCode::OK, "{sim}");
+    assert_eq!((sim["riesgo"].as_str(), sim["confirmable"].as_bool()), (Some("reversible"), Some(true)));
+    assert!(sim["texto"].as_str().unwrap().contains("desprograma su timer (OnCalendar=daily)"), "{sim}");
+    let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar(&sim)).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(!timer.exists(), "retirar desprograma el timer");
+    assert!(!dir.join("revision-diaria.toml").exists());
+    assert!(ea_bus::ruta_retirada(&dir, "revision-diaria").unwrap().exists());
+
+    // No se lista, salvo pidiendo las retiradas; la ficha dice dónde está.
+    let (_, rs) = get(&f, "/api/rutinas").await;
+    assert!(rs.as_array().unwrap().is_empty(), "{rs}");
+    let (_, rs) = get(&f, "/api/rutinas?retiradas=1").await;
+    assert_eq!((rs[0]["slug"].as_str(), rs[0]["ubicacion"].as_str()), (Some("revision-diaria"), Some("retirada")));
+    let (_, d) = get(&f, "/api/rutinas/revision-diaria").await;
+    assert_eq!(d["ubicacion"], "retirada");
+
+    // No se lanza: la web (409) y la simulación de la capa MCP, con el mismo texto.
+    let motivo = ea_bus::Ubicacion::Retirada.motivo_no_lanzable("revision-diaria").unwrap();
+    let (s, e) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    assert_eq!(e["error"], motivo);
+    let (s, e_web) = post(&f, "/api/acciones/simular", accion("ea_encolar_rutina")).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let mcp = ea_acciones::SoloConsulta { rutinas_dir: dir.clone(), boveda: f.state.boveda.clone() };
+    let args = json!({ "slug": "revision-diaria" });
+    let h = ea_acciones::observar(&mcp, "ea_encolar_rutina", &args).await.unwrap();
+    let e_mcp =
+        ea_acciones::simular_con(&*f.state.store.lock().await, &mcp, &h, "ea_encolar_rutina", &args).unwrap_err();
+    assert_eq!(e_web["error"].as_str().unwrap(), e_mcp.to_string());
+    assert!(e_mcp.to_string().contains(&motivo));
+    let (_, ts) = get(&f, "/api/trabajos").await;
+    assert!(ts.as_array().unwrap().is_empty(), "ningún trabajo creado");
+
+    // Restaurar: vuelve a listarse y a lanzarse, sin timer.
+    let (s, sim) = post(&f, "/api/acciones/simular", accion("ea_restaurar_rutina")).await;
+    assert_eq!(s, StatusCode::OK, "{sim}");
+    assert!(sim["texto"].as_str().unwrap().contains("No vuelve a programar su timer"), "{sim}");
+    let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar(&sim)).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(dir.join("revision-diaria.toml").exists() && !timer.exists());
+    let (_, rs) = get(&f, "/api/rutinas").await;
+    assert_eq!(rs[0]["ubicacion"], "activa");
+    let (_, rs) = get(&f, "/api/rutinas?retiradas=1").await;
+    assert!(rs.as_array().unwrap().is_empty());
+    let (s, _) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
+    assert_eq!(s, StatusCode::CREATED);
+
+    let ev = f.state.store.lock().await.list_events(&ea_store::EventFilter { limit: Some(50), ..Default::default() }).unwrap();
+    let hechas = |h: &str| {
+        ev.iter().filter(|e| e.action == "accion_ejecutada" && e.detail.as_deref().unwrap_or("").contains(h)).count()
+    };
+    assert_eq!((hechas("ea_retirar_rutina"), hechas("ea_restaurar_rutina")), (1, 1));
 }
