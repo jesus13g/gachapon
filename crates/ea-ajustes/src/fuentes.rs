@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::agentes::{Rol, CATALOGO};
 use crate::validar::expandir_tilde;
 
 /// Cambia el directorio de configuración (`ajustes.toml`, los TOML heredados,
@@ -97,7 +98,12 @@ impl Fuentes {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Ajustes {
-    pub modelo: Modelo,
+    /// Perfiles de modelo por id (`modelos.<id>`); siempre está `local`.
+    pub modelos: BTreeMap<String, PerfilModelo>,
+    /// Configuración de cada agente del catálogo, por id (todos están).
+    pub agentes: BTreeMap<String, ConfigAgente>,
+    pub roles: Roles,
+    /// Contención, topes y skills del ejecutor.
     pub agente: Agente,
     pub orquestador: Orquestador,
     pub red: Red,
@@ -105,11 +111,29 @@ pub struct Ajustes {
     pub web: Web,
 }
 
+/// Un perfil de modelo. `base_url` vacío: el endpoint propio del agente (solo
+/// vale si es remoto). Un perfil no remoto tiene un `base_url` de loopback.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Modelo {
+pub struct PerfilModelo {
     pub nombre: String,
     pub base_url: String,
-    pub qwen_bin: String,
+    pub remoto: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConfigAgente {
+    /// Programa que se lanza (o cuya disponibilidad se mira).
+    pub bin: String,
+    /// Id del perfil de modelo; vacío: el que tenga configurado el propio
+    /// agente (solo para un planificador).
+    pub modelo: String,
+}
+
+/// Qué agente del catálogo ocupa cada rol.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Roles {
+    pub planificador: String,
+    pub ejecutor: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -171,14 +195,31 @@ pub struct Web {
 
 impl Ajustes {
     /// Los valores por defecto. Es el único sitio del código donde se nombran
-    /// el modelo y su endpoint (enmienda 1.2.1 del art. VII, pendiente).
+    /// el modelo y su endpoint (art. VII).
     pub fn por_defecto(f: &Fuentes) -> Self {
+        let local = PerfilModelo {
+            nombre: "qwen3-coder-30b".into(),
+            base_url: "http://127.0.0.1:8080/v1".into(),
+            remoto: false,
+        };
+        let agentes = CATALOGO
+            .iter()
+            .map(|a| {
+                let (bin, modelo) = match a.id {
+                    "claude-code" => ("claude", ""),
+                    "qwen-code" => ("qwen", "local"),
+                    "codex" => ("codex", "local"),
+                    "opencode" => ("opencode", "local"),
+                    "antigravity" => ("agy", ""),
+                    otro => (otro, ""),
+                };
+                (a.id.to_string(), ConfigAgente { bin: bin.into(), modelo: modelo.into() })
+            })
+            .collect();
         Self {
-            modelo: Modelo {
-                nombre: "qwen3-coder-30b".into(),
-                base_url: "http://127.0.0.1:8080/v1".into(),
-                qwen_bin: "qwen".into(),
-            },
+            modelos: BTreeMap::from([("local".to_string(), local)]),
+            agentes,
+            roles: Roles { planificador: "claude-code".into(), ejecutor: "qwen-code".into() },
             agente: Agente {
                 sandbox: true,
                 avisos_escritorio: true,
@@ -204,6 +245,31 @@ impl Ajustes {
             },
             web: Web { sondeo_ms: 3000, diario_limite: 300 },
         }
+    }
+
+    /// El agente que ocupa un rol y su configuración.
+    pub fn agente_de(&self, rol: Rol) -> (&str, &ConfigAgente) {
+        let id = match rol {
+            Rol::Planificador => &self.roles.planificador,
+            Rol::Ejecutor => &self.roles.ejecutor,
+        };
+        (id, &self.agentes[id.as_str()])
+    }
+
+    /// El rol que ocupa ahora un agente del catálogo, si ocupa alguno.
+    pub fn rol_de(&self, agente: &str) -> Option<Rol> {
+        Rol::TODOS.into_iter().find(|r| self.agente_de(*r).0 == agente)
+    }
+
+    /// El perfil de modelo de un agente (`None`: el suyo propio).
+    pub fn modelo_de(&self, agente: &str) -> Option<&PerfilModelo> {
+        self.agentes.get(agente).and_then(|a| self.modelos.get(&a.modelo))
+    }
+
+    /// El perfil del ejecutor. Tras cargar siempre existe y es local.
+    pub fn modelo_ejecutor(&self) -> &PerfilModelo {
+        let (id, _) = self.agente_de(Rol::Ejecutor);
+        self.modelo_de(id).or_else(|| self.modelos.get("local")).expect("el perfil local siempre existe")
     }
 
     /// Antigüedad máxima del último latido para dar por vivo al orquestador:

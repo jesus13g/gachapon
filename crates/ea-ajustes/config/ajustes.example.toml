@@ -10,13 +10,40 @@
 # ⌨ = solo se cambia en una terminal real con `ea ajustes establecer`.
 # ↓ = desde la web solo se puede bajar (endurecer).
 
-[modelo]
+# Qué agente ocupa cada rol (catálogo: claude-code, qwen-code, codex,
+# opencode, antigravity). Un agente no ocupa los dos roles. Claude Code y
+# Antigravity solo pueden ser planificador. El cambio de ejecutor vale para el
+# próximo trabajo que se tome.
+[roles]
+# planificador = "claude-code"
+# ejecutor = "qwen-code"
+
+# Un bloque por agente del catálogo: binario y perfil de modelo (vacío: el que
+# tenga configurado el propio agente; solo para un planificador).
+[agentes.qwen-code]
+# bin = "qwen"                              # ⌨
+# modelo = "local"
+# [agentes.codex]      bin = "codex",    modelo = "local"
+# [agentes.opencode]   bin = "opencode", modelo = "local"
+# [agentes.claude-code] bin = "claude",  modelo = ""
+# [agentes.antigravity] bin = "agy",     modelo = ""
+
+# Perfiles de modelo. El ejecutor solo usa perfiles locales (base_url de
+# loopback); uno remoto (remoto = true, base_url opcional) solo vale para el
+# planificador. Un perfil nuevo se crea dándole nombre y base_url (o remoto)
+# en el mismo cambio. La antigua sección [modelo] se sigue leyendo como el
+# perfil «local» (y qwen_bin como agentes.qwen-code.bin).
+[modelos.local]
 # nombre = "qwen3-coder-30b"
 # base_url = "http://127.0.0.1:8080/v1"   # solo 127.0.0.1, localhost o [::1]
-# qwen_bin = "qwen"                         # ⌨
+# remoto = false
+#
+# [modelos.gpt]
+# nombre = "gpt-5-codex"
+# remoto = true
 
 [agente]
-# sandbox = true                            # ⌨ Qwen dentro de bubblewrap
+# sandbox = true                            # ⌨ el ejecutor dentro de bubblewrap
 # avisos_escritorio = true
 
 # Techo de los topes de cualquier orden: lo que pida una orden por encima se

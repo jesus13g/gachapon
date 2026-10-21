@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_bus::{Agente, Bus};
+use ea_bus::{Bus, Rol};
 use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 
 use super::fmt_ts;
@@ -32,6 +32,9 @@ pub fn mostrar(store: &Store) -> Result<()> {
         .len();
     println!("Propuestas pendientes: {pendientes}");
     println!("Base de datos: {}", ea_store::resolve_db_path()?.display());
+    for l in lineas_roles(&ea_ajustes::cargar()) {
+        println!("{l}");
+    }
     println!();
 
     mostrar_bus();
@@ -60,6 +63,20 @@ pub fn mostrar(store: &Store) -> Result<()> {
     Ok(())
 }
 
+/// «planificador: Claude Code (el suyo propio)», «ejecutor: Qwen Code
+/// (qwen3-coder-30b)»: quién ocupa cada rol ahora.
+pub fn lineas_roles(a: &ea_ajustes::Ajustes) -> Vec<String> {
+    Rol::TODOS
+        .into_iter()
+        .map(|r| {
+            let (id, _) = a.agente_de(r);
+            let nombre = ea_ajustes::ficha(id).map_or(id, |f| f.nombre);
+            let modelo = a.modelo_de(id).map_or("su modelo propio".to_string(), |m| m.nombre.clone());
+            format!("{}: {nombre} ({modelo})", r.nombre())
+        })
+        .collect()
+}
+
 /// Trabajos por estado, colas y semáforos del bus. Si el bus no se puede
 /// leer, lo dice en vez de fallar: `ea status` es un banner de login.
 fn mostrar_bus() {
@@ -82,9 +99,9 @@ fn mostrar_bus() {
     }
     println!("{table}");
 
-    for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+    for a in Rol::TODOS {
         let n = bus.listar_cola(a).map(|c| c.len()).unwrap_or(0);
-        println!("Cola {}: {n}", a.as_str());
+        println!("Cola {} ({}): {n}", a.nombre(), a.as_str());
     }
     let semaforos = ea_bus::listar_semaforos();
     if semaforos.is_empty() {
@@ -92,5 +109,20 @@ fn mostrar_bus() {
     }
     for (_, o) in semaforos {
         println!("Semáforo: {} ocupa un worktree con el trabajo {} (pid {}, desde {})", o.agente, o.trabajo, o.pid, o.desde);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lineas_roles;
+    use ea_ajustes::{Ajustes, Fuentes};
+
+    #[test]
+    fn las_lineas_de_roles_dicen_agente_y_modelo() {
+        let d = tempfile::tempdir().unwrap();
+        let mut a = Ajustes::por_defecto(&Fuentes::aislada(d.path()));
+        assert_eq!(lineas_roles(&a), ["planificador: Claude Code (su modelo propio)", "ejecutor: Qwen Code (qwen3-coder-30b)"]);
+        a.roles.ejecutor = "codex".into();
+        assert_eq!(lineas_roles(&a)[1], "ejecutor: Codex (qwen3-coder-30b)");
     }
 }

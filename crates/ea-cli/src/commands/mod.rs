@@ -1,4 +1,5 @@
 pub mod acciones;
+pub mod agentes;
 pub mod ajustes;
 pub mod boveda;
 pub mod diario;

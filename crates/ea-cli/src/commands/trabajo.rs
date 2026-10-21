@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Result};
-use ea_bus::{Agente, Bus, Evento, Modo, Orden, Topes};
+use ea_bus::{Bus, Rol, Evento, Modo, Orden, Topes};
 
 pub(super) fn bus() -> Result<Bus> {
     let b = Bus::abrir()?.con_actor("ea-cli");
@@ -84,6 +84,9 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     if let Some(d) = &estado.detalle {
         println!("detalle   {d}");
     }
+    if let Some(e) = &estado.ejecutado_por {
+        println!("ejecutor  {} ({})", e.agente, e.modelo);
+    }
     println!("worktree  {}", orden.worktree);
     if let Some(c) = &orden.criterio_exito {
         println!("criterio  {c}");
@@ -111,8 +114,12 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     if let Some(c) = &i.commit_inicio {
         println!("commit_inicio {c}");
     }
+    if let Some(e) = &i.ejecutado_por {
+        println!("ejecutado_por {} ({})", e.agente, e.modelo);
+    }
     for f in &i.fases {
-        println!("fase {} [{}] {}", f.numero, f.resultado, f.titulo);
+        let por = f.ejecutado_por.as_ref().map(|e| format!("  · {} ({})", e.agente, e.modelo)).unwrap_or_default();
+        println!("fase {} [{}] {}{por}", f.numero, f.resultado, f.titulo);
     }
     println!("evidencia:\n{}", i.evidencia.trim_end());
     if let Some(d) = &i.diff_stat {
@@ -185,10 +192,11 @@ pub fn confirmar(id: &str, contexto: &str) -> Result<()> {
 pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
     let b = Bus::abrir()?;
     let agentes = match agente {
-        None => vec![Agente::ModeloLocal, Agente::ClaudeCode],
-        Some("modelo-local") => vec![Agente::ModeloLocal],
-        Some("claude-code") => vec![Agente::ClaudeCode],
-        Some(otro) => bail!("agente desconocido: {otro} (modelo-local o claude-code)"),
+        None => Rol::TODOS.to_vec(),
+        Some(nombre) => match Rol::desde(nombre) {
+            Some(rol) => vec![rol],
+            None => bail!("rol desconocido: {nombre} (planificador o ejecutor; también claude-code o modelo-local)"),
+        },
     };
     if json {
         let mut m = serde_json::Map::new();
@@ -204,7 +212,7 @@ pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
         return Ok(());
     }
     for a in agentes {
-        println!("[{}]", a.as_str());
+        println!("[{} · cola {}]", a.nombre(), a.as_str());
         for e in b.listar_cola(a)? {
             println!("  {}  {}  ({})", e.encolado_en, e.trabajo, e.motivo);
         }

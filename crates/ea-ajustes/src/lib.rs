@@ -6,10 +6,13 @@
 //!
 //! Está en la base del grafo (no depende de ningún otro crate `ea-*`). Quién
 //! puede cambiar qué lo dice el registro de claves (`claves`): lo que toca la
-//! seguridad del agente local solo se cambia desde una terminal real, y los
-//! topes solo se endurecen desde la web. Ni ea-mcp ni el orquestador tienen
+//! seguridad del ejecutor solo se cambia desde una terminal real, y los
+//! topes solo se endurecen desde la web. Qué agente ocupa cada rol y con qué
+//! perfil de modelo también vive aquí (spec 017), con el catálogo cerrado de
+//! agentes (`agentes`). Ni ea-mcp ni el orquestador tienen
 //! forma de escribir aquí.
 
+mod agentes;
 mod cargar;
 pub mod claves;
 mod ejecucion;
@@ -19,13 +22,14 @@ mod fuentes;
 mod validar;
 mod vista;
 
+pub use agentes::{buscar_binario, ficha, id_perfil_valido, por_cliente_mcp, FichaAgente, Rol, VistaAgente, CATALOGO, IDS_AGENTES};
 pub use cargar::{cargar, cargar_de, Efectivos, Origen};
-pub use claves::{clave, Aplica, Canal, Clave, Edicion, Tipo, CLAVES, SECCIONES};
+pub use claves::{clave, concretas, sin_alias, titulo, Aplica, Canal, Clave, Edicion, Tipo, ALIAS, CLAVES, SECCIONES};
 pub use ejecucion::{dir_ejecucion, fichero_clave_web, DIR_WEB, FICHERO_CLAVE};
 pub use error::ErrorAjustes;
 pub use escribir::{escribir_atomico, establecer, huella, interpretar, Aplicado};
 pub use fuentes::{
-    Agente, Ajustes, Entorno, Fuentes, Modelo, Orquestador, Red, Rutas, Skills, TechoTopes, Web, ENV_CONFIG, TECHO_DURO,
+    Agente, Ajustes, ConfigAgente, Entorno, Fuentes, Orquestador, PerfilModelo, Roles, Red, Rutas, Skills, TechoTopes, Web, ENV_CONFIG, TECHO_DURO,
 };
-pub use validar::{expandir_tilde, validar_base_url};
+pub use validar::{expandir_tilde, validar_base_url, validar_perfil, validar_roles, validar_url_remota};
 pub use vista::{Cliente, FilaAjuste, Heredado, Resumen, SeccionAjustes};

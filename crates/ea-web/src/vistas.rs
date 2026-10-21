@@ -38,8 +38,30 @@ pub struct Orquestador {
 
 #[derive(Serialize)]
 pub struct AgenteVista {
+    /// El rol con su nombre en disco (`claude-code`, `modelo-local`).
     pub nombre: &'static str,
+    /// El rol con su nombre de la interfaz (`planificador`, `ejecutor`).
+    pub rol: &'static str,
+    /// Id del agente del catálogo que ocupa el rol ahora.
+    pub agente: String,
+    /// Su nombre para la interfaz.
+    pub agente_nombre: &'static str,
+    /// El modelo de su perfil; `None`: el propio del agente.
+    pub modelo: Option<String>,
     pub ultimo: Option<UltimoEvento>,
+    /// El agente que hizo ese último evento, si el diario lo dice.
+    pub ultimo_agente: Option<String>,
+}
+
+/// `GET /api/agentes`: el catálogo con su disponibilidad, más la huella de
+/// `ajustes.toml` para cambiar de rol con `POST /api/ajustes`.
+#[derive(Serialize)]
+pub struct AgentesVista {
+    pub version: String,
+    /// `roles.<rol>` → variable de entorno que lo fija (no se puede cambiar
+    /// desde aquí).
+    pub fijados: std::collections::BTreeMap<&'static str, &'static str>,
+    pub agentes: Vec<crate::agentes::AgenteDisponible>,
 }
 
 #[derive(Serialize)]
@@ -266,7 +288,8 @@ pub struct TrabajoDetalle {
     pub paquete: Option<String>,
     /// Las fases de una obra en `trabajo_fases` (vacío en misiones y rutinas).
     pub fases: Vec<FaseVista>,
-    /// El texto final del agente en su última ejecución (`salida-qwen.json`).
+    /// El texto final del agente en su última ejecución (`salida-agente.json`,
+    /// o `salida-qwen.json` en los trabajos de antes).
     pub resumen_agente: Option<String>,
 }
 
@@ -523,7 +546,7 @@ pub use ea_ajustes::{FilaAjuste as ClaveVista, Resumen as AjustesVista, SeccionA
 
 #[derive(Serialize)]
 pub struct AjusteAplicado {
-    pub clave: &'static str,
+    pub clave: String,
     pub antes: Value,
     pub despues: Value,
     /// `caliente` o `reinicio`.

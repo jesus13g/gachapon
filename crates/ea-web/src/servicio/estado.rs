@@ -1,11 +1,12 @@
 //! Vista general, portada y sesiones de Claude Code.
 
+use ea_ajustes::Rol;
 use ea_bus::Bus;
 use ea_store::{EstadoPropuesta, PropuestaFilter};
 use time::OffsetDateTime;
 
 use super::{propuestas::vista as propuesta_vista, ts, Resultado};
-use crate::vistas::{AgenteVista, EstadoGeneral, Inicio, Orquestador, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento};
+use crate::vistas::{AgentesVista, AgenteVista, EstadoGeneral, Inicio, Orquestador, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento};
 use crate::AppState;
 
 pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
@@ -14,12 +15,22 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
     let store = s.store.lock().await;
     let orquestador = store.estado_orquestador(s.config.umbral_heartbeat_s)?;
 
+    let ajustes = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
     let agentes = store
         .resumen_agentes()?
         .into_iter()
-        .map(|a| AgenteVista {
-            nombre: a.nombre,
-            ultimo: a.ultimo_evento.map(|e| UltimoEvento { ts: ts(e.ts), accion: e.action }),
+        .filter_map(|a| {
+            let rol = Rol::desde(a.nombre)?;
+            let (id, _) = ajustes.agente_de(rol);
+            Some(AgenteVista {
+                nombre: a.nombre,
+                rol: rol.nombre(),
+                agente: id.to_string(),
+                agente_nombre: ea_ajustes::ficha(id).map_or("", |f| f.nombre),
+                modelo: ajustes.modelo_de(id).map(|m| m.nombre.clone()),
+                ultimo: a.ultimo_evento.map(|e| UltimoEvento { ts: ts(e.ts), accion: e.action }),
+                ultimo_agente: a.agente,
+            })
         })
         .collect();
 
@@ -77,4 +88,18 @@ pub fn sesiones(s: &AppState) -> Sesiones {
     Sesiones {
         sesiones: s.config.sesiones_dir.as_deref().map(|d| crate::sesiones::vivas(d, subagentes)).unwrap_or_default(),
     }
+}
+
+/// El catálogo de agentes con su disponibilidad (spec 017). Los ajustes se
+/// releen en cada petición, como en `GET /api/ajustes`.
+pub async fn agentes(s: &AppState) -> AgentesVista {
+    let e = ea_ajustes::cargar_de(&s.config.ajustes);
+    let fijados = Rol::TODOS
+        .into_iter()
+        .filter_map(|r| match e.origenes.get(&format!("roles.{}", r.nombre())) {
+            Some(ea_ajustes::Origen::Entorno { variable }) => Some((r.nombre(), *variable)),
+            _ => None,
+        })
+        .collect();
+    AgentesVista { version: e.version.clone(), fijados, agentes: crate::agentes::disponibilidad(&e.ajustes).await }
 }

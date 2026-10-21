@@ -16,7 +16,7 @@ use crate::fs_atomico::{escribir_json, fnv};
 use crate::rutina::{Rutina, MAX_DEFINICION};
 use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
-    transicion, Agente, Estado, EstadoTrabajo, Evento, FaseInforme, Informe, Modo, Orden, ResultadoInforme,
+    transicion, EjecutadoPor, Estado, EstadoTrabajo, Evento, FaseInforme, Informe, Modo, Orden, ResultadoInforme, Rol,
 };
 
 pub const ENV_ESTADO: &str = "EA_ESTADO_DIR";
@@ -81,7 +81,10 @@ impl Bus {
     }
 
     pub fn abrir_en(raiz: &Path) -> Resultado<Self> {
-        for d in ["colas/modelo-local", "colas/claude-code", "trabajos", "semaforos"] {
+        for rol in Rol::TODOS {
+            fs::create_dir_all(raiz.join("colas").join(rol.as_str()))?;
+        }
+        for d in ["trabajos", "semaforos"] {
             fs::create_dir_all(raiz.join(d))?;
         }
         Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: "orquestador".into(), skills: None })
@@ -110,7 +113,7 @@ impl Bus {
         &self.raiz
     }
 
-    fn dir_cola(&self, a: Agente) -> PathBuf {
+    fn dir_cola(&self, a: Rol) -> PathBuf {
         self.raiz.join("colas").join(a.as_str())
     }
 
@@ -153,6 +156,7 @@ impl Bus {
             iteracion: 0,
             actualizado_en: ahora_rfc3339(),
             detalle: None,
+            ejecutado_por: None,
         };
         escribir_json(&dir.join("estado.json"), &estado)?;
         self.historial(&id, "crear", &estado)?;
@@ -181,7 +185,7 @@ impl Bus {
             }
             self.diario(s, &id, "bus_crear", true, serde_json::json!({ "modo": orden.modo.as_str(), "titulo": orden.titulo }));
         }
-        self.encolar(Agente::ModeloLocal, &id, "orden nueva")?;
+        self.encolar(Rol::Ejecutor, &id, "orden nueva")?;
         Ok(id)
     }
 
@@ -232,7 +236,7 @@ impl Bus {
 
     // --- colas -------------------------------------------------------------
 
-    pub fn encolar(&self, agente: Agente, trabajo: &str, motivo: &str) -> Resultado<String> {
+    pub fn encolar(&self, agente: Rol, trabajo: &str, motivo: &str) -> Resultado<String> {
         let entrada = EntradaCola {
             id: nuevo_id(),
             trabajo: trabajo.into(),
@@ -244,7 +248,7 @@ impl Bus {
     }
 
     /// Entradas visibles de la cola, de la más antigua a la más nueva.
-    pub fn listar_cola(&self, agente: Agente) -> Resultado<Vec<EntradaCola>> {
+    pub fn listar_cola(&self, agente: Rol) -> Resultado<Vec<EntradaCola>> {
         let mut nombres: Vec<PathBuf> = fs::read_dir(self.dir_cola(agente))?
             .flatten()
             .map(|e| e.path())
@@ -264,7 +268,7 @@ impl Bus {
     /// Toma el trabajo más antiguo de la cola. Reclama la entrada
     /// renombrándola (atómico): de dos procesos, solo uno lo consigue. No
     /// cambia el estado del trabajo; para eso, [`Bus::aplicar`] con `Tomar`.
-    pub fn tomar(&self, agente: Agente) -> Resultado<Option<String>> {
+    pub fn tomar(&self, agente: Rol) -> Resultado<Option<String>> {
         let dir = self.dir_cola(agente);
         let mut candidatas: Vec<PathBuf> = fs::read_dir(&dir)?
             .flatten()
@@ -301,18 +305,33 @@ impl Bus {
     /// que el ejecutor escribe no se pierde.
     pub fn aplicar(&self, id: &str, evento: Evento) -> Resultado<Estado> {
         let _bloqueo = self.bloquear_estado(id)?;
-        self.aplicar_bloqueado(id, evento, None)
+        self.aplicar_bloqueado(id, evento, None, None)
+    }
+
+    /// `Tomar` anotando quién lo ejecuta (spec 017, RF-008): el agente y el
+    /// modelo quedan en `estado.json` y en el historial, y la entrega los
+    /// copia al informe. El trabajo conserva ese ejecutor hasta que se
+    /// vuelva a tomar, aunque cambie `roles.ejecutor` mientras corre.
+    pub fn tomar_con(&self, id: &str, por: EjecutadoPor) -> Resultado<Estado> {
+        let _bloqueo = self.bloquear_estado(id)?;
+        self.aplicar_bloqueado(id, Evento::Tomar, None, Some(por))
     }
 
     /// [`Bus::aplicar`] para quien ya tiene el bloqueo del trabajo. Con
     /// `Reformular`, `fase` es la fase de obra desde la que se rehace.
-    fn aplicar_bloqueado(&self, id: &str, evento: Evento, fase: Option<u32>) -> Resultado<Estado> {
+    fn aplicar_bloqueado(&self, id: &str, evento: Evento, fase: Option<u32>, por: Option<EjecutadoPor>) -> Resultado<Estado> {
         let actual = self.leer_estado(id)?;
         let nuevo_estado = transicion(actual.estado, &evento)?;
         let mut nuevo = Estado { estado: nuevo_estado, actualizado_en: ahora_rfc3339(), ..actual };
         match &evento {
+            Evento::Tomar if por.is_some() => nuevo.ejecutado_por = por,
             Evento::Entregar(inf) => {
-                self.escribir_informe(id, inf)?;
+                // El informe dice quién lo hizo aunque el ejecutor no lo anote.
+                let mut inf = inf.clone();
+                if inf.ejecutado_por.is_none() {
+                    inf.ejecutado_por = nuevo.ejecutado_por.clone();
+                }
+                self.escribir_informe(id, &inf)?;
                 if inf.fases_hechas > 0 {
                     nuevo.fase_actual = Some(inf.fases_hechas + 1);
                 }
@@ -333,11 +352,11 @@ impl Bus {
                 // Una rutina vuelve a Claude Code solo si falla y el usuario lo
                 // confirma (`Confirmar`); su informe no pasa por la cola.
                 if self.leer_orden(id)?.modo != Modo::Rutina {
-                    self.encolar(Agente::ClaudeCode, id, motivo)?;
+                    self.encolar(Rol::Planificador, id, motivo)?;
                 }
             }
             Evento::Confirmar => {
-                self.encolar(Agente::ClaudeCode, id, "corrección de rutina")?;
+                self.encolar(Rol::Planificador, id, "corrección de rutina")?;
             }
             Evento::Cerrar | Evento::Cancelar => {
                 self.retirar_de_colas(id)?;
@@ -346,7 +365,7 @@ impl Bus {
                 // Sin entradas rancias (p. ej. el «terminado» en claude-code si
                 // se reformula sin haberlo tomado, como hace el panel web).
                 self.retirar_de_colas(id)?;
-                self.encolar(Agente::ModeloLocal, id, "reformulado")?;
+                self.encolar(Rol::Ejecutor, id, "reformulado")?;
             }
             _ => {}
         }
@@ -415,7 +434,7 @@ impl Bus {
     /// Quita de TODAS las colas las entradas de un trabajo.
     pub fn retirar_de_colas(&self, id: &str) -> Resultado<usize> {
         let mut n = 0;
-        for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+        for a in Rol::TODOS {
             for e in fs::read_dir(self.dir_cola(a))?.flatten() {
                 let p = e.path();
                 let nombre = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -568,7 +587,7 @@ impl Bus {
         if let Some(n) = rehacer {
             self.recortar_fases(id, n)?;
         }
-        self.aplicar_bloqueado(id, Evento::Reformular, rehacer)
+        self.aplicar_bloqueado(id, Evento::Reformular, rehacer, None)
     }
 
     /// Deja pendientes la fase `desde` y las siguientes: las quita de
@@ -600,7 +619,7 @@ impl Bus {
     /// recuperados.
     pub fn recuperar(&self) -> Resultado<Vec<String>> {
         let mut recuperados = Vec::new();
-        for agente in [Agente::ModeloLocal, Agente::ClaudeCode] {
+        for agente in Rol::TODOS {
             let dir = self.dir_cola(agente);
             for e in fs::read_dir(&dir)?.flatten() {
                 let p = e.path();
@@ -665,12 +684,15 @@ impl Bus {
 
     fn historial(&self, id: &str, evento: &str, estado: &Estado) -> Resultado<()> {
         use std::io::Write;
-        let linea = serde_json::json!({
+        let mut linea = serde_json::json!({
             "ts": estado.actualizado_en,
             "evento": evento,
             "estado": estado.estado.as_str(),
             "iteracion": estado.iteracion,
         });
+        if let Some(por) = &estado.ejecutado_por {
+            linea["ejecutado_por"] = serde_json::json!(por);
+        }
         let mut f = fs::OpenOptions::new().create(true).append(true).open(self.dir_trabajo(id)?.join("historial.jsonl"))?;
         writeln!(f, "{linea}")?;
         f.sync_all()?;

@@ -11,13 +11,26 @@ use serde::{Deserialize, Serialize};
 use crate::bus::{raiz_estado, ahora_rfc3339};
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::fnv;
+use crate::tipos::Rol;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ocupante {
+    /// Id del agente (`qwen-code`, `codex`…); en semáforos de antes, el rol
+    /// (`modelo-local`).
     pub agente: String,
     pub trabajo: String,
     pub pid: u32,
     pub desde: String,
+    /// El rol con el que lo ocupa (spec 017, RF-008).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rol: Option<Rol>,
+}
+
+impl Ocupante {
+    /// Lo ocupa el ejecutor (también en un semáforo de antes).
+    pub fn es_ejecutor(&self) -> bool {
+        self.rol == Some(Rol::Ejecutor) || Rol::desde(&self.agente) == Some(Rol::Ejecutor)
+    }
 }
 
 #[derive(Debug)]
@@ -40,7 +53,7 @@ pub fn ruta_lock(raiz: &Path, worktree: &Path) -> PathBuf {
 impl CandadoWorktree {
     /// Con la raíz de estado estándar y sin identificar al ocupante.
     pub fn adquirir(ruta_worktree: &Path, espera: Duration) -> Resultado<Self> {
-        let o = Ocupante { agente: "desconocido".into(), trabajo: String::new(), pid: std::process::id(), desde: ahora_rfc3339() };
+        let o = Ocupante { agente: "desconocido".into(), trabajo: String::new(), pid: std::process::id(), desde: ahora_rfc3339(), rol: None };
         Self::adquirir_en(&raiz_estado(), ruta_worktree, o, espera)
     }
 

@@ -26,7 +26,7 @@ fn ver_en_json_es_json_valido() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
     assert_eq!(v["fichero"], d.path().join("config/ajustes.toml").display().to_string());
-    assert_eq!(v["secciones"].as_array().unwrap().len(), 6);
+    assert_eq!(v["secciones"].as_array().unwrap().len(), 8);
 }
 
 #[test]
@@ -38,6 +38,16 @@ fn obtener_da_el_valor_efectivo() {
     assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "9000");
     let o = ea(d.path(), &["ajustes", "obtener", "no.existe"], &[]);
     assert!(!o.status.success());
+    // claves con patrón y nombres antiguos
+    let o = ea(d.path(), &["ajustes", "obtener", "roles.ejecutor"], &[]);
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "qwen-code");
+    let o = ea(d.path(), &["ajustes", "obtener", "modelo.nombre"], &[]);
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "qwen3-coder-30b");
+    let o = ea(d.path(), &["ajustes", "obtener", "modelos.nada.nombre"], &[]);
+    assert!(!o.status.success());
+    let o = ea(d.path(), &["ajustes", "ver"], &[]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("agentes.codex.bin"));
 }
 
 #[test]

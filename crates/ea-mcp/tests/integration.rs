@@ -57,9 +57,11 @@ async fn start_server(db_path: std::path::PathBuf) -> String {
     let store = Store::open_at(&db_path).expect("abrir store de prueba");
     let store = Arc::new(Mutex::new(store));
     let rutinas = db_path.parent().unwrap().join("rutinas");
+    // Roles de fábrica, no los del usuario.
+    let ajustes = ea_ajustes::Fuentes::aislada(&db_path.parent().unwrap().join("ajustes"));
 
     let service = StreamableHttpService::new(
-        move || Ok(EaTools::con_rutinas_dir(store.clone(), rutinas.clone())),
+        move || Ok(EaTools::con_rutinas_dir(store.clone(), rutinas.clone()).con_ajustes(ajustes.clone())),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig::default(),
     );

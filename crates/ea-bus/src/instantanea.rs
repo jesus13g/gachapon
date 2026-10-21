@@ -3,9 +3,13 @@
 //! diff` que sale de ellas. Lógica pura, común a `ea trabajo diff --fase N`
 //! y a `GET /api/trabajos/<id>/diff?fase=N`.
 
+use std::path::Path;
+
 use ea_store::FilaFase;
 
+use crate::config::TipoAgente;
 use crate::error::{ErrorBus, Resultado};
+use crate::tipos::EjecutadoPor;
 
 /// Lo que se excluye de todos los diffs de un trabajo.
 pub const EXCLUIR_DIFF: &str = ":(exclude,glob)**/__pycache__/**";
@@ -53,19 +57,53 @@ pub fn rango_diff_fase(commit_inicio: Option<&str>, fases: &[FilaFase], n: u32) 
     Ok((base, fin))
 }
 
-/// El texto final del agente en su salida en bruto (`salida-qwen.json`:
-/// el último mensaje `result`); vacío si no se puede extraer.
-pub fn resumen_salida_agente(bruta: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(bruta)
-        .ok()
-        .and_then(|v| {
-            v.as_array()?
-                .iter()
-                .rev()
-                .find(|m| m["type"] == "result")
-                .and_then(|m| m["result"].as_str().map(str::to_string))
-        })
-        .unwrap_or_default()
+/// La salida en bruto del agente en el directorio del trabajo (spec 017,
+/// RF-010): `salida-agente.json`, o `salida-qwen.json` en los trabajos de
+/// antes.
+pub const SALIDA_AGENTE: &str = "salida-agente.json";
+pub const SALIDA_ANTIGUA: &str = "salida-qwen.json";
+/// Las skills que se le pasaron (`skills-qwen.md` en los trabajos de antes).
+pub const SKILLS_AGENTE: &str = "skills-agente.md";
+
+/// Lee la salida en bruto de un trabajo, con el nombre nuevo o el antiguo.
+pub fn leer_salida_agente(dir_trabajo: &Path) -> Option<String> {
+    [SALIDA_AGENTE, SALIDA_ANTIGUA].iter().find_map(|n| std::fs::read_to_string(dir_trabajo.join(n)).ok())
+}
+
+/// El texto final del agente en su salida en bruto; vacío si no se puede
+/// extraer. Cada CLI tiene su formato:
+///
+/// - Qwen Code (`--output-format json`): un array; el último `result`.
+/// - Codex (`exec --json`): JSONL; el último `item.completed` con un
+///   `agent_message`.
+/// - OpenCode (`run --format json`): JSONL; la última parte `text`.
+///
+/// Si el formato cambia con una versión, el resumen queda vacío y el
+/// criterio sigue decidiendo.
+pub fn resumen_salida_agente(tipo: TipoAgente, bruta: &str) -> String {
+    let texto = |v: &serde_json::Value| v.as_str().map(str::to_string);
+    match tipo {
+        TipoAgente::QwenCode => serde_json::from_str::<serde_json::Value>(bruta).ok().and_then(|v| {
+            v.as_array()?.iter().rev().find(|m| m["type"] == "result").and_then(|m| texto(&m["result"]))
+        }),
+        TipoAgente::Codex => lineas_json(bruta).rev().find_map(|m| {
+            (m["type"] == "item.completed" && m["item"]["type"] == "agent_message").then(|| texto(&m["item"]["text"])).flatten()
+        }),
+        TipoAgente::OpenCode => lineas_json(bruta).rev().find_map(|m| {
+            (m["type"] == "text").then(|| texto(&m["part"]["text"]).or_else(|| texto(&m["text"]))).flatten()
+        }),
+    }
+    .unwrap_or_default()
+}
+
+fn lineas_json(bruta: &str) -> impl DoubleEndedIterator<Item = serde_json::Value> + '_ {
+    bruta.lines().filter_map(|l| serde_json::from_str(l.trim()).ok())
+}
+
+/// El tipo del agente que ejecutó un trabajo según su `ejecutado_por`; los
+/// trabajos de antes (sin él) son de Qwen Code.
+pub fn tipo_ejecutor(por: Option<&EjecutadoPor>) -> TipoAgente {
+    por.and_then(|p| TipoAgente::desde(&p.agente)).unwrap_or(TipoAgente::QwenCode)
 }
 
 #[cfg(test)]
@@ -97,9 +135,39 @@ mod tests {
     }
 
     #[test]
-    fn el_resumen_es_el_ultimo_result() {
+    fn el_resumen_depende_del_agente() {
         let b = r#"[{"type":"assistant"},{"type":"result","result":"uno"},{"type":"result","result":"dos"}]"#;
-        assert_eq!(resumen_salida_agente(b), "dos");
-        assert_eq!(resumen_salida_agente("no es json"), "");
+        assert_eq!(resumen_salida_agente(TipoAgente::QwenCode, b), "dos");
+        let codex = concat!(
+            r#"{"type":"thread.started"}"#, "\n",
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"uno"}}"#, "\n",
+            r#"{"type":"item.completed","item":{"type":"command_execution","command":"ls"}}"#, "\n",
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"hecho"}}"#, "\n",
+            r#"{"type":"turn.completed"}"#, "\n",
+        );
+        assert_eq!(resumen_salida_agente(TipoAgente::Codex, codex), "hecho");
+        let opencode = concat!(
+            r#"{"type":"step_start"}"#, "\n",
+            r#"{"type":"text","part":{"type":"text","text":"listo"}}"#, "\n",
+            r#"{"type":"step_finish"}"#, "\n",
+        );
+        assert_eq!(resumen_salida_agente(TipoAgente::OpenCode, opencode), "listo");
+        for t in [TipoAgente::QwenCode, TipoAgente::Codex, TipoAgente::OpenCode] {
+            assert_eq!(resumen_salida_agente(t, "no es json"), "", "un formato desconocido da un resumen vacío");
+        }
+        assert_eq!(resumen_salida_agente(TipoAgente::Codex, b), "", "cada agente con su formato");
+    }
+
+    #[test]
+    fn la_salida_se_lee_con_el_nombre_nuevo_o_el_antiguo() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(leer_salida_agente(d.path()), None);
+        std::fs::write(d.path().join(SALIDA_ANTIGUA), "vieja").unwrap();
+        assert_eq!(leer_salida_agente(d.path()).as_deref(), Some("vieja"));
+        std::fs::write(d.path().join(SALIDA_AGENTE), "nueva").unwrap();
+        assert_eq!(leer_salida_agente(d.path()).as_deref(), Some("nueva"));
+        assert_eq!(tipo_ejecutor(None), TipoAgente::QwenCode, "un trabajo de antes es de Qwen");
+        let por = EjecutadoPor { agente: "codex".into(), modelo: "m".into() };
+        assert_eq!(tipo_ejecutor(Some(&por)), TipoAgente::Codex);
     }
 }

@@ -1,16 +1,16 @@
-//! Skills del agente local: ficheros `<nombre>.md` cortos en un catálogo
-//! propio de Qwen (no son las skills de Claude Code). Ninguna está activa por
-//! defecto: quien crea el trabajo elige cuáles lleva, y el ejecutor inyecta
-//! solo esas con `--append-system-prompt`, porque el contexto del 30B es
+//! Skills del ejecutor: ficheros `<nombre>.md` cortos en un catálogo propio
+//! (`qwen-skills`, por su origen; no son las skills del planificador).
+//! Ninguna está activa por defecto: quien crea el trabajo elige cuáles lleva,
+//! y el ejecutor inyecta solo esas, porque el contexto de un modelo local es
 //! escaso.
 //!
 //! Formato de cada skill:
 //!
 //! ```text
 //! ---
-//! descripcion: una línea que lee Claude Code para decidir
+//! descripcion: una línea que lee el planificador para decidir
 //! ---
-//! cuerpo que lee Qwen
+//! cuerpo que lee el ejecutor
 //! ```
 //!
 //! Qué skills hay disponibles, cuántas caben y quién puede elegirlas lo
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ErrorBus, Resultado};
-use crate::tipos::Orden;
+use crate::tipos::{Orden, Rol};
 
 /// `[agente.skills]` de los ajustes.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -36,8 +36,12 @@ pub struct ConfigSkills {
     pub max_por_trabajo: usize,
     /// Máximo de caracteres que suman sus cuerpos.
     pub max_caracteres: usize,
-    /// La llave: valores de `creada_por` que pueden elegir skills.
+    /// La llave: quién puede elegir skills. `planificador` (o su nombre en
+    /// disco, `claude-code`) es el rol; otro valor, un `creada_por` literal.
     pub pueden_elegir: Vec<String>,
+    /// El agente que ocupa ahora el rol de planificador (`roles.planificador`).
+    #[serde(skip)]
+    pub planificador: String,
 }
 
 impl Default for ConfigSkills {
@@ -48,6 +52,7 @@ impl Default for ConfigSkills {
             max_por_trabajo: 3,
             max_caracteres: 6000,
             pueden_elegir: vec!["claude-code".into()],
+            planificador: "claude-code".into(),
         }
     }
 }
@@ -77,6 +82,16 @@ impl ConfigSkills {
         catalogo_en(&self.ruta_catalogo(), self)
     }
 
+    /// `creada_por` tiene la llave (spec 017, RF-012): si la tiene el rol
+    /// planificador, vale el nombre del rol (`planificador` o `claude-code`) y
+    /// el id del agente que lo ocupa al crear el trabajo.
+    pub fn tiene_llave(&self, creada_por: &str) -> bool {
+        let rol = |v: &str| Rol::desde(v) == Some(Rol::Planificador);
+        self.pueden_elegir.iter().any(|p| {
+            p == creada_por || (rol(p) && (rol(creada_por) || (!self.planificador.is_empty() && creada_por == self.planificador)))
+        })
+    }
+
     /// Comprueba que `creada_por` tiene la llave y que las skills existen,
     /// están habilitadas y caben. Devuelve las skills en el orden pedido.
     pub fn resolver(&self, creada_por: &str, nombres: &[String]) -> Resultado<Vec<Skill>> {
@@ -84,7 +99,7 @@ impl ConfigSkills {
             return Ok(vec![]);
         }
         let err = |m: String| Err(ErrorBus::Skills(m));
-        if !self.pueden_elegir.iter().any(|p| p == creada_por) {
+        if !self.tiene_llave(creada_por) {
             return err(format!(
                 "{creada_por:?} no tiene la llave para elegir skills (pueden_elegir = {:?})",
                 self.pueden_elegir
@@ -132,7 +147,7 @@ pub fn pide_skills(orden: &Orden) -> bool {
     !orden.skills.is_empty() || orden.fases.iter().any(|f| !f.skills.is_empty())
 }
 
-/// Texto que se añade al system prompt de Qwen; vacío si no hay skills.
+/// Texto que se añade al system prompt del ejecutor; vacío si no hay skills.
 pub fn bloque_prompt(skills: &[Skill]) -> String {
     if skills.is_empty() {
         return String::new();
@@ -228,6 +243,22 @@ mod tests {
         assert!(c.resolver("ea-cli", &["rust".into()]).is_err());
         // sin skills no hace falta llave
         assert!(c.resolver("ea-cli", &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn la_llave_es_del_rol_planificador() {
+        let d = catalogo_de_prueba();
+        let mut c = cfg(d.path());
+        c.planificador = "codex".into();
+        for quien in ["claude-code", "planificador", "codex"] {
+            assert!(c.resolver(quien, &["rust".into()]).is_ok(), "{quien}");
+        }
+        assert!(c.resolver("opencode", &["rust".into()]).is_err(), "otro agente no es el planificador");
+        assert!(c.resolver("ejecutor", &["rust".into()]).is_err());
+        c.pueden_elegir = vec!["planificador".into()];
+        assert!(c.resolver("codex", &["rust".into()]).is_ok(), "«planificador» en la llave equivale a «claude-code»");
+        c.pueden_elegir = vec![];
+        assert!(c.resolver("claude-code", &["rust".into()]).is_err(), "sin llave nadie elige");
     }
 
     #[test]

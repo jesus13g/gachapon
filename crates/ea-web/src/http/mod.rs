@@ -32,6 +32,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/tema.css", get(tema_css))
         .route("/api/estado", get(estado_general))
         .route("/api/inicio", get(inicio))
+        .route("/api/agentes", get(agentes))
         .route("/api/diario", get(diario))
         .route("/api/diario/anotar", post(diario_anotar))
         .route("/api/rutinas", get(rutinas_listar))

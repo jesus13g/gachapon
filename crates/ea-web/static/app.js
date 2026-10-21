@@ -20,7 +20,14 @@ const COLOR = { mision: '#e5484d', obra: '#3e8ed0', rutina: '#f2c94c', propuesta
 const IC = { ejecutando: 'run', en_espera: 'hot', cerrado: 'cerrada', cancelado: 'cancelada' };
 const CLAUDE = '#d97757'; // el color de Claude Code (placa de la escena)
 const ACTIVOS = ['en_cola', 'ejecutando', 'en_revision', 'en_espera'];
-const NOMBRE = { 'modelo-local': 'modelo local', 'claude-code': 'Claude Code', orquestador: 'orquestador', usuario: 'tú' };
+// Las colas, regiones y actores del diario van por rol (spec 017): `claude-code`
+// es el planificador y `modelo-local` el ejecutor, los ocupe el agente que los
+// ocupe. Los demás son ids del catálogo (el semáforo lleva el del ejecutor).
+const NOMBRE = {
+  'modelo-local': 'ejecutor', 'claude-code': 'planificador', orquestador: 'orquestador', usuario: 'tú',
+  'qwen-code': 'Qwen Code', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity',
+  'sin-rol': 'agente sin rol', desconocido: 'cliente desconocido',
+};
 const TITULOS = {
   inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
   trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su premio (el informe), el diff y lo que admite.'],
@@ -28,13 +35,13 @@ const TITULOS = {
   rutinas: ['Rutinas', 'Máquinas de cápsulas amarillas, versionadas y registradas. Echa una ficha para lanzar una ahora sin esperar a su hora.'],
   propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
   acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
-  sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
+  sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y qué agente ocupa cada rol. Despliega un rol para cambiar de agente.'],
   boveda: ['Bóveda', 'Las notas de los agentes y las tuyas, como en Obsidian. Elige una en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto. El buscador busca también dentro del contenido.'],
   memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Elige una nota en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto.'],
   ajustes: ['Ajustes', 'Cómo se comporta el ecosistema. Lo marcado ⌨ se cambia en una terminal con `ea ajustes`.'],
 };
 const VACIO = {
-  trabajos: 'No hay trabajos. Encarga una misión con ＋ misión, o desde Claude Code con /mision, /obra o /rutina.',
+  trabajos: 'No hay trabajos. Encarga una misión con ＋ misión, o desde el planificador con /mision, /obra o /rutina.',
   diario: 'El diario está vacío.',
   rutinas: 'No hay rutinas registradas (ea rutina registrar).',
   propuestas: 'Nada espera tu decisión.',
@@ -234,7 +241,7 @@ function accionesTrabajo(t, i, mas = '') {
     h += reformularHtml(t);
   } else if (t.estado === 'en_espera') {
     h += `<textarea class="nota" rows="2" placeholder="contexto que se añade al paquete (opcional)" aria-label="Contexto" maxlength="10000"></textarea>` +
-      b('confirmar', '✓ desatascar', 'pasa el paquete de corrección a Claude Code', 'coin hot');
+      b('confirmar', '✓ desatascar', 'pasa el paquete de corrección al planificador', 'coin hot');
   }
   h += mas;
   if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
@@ -264,8 +271,11 @@ function reformularHtml(t) {
       fases.map(f => `<option value="${f.numero}"${f.numero === elegida ? ' selected' : ''}>rehacer desde la fase ${f.numero}` +
         `${f.titulo ? ': ' + esc(f.titulo) : ''}${f.numero === pend ? ' · pendiente' : ''}</option>`).join('') + '</select>';
   }
-  return h + btn('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al modelo local con esta nota (obligatoria)', { id: t.id });
+  return h + btn('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al ejecutor con esta nota (obligatoria)', { id: t.id });
 }
+
+// «qwen-code (qwen3-coder-30b)»: con qué agente y modelo se ejecutó (spec 017).
+const porQuien = e => e ? `${esc(e.agente)} (${esc(e.modelo)})` : '';
 
 function informeHtml(d) {
   const i = d.informe;
@@ -277,11 +287,11 @@ function informeHtml(d) {
   if (i.diff_stat) h += `<p class="et">diff stat</p><pre class="tx">${esc(i.diff_stat)}</pre>`;
   if (i.fases?.length) {
     h += '<p class="et">fases</p>' + i.fases.map(f =>
-      `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="dd">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}</span></p>`).join('');
+      `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="dd">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}${f.ejecutado_por ? ' · ' + porQuien(f.ejecutado_por) : ''}</span></p>`).join('');
   }
   return `<div class="caja-premio"><div class="cab-p"><span class="premio">★ PREMIO</span>` +
     `<span class="${bloq ? 'hot' : 'x'}">${bloq ? '✕ bloqueado' : '✓ terminado'}</span>` +
-    `<span class="m">· obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s</span></div>` +
+    `<span class="m">· obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s${i.ejecutado_por ? ' · ' + porQuien(i.ejecutado_por) : ''}</span></div>` +
     `<div class="cuerpo-p">${h}</div></div>`;
 }
 
@@ -357,6 +367,7 @@ function filasTrabajos(ts) {
       const o = d.orden;
       det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
         `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
+        (d.estado?.ejecutado_por ? `<p class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</p>` : '') +
         metaTrabajo(o) +
         (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
         informeHtml(d) +
@@ -365,7 +376,7 @@ function filasTrabajos(ts) {
         (d.paquete ? `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>` : '') +
         (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
         `<p class="et">historial ${btn('ir-diario', '→ diario', 'los eventos de este trabajo en el diario', { id: t.id }, 'l')}</p><div class="evs">` + d.historial.map(h =>
-          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span>${esc(h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}</span></div>`).join('') + '</div>' +
+          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span>${esc(h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}${h.ejecutado_por ? ' · ' + esc(h.ejecutado_por.agente) : ''}</span></div>`).join('') + '</div>' +
         accionesTrabajo(t, d.informe);
     } else {
       det += accionesTrabajo(t, null);
@@ -395,21 +406,21 @@ function formMision() {
     (obra
       ? `<textarea data-nm="objetivo" rows="3" maxlength="20000" placeholder="objetivo general: el contexto que reciben todas las fases" aria-label="Objetivo general">${esc(v.objetivo ?? '')}</textarea>` +
         fasesObra(n) + '<div class="fm">' + revisarCada(n) + tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
-        `<p class="m">Cada fase pasa cuando su criterio pasa; lo ejecuta el sistema, nunca esta página. Cada cuántas fases revisa Claude Code lo eliges tú. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`
-      : `<textarea data-nm="objetivo" rows="4" maxlength="20000" placeholder="objetivo: qué tiene que conseguir el modelo local" aria-label="Objetivo">${esc(v.objetivo ?? '')}</textarea>` +
+        `<p class="m">Cada fase pasa cuando su criterio pasa; lo ejecuta el sistema, nunca esta página. Cada cuántas fases revisa el planificador lo eliges tú. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`
+      : `<textarea data-nm="objetivo" rows="4" maxlength="20000" placeholder="objetivo: qué tiene que conseguir el ejecutor" aria-label="Objetivo">${esc(v.objetivo ?? '')}</textarea>` +
         '<div class="fm">' + campo('criterio', 'criterio: comando que decide si está hecho (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') +
         tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
         `<p class="m">El criterio lo ejecuta el sistema al final de cada iteración, nunca esta página. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`) +
     (n.aviso ? `<p class="m">⧉ ${esc(n.aviso)}</p>` : '') +
     (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
     '<div class="acc">' + (obra
-      ? btn('crear-mision', '▶ encolar obra', 'crear la obra y ponerla en la cola del modelo local', {}, 'coin')
-      : btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del modelo local', {}, 'coin')) +
+      ? btn('crear-mision', '▶ encolar obra', 'crear la obra y ponerla en la cola del ejecutor', {}, 'coin')
+      : btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del ejecutor', {}, 'coin')) +
     btn('nueva-mision', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
   const nombre = obra ? 'obra' : 'misión';
   const row = `<span class="est">${capsula(obra ? COLOR.obra : COLOR.mision)}nueva</span><span class="n">—</span>` +
     `<span class="x">${esc(v.titulo || nombre + ' sin título')}</span><span class="m w">${nombre}</span>` +
-    `<span class="m">${obra ? `${n.fases.length} ${n.fases.length === 1 ? 'fase' : 'fases'}` : 'para el modelo local'}</span><span class="m"></span>`;
+    `<span class="m">${obra ? `${n.fases.length} ${n.fases.length === 1 ? 'fase' : 'fases'}` : 'para el ejecutor'}</span><span class="m"></span>`;
   return [suelto(`<article class="f o nueva"><div class="r j">${row}</div><div class="det">${det}</div></article>`, true)];
 }
 
@@ -422,7 +433,7 @@ async function creaMision() {
   }
   const topes = { iteraciones, tiempo_s: minutos === undefined ? undefined : minutos * 60 };
   const obra = n.modo === 'obra';
-  if (obra && !v.revisar) throw new Error('elige cada cuántas fases revisa Claude Code');
+  if (obra && !v.revisar) throw new Error('elige cada cuántas fases revisa el planificador');
   const t = await ea.crearTrabajo(obra
     ? {
       modo: 'obra', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', topes,
@@ -432,7 +443,7 @@ async function creaMision() {
     : { modo: 'mision', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', criterio: v.criterio ?? '', topes });
   st.nueva = null;
   st.filtroEstado = null;
-  avisa(`✓ ${obra ? 'obra' : 'misión'} ${t.id.slice(9, 15)} en la cola del modelo local`, true);
+  avisa(`✓ ${obra ? 'obra' : 'misión'} ${t.id.slice(9, 15)} en la cola del ejecutor`, true);
   abre('trabajos', 'j' + t.id);
 }
 
@@ -469,12 +480,12 @@ function fasesObra(n) {
     (total < FASES_MAX ? '<div class="acc">' + btn('nf-mas', '＋ fase', 'añadir una fase al final') + '</div>' : '');
 }
 
-// Cada cuántas fases revisa Claude Code (art. IV.4): sin valor por defecto;
+// Cada cuántas fases revisa el planificador (art. IV.4): sin valor por defecto;
 // hasta que se elige, el formulario no se envía.
 function revisarCada(n) {
   const total = n.fases.length, v = n.v.revisar ?? '';
   const op = (valor, et) => `<option value="${valor}"${v === valor ? ' selected' : ''}>${et}</option>`;
-  return `<label>revisión <select data-nm="revisar" aria-label="Cada cuántas fases revisa Claude Code"${v ? '' : ' class="falta"'}>` +
+  return `<label>revisión <select data-nm="revisar" aria-label="Cada cuántas fases revisa el planificador"${v ? '' : ' class="falta"'}>` +
     op('', '— elige —') + op('fin', 'solo al final') +
     Array.from({ length: total }, (_, i) => op(String(i + 1), i ? `cada ${i + 1} fases` : 'tras cada fase')).join('') + '</select></label>';
 }
@@ -1739,7 +1750,7 @@ EDITOR.boveda = {
   },
 };
 
-function filasSistema(e, plano = false) {
+function filasSistema(e, plano = false, ag = null) {
   const out = [];
   e.servicios.forEach(s => {
     const activo = s.activo === 'active';
@@ -1754,11 +1765,50 @@ function filasSistema(e, plano = false) {
   const o = e.orquestador;
   out.push(fila('sorq', 's', `<i class="${o.vivo ? 'm' : 'hot'}">♥</i><span class="x">orquestador</span><span class="${o.vivo ? 'm' : 'hot'}">${o.vivo ? 'con latido' : 'sin latido: no se ejecutará nada'}</span><span class="m">${reloj(o.ultimo_latido)}</span><span></span>`, 'orquestador latido', '', plano ? '' : ' g'));
   e.agentes.forEach((a, i) => {
-    const row = `<i class="n">◈</i><span class="x">${esc(NOMBRE[a.nombre] ?? a.nombre)}</span><span class="m">${a.ultimo ? esc(a.ultimo.accion) : 'sin actividad'}</span>` +
+    const modelo = a.modelo ?? 'su modelo propio';
+    const hizo = a.ultimo ? esc(a.ultimo.accion) + (a.ultimo_agente && a.ultimo_agente !== a.agente ? ` (${esc(a.ultimo_agente)})` : '') : 'sin actividad';
+    const row = `<i class="n">◈</i><span class="x">${esc(a.rol)}</span>` +
+      `<span class="m" title="${esc(a.agente)} con ${esc(modelo)}"><b class="ag">${esc(a.agente_nombre || a.agente)}</b> · ${esc(modelo)} · ${hizo}</span>` +
       `<span class="m" title="${esc(a.ultimo?.accion ?? '')}">${reloj(a.ultimo?.ts)}</span><span></span>`;
-    out.push(fila('s' + a.nombre, 's', row, a.nombre + ' ' + (a.ultimo?.accion ?? ''), '', i === 0 && !plano ? ' g' : ''));
+    out.push(fila('s' + a.nombre, 's', row, `${a.nombre} ${a.rol} ${a.agente} ${modelo} ${a.ultimo?.accion ?? ''}`,
+      plano ? '' : detalleRol(a, ag), i === 0 && !plano ? ' g' : ''));
   });
   return out;
+}
+
+// El detalle de un rol en ▦ Sistema: los agentes del catálogo que pueden
+// ocuparlo, con su binario y su modelo (/api/agentes), y el cambio (spec
+// 017). Va por POST /api/ajustes (`roles.<rol>`), con segundo clic para
+// confirmar y su evento ajustes_cambiados en el diario. El ejecutor cambia
+// para el siguiente trabajo: el que está en curso termina con el suyo.
+function detalleRol(a, ag) {
+  if (!ag) return '<p class="m">cargando los agentes…</p>';
+  const otro = ag.agentes.find(x => x.rol && x.rol !== a.rol);
+  const fijado = ag.fijados?.[a.rol];
+  let h = `<p class="m ayuda">${a.rol === 'ejecutor'
+    ? 'Ejecuta desatendido en bwrap, sin herramientas web y siempre con un modelo local. El cambio vale para el siguiente trabajo que se tome; el que está en curso termina con el agente con que se tomó.'
+    : 'Formaliza y revisa en una sesión interactiva; su modelo puede ser remoto. No puede ser el mismo agente que el ejecutor.'}` +
+    (fijado ? ` <span class="hot">Lo fija ${esc(fijado)}: no se cambia desde aquí.</span>` : '') + '</p>';
+  h += '<div class="agentes">' + ag.agentes.filter(x => x.admite.includes(a.rol)).map(x => {
+    const m = x.modelo;
+    const modelo = !m ? 'su modelo propio'
+      : `${esc(m.nombre)} <span class="dd">${m.remoto ? 'remoto' : esc(m.base_url)}</span>` +
+        (x.modelo_accesible === true ? ' <span class="ok">responde</span>' : x.modelo_accesible === false ? ' <span class="hot">no responde</span>' : '');
+    const bin = x.ruta ? `<span class="ok" title="${esc(x.ruta)}">● ${esc(x.bin)}</span>` : `<span class="hot" title="no está en el PATH">✕ ${esc(x.bin)}</span>`;
+    let accion;
+    if (x.id === a.agente) accion = '<span class="m">ocupa el rol</span>';
+    else if (fijado) accion = '';
+    else if (otro && x.id === otro.id) accion = `<span class="m" title="un agente no ocupa los dos roles">es el ${esc(otro.rol)}</span>`;
+    else if (!x.ruta) accion = '<span class="m">falta el binario</span>';
+    else {
+      const n = `rol:${a.rol}:${x.id}`;
+      const armado = st.armado && st.armado.n === n && st.armado.hasta > Date.now();
+      accion = btn('poner-rol', armado ? '⇄ confirmar' : `⇄ poner de ${a.rol}`, armado ? 'confirmar el cambio' : `poner a ${x.nombre} de ${a.rol} (pide confirmar)`,
+        { rol: a.rol, agente: x.id }, armado ? 'hot' : '');
+    }
+    return `<p><b>${esc(x.nombre)}</b>${bin}<span class="md">${modelo} · <span class="dd">topes: ${esc(x.topes)}</span></span><span class="acc">${accion}</span></p>`;
+  }).join('') + '</div>';
+  return h + `<p class="m ayuda">También desde la terminal: <code>ea agentes</code> y <code>ea agentes rol ${esc(a.rol)} &lt;agente&gt;</code>.</p>`;
 }
 
 // ------------------------------------------- lo que produjo una acción (A1)
@@ -1979,6 +2029,13 @@ const barraViva = '<div class="bar" role="progressbar" aria-label="en marcha"><i
 
 // Una columna de la portada: la máquina de un agente, con su placa y la
 // pegatina COLA, o el semáforo del worktree.
+// La placa de una cola: el rol y el agente que lo ocupa ahora
+// («EJECUTOR · QWEN CODE»), de /api/estado.
+function rotulo(rol) {
+  const a = st.estado?.agentes?.find(x => x.rol === rol);
+  return esc((a?.agente_nombre ? `${rol} · ${a.agente_nombre}` : rol).toUpperCase());
+}
+
 function cajaCola(placa, cls, rol, entradas) {
   return `<div class="actor"><h3><span class="placa ${cls}">${placa}</span><span class="grow"></span>` +
     `<span class="pegatina">COLA <b>${entradas.length}</b></span></h3><p class="rol">${rol}</p>` +
@@ -2019,9 +2076,9 @@ function tableroJ() {
     `<section class="col"><h3>${titulo}<b>${ts.length || ''}</b></h3><p class="ay">${ayuda}</p>` +
     (ts.length ? ts.map(tarjetaJ).join('') : '<p class="nada">nada</p>') + '</section>';
   return suelto('<div class="tablero t5">' +
-    col('○ En cola', 'esperan al modelo local', por('en_cola')) +
-    col('◐ Ejecutando', 'el modelo local trabaja', por('ejecutando')) +
-    col('◇ En revisión', 'esperan a Claude Code', por('en_revision')) +
+    col('○ En cola', 'esperan al ejecutor', por('en_cola')) +
+    col('◐ Ejecutando', 'el ejecutor trabaja', por('ejecutando')) +
+    col('◇ En revisión', 'esperan al planificador', por('en_revision')) +
     col('! En espera', 'esperan tu confirmación', por('en_espera')) +
     col('● Cerrados', 'los últimos, con su premio', cerrados) + '</div>');
 }
@@ -2044,7 +2101,7 @@ function tableroCC(ss) {
 function avisoPaquete(t) {
   const motivo = (t.detalle ?? 'La rutina falló').replace(/[.\s]*$/, '.');
   return suelto(`<div class="paq"><h3>${capsulaJ(t)}${esc(t.rutina ? t.rutina.slug : t.titulo)} <span class="m">${t.rutina ? 'v' + t.rutina.version + ' ' : ''}falló · hace ${reloj(t.actualizado)}</span></h3>` +
-    `<p class="m">${esc(motivo)} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa a Claude Code.</p>` +
+    `<p class="m">${esc(motivo)} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa al planificador.</p>` +
     accionesTrabajo(t, null, btn('ir-trabajo', '▸ ver paquete', 'abrir la ficha', { id: t.id })) + '</div>');
 }
 
@@ -2052,14 +2109,14 @@ function avisoPaquete(t) {
 // trabajos (con la ficha de los abiertos debajo).
 function filasInicio(d) {
   const out = [
-    grupo('⇄', 'Colas', 0, 'modelo local → Claude Code'),
+    grupo('⇄', 'Colas', 0, 'ejecutor → planificador'),
     suelto('<div class="actores">' +
-      cajaCola('MODELO LOCAL', 'ml', 'cápsulas que esperan para ejecutarse', d.colas['modelo-local']) +
-      cajaCola('CLAUDE CODE', 'cc', 'cápsulas que esperan a que alguien las abra', d.colas['claude-code']) +
+      cajaCola(rotulo('ejecutor'), 'ml', 'cápsulas que esperan para ejecutarse', d.colas['modelo-local']) +
+      cajaCola(rotulo('planificador'), 'cc', 'cápsulas que esperan a que alguien las abra', d.colas['claude-code']) +
       cajaSemaforo(d.semaforos) + '</div>'),
   ];
   const paq = st.trabajos.filter(t => t.estado === 'en_espera' && t.modo === 'rutina');
-  if (paq.length) out.push(grupo('!', 'Cápsulas atascadas', paq.length, 'una rutina falló; nada pasa a Claude Code sin tu confirmación'), ...paq.map(avisoPaquete));
+  if (paq.length) out.push(grupo('!', 'Cápsulas atascadas', paq.length, 'una rutina falló; nada pasa al planificador sin tu confirmación'), ...paq.map(avisoPaquete));
   if (d.propuestas.length || st.propRes) {
     out.push(grupo('◇', 'Esperan tu decisión', d.propuestas.length, 'acepta o rechaza; aceptar ejecuta la acción'), ...filasPropuestas(d.propuestas));
   }
@@ -2089,7 +2146,7 @@ function construir() {
       ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', 'última', ''), filasRutinas(d))] : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
     case 'ajustes': return d ? filasAjustes(d) : [];
-    default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
+    default: return st.estado ? [columnas('s', '', 'servicio o rol', 'qué hace', 'desde', ''), ...filasSistema(st.estado, false, d)] : [];
   }
 }
 
@@ -2100,7 +2157,7 @@ const FILTRO = { en_cola: COLOR.mision, ejecutando: COLOR.obra, en_revision: COL
 
 // Los filtros del diario, que se aplican en el servidor. Los actores y las
 // familias son los que escribe el código (spec 009, «Familias de eventos»).
-const ACTORES = ['usuario', 'claude-code', 'modelo-local', 'orquestador', 'ea-cli'];
+const ACTORES = ['usuario', 'claude-code', 'modelo-local', 'orquestador', 'ea-cli', 'sin-rol', 'desconocido'];
 const FAMILIAS = { bus_: 'bus', mcp_: 'mcp', propuesta_: 'propuestas', accion_: 'acciones', boveda_: 'bóveda', memoria_: 'memoria', ajustes_: 'ajustes', usuario_: 'notas' };
 const RANGOS = { hoy: 'hoy', ayer: 'ayer', '24h': '24 h', '7d': '7 días' };
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
@@ -2207,7 +2264,7 @@ function barra() {
   let h = '';
   if (st.sec === 'trabajos') {
     // «＋ misión» va primero: los filtros pueden desbordar la barra.
-    h = `<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al modelo local" aria-pressed="${!!st.nueva}">＋ misión</button>` +
+    h = `<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al ejecutor" aria-pressed="${!!st.nueva}">＋ misión</button>` +
       Object.keys(EST).map(e =>
         `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
         `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
@@ -2247,7 +2304,7 @@ function cabecera() {
   $('title', o).textContent = latido;
   o.setAttribute('aria-label', latido);
 
-  // Trabajos que esperan a alguien: revisión de Claude Code o tu confirmación.
+  // Trabajos que esperan a alguien: revisión del planificador o tu confirmación.
   const atentos = st.trabajos.filter(t => t.estado === 'en_revision' || t.estado === 'en_espera').length;
   const esperan = st.trabajos.filter(t => t.estado === 'en_espera').length;
   const bt = $('[data-s=trabajos] b'), bp = $('[data-s=propuestas] b');
@@ -2427,6 +2484,7 @@ async function cargaSeccion() {
     datos = { propuestas, colas, semaforos, diario, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await ea.acciones();
+  else if (sec === 'sistema') datos = await ea.agentes();
   else if (sec === 'diario') {
     const filtros = filtrosDiario();
     datos = fundeDiario(await ea.diario(filtros), filtros.limite);
@@ -2742,7 +2800,7 @@ async function accion(b) {
       }
       if (t) {
         delete st.rutEnt[slug];
-        avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
+        avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del ejecutor`, true);
         st.abiertos.add('j' + t.trabajo);
       }
     } else if (a === 'rprevia') {
@@ -2821,6 +2879,19 @@ async function accion(b) {
         setTimeout(pintar, 3100);
         return;
       }
+    } else if (a === 'poner-rol') {
+      // Segundo clic para confirmar, como reiniciar un servicio.
+      const { rol, agente } = b.dataset, n = `rol:${rol}:${agente}`;
+      if (!(st.armado && st.armado.n === n && st.armado.hasta > Date.now())) {
+        st.armado = { n, hasta: Date.now() + 3000 };
+        st.html = '';
+        pintar();
+        setTimeout(() => { st.html = ''; pintar(); }, 3100);
+        return;
+      }
+      st.armado = null;
+      const r = await ea.cambiarAjustes(st.datos.version, { ['roles.' + rol]: agente });
+      for (const ap of r.aplicados) avisa(`✓ ${rol}: ${valorAj(ap.antes)} → ${valorAj(ap.despues)}`, true);
     } else if (a === 'ajuste-guardar' || a === 'ajuste-defecto') {
       // Segundo clic para confirmar, como reiniciar un servicio.
       const n = (a === 'ajuste-guardar' ? 'g' : 'd') + b.dataset.c;
