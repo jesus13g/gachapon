@@ -106,6 +106,18 @@ impl ConfigOrquestador {
         }
     }
 
+    /// La configuración de un ejecutor concreto (spec 019, RF-008): la misma
+    /// que [`ConfigOrquestador::desde_ajustes`] pero con la ficha y el perfil
+    /// de modelo local del agente `id` (`agentes.<id>.bin`), no los de
+    /// `roles.ejecutor`. `None` si `id` no es un agente que pueda ejecutar o
+    /// su perfil de modelo no existe o es remoto.
+    pub fn para_agente(a: &Ajustes, id: &str) -> Option<Self> {
+        let tipo = TipoAgente::desde(id)?;
+        let modelo = a.modelo_de(id).filter(|m| !m.remoto)?;
+        let bin = a.agentes.get(id)?.bin.clone();
+        Some(Self { ejecutor: PerfilEjecutor { id: id.to_string(), tipo, bin, modelo: modelo.clone() }, ..Self::desde_ajustes(a) })
+    }
+
     /// Los ajustes efectivos de ahora (se relee en cada ciclo del ejecutor).
     pub fn cargar() -> Self {
         Self::desde_ajustes(&ea_ajustes::cargar())
