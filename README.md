@@ -196,7 +196,7 @@ todo para aislar pruebas). `red.puerto_web` y `red.puerto_mcp` no pueden
 coincidir; el host no se configura (siempre `127.0.0.1`). Una clave que fija su
 variable de entorno no se cambia desde ningún canal mientras esté definida.
 
-**Roles, agentes y modelos** (spec 017, en curso). Cada rol lo ocupa un agente
+**Roles, agentes y modelos** (spec 017). Cada rol lo ocupa un agente
 del catálogo; el planificador y el ejecutor son agentes distintos, y el modelo
 del ejecutor tiene que ser un perfil local. Un cambio que rompa alguna de estas
 reglas no se escribe; si están rotas en un `ajustes.toml` editado a mano, `ea

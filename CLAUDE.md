@@ -4,7 +4,7 @@ Orquestador en Rust (repo público `jesus13g/gachapon`) que reparte el trabajo
 entre dos roles: el **planificador** (formaliza y revisa; por defecto Claude
 Code) y el **ejecutor** (ejecuta; por defecto Qwen Code sobre `llama-server`).
 Desde la constitución 1.3.0 el agente de cada rol es intercambiable (Claude
-Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017, en curso). Se comunican
+Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017). Se comunican
 por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
 `orquestador-claude-qwen.md`.
 
