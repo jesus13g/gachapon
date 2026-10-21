@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use super::{Estadisticas, Hallazgo};
 use crate::modelo::Tipo;
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Reg {
@@ -33,6 +33,33 @@ pub struct Entrada {
     pub offset: u64,
     pub lineas: u64,
     pub regs: Vec<Reg>,
+    /// Huella (FNV-1a) de los primeros bytes del fichero cuando se leyó y
+    /// cuántos eran (hasta [`BYTES_CABEZA`]). Si cambian, el fichero no es
+    /// el mismo aunque haya crecido y se relee entero.
+    #[serde(default)]
+    pub cabeza: u64,
+    #[serde(default)]
+    pub cabeza_len: u64,
+    /// OpenCode: ids de las filas con la última marca vista.
+    #[serde(default)]
+    pub vistos: Vec<String>,
+}
+
+/// Cuánto del principio de un fichero se huella para reconocerlo.
+const BYTES_CABEZA: u64 = 4096;
+
+/// Huella de los primeros `n` bytes (como mucho [`BYTES_CABEZA`]) de `ruta` y
+/// cuántos se leyeron realmente.
+fn cabeza_de(ruta: &Path, n: u64) -> Option<(u64, u64)> {
+    let mut f = std::fs::File::open(ruta).ok()?;
+    let mut buf = Vec::new();
+    f.by_ref().take(n.min(BYTES_CABEZA)).read_to_end(&mut buf).ok()?;
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in &buf {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    Some((h, buf.len() as u64))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,7 +139,8 @@ pub fn escanear_lineas(
     let previa = cache.fuentes.get(clave);
     let desde = match previa {
         Some(p) if p.tam == tam && p.mtime_ns == mtime => return,
-        Some(p) if tam > p.tam && p.offset <= p.tam => Some(p.offset),
+        // Solo es el mismo fichero si crece y su principio no cambió.
+        Some(p) if tam > p.tam && p.offset <= p.tam && p.cabeza_len > 0 && cabeza_de(ruta, p.cabeza_len) == Some((p.cabeza, p.cabeza_len)) => Some(p.offset),
         _ => None,
     };
     let (mut offset, mut regs, mut lineas) = match (desde, previa) {
@@ -164,5 +192,42 @@ pub fn escanear_lineas(
         }
     }
     acumular(&mut regs, nuevos);
-    cache.fuentes.insert(clave.to_string(), Entrada { tam, mtime_ns: mtime, offset, lineas, regs });
+    let (cabeza, cabeza_len) = cabeza_de(ruta, tam).unwrap_or((0, 0));
+    cache.fuentes.insert(clave.to_string(), Entrada { tam, mtime_ns: mtime, offset, lineas, regs, cabeza, cabeza_len, vistos: Vec::new() });
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+
+    fn extraer(l: &str) -> Vec<Hallazgo> {
+        l.strip_prefix("uso:").map(|n| Hallazgo { tipo: Tipo::Skill, nombre: n.to_string(), ts_ms: None }).into_iter().collect()
+    }
+
+    fn total(c: &Cache, nombre: &str) -> u64 {
+        c.fuentes["f"].regs.iter().filter(|r| r.nombre == nombre).map(|r| r.usos).sum()
+    }
+
+    #[test]
+    fn un_fichero_reemplazado_por_otro_mas_grande_se_relee_entero() {
+        let d = tempfile::tempdir().unwrap();
+        let ruta = d.path().join("s.jsonl");
+        let (mut cache, mut est, mut avisos) = (Cache::default(), Estadisticas::default(), Vec::new());
+        std::fs::write(&ruta, "uso:a\nuso:a\n").unwrap();
+        escanear_lineas(&mut cache, "f", &ruta, extraer, &mut est, &mut avisos);
+        assert_eq!(total(&cache, "a"), 2);
+
+        // Crece de verdad: incremental.
+        std::fs::write(&ruta, "uso:a\nuso:a\nuso:a\n").unwrap();
+        escanear_lineas(&mut cache, "f", &ruta, extraer, &mut est, &mut avisos);
+        assert_eq!((total(&cache, "a"), est.ficheros_incrementales), (3, 1));
+
+        // Otro fichero, más grande, con el mismo tamaño previo como offset válido:
+        // el principio cambió, así que no se puede seguir desde el offset.
+        std::fs::write(&ruta, "uso:b\nuso:b\nuso:b\nuso:b\nuso:b\n").unwrap();
+        escanear_lineas(&mut cache, "f", &ruta, extraer, &mut est, &mut avisos);
+        assert_eq!(total(&cache, "a"), 0, "lo del fichero anterior ya no cuenta");
+        assert_eq!(total(&cache, "b"), 5);
+        assert_eq!(est.ficheros_releidos, 2, "el primero y el reemplazado");
+    }
 }
