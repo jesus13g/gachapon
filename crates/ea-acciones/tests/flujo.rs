@@ -438,6 +438,13 @@ fn autorizacion_por_actor() {
         assert!(autorizar_mcp("modelo-local", h(n)).is_err(), "{n}");
     }
     assert!(autorizar_mcp("claude-code", h("ea_eliminar_rutina")).is_ok());
+    // Un cliente desconocido o un agente sin rol solo lee (spec 017, RF-013).
+    for actor in ["desconocido", "sin-rol", "codex", ""] {
+        assert!(autorizar_mcp(actor, h("ea_status")).is_ok(), "{actor}");
+        for n in ["ea_escribir_nota", "ea_promover_nota", "ea_encolar_rutina", "ea_eliminar_rutina"] {
+            assert!(autorizar_mcp(actor, h(n)).is_err(), "{actor} {n}");
+        }
+    }
 }
 
 #[test]

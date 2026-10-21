@@ -444,9 +444,32 @@ riesgo (§7.3):
 | `ea_retirar_rutina` (su TOML a la papelera y su timer desprogramado) y `ea_restaurar_rutina` (vuelve, sin timer), con `slug` | mutación reversible | solo simula o propone |
 | `ea_eliminar_rutina` (borra para siempre la copia retirada; antes hay que retirarla) | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
-Toda invocación queda registrada en el diario, atribuida al cliente que la hizo
-(`claude-code` por defecto, `modelo-local` si se identifica como Qwen Code —`qwen-code-mcp-client`—, `orquestador` si se identifica como `ea-orchestrator`).
-La autorización es del servidor, no del prompt: lo desatendido solo puede leer.
+Toda invocación queda registrada en el diario. El actor sale del nombre con
+que el cliente se presenta al conectar (`clientInfo.name`, nunca de un
+argumento) y del rol que ocupa ese agente **en ese momento** según los ajustes
+(spec 017):
+
+| Cliente MCP | Agente |
+|---|---|
+| `claude-code` | Claude Code |
+| `qwen-code-mcp-client`, `qwen-code` | Qwen Code |
+| `codex-mcp-client` | Codex |
+| `opencode` | OpenCode |
+| `ea-orchestrator` | el propio orquestador (actor `orquestador`) |
+
+- El agente que ocupa el planificador actúa como `claude-code` (el nombre en
+  disco del rol): catálogo completo, aunque las mutantes solo simulan o
+  proponen. El del ejecutor actúa como `modelo-local`: la proyección reducida
+  y nada irreversible. El diario guarda en el detalle qué agente fue
+  (`"agente": "codex"`).
+- Un agente del catálogo sin rol (actor `sin-rol`), un cliente desconocido
+  (actor `desconocido`) y lo desatendido (`orquestador`) **solo leen**. Del
+  desconocido, el diario guarda el nombre que declaró (`"cliente": …`): así se
+  ve cuál añadir. Antigravity aún no tiene nombre comprobado, así que por ahora
+  solo lee.
+
+La autorización es del servidor, no del prompt. Cambiar de planificador no exige
+reconectar: los roles se releen en cada llamada.
 
 Instalación como servicio de sesión (`systemd --user`):
 

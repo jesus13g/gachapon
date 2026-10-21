@@ -256,16 +256,20 @@ impl Canal {
 }
 
 /// Autorización de una invocación MCP según el actor (derivado del cliente
-/// que se identificó, §7.3: no es un argumento del modelo).
+/// que se identificó y del rol que ocupa, §7.3 y spec 017: no es un
+/// argumento del modelo). Es una lista blanca:
 ///
-/// - `orquestador` (lo desatendido, §11.2): solo lectura, sin excepciones.
-/// - `modelo-local`: la proyección reducida y, de ella, nada irreversible.
-/// - `claude-code`: el catálogo completo (las mutantes solo proponen).
+/// - `claude-code` (el rol planificador, lo ocupe el agente que lo ocupe): el
+///   catálogo completo (las mutantes solo proponen).
+/// - `modelo-local` (el rol ejecutor): la proyección reducida y, de ella,
+///   nada irreversible.
+/// - Cualquier otro (`orquestador`, lo desatendido, §11.2; un cliente
+///   desconocido; un agente que no ocupa ningún rol): solo lectura.
 pub fn autorizar_mcp(actor: &str, h: &Herramienta) -> Result<(), String> {
     let permitido = match actor {
-        "orquestador" => h.riesgo == Riesgo::Lectura,
+        "claude-code" => true,
         "modelo-local" => h.local && h.riesgo != Riesgo::Irreversible,
-        _ => true,
+        _ => h.riesgo == Riesgo::Lectura,
     };
     if permitido {
         Ok(())

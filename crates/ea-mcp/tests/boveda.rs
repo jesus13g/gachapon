@@ -41,8 +41,9 @@ async fn entorno() -> Entorno {
     std::fs::create_dir_all(&rutinas).unwrap();
     let store = Arc::new(Mutex::new(Store::open_at(&db).unwrap()));
     let (r, b) = (rutinas.clone(), boveda.clone());
+    let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let service = StreamableHttpService::new(
-        move || Ok(EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone()))),
+        move || Ok(EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone())).con_ajustes(ajustes.clone())),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig::default(),
     );

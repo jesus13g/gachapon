@@ -256,6 +256,11 @@ impl Ajustes {
         (id, &self.agentes[id.as_str()])
     }
 
+    /// El rol que ocupa ahora un agente del catálogo, si ocupa alguno.
+    pub fn rol_de(&self, agente: &str) -> Option<Rol> {
+        Rol::TODOS.into_iter().find(|r| self.agente_de(*r).0 == agente)
+    }
+
     /// El perfil de modelo de un agente (`None`: el suyo propio).
     pub fn modelo_de(&self, agente: &str) -> Option<&PerfilModelo> {
         self.agentes.get(agente).and_then(|a| self.modelos.get(&a.modelo))

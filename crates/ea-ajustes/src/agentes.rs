@@ -58,6 +58,9 @@ pub struct FichaAgente {
     pub roles: &'static [Rol],
     /// Qué topes propios admite su CLI (además del `timeout` del sistema).
     pub topes: &'static str,
+    /// Nombres con que se presenta como cliente MCP (`clientInfo.name` del
+    /// `initialize`), comprobados con cada CLI (spec 017, T-009).
+    pub clientes_mcp: &'static [&'static str],
 }
 
 impl FichaAgente {
@@ -73,15 +76,27 @@ const PLANIFICADOR: &[Rol] = &[Rol::Planificador];
 pub const IDS_AGENTES: &[&str] = &["claude-code", "qwen-code", "codex", "opencode", "antigravity"];
 
 pub static CATALOGO: &[FichaAgente] = &[
-    FichaAgente { id: "claude-code", nombre: "Claude Code", roles: PLANIFICADOR, topes: "—" },
-    FichaAgente { id: "qwen-code", nombre: "Qwen Code", roles: AMBOS, topes: "turnos, llamadas y tiempo" },
-    FichaAgente { id: "codex", nombre: "Codex", roles: AMBOS, topes: "solo tiempo" },
-    FichaAgente { id: "opencode", nombre: "OpenCode", roles: AMBOS, topes: "solo tiempo" },
-    FichaAgente { id: "antigravity", nombre: "Antigravity", roles: PLANIFICADOR, topes: "—" },
+    FichaAgente { id: "claude-code", nombre: "Claude Code", roles: PLANIFICADOR, topes: "—", clientes_mcp: &["claude-code"] },
+    FichaAgente {
+        id: "qwen-code",
+        nombre: "Qwen Code",
+        roles: AMBOS,
+        topes: "turnos, llamadas y tiempo",
+        clientes_mcp: &["qwen-code-mcp-client", "qwen-code"],
+    },
+    FichaAgente { id: "codex", nombre: "Codex", roles: AMBOS, topes: "solo tiempo", clientes_mcp: &["codex-mcp-client"] },
+    FichaAgente { id: "opencode", nombre: "OpenCode", roles: AMBOS, topes: "solo tiempo", clientes_mcp: &["opencode"] },
+    // Su nombre de cliente MCP está sin comprobar: mientras tanto, solo lee.
+    FichaAgente { id: "antigravity", nombre: "Antigravity", roles: PLANIFICADOR, topes: "—", clientes_mcp: &[] },
 ];
 
 pub fn ficha(id: &str) -> Option<&'static FichaAgente> {
     CATALOGO.iter().find(|f| f.id == id)
+}
+
+/// El agente del catálogo que se presenta con ese nombre de cliente MCP.
+pub fn por_cliente_mcp(nombre: &str) -> Option<&'static FichaAgente> {
+    CATALOGO.iter().find(|f| f.clientes_mcp.contains(&nombre))
 }
 
 /// Id válido de un perfil de modelo: minúsculas, dígitos, `-` y `_`, hasta

@@ -27,20 +27,40 @@ use crate::args::{
     EncolarRutinaArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
 };
 
-/// Deriva el actor que este servidor escribe en el diario, a partir del nombre que el cliente MCP declaró al conectar
-/// (`Implementation::name`, capturado en el handshake `initialize`). Nunca
-/// es un argumento de ninguna herramienta: el modelo no debe poder declarar
-/// que actúa en nombre de otro (§7.3). Por defecto cae en "claude-code" —
-/// preserva el comportamiento anterior para cualquier cliente que no se
-/// identifique explícitamente como el proxy del modelo local (§8.2: la
-/// atribución del diario debe ser veraz, no la del primer consumidor que
-/// existió).
-fn actor_for(client_name: Option<&str>) -> &'static str {
-    match client_name {
-        // Nombre con que Qwen Code (agente local) se identifica como cliente MCP.
-        Some("qwen-code-mcp-client" | "qwen-code") => "modelo-local",
-        Some("ea-orchestrator") => "orquestador",
-        _ => "claude-code",
+/// Quién hace una llamada MCP: el actor que se escribe en el diario y del
+/// que salen los permisos ([`autorizar_mcp`]), el agente del catálogo y el
+/// nombre que declaró el cliente. Sale del `clientInfo.name` del
+/// `initialize`, nunca de un argumento: el modelo no debe poder declarar que
+/// actúa en nombre de otro (§7.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Llamante {
+    pub actor: &'static str,
+    pub agente: Option<&'static str>,
+    pub cliente: Option<String>,
+}
+
+/// Actor de un agente del catálogo que no ocupa ningún rol: solo lee.
+pub const ACTOR_SIN_ROL: &str = "sin-rol";
+/// Actor de un cliente que no es ningún agente del catálogo: solo lee.
+pub const ACTOR_DESCONOCIDO: &str = "desconocido";
+
+/// El actor de un cliente según el catálogo y los roles vigentes (spec 017,
+/// RF-013). Un agente actúa con el nombre en disco del rol que ocupa
+/// (`claude-code` el planificador, `modelo-local` el ejecutor), que es el
+/// que da los permisos y la región de la bóveda; uno sin rol, o un cliente
+/// desconocido, solo lee. Antes, un cliente desconocido actuaba como
+/// `claude-code`.
+pub fn actor_for(cliente: Option<&str>, ajustes: &ea_ajustes::Ajustes) -> Llamante {
+    let cliente_s = cliente.map(str::to_string);
+    if cliente == Some("ea-orchestrator") {
+        return Llamante { actor: "orquestador", agente: None, cliente: cliente_s };
+    }
+    match cliente.and_then(ea_ajustes::por_cliente_mcp) {
+        Some(f) => {
+            let actor = ajustes.rol_de(f.id).map_or(ACTOR_SIN_ROL, |r| r.as_str());
+            Llamante { actor, agente: Some(f.id), cliente: cliente_s }
+        }
+        None => Llamante { actor: ACTOR_DESCONOCIDO, agente: None, cliente: cliente_s },
     }
 }
 
@@ -54,6 +74,8 @@ pub struct EaTools {
     /// ([`Boveda::escribir_nota`]); promover a la compartida es del usuario y
     /// este servidor solo puede proponerlo.
     boveda: Boveda,
+    /// De dónde se leen los roles vigentes en cada llamada.
+    ajustes: ea_ajustes::Fuentes,
     // Leído por el código que genera `#[tool_handler]` sobre el impl de
     // `ServerHandler` más abajo; el análisis de dead-code no lo ve porque
     // ese acceso vive en un bloque distinto expandido por macro.
@@ -147,8 +169,22 @@ impl EaTools {
             store,
             consulta: Arc::new(SoloConsulta { rutinas_dir, boveda: boveda.clone() }),
             boveda,
+            ajustes: ea_ajustes::Fuentes::sistema(),
             tool_router: Self::tool_router(),
         }
+    }
+
+    /// Lee los roles de estos ajustes en vez de los del sistema (pruebas).
+    pub fn con_ajustes(mut self, fuentes: ea_ajustes::Fuentes) -> Self {
+        self.ajustes = fuentes;
+        self
+    }
+
+    /// Quién llama, con los roles de ahora: cambiar de planificador no exige
+    /// reconectar.
+    fn llamante(&self, context: &RequestContext<RoleServer>) -> Llamante {
+        let ajustes = ea_ajustes::cargar_de(&self.ajustes).ajustes;
+        actor_for(context.client_info().as_ref().map(|i| i.name.as_str()), &ajustes)
     }
 
     /// Cuerpo común de las herramientas mutantes supervisadas (§11.1): el
@@ -163,7 +199,8 @@ impl EaTools {
         args: serde_json::Value,
         simular: bool,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let quien = self.llamante(&context);
+        let actor = quien.actor;
         let started = Instant::now();
         let mut args_log = args.clone();
         args_log["simular"] = json!(simular);
@@ -212,7 +249,7 @@ impl EaTools {
             nombre.trim_start_matches("ea_"),
             if simular { "_simulada" } else { "" }
         );
-        self.log_invocation(actor, &accion, None, started, args_log, &body).await;
+        self.log_invocation(&quien, &accion, None, started, args_log, &body).await;
         respond(body)
     }
 
@@ -221,7 +258,7 @@ impl EaTools {
     /// Independiente del nivel de riesgo de la herramienta (§11.3).
     async fn log_invocation(
         &self,
-        actor: &str,
+        quien: &Llamante,
         action: &str,
         trabajo: Option<&str>,
         started: Instant,
@@ -229,10 +266,18 @@ impl EaTools {
         body: &ToolBody,
     ) {
         let duration_ms = started.elapsed().as_millis() as i64;
-        let detail = match body {
+        let mut detail = match body {
             Ok(_) => json!({ "args": args }),
             Err(msg) => json!({ "args": args, "error": msg }),
         };
+        // El agente real detrás del rol; de un cliente desconocido, el nombre
+        // que declaró (así se sabe cuál añadir al catálogo).
+        match (quien.agente, &quien.cliente) {
+            (Some(a), _) => detail["agente"] = json!(a),
+            (None, Some(c)) if quien.actor == ACTOR_DESCONOCIDO => detail["cliente"] = json!(c),
+            _ => {}
+        }
+        let actor = quien.actor;
         let outcome = if body.is_ok() {
             EventOutcome::Ok
         } else {
@@ -259,7 +304,7 @@ impl EaTools {
         &self,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let quien = self.llamante(&context);
         let started = Instant::now();
 
         let body: ToolBody = async {
@@ -293,7 +338,7 @@ impl EaTools {
         }
         .await;
 
-        self.log_invocation(actor, "mcp_status", None, started, json!({}), &body)
+        self.log_invocation(&quien, "mcp_status", None, started, json!({}), &body)
             .await;
         respond(body)
     }
@@ -310,7 +355,7 @@ impl EaTools {
         context: RequestContext<RoleServer>,
         Parameters(args): Parameters<ListarTrabajosArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let quien = self.llamante(&context);
         let started = Instant::now();
         let args_json = json!({ "estado": args.estado, "modo": args.modo, "limite": args.limite });
 
@@ -330,7 +375,7 @@ impl EaTools {
         }
         .await;
 
-        self.log_invocation(actor, "mcp_listar_trabajos", None, started, args_json, &body)
+        self.log_invocation(&quien, "mcp_listar_trabajos", None, started, args_json, &body)
             .await;
         respond(body)
     }
@@ -345,7 +390,7 @@ impl EaTools {
         context: RequestContext<RoleServer>,
         Parameters(args): Parameters<VerTrabajoArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let quien = self.llamante(&context);
         let started = Instant::now();
         let args_json = json!({ "id": args.id });
 
@@ -366,7 +411,7 @@ impl EaTools {
         }
         .await;
 
-        self.log_invocation(actor, "mcp_ver_trabajo", Some(&args.id), started, args_json, &body)
+        self.log_invocation(&quien, "mcp_ver_trabajo", Some(&args.id), started, args_json, &body)
             .await;
         respond(body)
     }
@@ -381,7 +426,7 @@ impl EaTools {
         context: RequestContext<RoleServer>,
         Parameters(args): Parameters<ListarDiarioArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let quien = self.llamante(&context);
         let started = Instant::now();
         let args_json = json!({
             "trabajo": args.trabajo, "actor": args.actor,
@@ -411,7 +456,7 @@ impl EaTools {
         }
         .await;
 
-        self.log_invocation(actor, "mcp_listar_diario", args.trabajo.as_deref(), started, args_json, &body)
+        self.log_invocation(&quien, "mcp_listar_diario", args.trabajo.as_deref(), started, args_json, &body)
             .await;
         respond(body)
     }
@@ -420,16 +465,16 @@ impl EaTools {
     /// denegación en el diario (§11.3). `Ok(())` si puede seguir.
     async fn autorizar(
         &self,
-        actor: &str,
+        quien: &Llamante,
         nombre: &str,
         accion: &str,
         started: Instant,
         args: &serde_json::Value,
     ) -> Result<(), McpError> {
         let h = buscar(nombre).expect("en el catálogo");
-        if let Err(msg) = autorizar_mcp(actor, h) {
+        if let Err(msg) = autorizar_mcp(quien.actor, h) {
             let body: ToolBody = Err(msg.clone());
-            self.log_invocation(actor, &format!("{accion}_denegada"), None, started, args.clone(), &body).await;
+            self.log_invocation(quien, &format!("{accion}_denegada"), None, started, args.clone(), &body).await;
             return Err(McpError::internal_error(msg, None));
         }
         Ok(())
@@ -447,7 +492,8 @@ impl EaTools {
         context: RequestContext<RoleServer>,
         Parameters(args): Parameters<BuscarNotasArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let quien = self.llamante(&context);
+        let actor = quien.actor;
         let started = Instant::now();
         let args_json = json!({ "consulta": args.consulta, "region": args.region, "limite": args.limite });
         let body: ToolBody = async {
@@ -468,7 +514,7 @@ impl EaTools {
             }))
         }
         .await;
-        self.log_invocation(actor, "mcp_buscar_notas", None, started, args_json, &body).await;
+        self.log_invocation(&quien, "mcp_buscar_notas", None, started, args_json, &body).await;
         respond(body)
     }
 
@@ -483,7 +529,8 @@ impl EaTools {
         context: RequestContext<RoleServer>,
         Parameters(args): Parameters<LeerNotaArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let quien = self.llamante(&context);
+        let actor = quien.actor;
         let started = Instant::now();
         let args_json = json!({ "ruta": args.ruta, "desde": args.desde });
         let body: ToolBody = async {
@@ -508,7 +555,7 @@ impl EaTools {
             }))
         }
         .await;
-        self.log_invocation(actor, "mcp_leer_nota", None, started, args_json, &body).await;
+        self.log_invocation(&quien, "mcp_leer_nota", None, started, args_json, &body).await;
         respond(body)
     }
 
@@ -529,7 +576,8 @@ impl EaTools {
         context: RequestContext<RoleServer>,
         Parameters(args): Parameters<EscribirNotaArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_for(context.client_info().as_ref().map(|i| i.name.as_str()));
+        let quien = self.llamante(&context);
+        let actor = quien.actor;
         let started = Instant::now();
         let simular = args.simular.unwrap_or(false);
         let args_json = json!({
@@ -537,7 +585,7 @@ impl EaTools {
             "etiquetas": args.etiquetas, "trabajo": args.trabajo, "sobrescribir": args.sobrescribir,
             "simular": simular,
         });
-        self.autorizar(actor, "ea_escribir_nota", "mcp_escribir_nota", started, &args_json).await?;
+        self.autorizar(&quien, "ea_escribir_nota", "mcp_escribir_nota", started, &args_json).await?;
         let origen = args.trabajo.as_ref().map(|t| format!("trabajo:{t}")).unwrap_or_else(|| "manual".into());
         let etiquetas = args.etiquetas.clone().unwrap_or_default();
         let nota = NuevaNota {
@@ -560,7 +608,7 @@ impl EaTools {
                     })
                 })
                 .map_err(|e| e.to_string());
-            self.log_invocation(actor, "mcp_escribir_nota_simulada", args.trabajo.as_deref(), started, args_json, &body).await;
+            self.log_invocation(&quien, "mcp_escribir_nota_simulada", args.trabajo.as_deref(), started, args_json, &body).await;
             return respond(body);
         }
         let body: ToolBody = {
@@ -581,7 +629,7 @@ impl EaTools {
         // `boveda_escritura` (actor, ruta, bytes, huella); duplicarlo aquí
         // contradiría "una sola fuente de verdad". Si falló, se anota.
         if body.is_err() {
-            self.log_invocation(actor, "mcp_escribir_nota", args.trabajo.as_deref(), started, args_json, &body).await;
+            self.log_invocation(&quien, "mcp_escribir_nota", args.trabajo.as_deref(), started, args_json, &body).await;
         }
         respond(body)
     }
@@ -807,5 +855,25 @@ impl ServerHandler for EaTools {
                  recibe notas que el usuario promueve."
                     .to_string(),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn el_actor_sale_del_catalogo_y_del_rol() {
+        let mut a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(std::path::Path::new("/nada")));
+        let actor = |c: Option<&str>, a: &ea_ajustes::Ajustes| actor_for(c, a);
+        assert_eq!(actor(Some("claude-code"), &a).actor, "claude-code");
+        assert_eq!(actor(Some("qwen-code-mcp-client"), &a), Llamante { actor: "modelo-local", agente: Some("qwen-code"), cliente: Some("qwen-code-mcp-client".into()) });
+        assert_eq!(actor(Some("ea-orchestrator"), &a).actor, "orquestador");
+        assert_eq!(actor(Some("codex-mcp-client"), &a).actor, ACTOR_SIN_ROL);
+        assert_eq!(actor(Some("lo-que-sea"), &a).actor, ACTOR_DESCONOCIDO);
+        assert_eq!(actor(None, &a).actor, ACTOR_DESCONOCIDO, "antes era claude-code");
+        a.roles.planificador = "opencode".into();
+        assert_eq!(actor(Some("opencode"), &a), Llamante { actor: "claude-code", agente: Some("opencode"), cliente: Some("opencode".into()) });
+        assert_eq!(actor(Some("claude-code"), &a).actor, ACTOR_SIN_ROL);
     }
 }
