@@ -1868,7 +1868,7 @@ async fn los_ajustes_se_ven_con_origen_y_edicion() {
     assert!(v["fichero"].as_str().unwrap().starts_with(f._dir.path().to_str().unwrap()));
     assert_eq!(v["cliente"], json!({ "sondeo_ms": 3000, "diario_limite": 300 }));
     let ids: Vec<&str> = v["secciones"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["roles", "agentes", "modelos", "agente", "orquestador", "red", "rutas", "web"]);
+    assert_eq!(ids, ["roles", "agentes", "modelos", "agente", "orquestador", "red", "rutas", "web", "biblioteca"]);
     let turnos = clave_de(&v, "agente.techo_topes.turnos");
     assert_eq!((turnos["valor"].clone(), turnos["origen"]["tipo"].clone()), (json!(100), json!("defecto")));
     assert_eq!((turnos["edicion"].clone(), turnos["endurecible"].clone()), (json!("web"), json!(true)));
