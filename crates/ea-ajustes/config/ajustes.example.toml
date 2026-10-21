@@ -66,6 +66,7 @@
 [orquestador]
 # intervalo_sondeo_s = 5                    # reinicio de ea-orchestrator
 # intervalo_heartbeat_s = 30                # reinicio de los tres servicios
+# paralelo = 1                              # ⌨ ejecutores a la vez (1–8); reinicio de ea-orchestrator
 # rutinas_dir = "~/.config/ecosistema-asistente/rutinas"   # ⌨
 
 # Siempre en 127.0.0.1: el host no se configura.

@@ -76,8 +76,52 @@ pub enum Command {
         #[command(subcommand)]
         accion: BibliotecaAccion,
     },
+    /// Equipos de agentes: despertar, listar, ver y dormir (despertar y dormir exigen una terminal interactiva)
+    Equipo {
+        #[command(subcommand)]
+        accion: EquipoAccion,
+    },
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum EquipoAccion {
+    /// Despierta un equipo: ejecutores para el orquestador y sesiones para planificadores y revisores; exige una terminal interactiva real
+    Despertar {
+        /// Todos los agentes del catálogo disponibles en el PATH, repartidos según lo que admiten
+        #[arg(long, conflicts_with = "miembro", required_unless_present = "miembro")]
+        todos: bool,
+        /// Un miembro `agente:rol` (rol: planificador, ejecutor o revisor); repetible
+        #[arg(long)]
+        miembro: Vec<String>,
+        #[arg(long)]
+        titulo: String,
+        #[arg(long)]
+        objetivo: String,
+        /// Repo sobre el que trabaja el equipo
+        #[arg(long)]
+        worktree: String,
+        /// No abre terminales para planificadores y revisores: enseña el comando de cada sesión
+        #[arg(long)]
+        sin_terminal: bool,
+    },
+    /// Los equipos con sus miembros
+    Listar {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Miembros con su presencia, trabajos del equipo y su último informe
+    Ver {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Duerme un equipo: lo pendiente de sus ejecutores vuelve a la cola de modelo-local; exige una terminal interactiva real
+    Dormir { id: String },
+    /// Abre la sesión de un planificador o revisor del equipo con presencia (la lanza `despertar` en una terminal)
+    #[command(hide = true)]
+    Sesion { id: String, agente: String },
 }
 
 #[derive(Subcommand)]
@@ -216,6 +260,18 @@ pub enum TrabajoAccion {
         /// Quién crea el trabajo; elegir skills exige que esté en `[skills].pueden_elegir`
         #[arg(long, default_value = "ea-cli")]
         por: String,
+        /// Equipo despierto para el que se crea (ver `ea equipo listar`)
+        #[arg(long)]
+        equipo: Option<String>,
+        /// Ejecutor del equipo que lo hará; sin él, lo toma cualquier ejecutor despierto
+        #[arg(long, requires = "equipo")]
+        asignar: Option<String>,
+        /// Revisor o planificador del equipo al que llega la entrega (distinto del ejecutor)
+        #[arg(long, requires = "equipo")]
+        revisor: Option<String>,
+        /// El sistema crea un git worktree propio para el trabajo (rama ea/<id>), para correr en paralelo sobre el mismo repo
+        #[arg(long)]
+        worktree_propio: bool,
     },
     /// Lista los trabajos con su estado
     Listar,

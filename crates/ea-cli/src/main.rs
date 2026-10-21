@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
+use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     salir_en_silencio_si_se_cierra_la_tuberia();
@@ -26,6 +26,17 @@ fn main() -> Result<()> {
             return match accion {
                 None => commands::agentes::listar(json),
                 Some(AgentesAccion::Rol { rol, agente }) => commands::agentes::rol(&rol, &agente),
+            };
+        }
+        Command::Equipo { accion } => {
+            return match accion {
+                EquipoAccion::Despertar { todos, miembro, titulo, objetivo, worktree, sin_terminal } => {
+                    commands::equipo::despertar(&miembro, todos, &titulo, &objetivo, &worktree, sin_terminal)
+                }
+                EquipoAccion::Listar { json } => commands::equipo::listar(json),
+                EquipoAccion::Ver { id, json } => commands::equipo::ver(&id, json),
+                EquipoAccion::Dormir { id } => commands::equipo::dormir(&id),
+                EquipoAccion::Sesion { id, agente } => commands::equipo::sesion(&id, &agente),
             };
         }
         // La biblioteca lee el disco; solo proponer necesita la base.
@@ -107,8 +118,8 @@ fn main() -> Result<()> {
             QwenSkillsAccion::Probar { skills, por } => commands::qwen_skills::probar(&por, &skills)?,
         },
         Command::Trabajo { accion } => match accion {
-            TrabajoAccion::Crear { orden, modo, titulo, worktree, objetivo, criterio, skills, por } => {
-                commands::trabajo::crear(orden, &modo, titulo, worktree, objetivo, criterio, skills, por)?
+            TrabajoAccion::Crear { orden, modo, titulo, worktree, objetivo, criterio, skills, por, equipo, asignar, revisor, worktree_propio } => {
+                commands::trabajo::crear(orden, &modo, titulo, worktree, objetivo, criterio, skills, por, commands::trabajo::DeEquipo { equipo, asignar, revisor, worktree_propio })?
             }
             TrabajoAccion::Listar => commands::trabajo::listar()?,
             TrabajoAccion::Ver { id, json } => commands::trabajo::ver(&id, json)?,
@@ -134,7 +145,7 @@ fn main() -> Result<()> {
             _ => unreachable!("se atiende antes de abrir la base"),
         },
         Command::Tui => tui::run(&mut store)?,
-        Command::Ajustes { .. } | Command::Agentes { .. } => unreachable!("se atiende antes de abrir la base"),
+        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Equipo { .. } => unreachable!("se atiende antes de abrir la base"),
     }
 
     Ok(())

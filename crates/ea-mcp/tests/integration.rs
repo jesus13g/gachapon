@@ -250,6 +250,10 @@ async fn los_trabajos_del_bus_se_leen_pero_no_se_crean_desde_mcp() {
             rutina: None,
             notas_revision: vec![],
             skills: vec![],
+            equipo: None,
+            asignado_a: None,
+            revisor: None,
+            worktree_propio: false,
             creada_en: String::new(),
             creada_por: "test".into(),
         })
@@ -329,6 +333,83 @@ async fn ea_status_informa_del_estado_real_del_orquestador() {
     assert_eq!(con_latido["orquestador"]["vivo"], true);
     assert_eq!(con_latido["orquestador"]["estado"], "vivo");
     assert!(con_latido["orquestador"]["ultimo_latido"].is_string());
+
+    client.cancel().await.ok();
+}
+
+/// Un equipo despierto en el bus temporal, como lo dejaría `ea equipo despertar`.
+fn equipo_de_prueba() -> String {
+    let d = tempfile::tempdir().unwrap();
+    let bus = ea_bus::Bus::abrir().expect("bus temporal");
+    let mut ajustes = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(d.path()));
+    ajustes.orquestador.paralelo = 4;
+    let m = |a: &str, r| ea_bus::Miembro { agente: a.into(), rol: r };
+    let e = bus
+        .crear_equipo(
+            ea_bus::NuevoEquipo {
+                titulo: "equipo MCP".into(),
+                objetivo: "probar la lectura".into(),
+                worktree_base: "/tmp/repo".into(),
+                miembros: vec![m("claude-code", ea_bus::RolEquipo::Planificador), m("qwen-code", ea_bus::RolEquipo::Ejecutor)],
+                creado_por: "test".into(),
+            },
+            &ajustes,
+        )
+        .expect("despertar");
+    bus.anotar_presencia(&ea_bus::Presencia::nueva("claude-code", ea_bus::RolEquipo::Planificador, Some(&e.id), std::process::id()))
+        .unwrap();
+    e.id
+}
+
+#[tokio::test]
+async fn los_equipos_se_leen_con_su_presencia_pero_no_se_crean_ni_se_duermen_desde_mcp() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let url = start_server(dir.path().join("ecosistema-test.db")).await;
+    let client = connect(url).await;
+    let id = equipo_de_prueba();
+
+    let listado = text_of(&client.call_tool(CallToolRequestParams::new("ea_listar_equipos")).await.expect("listar equipos"));
+    let fila = listado["equipos"].as_array().unwrap().iter().find(|e| e["id"] == id.as_str()).expect("el equipo");
+    assert_eq!(fila["estado"], "despierto");
+    let plan = fila["miembros"].as_array().unwrap().iter().find(|m| m["agente"] == "claude-code").unwrap();
+    assert_eq!(plan["viva"], true, "su presencia tiene el pid de este proceso");
+
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), serde_json::json!(id));
+    let ver = text_of(&client.call_tool(CallToolRequestParams::new("ea_ver_equipo").with_arguments(args)).await.expect("ver equipo"));
+    assert_eq!(ver["objetivo"], "probar la lectura");
+    assert!(ver["trabajos"].is_array());
+    let ejecutor = ver["miembros"].as_array().unwrap().iter().find(|m| m["agente"] == "qwen-code").unwrap();
+    assert_eq!(ejecutor["viva"], false);
+
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), serde_json::json!("no-existe"));
+    assert!(client.call_tool(CallToolRequestParams::new("ea_ver_equipo").with_arguments(args)).await.is_err());
+
+    let status = text_of(&client.call_tool(CallToolRequestParams::new("ea_status")).await.unwrap());
+    assert!(status["equipos"].as_array().unwrap().iter().any(|e| e["id"] == id.as_str()));
+    let p = status["presencias"].as_array().unwrap().iter().find(|p| p["agente"] == "claude-code").unwrap();
+    assert_eq!((p["viva"].clone(), p["equipo"].clone()), (serde_json::json!(true), serde_json::json!(id)));
+
+    // CE-005: ninguna herramienta MCP crea, despierta o duerme equipos.
+    let tools = client.list_tools(Default::default()).await.expect("tools/list");
+    let nombres: Vec<String> = tools.tools.iter().map(|t| t.name.to_string()).collect();
+    let de_equipos: Vec<&String> = nombres.iter().filter(|n| n.contains("equipo")).collect();
+    assert_eq!(de_equipos, ["ea_listar_equipos", "ea_ver_equipo"], "{nombres:?}");
+    for t in &tools.tools {
+        if t.name.contains("equipo") {
+            assert_eq!(t.annotations.as_ref().and_then(|a| a.read_only_hint), Some(true), "{}", t.name);
+        }
+    }
+    for prohibida in ["despertar", "dormir", "crear_equipo", "ea_equipo"] {
+        assert!(!nombres.iter().any(|n| n.contains(prohibida)), "{prohibida}: {nombres:?}");
+    }
+    // Y en el catálogo de acciones, las dos son lecturas directas.
+    for n in ["ea_listar_equipos", "ea_ver_equipo"] {
+        let h = ea_acciones::buscar(n).expect(n);
+        assert_eq!(h.riesgo, ea_acciones::Riesgo::Lectura);
+    }
+    assert!(ea_acciones::CATALOGO.iter().filter(|h| h.nombre.contains("equipo")).all(|h| h.riesgo == ea_acciones::Riesgo::Lectura));
 
     client.cancel().await.ok();
 }

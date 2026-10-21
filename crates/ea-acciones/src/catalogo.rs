@@ -84,6 +84,22 @@ pub const CATALOGO: &[Herramienta] = &[
         local: true,
         resumen: "Detalle de un trabajo del bus: orden, estado, fases e informe",
     },
+    // Los equipos (spec 019, RF-015) solo se leen: despertarlos y dormirlos es
+    // de la CLI con TTY y de ea-web con clave, nunca de MCP.
+    Herramienta {
+        nombre: "ea_listar_equipos",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Lista los equipos de agentes con sus miembros y su presencia",
+    },
+    Herramienta {
+        nombre: "ea_ver_equipo",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Un equipo: miembros con presencia, colas y últimos trabajos con su informe",
+    },
     Herramienta {
         nombre: "ea_listar_diario",
         riesgo: Riesgo::Lectura,

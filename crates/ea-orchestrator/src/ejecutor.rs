@@ -22,7 +22,7 @@
 //! `agente.techo_topes`), el aislamiento por worktree y, en cada adaptador,
 //! la exclusión de las herramientas web.
 //!
-//! El agente se elige en cada ciclo ([`fabricar`]) y queda anotado en el
+//! El agente de cada trabajador se rehace en cada ciclo ([`fabricar`]) y queda anotado en el
 //! trabajo al tomarlo (`ejecutado_por`); un agente que no se puede lanzar
 //! deja el trabajo bloqueado con el motivo.
 //!
@@ -45,7 +45,9 @@ use ea_bus::{
     Orden, ResultadoInforme,
 };
 
-const ESPERA_CANDADO: Duration = Duration::from_secs(60);
+/// Lo que se espera al semáforo de un worktree antes de devolver el trabajo
+/// a su cola y seguir con otro (RF-009: no esperar bloqueado).
+pub(crate) const ESPERA_CANDADO: Duration = Duration::from_secs(2);
 const TIEMPO_CRITERIO_S: u64 = 120;
 const MAX_EVIDENCIA: usize = 2048;
 /// Cada cuánto se relee `estado.json` mientras corre el agente.
@@ -294,56 +296,129 @@ fn bloqueado(motivo: &str, evidencia: String) -> Informe {
     Informe { evidencia, motivo: Some(motivo.into()), ..Informe::nuevo(ResultadoInforme::Bloqueado) }
 }
 
-/// Toma y ejecuta un trabajo de la cola `modelo-local`. Devuelve su id, o
-/// `None` si no había nada (o la cola falló).
+/// Qué pasó en un intento de tomar y ejecutar un trabajo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Intento {
+    /// No había nada que tomar (o la cola falló).
+    Nada,
+    /// Se procesó (o se descartó una entrada ilegible): el id.
+    Hecho(String),
+    /// El semáforo del worktree estaba ocupado: el trabajo volvió a su cola.
+    Ocupado(String),
+}
+
+impl Intento {
+    pub fn id(self) -> Option<String> {
+        match self {
+            Intento::Nada => None,
+            Intento::Hecho(id) | Intento::Ocupado(id) => Some(id),
+        }
+    }
+}
+
+/// Toma y ejecuta un trabajo para el ejecutor de `config.ejecutor`: primero de
+/// la cola de ese agente y luego de la de rol `modelo-local`. Devuelve su id,
+/// o `None` si no había nada (o la cola falló).
 pub fn ejecutar_uno(bus: &Bus, config: &ConfigOrquestador, agente: &dyn Ejecutor) -> Option<String> {
     ejecutar_uno_con_espera(bus, config, agente, ESPERA_CANDADO)
 }
 
 fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn Ejecutor, espera: Duration) -> Option<String> {
-    let id = match bus.tomar(Rol::Ejecutor) {
+    ejecutar_intento(bus, config, agente, espera, &|_| {}, &|_| true).id()
+}
+
+/// Como [`ejecutar_uno`], pero dice si se topó con el semáforo y avisa de en
+/// qué trabajo está (`al_cambiar(Some(id))` al empezar de verdad,
+/// `al_cambiar(None)` al terminar) para la presencia del trabajador.
+/// `admite` filtra lo que se toma de la cola de rol (la propia del agente se
+/// toma entera): ver [`Bus::tomar_para_con`].
+pub fn ejecutar_intento(
+    bus: &Bus,
+    config: &ConfigOrquestador,
+    agente: &dyn Ejecutor,
+    espera: Duration,
+    al_cambiar: &dyn Fn(Option<&str>),
+    admite: &dyn Fn(&Orden) -> bool,
+) -> Intento {
+    let id = match bus.tomar_para_con(&config.ejecutor.id, admite) {
         Ok(Some(id)) => id,
-        Ok(None) => return None,
+        Ok(None) => return Intento::Nada,
         Err(e) => {
-            tracing::warn!(error = %e, "no se pudo leer la cola modelo-local");
-            return None;
+            tracing::warn!(error = %e, "no se pudo leer la cola del ejecutor");
+            return Intento::Nada;
         }
     };
     let mut orden = match bus.leer_orden(&id) {
         Ok(o) => o,
         Err(e) => {
             tracing::warn!(%id, error = %e, "orden ilegible; se descarta la entrada");
-            return Some(id);
+            return Intento::Hecho(id);
         }
     };
+    // Una entrada rancia (el trabajo ya no está en cola: se canceló, se cerró
+    // o lo tomó otro) se descarta sin crear worktree ni tocar el estado.
+    match bus.leer_estado(&id) {
+        Ok(e) if e.estado == ea_bus::EstadoTrabajo::EnCola => {}
+        otro => {
+            tracing::warn!(%id, estado = ?otro.map(|e| e.estado), "entrada rancia: el trabajo no está en cola; se descarta");
+            return Intento::Hecho(id);
+        }
+    }
     // Ninguna orden pasa del techo de los ajustes, la escriba quien la escriba.
     let acotados = orden.topes.acotar(&config.techo_topes);
     if acotados != orden.topes {
         tracing::warn!(%id, pedidos = ?orden.topes, techo = ?config.techo_topes, "topes acotados al techo de los ajustes");
         orden.topes = acotados;
     }
-    let wt = Path::new(&orden.worktree);
+    // Worktree propio (spec 019, RF-007): antes del semáforo, que es el suyo.
+    // Si no se puede preparar (no es un repo git…), el trabajo queda
+    // bloqueado con el motivo.
+    let wt_propio = {
+        let _a_solas = PREPARAR_WORKTREE.lock().unwrap_or_else(|e| e.into_inner());
+        bus.preparar_worktree(&id, &orden)
+    };
+    let wt_buf = match wt_propio {
+        Ok(r) => r,
+        Err(e) => {
+            if let Err(e2) = bus.tomar_con(&id, config.ejecutor.ejecutado_por()) {
+                tracing::warn!(%id, error = %e2, "no se pudo pasar a ejecutando");
+                return Intento::Hecho(id);
+            }
+            let motivo = e.to_string();
+            tracing::warn!(%id, %motivo, "trabajo bloqueado");
+            entregar(bus, config, &id, &orden, bloqueado(&motivo, orden.worktree.clone()));
+            return Intento::Hecho(id);
+        }
+    };
+    let wt = wt_buf.as_path();
 
     // Candado antes de pasar a Ejecutando: si está ocupado, el trabajo sigue
-    // EnCola y solo se vuelve a poner en la cola.
+    // EnCola y vuelve a SU cola (la del agente al que se asignó, si lo hay).
     let ocupante =
         Ocupante { agente: config.ejecutor.id.clone(), trabajo: id.clone(), pid: 0, desde: String::new(), rol: Some(Rol::Ejecutor) };
     let candado = match CandadoWorktree::adquirir_en(bus.raiz(), wt, ocupante, espera) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(%id, error = %e, "worktree ocupado; se vuelve a encolar");
-            let _ = bus.encolar(Rol::Ejecutor, &id, "worktree ocupado");
-            return Some(id);
+            let vuelta = match &orden.asignado_a {
+                Some(a) => bus.encolar_agente(a, &id, "worktree ocupado"),
+                None => bus.encolar(Rol::Ejecutor, &id, "worktree ocupado"),
+            };
+            if let Err(e) = vuelta {
+                tracing::error!(%id, error = %e, "no se pudo devolver el trabajo a su cola");
+            }
+            return Intento::Ocupado(id);
         }
     };
     let fase_actual = match bus.tomar_con(&id, config.ejecutor.ejecutado_por()) {
         Ok(e) => e.fase_actual,
         Err(e) => {
             tracing::warn!(%id, error = %e, "no se pudo pasar a ejecutando");
-            return Some(id);
+            return Intento::Hecho(id);
         }
     };
     let inicio = Instant::now();
+    al_cambiar(Some(&id));
 
     // Un ejecutor que no se puede lanzar deja el trabajo bloqueado con el
     // motivo, sin gastar iteraciones (spec 017).
@@ -351,7 +426,9 @@ fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn E
         let motivo = format!("el ejecutor {} no está disponible: {m}", config.ejecutor.id);
         tracing::warn!(%id, %motivo, "trabajo bloqueado");
         entregar(bus, config, &id, &orden, bloqueado(&motivo, String::new()));
-        return Some(id);
+        drop(candado);
+        al_cambiar(None);
+        return Intento::Hecho(id);
     }
 
     // El candado se mantiene durante todo el bucle de iteraciones y fases.
@@ -360,8 +437,12 @@ fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn E
         Err(c) => cancelado_en_curso(bus, &id, c.fase),
     }
     drop(candado);
-    Some(id)
+    al_cambiar(None);
+    Intento::Hecho(id)
 }
+
+/// `git worktree add` toca el `.git` común del repo: de dos en dos, no a la vez.
+static PREPARAR_WORKTREE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// El trabajo se canceló mientras corría y el ejecutor dejó de trabajar en
 /// él (`fase`: la de la obra en que se cortó). Lo deja en el historial y en
@@ -551,7 +632,7 @@ fn trabajar(
         Ok(i)
     };
     if !wt.is_dir() {
-        return fin(bloqueado("el worktree no existe", orden.worktree.clone()));
+        return fin(bloqueado("el worktree no existe", wt.display().to_string()));
     }
     let Some(commit_inicio) = git(wt, &["rev-parse", "HEAD"]) else {
         return fin(bloqueado("el worktree no es un repo git", String::new()));
@@ -831,6 +912,10 @@ mod tests {
             rutina: None,
             notas_revision: vec!["usa mayúsculas".into()],
             skills: vec![],
+            equipo: None,
+            asignado_a: None,
+            revisor: None,
+            worktree_propio: false,
             creada_en: String::new(),
             creada_por: "test".into(),
         }

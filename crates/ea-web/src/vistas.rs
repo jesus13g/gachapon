@@ -61,7 +61,26 @@ pub struct AgentesVista {
     /// `roles.<rol>` → variable de entorno que lo fija (no se puede cambiar
     /// desde aquí).
     pub fijados: std::collections::BTreeMap<&'static str, &'static str>,
-    pub agentes: Vec<crate::agentes::AgenteDisponible>,
+    pub agentes: Vec<AgenteConPresencia>,
+}
+
+/// Un agente del catálogo y si está despierto (spec 019): lo mismo que
+/// `ea agentes --json`.
+#[derive(Serialize)]
+pub struct AgenteConPresencia {
+    #[serde(flatten)]
+    pub agente: crate::agentes::AgenteDisponible,
+    pub presencia: Option<PresenciaVista>,
+}
+
+#[derive(Serialize)]
+pub struct PresenciaVista {
+    pub viva: bool,
+    pub rol: &'static str,
+    pub equipo: Option<String>,
+    pub trabajo: Option<String>,
+    pub desde: String,
+    pub latido: String,
 }
 
 #[derive(Serialize)]

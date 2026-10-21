@@ -26,6 +26,15 @@ pub struct VerTrabajoArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct VerEquipoArgs {
+    /// Identificador del equipo (el que devuelve ea_listar_equipos).
+    pub id: String,
+    /// Cuántos de los últimos trabajos del equipo incluir (por defecto 10,
+    /// como mucho 20).
+    pub trabajos: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListarDiarioArgs {
     /// Limita el diario a los eventos asociados a un trabajo concreto.
     pub trabajo: Option<String>,

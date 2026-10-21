@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use ea_bus::{Bus, ConfigOrquestador};
+use ea_bus::Bus;
 use ea_orchestrator::config;
-use ea_orchestrator::ejecutor::{ejecutar_uno, fabricar};
+use ea_orchestrator::trabajadores::{Contexto, Trabajadores};
 use ea_store::{EventOutcome, NewEvent, Store};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -68,26 +68,15 @@ async fn main() -> anyhow::Result<()> {
     }
     tracing::info!("ea-orchestrator arrancado");
 
+    // Un trabajador por ejecutor despierto (spec 019): los miembros ejecutor de
+    // los equipos despiertos o, sin equipos, solo `roles.ejecutor`. Cada
+    // trabajador rehace su configuración y su adaptador en cada ciclo y el
+    // agente tarda minutos, así que van en hilos aparte; aquí solo se
+    // reconcilia quién debe tener trabajador.
     let sondeo = Duration::from_secs(config.intervalo_sondeo_s);
+    let mut trabajadores = Trabajadores::new(Contexto::sistema(|| abrir_bus().ok(), sondeo));
     loop {
-        // La configuración y el agente del rol ejecutor se rehacen en cada
-        // ciclo (un cambio de `roles.ejecutor` vale para el siguiente
-        // trabajo); el agente tarda minutos, así que va en un hilo aparte.
-        let b = abrir_bus()?;
-        let resultado = tokio::task::spawn_blocking(move || {
-            let cfg = ConfigOrquestador::cargar();
-            let agente = fabricar(&cfg.ejecutor);
-            ejecutar_uno(&b, &cfg, agente.as_ref())
-        })
-        .await;
-        match resultado {
-            Ok(Some(id)) => {
-                tracing::info!(%id, "trabajo procesado");
-                continue; // puede haber más en la cola
-            }
-            Ok(None) => {}
-            Err(e) => tracing::error!(error = %e, "el ejecutor falló"),
-        }
+        trabajadores.reconciliar();
         tokio::time::sleep(sondeo).await;
     }
 }

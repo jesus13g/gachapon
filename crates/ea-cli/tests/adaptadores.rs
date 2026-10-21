@@ -9,7 +9,7 @@ fn raiz() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-const FLUJOS: [&str; 4] = ["mision", "obra", "rutina", "revisar"];
+const FLUJOS: [&str; 5] = ["mision", "obra", "rutina", "revisar", "equipo"];
 
 fn adaptadores() -> Vec<(PathBuf, &'static str)> {
     let r = raiz();

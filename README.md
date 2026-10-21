@@ -182,6 +182,7 @@ comentarios y claves ajenas).
 | `agente.skills.pueden_elegir` | `["claude-code"]` | ⊆ `["claude-code", "planificador"]` | | solo terminal | en caliente |
 | `orquestador.intervalo_sondeo_s` | 5 | 1–300 | | web y terminal | reiniciar `ea-orchestrator` |
 | `orquestador.intervalo_heartbeat_s` | 30 | 5–600 | | web y terminal | reiniciar los tres servicios |
+| `orquestador.paralelo` | 1 | 1–8 | | solo terminal | reiniciar `ea-orchestrator` |
 | `orquestador.rutinas_dir` | `<config>/rutinas` | ruta | | solo terminal | reiniciar `ea-web`, `ea-mcp` |
 | `red.puerto_web` | 8092 | 1024–65535 | `EA_WEB_PORT` | web y terminal | reiniciar `ea-web` |
 | `red.puerto_mcp` | 8765 | 1024–65535 | `EA_MCP_PORT` | web y terminal | reiniciar `ea-mcp` (y cambiar la URL del MCP en Claude Code) |
@@ -294,17 +295,58 @@ volver a arrancar los servicios.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
-  rutina, revisar); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
+  rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
 - `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).
 - `claude/hooks/`: los hooks de Claude Code que usa `ea-web`.
 - `qwen/skills/`: las skills propias del agente local.
+
+## Equipos de agentes
+
+Un **equipo** (spec 019) es un grupo de agentes del catálogo que el usuario
+despierta para una tarea y que trabajan a la vez. Es un fichero del bus
+(`equipos/<id>/equipo.json`), no una configuración permanente, y cada miembro
+tiene un rol dentro de él: `planificador` (parte y reparte), `ejecutor`
+(ejecuta, con modelo local) o `revisor` (un planificador que solo revisa y
+propone). Un agente aparece una sola vez en un equipo y solo en un equipo
+despierto.
+
+- **Despertar y dormir** es del usuario: `ea equipo despertar` y `ea equipo dormir`
+  (terminal real) o ◎ Equipos en el panel (con la clave). Los ejecutores los
+  recoge el orquestador al ver un equipo despierto; los planificadores y
+  revisores se abren como sesiones interactivas en terminales
+  (`ea equipo sesion`). Ningún agente puede despertar ni dormir equipos, ni
+  desde el MCP. Al dormir, lo pendiente de sus ejecutores vuelve a la cola de
+  `modelo-local`; lo que estaba en curso termina.
+- **Reparto:** un planificador crea trabajo con
+  `ea trabajo crear --equipo <id> --asignar <ejecutor> [--revisor <agente>] --worktree-propio`.
+  Lo asignado va a la cola de ese agente (`colas/agentes/<agente>/`); sin
+  `--asignar` lo toma el primer ejecutor libre. El revisor debe ser distinto del
+  ejecutor; la entrega llega a su cola y siempre también a la del planificador.
+- **Worktree propio:** con `--worktree-propio` el sistema crea un `git worktree`
+  (`<estado>/worktrees/<id>`, rama `ea/<id>`) a partir del repo de la orden, de
+  modo que varios trabajos del mismo repo corren a la vez sin pisarse. Sin él, el
+  semáforo exclusivo por worktree los serializa. Fusionar las ramas `ea/<id>` es
+  del usuario.
+- **Paralelo:** el orquestador lanza un trabajador por ejecutor despierto, hasta
+  `orquestador.paralelo` (1 a 8, por defecto 1). Sin equipos y con 1, se
+  comporta como siempre.
+- **Presencia:** cada trabajador o sesión escribe `agentes/<id>/presencia.json`
+  con latido; caduca si el proceso muere. `ea equipo ver`, `ea status`,
+  `ea agentes`, ◎ Equipos y `ea_ver_equipo`/`ea_status` por MCP muestran quién
+  está despierto, en qué trabaja y qué ha entregado.
+- **Flujo:** `agentes/flujo/equipo.md` explica cómo reparte un planificador y cómo
+  revisa un revisor (`/equipo` en Claude Code, `$ea-equipo` en Codex y
+  Antigravity, `/ea-equipo` en OpenCode); la sesión de equipo arranca con un
+  prompt que lo menciona.
+- **Constitución 1.4.0:** la enmienda que admite varios agentes por rol a la
+  vez (equipos) está aprobada.
 
 ## Adaptadores del planificador
 
 Las instrucciones del planificador son una **guía neutral común** más un
 **adaptador fino por agente**, sin copias del procedimiento:
 
-- `agentes/flujo/{mision,obra,rutina,revisar}.md`: el procedimiento sin nombrar al
+- `agentes/flujo/{mision,obra,rutina,revisar,equipo}.md`: el procedimiento sin nombrar al
   agente ni al modelo (comandos reales de `ea` y herramientas MCP de solo lectura;
   el ejecutor y su modelo se consultan con `ea agentes`).
 - Cada adaptador solo trae el frontmatter del agente, las reglas que no se rompen
@@ -317,6 +359,7 @@ Las instrucciones del planificador son una **guía neutral común** más un
 | obra | Plan por fases pequeñas (instrucciones, entregable, criterio por fase) y `revisar_cada` |
 | rutina | Proceso repetible como TOML versionado: registrar, lanzar, timer y corrección |
 | revisar | Consume la cola del planificador (`ea cola planificador`): `ea trabajo ver`, `diff` si hace falta, y cierra, reformula o continúa |
+| equipo | Dentro de un equipo despierto: el planificador parte el objetivo y reparte con `ea trabajo crear --equipo --asignar … --worktree-propio`; el revisor revisa su cola y solo propone |
 
 Los adaptadores se instalan con enlaces simbólicos (nada se instala solo en tu
 HOME; los comandos se ejecutan desde la raíz del repo). Un agente solo necesita
@@ -324,34 +367,34 @@ el suyo, y solo si va a ser planificador.
 
 | Agente | Adaptador | Formato | Destino |
 |---|---|---|---|
-| Claude Code | `claude/skills/<x>/` | skills (`/mision`, `/obra`, `/rutina`, `/revisar`) | `~/.claude/skills/` |
+| Claude Code | `claude/skills/<x>/` | skills (`/mision`, `/obra`, `/rutina`, `/revisar`, `/equipo`) | `~/.claude/skills/` |
 | Codex | `agentes/codex/skills/ea-<x>/` y `agentes/codex/AGENTS.md` | skills (`$ea-mision`…) y un fragmento de `AGENTS.md` | `~/.codex/skills/`, `~/.codex/AGENTS.md` |
 | OpenCode | `agentes/opencode/commands/ea-<x>.md` y `agentes/opencode/AGENTS.md` | comandos (`/ea-mision`…, con `$ARGUMENTS`) y un fragmento de `AGENTS.md` | `~/.config/opencode/commands/`, `~/.config/opencode/AGENTS.md` |
 | Antigravity | `agentes/antigravity/skills/ea-<x>/` y `agentes/antigravity/rules/ea-planificador.md` | skills (los workflows están obsoletos en favor de ellas) y una regla `model_decision` | `~/.gemini/config/skills/`, `~/.gemini/config/rules/` |
 
 ```bash
 # Claude Code (las skills vivas: editarlas cambia las skills en uso)
-for s in mision obra rutina revisar; do
+for s in mision obra rutina revisar equipo; do
   ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
 done
 
 # Codex: skills y reglas (el fragmento se añade una sola vez)
 mkdir -p ~/.codex/skills
-for s in mision obra rutina revisar; do
+for s in mision obra rutina revisar equipo; do
   ln -sfn "$PWD/agentes/codex/skills/ea-$s" ~/.codex/skills/ea-$s
 done
 cat agentes/codex/AGENTS.md >> ~/.codex/AGENTS.md
 
 # OpenCode: comandos y reglas
 mkdir -p ~/.config/opencode/commands
-for s in mision obra rutina revisar; do
+for s in mision obra rutina revisar equipo; do
   ln -sfn "$PWD/agentes/opencode/commands/ea-$s.md" ~/.config/opencode/commands/ea-$s.md
 done
 cat agentes/opencode/AGENTS.md >> ~/.config/opencode/AGENTS.md
 
 # Antigravity: skills y regla
 mkdir -p ~/.gemini/config/skills ~/.gemini/config/rules
-for s in mision obra rutina revisar; do
+for s in mision obra rutina revisar equipo; do
   ln -sfn "$PWD/agentes/antigravity/skills/ea-$s" ~/.gemini/config/skills/ea-$s
 done
 ln -sfn "$PWD/agentes/antigravity/rules/ea-planificador.md" ~/.gemini/config/rules/ea-planificador.md
@@ -362,7 +405,7 @@ si el repo está en otro sitio, el resumen de cada adaptador basta para arrancar
 `agentes/flujo/` en la raíz del repo es la referencia. Los formatos salen de lo
 instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
-Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina`, y `GET /api/mcp` da `ea-ecosistema` conectado.
+Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
 
 ## Hook de subagentes
 
@@ -432,6 +475,11 @@ cargo build --release
 # Trabajos (el bus)
 ea trabajo crear --modo mision --titulo "..." --worktree <dir> --objetivo "..." --criterio "<comando>"
 ea trabajo crear --orden orden.json          # obra completa, con fases
+ea trabajo crear ... --equipo <id> [--asignar <ejecutor>] [--revisor <agente>] [--worktree-propio]
+                                             # trabajo de un equipo despierto (spec 019): --asignar lo
+                                             #   deja en la cola de ese ejecutor; --revisor recibe la entrega
+                                             #   (distinto del ejecutor); --worktree-propio crea un git
+                                             #   worktree (rama ea/<id>) para correr en paralelo sobre el repo
 ea trabajo listar
 ea trabajo ver <id> [--json]                 # orden, estado e informe (con el agente y modelo que lo ejecutó)
 ea trabajo diff <id> [--fase N]              # diff desde commit_inicio
@@ -442,6 +490,16 @@ ea trabajo confirmar <id> [--contexto "..."] # paquete de corrección -> claude-
 ea cola [planificador|ejecutor] [--json]     # colas (valen claude-code y modelo-local)
 ea semaforos                                 # quién tiene el worktree
 
+# Equipos de agentes (spec 019; ver «Equipos de agentes» arriba)
+ea equipo despertar (--todos | --miembro agente:rol ...) --titulo T --objetivo O --worktree <repo> [--sin-terminal]
+                                             # TTY. Roles: planificador, ejecutor, revisor. --todos: los agentes
+                                             #   del PATH según lo que admiten. Planificadores y revisores abren una
+                                             #   sesión en una terminal real (`ea equipo sesion`, con presencia);
+                                             #   --sin-terminal solo enseña el comando de cada sesión
+ea equipo listar [--json]
+ea equipo ver <id> [--json]                  # miembros con presencia y colas, trabajos con su último informe
+ea equipo dormir <id>                        # TTY; lo pendiente de sus ejecutores vuelve a la cola de modelo-local
+
 # Rutinas versionadas
 ea rutina registrar <fichero.toml>           # valida y registra (la versión debe subir)
 ea rutina listar [--retiradas]|ver <slug>     # --retiradas: las de la papelera (o sin fichero)
@@ -450,8 +508,8 @@ ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si 
 ea rutina retirar|restaurar <slug>           # a la papelera y vuelta (simula y confirma con TTY)
 
 # Resto del ecosistema
-ea status                                    # orquestador, roles (agente y modelo), trabajos por estado, colas y semáforos
-ea agentes [--json]                          # catálogo: rol, binario, versión y si responde el modelo
+ea status                                    # orquestador, roles (agente y modelo), trabajos por estado, colas, semáforos y presencia de los equipos
+ea agentes [--json]                          # catálogo: rol, binario, versión, si responde el modelo y su presencia
 ea agentes rol <planificador|ejecutor> <agente>  # = ea ajustes establecer roles.<rol>=<agente> (TTY)
 ea diario listar|ver <id>                    # listar: --trabajo, --actor, --desde, --hasta,
                                              #   --resultado ok|error, --accion <prefijo> (bus_, mcp_…),
@@ -528,6 +586,7 @@ riesgo (§7.3):
 | Herramienta | Riesgo | Desde un agente |
 |---|---|---|
 | `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
+| `ea_listar_equipos`, `ea_ver_equipo` (miembros con presencia, colas y últimos trabajos con su informe; `ea_status` también trae equipos y presencias) | lectura (despertar y dormir equipos es de la CLI con TTY: ningún agente puede) | se ejecuta |
 | `ea_biblioteca` (sin `id`: lista con filtros `agente`, `tipo`, `categoria`, `activado` y `limite`, por defecto 50 y hasta 200, y 15 y 40 para el agente local; con `id`: la ficha con la definición MCP sin secretos y el uso por actor) | lectura | se ejecuta |
 | `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta |
 | `ea_escribir_nota` | mutación reversible | se ejecuta, solo en la región propia del agente |
@@ -884,6 +943,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista y ↺ restaurar). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera | `8` |
 | ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. Apunta `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
 | ◫ | Biblioteca (spec 018): las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo (●/○ activado, usos), con filtros de agente, tipo, categoría y estado y el cuadro de buscar. La ficha da origen, descripción, cómo se cambia, la definición de un MCP sin secretos (solo los nombres de sus variables y cabeceras) y el uso por actor. ⏻ desactivar/activar simula (antes/después) y pide aceptar, ▶ sesión con… abre una terminal con solo las herramientas elegidas (la simulación lleva el comando sin secretos) y ✎ categoría escribe `biblioteca.categorias` por los ajustes. Enlace `#biblioteca/<id>` | `b` |
+| ◎ | Equipos (spec 019): una fila por equipo con su estado, los miembros (● despierto, ○ dormido) y el nº de trabajos. La ficha da el objetivo, cada miembro con su rol, presencia, trabajo actual y cola pendiente, y los trabajos del equipo (estado, asignado, revisor, quién los ejecutó y la última línea del informe, con «→ trabajo» a `#trabajos/<id>`). «＋ despertar» abre el formulario (título, objetivo, worktree, miembros agente:rol según lo que admite cada agente o «todos», y «abrir terminales» para planificadores y revisores) y «◌ dormir» apaga el equipo; los dos piden la clave de sesión y dormir, un segundo clic. En ＋ misión, «◎ equipo…» elige equipo, ejecutor asignado, revisor y worktree propio. Sin clave el panel solo lee. Enlace `#equipos/<id>` | `e` |
 | ⚙ | Ajustes: los de `ajustes.toml` por secciones, con valor, origen (por defecto, `ajustes.toml`, heredado o entorno) y si se aplican en caliente o piden reinicio; avisos arriba. ◐ se cambia aquí (✓ guardar y ↺ por defecto piden un segundo clic; los techos solo bajan), ⌨ solo en una terminal (la fila da el comando) y ⊘ lo fija una variable de entorno. Apunta `ajustes_cambiados` en el diario | `0` |
 
 `/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
@@ -933,7 +993,7 @@ API (JSON): `GET /api/estado` (servicios, orquestador y una entrada por rol con
 `rol`, `agente`, `agente_nombre`, `modelo` y `ultimo_agente`), `GET /api/agentes`
 (`{version, fijados, agentes}`: cada agente del catálogo con `id`, `nombre`,
 `admite`, `rol`, `bin`, `ruta` (null si no está en el `PATH`), `perfil`, `modelo`,
-`topes` y `modelo_accesible`; `fijados`, los roles que fija una variable de entorno),
+`topes`, `modelo_accesible` y `presencia` (`{viva, rol, equipo, trabajo, desde, latido}` o `null`, como `ea agentes --json`); `fijados`, los roles que fija una variable de entorno),
 `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea),
 `/api/colas`, `/api/semaforos`, `/api/rutinas` (las activas; `?retiradas=1`, las
 retiradas; cada fila y la ficha llevan `ubicacion`: `activa`, `retirada` o `sin_fichero`),
@@ -963,7 +1023,7 @@ general, con 1-20 fases numeradas por su orden y `revisar_cada` obligatorio
 —`null` es «solo al final», si no entre 1 y el número de fases—; 400 si falta
 o una fase no tiene criterio), `GET /api/trabajos/nuevo` (modos, techo, topes por
 defecto y worktrees sugeridos para el formulario) y
-`POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale o la versión no sube; deja `rutina_registrada` en el diario); la memoria de Claude Code va por
+equipos de agentes (spec 019): `GET /api/equipos` (una fila por equipo con sus miembros y si están vivos), `GET /api/equipos/<id>` (miembros con presencia y cola, y los últimos trabajos con su informe; 404 si no existe), `POST /api/equipos` (despertar; exige la clave; `{"titulo", "objetivo", "worktree", "miembros": [{"agente", "rol"}] | "todos": true, "terminal"?: bool}` → 201 `{equipo, omitidos, sesiones}`; mismas reglas que `ea equipo despertar` —roles que admite cada agente, sin repetir, ejecutor con modelo local, tope `orquestador.paralelo`, un agente en un solo equipo despierto, binarios presentes—, 400 con el motivo y nada escrito; `creado_por` es `usuario`; con `terminal` abre una terminal por cada planificador y revisor con `ea equipo sesion <id> <agente>` y lo apunta como `equipo_sesion_abierta`) y `POST /api/equipos/<id>/dormir` (exige la clave; lo pendiente de sus ejecutores vuelve a la cola de `modelo-local`); `POST /api/trabajos` admite además `equipo`, `asignado_a`, `revisor` y `worktree_propio` (400 con las validaciones del bus); `POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale o la versión no sube; deja `rutina_registrada` en el diario); la memoria de Claude Code va por
 `GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
 `POST /api/memoria/<proyecto>/<fichero>` (`{"contenido": "...", "version": "..."}`;
 409 si la versión ya no es la del disco), `POST …/<fichero>/eliminar` (`{"version": "..."}`),

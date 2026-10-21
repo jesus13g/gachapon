@@ -172,6 +172,8 @@ pub struct Skills {
 pub struct Orquestador {
     pub intervalo_sondeo_s: u64,
     pub intervalo_heartbeat_s: u64,
+    /// Tope global de ejecutores a la vez (1..=8; spec 019).
+    pub paralelo: u32,
     pub rutinas_dir: PathBuf,
 }
 
@@ -243,6 +245,7 @@ impl Ajustes {
             orquestador: Orquestador {
                 intervalo_sondeo_s: 5,
                 intervalo_heartbeat_s: 30,
+                paralelo: 1,
                 rutinas_dir: f.dir_config.join("rutinas"),
             },
             red: Red { puerto_web: 8092, puerto_mcp: 8765 },

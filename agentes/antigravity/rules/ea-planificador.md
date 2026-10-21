@@ -7,7 +7,7 @@ description: "Úsala cuando el usuario hable de misiones, obras, rutinas o de re
 
 Si el usuario te pide lanzar o revisar trabajo para el ejecutor local (misiones,
 obras, rutinas), sigue la guía en `~/Proyectos/ecosistema-asistente/agentes/flujo/`
-(`mision.md`, `obra.md`, `rutina.md`, `revisar.md`):
+(`mision.md`, `obra.md`, `rutina.md`, `revisar.md`, `equipo.md`):
 
 - Formalizas y revisas; **no implementas** lo que puede hacer el ejecutor.
   `ea agentes` dice quién ocupa cada rol.

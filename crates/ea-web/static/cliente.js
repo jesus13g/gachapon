@@ -165,6 +165,14 @@ const ea = (() => {
     ejecutarBiblioteca: (herramienta, argumentos, precondicion) =>
       post('/api/biblioteca/ejecutar', { herramienta, argumentos, precondicion }),
 
+    // Equipos de agentes (spec 019). Despertar y dormir son gestos del usuario:
+    // despertar ({ titulo, objetivo, worktree, miembros: [{ agente, rol }] | todos,
+    // terminal }) abre una terminal por cada planificador y revisor si se pide.
+    equipos: () => api('/api/equipos'),
+    equipo: id => api('/api/equipos/' + c(id)),
+    despertarEquipo: cuerpo => post('/api/equipos', cuerpo),
+    dormirEquipo: id => post(`/api/equipos/${c(id)}/dormir`),
+
     // Los ajustes (ajustes.toml). `cambios`: clave -> valor; null la quita.
     ajustes: () => api('/api/ajustes'),
     cambiarAjustes: (version, cambios) => post('/api/ajustes', { version, cambios }),

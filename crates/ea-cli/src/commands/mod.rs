@@ -4,6 +4,7 @@ pub mod ajustes;
 pub mod biblioteca;
 pub mod boveda;
 pub mod diario;
+pub mod equipo;
 pub mod propuestas;
 pub mod qwen_skills;
 pub mod rutinas;
