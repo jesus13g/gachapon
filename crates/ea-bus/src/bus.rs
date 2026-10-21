@@ -327,17 +327,25 @@ impl Bus {
     /// renombrándola (atómico): de dos procesos, solo uno lo consigue. No
     /// cambia el estado del trabajo; para eso, [`Bus::aplicar`] con `Tomar`.
     pub fn tomar(&self, agente: Rol) -> Resultado<Option<String>> {
-        tomar_en(&self.dir_cola(agente))
+        tomar_en(&self.dir_cola(agente), &|_| true)
     }
 
     /// Lo que toma un trabajador de un agente ejecutor: primero la cola de su
     /// agente y, si está vacía, la del rol `modelo-local`. Mismo reclamo por
     /// `rename` que [`Bus::tomar`] (spec 019, RF-005).
     pub fn tomar_para(&self, agente: &str) -> Resultado<Option<String>> {
-        if let Some(t) = tomar_en(&self.dir_cola_agente(agente)?)? {
+        self.tomar_para_con(agente, &|_| true)
+    }
+
+    /// Como [`Bus::tomar_para`], pero de la cola de rol solo toma las órdenes
+    /// que pasan `filtro`; las demás se quedan donde estaban (se lee la orden
+    /// antes de reclamar la entrada). La cola propia del agente se toma
+    /// entera. Una orden ilegible pasa el filtro, para que se descarte.
+    pub fn tomar_para_con(&self, agente: &str, filtro: &dyn Fn(&Orden) -> bool) -> Resultado<Option<String>> {
+        if let Some(t) = tomar_en(&self.dir_cola_agente(agente)?, &|_| true)? {
             return Ok(Some(t));
         }
-        self.tomar(Rol::Ejecutor)
+        tomar_en(&self.dir_cola(Rol::Ejecutor), &|id| self.leer_orden(id).map(|o| filtro(&o)).unwrap_or(true))
     }
 
     // --- transiciones ------------------------------------------------------
@@ -808,7 +816,7 @@ fn listar_en(dir: &Path) -> Resultado<Vec<EntradaCola>> {
     Ok(nombres.iter().filter_map(|p| fs::read(p).ok()).filter_map(|b| serde_json::from_slice(&b).ok()).collect())
 }
 
-pub(crate) fn tomar_en(dir: &Path) -> Resultado<Option<String>> {
+pub(crate) fn tomar_en(dir: &Path, admite: &dyn Fn(&str) -> bool) -> Resultado<Option<String>> {
     let rd = match fs::read_dir(dir) {
         Ok(rd) => rd,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -824,6 +832,12 @@ pub(crate) fn tomar_en(dir: &Path) -> Resultado<Option<String>> {
         .collect();
     candidatas.sort();
     for p in candidatas {
+        // Con filtro, se mira la entrada antes de reclamarla; si no pasa, se queda.
+        if let Some(e) = fs::read(&p).ok().and_then(|b| serde_json::from_slice::<EntradaCola>(&b).ok())
+            && !admite(&e.trabajo)
+        {
+            continue;
+        }
         let nombre = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
         let reclamada = dir.join(format!(".{nombre}.tomada-{}", std::process::id()));
         if fs::rename(&p, &reclamada).is_err() {

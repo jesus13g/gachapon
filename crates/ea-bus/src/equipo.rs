@@ -62,7 +62,9 @@ impl Bus {
         let _bloqueo = self.bloquear_equipos()?;
         // Todo ejecutor despierto necesita un trabajador: los ejecutores
         // distintos de los equipos despiertos y del nuevo caben en `paralelo`.
-        let mut ejecutores: Vec<String> = nuevo.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor).map(|m| m.agente.clone()).collect();
+        // También el agente de `roles.ejecutor`, que siempre tiene trabajador.
+        let mut ejecutores: Vec<String> = vec![ajustes.agente_de(ea_ajustes::Rol::Ejecutor).0.to_string()];
+        ejecutores.extend(nuevo.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor).map(|m| m.agente.clone()));
         for otro in self.listar_equipos()?.iter().filter(|e| e.estado == EstadoEquipo::Despierto) {
             ejecutores.extend(otro.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor).map(|m| m.agente.clone()));
         }
@@ -71,8 +73,9 @@ impl Bus {
         let tope = ajustes.orquestador.paralelo as usize;
         if ejecutores.len() > tope {
             return Err(ErrorBus::Argumentos(format!(
-                "los equipos despiertos tendrían {} ejecutores ({}) y orquestador.paralelo es {tope}: sube orquestador.paralelo \
-                 (`ea ajustes establecer orquestador.paralelo {}`) o duerme otro equipo",
+                "habría {} ejecutores despiertos ({}; el agente de roles.ejecutor siempre cuenta) y orquestador.paralelo es {tope}: \
+                 sube orquestador.paralelo (`ea ajustes establecer orquestador.paralelo {}`), duerme otro equipo o, con \
+                 paralelo 1, usa como único ejecutor al de roles.ejecutor",
                 ejecutores.len(),
                 ejecutores.join(", "),
                 ejecutores.len()
@@ -136,7 +139,7 @@ impl Bus {
         escribir_json(&self.dir_equipo(id)?.join("equipo.json"), &equipo)?;
         for m in equipo.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor) {
             let dir = self.dir_cola_agente(&m.agente)?;
-            while let Some(trabajo) = crate::bus::tomar_en(&dir)? {
+            while let Some(trabajo) = crate::bus::tomar_en(&dir, &|_| true)? {
                 self.encolar(ea_ajustes::Rol::Ejecutor, &trabajo, "equipo dormido")?;
             }
         }

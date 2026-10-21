@@ -230,11 +230,11 @@ fn los_ejecutores_despiertos_salen_de_los_equipos_con_el_tope_y_sin_equipos_es_e
 #[test]
 fn dos_trabajos_en_worktrees_distintos_corren_a_la_vez() {
     let e = Entorno::nuevo(2);
-    e.equipo();
+    let eq = e.equipo();
     let a = repo(e.d.path(), "a");
     let b = repo(e.d.path(), "b");
-    let ia = e.bus.crear_trabajo(orden(&a)).unwrap();
-    let ib = e.bus.crear_trabajo(orden(&b)).unwrap();
+    let ia = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), ..orden(&a) }).unwrap();
+    let ib = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), ..orden(&b) }).unwrap();
     let doble = Doble::encuentro(2);
     let mut t = Trabajadores::new(e.contexto(&doble));
     t.reconciliar();
@@ -249,10 +249,10 @@ fn dos_trabajos_en_worktrees_distintos_corren_a_la_vez() {
 #[test]
 fn dos_trabajos_en_el_mismo_worktree_no_corren_a_la_vez() {
     let e = Entorno::nuevo(2);
-    e.equipo();
+    let eq = e.equipo();
     let r = repo(e.d.path(), "r");
-    let i1 = e.bus.crear_trabajo(orden(&r)).unwrap();
-    let i2 = e.bus.crear_trabajo(orden(&r)).unwrap();
+    let i1 = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), ..orden(&r) }).unwrap();
+    let i2 = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), ..orden(&r) }).unwrap();
     let (doble, dentro, soltar) = Doble::retenido();
     let mut t = Trabajadores::new(e.contexto(&doble));
     t.reconciliar();
@@ -292,10 +292,10 @@ fn un_trabajo_con_worktree_propio_corre_en_el_estado_y_su_criterio_e_informe_sal
 #[test]
 fn dos_trabajos_con_worktree_propio_del_mismo_repo_corren_a_la_vez() {
     let e = Entorno::nuevo(2);
-    e.equipo();
+    let eq = e.equipo();
     let r = repo(e.d.path(), "r");
-    let i1 = e.bus.crear_trabajo(Orden { worktree_propio: true, ..orden(&r) }).unwrap();
-    let i2 = e.bus.crear_trabajo(Orden { worktree_propio: true, ..orden(&r) }).unwrap();
+    let i1 = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), worktree_propio: true, ..orden(&r) }).unwrap();
+    let i2 = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), worktree_propio: true, ..orden(&r) }).unwrap();
     let doble = Doble::encuentro(2);
     let mut t = Trabajadores::new(e.contexto(&doble));
     t.reconciliar();
@@ -477,4 +477,58 @@ fn una_entrada_rancia_se_descarta_sin_worktree_ni_cambio_de_estado() {
     assert_eq!(e.estado(&id), EstadoTrabajo::Cancelado);
     assert!(!e.raiz().join("worktrees").join(&id).exists(), "no se creó el worktree");
     assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
+}
+
+#[test]
+fn roles_ejecutor_sigue_mandando_en_los_trabajos_sin_equipo() {
+    let e = Entorno::nuevo(2);
+    // Equipo despierto solo con codex de ejecutor; `roles.ejecutor` es qwen-code.
+    let nuevo = NuevoEquipo {
+        titulo: "equipo".into(),
+        objetivo: "probar".into(),
+        worktree_base: e.d.path().to_string_lossy().into(),
+        miembros: vec![m("claude-code", RolEquipo::Planificador), m("codex", RolEquipo::Ejecutor)],
+        creado_por: "ea-cli".into(),
+    };
+    let eq = e.bus.crear_equipo(nuevo, &e.ajustes).unwrap().id;
+    let r1 = repo(e.d.path(), "r1");
+    let r2 = repo(e.d.path(), "r2");
+    let libre = e.bus.crear_trabajo(orden(&r1)).unwrap();
+    let del_equipo = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), ..orden(&r2) }).unwrap();
+    let doble = Doble::simple();
+    let mut t = Trabajadores::new(e.contexto(&doble));
+    t.reconciliar();
+    assert_eq!(t.activos(), ["codex", "qwen-code"], "el del rol tiene trabajador aunque haya equipo");
+    esperar_que(|| e.en_revision(&[&libre, &del_equipo]), "ambos entregados");
+    let quien = |wt: &PathBuf| doble.llamadas().into_iter().find(|(_, w)| w == wt).map(|(q, _)| q);
+    assert_eq!(quien(&r1).as_deref(), Some("qwen-code"), "sin equipo: roles.ejecutor");
+    assert_eq!(quien(&r2).as_deref(), Some("codex"), "del equipo: su ejecutor");
+    // Lo que se devuelve a la cola al dormir lo hace el de `roles.ejecutor`.
+    let r3 = repo(e.d.path(), "r3");
+    let asignado = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), asignado_a: Some("codex".into()), ..orden(&r3) }).unwrap();
+    e.bus.dormir_equipo(&eq).unwrap();
+    esperar_que(
+        || {
+            t.reconciliar();
+            e.estado(&asignado) == EstadoTrabajo::EnRevision
+        },
+        "el trabajo devuelto lo hace roles.ejecutor",
+    );
+    assert_eq!(quien(&r3).as_deref(), Some("qwen-code"));
+    t.detener();
+}
+
+#[test]
+fn con_paralelo_1_un_equipo_solo_cabe_si_su_ejecutor_es_el_de_roles() {
+    let e = Entorno::nuevo(1);
+    let nuevo = |ej: &str| NuevoEquipo {
+        titulo: "equipo".into(),
+        objetivo: "probar".into(),
+        worktree_base: e.d.path().to_string_lossy().into(),
+        miembros: vec![m("claude-code", RolEquipo::Planificador), m(ej, RolEquipo::Ejecutor)],
+        creado_por: "ea-cli".into(),
+    };
+    let err = e.bus.crear_equipo(nuevo("codex"), &e.ajustes).unwrap_err().to_string();
+    assert!(err.contains("roles.ejecutor") && err.contains("orquestador.paralelo"), "{err}");
+    e.bus.crear_equipo(nuevo("qwen-code"), &e.ajustes).unwrap();
 }

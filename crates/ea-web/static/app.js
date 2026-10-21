@@ -2269,7 +2269,7 @@ function detalleEquipo(e, d) {
     const [g] = EST[t.estado] ?? ['·'];
     const reparto = [t.asignado_a && '→ ' + nombreAg(t.asignado_a), t.revisor && 'revisa ' + nombreAg(t.revisor),
       t.ejecutado_por && 'ejecutó ' + nombreAg(t.ejecutado_por.agente)].filter(Boolean).join(' · ');
-    const inf = t.informe ? ` · ${t.informe.resultado}: ${t.informe.resumen}` : '';
+    const inf = t.informe ? ` · ${t.informe.resultado}${t.informe.resumen ? ': ' + t.informe.resumen : ''}` : '';
     return `<p><span>${g} ${esc(EST[t.estado]?.[1] ?? t.estado)}</span><span>${esc(t.id.slice(9, 15))}</span>` +
       `<span class="md" title="${esc(t.titulo + inf)}">${esc(t.titulo)}${reparto ? ' · ' + esc(reparto) : ''}${esc(inf)}</span>` +
       `<span class="acc">${btn('ir-trabajo', '→ trabajo', 'abrir la ficha de ' + t.id, { id: t.id }, 'l')}</span></p>`;

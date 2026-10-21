@@ -324,20 +324,23 @@ pub fn ejecutar_uno(bus: &Bus, config: &ConfigOrquestador, agente: &dyn Ejecutor
 }
 
 fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn Ejecutor, espera: Duration) -> Option<String> {
-    ejecutar_intento(bus, config, agente, espera, &|_| {}).id()
+    ejecutar_intento(bus, config, agente, espera, &|_| {}, &|_| true).id()
 }
 
 /// Como [`ejecutar_uno`], pero dice si se topó con el semáforo y avisa de en
 /// qué trabajo está (`al_cambiar(Some(id))` al empezar de verdad,
 /// `al_cambiar(None)` al terminar) para la presencia del trabajador.
+/// `admite` filtra lo que se toma de la cola de rol (la propia del agente se
+/// toma entera): ver [`Bus::tomar_para_con`].
 pub fn ejecutar_intento(
     bus: &Bus,
     config: &ConfigOrquestador,
     agente: &dyn Ejecutor,
     espera: Duration,
     al_cambiar: &dyn Fn(Option<&str>),
+    admite: &dyn Fn(&Orden) -> bool,
 ) -> Intento {
-    let id = match bus.tomar_para(&config.ejecutor.id) {
+    let id = match bus.tomar_para_con(&config.ejecutor.id, admite) {
         Ok(Some(id)) => id,
         Ok(None) => return Intento::Nada,
         Err(e) => {

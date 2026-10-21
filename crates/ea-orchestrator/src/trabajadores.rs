@@ -1,9 +1,10 @@
 //! Trabajadores del ejecutor en paralelo (spec 019, RF-008 a RF-010).
 //!
-//! Hay un trabajador (un hilo) por agente ejecutor despierto: los miembros
-//! `ejecutor` de los equipos despiertos o, si no hay equipos despiertos,
-//! solo el agente de `roles.ejecutor` (como en la 017). Nunca hay más de
-//! `orquestador.paralelo` a la vez ni dos del mismo agente.
+//! Hay un trabajador (un hilo) por agente ejecutor despierto: siempre el
+//! agente de `roles.ejecutor` (como en la 017) y, además, los miembros
+//! `ejecutor` de los equipos despiertos. Nunca hay más de
+//! `orquestador.paralelo` a la vez ni dos del mismo agente. De la cola de rol
+//! cada uno toma solo lo que le toca ([`le_toca`]).
 //!
 //! Cada trabajador, en su bucle: comprueba que su agente sigue despierto
 //! (si no, termina el trabajo que tenga entre manos y se va), rehace su
@@ -37,22 +38,38 @@ pub struct Despierto {
 }
 
 /// Los ejecutores despiertos ahora, en orden estable y recortados al tope
-/// `orquestador.paralelo` (al menos 1). Sin equipos despiertos, solo
-/// `roles.ejecutor`.
+/// `orquestador.paralelo` (al menos 1). El agente de `roles.ejecutor` va
+/// siempre el primero (atiende los trabajos sin equipo; si además es ejecutor
+/// de un equipo despierto, es el mismo trabajador); después, los ejecutores
+/// de los equipos despiertos.
 pub fn ejecutores_despiertos(equipos: &[Equipo], a: &Ajustes) -> Vec<Despierto> {
-    let mut v: Vec<Despierto> = Vec::new();
+    let rol = a.agente_de(ea_ajustes::Rol::Ejecutor).0.to_string();
+    let mut v: Vec<Despierto> = vec![Despierto { agente: rol, equipo: None }];
     for e in equipos.iter().filter(|e| e.estado == EstadoEquipo::Despierto) {
         for m in e.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor) {
-            if !v.iter().any(|d| d.agente == m.agente) {
-                v.push(Despierto { agente: m.agente.clone(), equipo: Some(e.id.clone()) });
+            match v.iter_mut().find(|d| d.agente == m.agente) {
+                Some(d) => {
+                    if d.equipo.is_none() {
+                        d.equipo = Some(e.id.clone());
+                    }
+                }
+                None => v.push(Despierto { agente: m.agente.clone(), equipo: Some(e.id.clone()) }),
             }
         }
     }
-    if v.is_empty() {
-        v.push(Despierto { agente: a.agente_de(ea_ajustes::Rol::Ejecutor).0.to_string(), equipo: None });
-    }
     v.truncate((a.orquestador.paralelo as usize).max(1));
     v
+}
+
+/// Si una orden de la cola de rol le toca a `agente` (spec 019, casos límite):
+/// las de su equipo despierto y, si es el agente de `roles.ejecutor`, las que
+/// no tienen equipo o son de un equipo dormido o inexistente.
+pub fn le_toca(orden: &ea_bus::Orden, agente: &str, es_del_rol: bool, equipos: &[Equipo]) -> bool {
+    let Some(id) = orden.equipo.as_deref() else { return es_del_rol };
+    match equipos.iter().find(|e| e.id == id && e.estado == EstadoEquipo::Despierto) {
+        Some(e) => e.miembros.iter().any(|m| m.agente == agente && m.rol == RolEquipo::Ejecutor),
+        None => es_del_rol,
+    }
 }
 
 type AbrirBus = Arc<dyn Fn() -> Option<Bus> + Send + Sync>;
@@ -265,7 +282,9 @@ fn trabajador(ctx: &Contexto, agente: &str, equipo: Option<&str>) {
                 p.latido.fijar(t);
             }
         };
-        match ejecutar_intento(&bus, &config, adaptador.as_ref(), ctx.espera_candado, &al_cambiar) {
+        let es_del_rol = ajustes.agente_de(ea_ajustes::Rol::Ejecutor).0 == agente;
+        let admite = |o: &ea_bus::Orden| le_toca(o, agente, es_del_rol, &equipos);
+        match ejecutar_intento(&bus, &config, adaptador.as_ref(), ctx.espera_candado, &al_cambiar, &admite) {
             Intento::Hecho(id) => tracing::info!(%agente, %id, "trabajo procesado"),
             Intento::Ocupado(_) | Intento::Nada => esperar(ctx.sondeo, &ctx.apagar),
         }

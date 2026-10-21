@@ -225,7 +225,8 @@ pub fn texto_equipo(v: &VistaEquipo) -> String {
         s += &format!("  {}  {:<12} {}{extra}\n", t.id, t.estado.as_str(), t.titulo);
         if let Some(i) = &t.informe {
             let por = i.ejecutado_por.as_ref().map_or(String::new(), |e| format!(" por {} ({})", e.agente, e.modelo));
-            s += &format!("      informe: {:?}{por} · {}\n", i.resultado, i.resumen);
+            let resumen = if i.resumen.trim().is_empty() { String::new() } else { format!(" · {}", i.resumen) };
+            s += &format!("      informe: {:?}{por}{resumen}\n", i.resultado);
             if let Some(a) = &i.aviso {
                 s += &format!("      aviso: {a}\n");
             }
