@@ -4,7 +4,10 @@ Orquestador en Rust (repo público `jesus13g/gachapon`) que reparte el trabajo
 entre dos roles: el **planificador** (formaliza y revisa; por defecto Claude
 Code) y el **ejecutor** (ejecuta; por defecto Qwen Code sobre `llama-server`).
 Desde la constitución 1.3.0 (1.3.1 con las sesiones interactivas de la biblioteca) el agente de cada rol es intercambiable (Claude
-Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017). Se comunican
+Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017). El usuario puede
+despertar **equipos** de varios agentes que trabajan a la vez, con colas por
+agente, worktree propio y presencia (spec 019, rama `ecosistema-dinamico`;
+la enmienda 1.4.0 de la constitución está pendiente de aprobación). Se comunican
 por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
 `orquestador-claude-qwen.md`.
 
@@ -52,7 +55,7 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 | `ea-web` | API JSON y panel en `127.0.0.1:8092`; `static/` va embebido con `include_str!` (recompilar para ver cambios) |
 
 Fuera de `crates/`: `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
-`/revisar`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
+`/revisar`, `/equipo`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
 vivas), `claude/hooks/` (hook de subagentes para `ea-web`), `qwen/skills/`
 (skills cortas de Qwen) y `bench/` (banco de pruebas en Python, ajeno a los
 binarios).

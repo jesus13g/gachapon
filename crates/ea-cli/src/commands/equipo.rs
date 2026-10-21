@@ -67,7 +67,7 @@ pub fn prompt_sesion(equipo: &ea_bus::Equipo, miembro: &Miembro) -> String {
         ),
     };
     format!(
-        "Eres {nombre} en el equipo «{}» ({id}) del ecosistema. Objetivo: {}. Lee `ea equipo ver {id}` (miembros, presencia, trabajos y colas). {tarea}",
+        "Eres {nombre} en el equipo «{}» ({id}) del ecosistema. Objetivo: {}. Lee `ea equipo ver {id}` (miembros, presencia, trabajos y colas). {tarea} El procedimiento está en `agentes/flujo/equipo.md` del repo (skill `equipo` o `ea-equipo`).",
         equipo.titulo, equipo.objetivo
     )
 }
@@ -389,6 +389,7 @@ mod tests {
         assert!(rev.contains("ea equipo ver e1") && rev.contains("cola de revisión") && rev.contains("Antigravity") && rev.contains("O"));
         let pla = prompt_sesion(&e, &Miembro { agente: "claude-code".into(), rol: RolEquipo::Planificador });
         assert!(pla.contains("--equipo e1 --asignar"));
+        assert!(pla.contains("agentes/flujo/equipo.md") && rev.contains("agentes/flujo/equipo.md"));
         assert!(!pla.starts_with('-') && !rev.starts_with('-'));
     }
 }

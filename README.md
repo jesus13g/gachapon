@@ -295,17 +295,59 @@ volver a arrancar los servicios.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
-  rutina, revisar); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
+  rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
 - `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).
 - `claude/hooks/`: los hooks de Claude Code que usa `ea-web`.
 - `qwen/skills/`: las skills propias del agente local.
+
+## Equipos de agentes
+
+Un **equipo** (spec 019) es un grupo de agentes del catálogo que el usuario
+despierta para una tarea y que trabajan a la vez. Es un fichero del bus
+(`equipos/<id>/equipo.json`), no una configuración permanente, y cada miembro
+tiene un rol dentro de él: `planificador` (parte y reparte), `ejecutor`
+(ejecuta, con modelo local) o `revisor` (un planificador que solo revisa y
+propone). Un agente aparece una sola vez en un equipo y solo en un equipo
+despierto.
+
+- **Despertar y dormir** es del usuario: `ea equipo despertar` y `ea equipo dormir`
+  (terminal real) o ◎ Equipos en el panel (con la clave). Los ejecutores los
+  recoge el orquestador al ver un equipo despierto; los planificadores y
+  revisores se abren como sesiones interactivas en terminales
+  (`ea equipo sesion`). Ningún agente puede despertar ni dormir equipos, ni
+  desde el MCP. Al dormir, lo pendiente de sus ejecutores vuelve a la cola de
+  `modelo-local`; lo que estaba en curso termina.
+- **Reparto:** un planificador crea trabajo con
+  `ea trabajo crear --equipo <id> --asignar <ejecutor> [--revisor <agente>] --worktree-propio`.
+  Lo asignado va a la cola de ese agente (`colas/agentes/<agente>/`); sin
+  `--asignar` lo toma el primer ejecutor libre. El revisor debe ser distinto del
+  ejecutor; la entrega llega a su cola y siempre también a la del planificador.
+- **Worktree propio:** con `--worktree-propio` el sistema crea un `git worktree`
+  (`<estado>/worktrees/<id>`, rama `ea/<id>`) a partir del repo de la orden, de
+  modo que varios trabajos del mismo repo corren a la vez sin pisarse. Sin él, el
+  semáforo exclusivo por worktree los serializa. Fusionar las ramas `ea/<id>` es
+  del usuario.
+- **Paralelo:** el orquestador lanza un trabajador por ejecutor despierto, hasta
+  `orquestador.paralelo` (1 a 8, por defecto 1). Sin equipos y con 1, se
+  comporta como siempre.
+- **Presencia:** cada trabajador o sesión escribe `agentes/<id>/presencia.json`
+  con latido; caduca si el proceso muere. `ea equipo ver`, `ea status`,
+  `ea agentes`, ◎ Equipos y `ea_ver_equipo`/`ea_status` por MCP muestran quién
+  está despierto, en qué trabaja y qué ha entregado.
+- **Flujo:** `agentes/flujo/equipo.md` explica cómo reparte un planificador y cómo
+  revisa un revisor (`/equipo` en Claude Code, `$ea-equipo` en Codex y
+  Antigravity, `/ea-equipo` en OpenCode); la sesión de equipo arranca con un
+  prompt que lo menciona.
+- **Pendiente:** la enmienda 1.4.0 de la constitución (varios agentes por rol)
+  espera la aprobación del usuario; el código vive en la rama
+  `ecosistema-dinamico`, sin fusionar.
 
 ## Adaptadores del planificador
 
 Las instrucciones del planificador son una **guía neutral común** más un
 **adaptador fino por agente**, sin copias del procedimiento:
 
-- `agentes/flujo/{mision,obra,rutina,revisar}.md`: el procedimiento sin nombrar al
+- `agentes/flujo/{mision,obra,rutina,revisar,equipo}.md`: el procedimiento sin nombrar al
   agente ni al modelo (comandos reales de `ea` y herramientas MCP de solo lectura;
   el ejecutor y su modelo se consultan con `ea agentes`).
 - Cada adaptador solo trae el frontmatter del agente, las reglas que no se rompen
@@ -318,6 +360,7 @@ Las instrucciones del planificador son una **guía neutral común** más un
 | obra | Plan por fases pequeñas (instrucciones, entregable, criterio por fase) y `revisar_cada` |
 | rutina | Proceso repetible como TOML versionado: registrar, lanzar, timer y corrección |
 | revisar | Consume la cola del planificador (`ea cola planificador`): `ea trabajo ver`, `diff` si hace falta, y cierra, reformula o continúa |
+| equipo | Dentro de un equipo despierto: el planificador parte el objetivo y reparte con `ea trabajo crear --equipo --asignar … --worktree-propio`; el revisor revisa su cola y solo propone |
 
 Los adaptadores se instalan con enlaces simbólicos (nada se instala solo en tu
 HOME; los comandos se ejecutan desde la raíz del repo). Un agente solo necesita
@@ -325,34 +368,34 @@ el suyo, y solo si va a ser planificador.
 
 | Agente | Adaptador | Formato | Destino |
 |---|---|---|---|
-| Claude Code | `claude/skills/<x>/` | skills (`/mision`, `/obra`, `/rutina`, `/revisar`) | `~/.claude/skills/` |
+| Claude Code | `claude/skills/<x>/` | skills (`/mision`, `/obra`, `/rutina`, `/revisar`, `/equipo`) | `~/.claude/skills/` |
 | Codex | `agentes/codex/skills/ea-<x>/` y `agentes/codex/AGENTS.md` | skills (`$ea-mision`…) y un fragmento de `AGENTS.md` | `~/.codex/skills/`, `~/.codex/AGENTS.md` |
 | OpenCode | `agentes/opencode/commands/ea-<x>.md` y `agentes/opencode/AGENTS.md` | comandos (`/ea-mision`…, con `$ARGUMENTS`) y un fragmento de `AGENTS.md` | `~/.config/opencode/commands/`, `~/.config/opencode/AGENTS.md` |
 | Antigravity | `agentes/antigravity/skills/ea-<x>/` y `agentes/antigravity/rules/ea-planificador.md` | skills (los workflows están obsoletos en favor de ellas) y una regla `model_decision` | `~/.gemini/config/skills/`, `~/.gemini/config/rules/` |
 
 ```bash
 # Claude Code (las skills vivas: editarlas cambia las skills en uso)
-for s in mision obra rutina revisar; do
+for s in mision obra rutina revisar equipo; do
   ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
 done
 
 # Codex: skills y reglas (el fragmento se añade una sola vez)
 mkdir -p ~/.codex/skills
-for s in mision obra rutina revisar; do
+for s in mision obra rutina revisar equipo; do
   ln -sfn "$PWD/agentes/codex/skills/ea-$s" ~/.codex/skills/ea-$s
 done
 cat agentes/codex/AGENTS.md >> ~/.codex/AGENTS.md
 
 # OpenCode: comandos y reglas
 mkdir -p ~/.config/opencode/commands
-for s in mision obra rutina revisar; do
+for s in mision obra rutina revisar equipo; do
   ln -sfn "$PWD/agentes/opencode/commands/ea-$s.md" ~/.config/opencode/commands/ea-$s.md
 done
 cat agentes/opencode/AGENTS.md >> ~/.config/opencode/AGENTS.md
 
 # Antigravity: skills y regla
 mkdir -p ~/.gemini/config/skills ~/.gemini/config/rules
-for s in mision obra rutina revisar; do
+for s in mision obra rutina revisar equipo; do
   ln -sfn "$PWD/agentes/antigravity/skills/ea-$s" ~/.gemini/config/skills/ea-$s
 done
 ln -sfn "$PWD/agentes/antigravity/rules/ea-planificador.md" ~/.gemini/config/rules/ea-planificador.md
@@ -363,7 +406,7 @@ si el repo está en otro sitio, el resumen de cada adaptador basta para arrancar
 `agentes/flujo/` en la raíz del repo es la referencia. Los formatos salen de lo
 instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
-Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina`, y `GET /api/mcp` da `ea-ecosistema` conectado.
+Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
 
 ## Hook de subagentes
 
@@ -448,7 +491,7 @@ ea trabajo confirmar <id> [--contexto "..."] # paquete de corrección -> claude-
 ea cola [planificador|ejecutor] [--json]     # colas (valen claude-code y modelo-local)
 ea semaforos                                 # quién tiene el worktree
 
-# Equipos de agentes (spec 019; el flujo completo, en la documentación de F6)
+# Equipos de agentes (spec 019; ver «Equipos de agentes» arriba)
 ea equipo despertar (--todos | --miembro agente:rol ...) --titulo T --objetivo O --worktree <repo> [--sin-terminal]
                                              # TTY. Roles: planificador, ejecutor, revisor. --todos: los agentes
                                              #   del PATH según lo que admiten. Planificadores y revisores abren una
