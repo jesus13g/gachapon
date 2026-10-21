@@ -33,17 +33,20 @@ fn sin_ficheros_todo_es_por_defecto_y_cada_defecto_es_valido() {
     assert_eq!(e.version, "");
     assert!(e.avisos.is_empty(), "{:?}", e.avisos);
     assert_eq!(e.ajustes, Ajustes::por_defecto(&f));
-    for c in CLAVES {
-        assert_eq!(e.origenes[c.nombre], Origen::Defecto, "{}", c.nombre);
+    for (n, c) in &e.claves {
+        assert_eq!(e.origenes[n], Origen::Defecto, "{n}");
         // el defecto de cada clave pasa su propia validación
-        let ok = match &e.defectos[c.nombre] {
+        let ok = match &e.defectos[n] {
             Value::Array(l) => interpretar(c, &l.iter().map(|v| v.as_str().unwrap()).collect::<Vec<_>>().join(",")),
             Value::String(s) => interpretar(c, s),
             otro => interpretar(c, &otro.to_string()),
         };
-        assert_eq!(ok.unwrap(), e.defectos[c.nombre], "{}", c.nombre);
+        assert_eq!(ok.unwrap(), e.defectos[n], "{n}");
     }
-    assert_eq!(e.ajustes.modelo.nombre, "qwen3-coder-30b");
+    assert_eq!(e.ajustes.modelo_ejecutor().nombre, "qwen3-coder-30b");
+    assert_eq!((e.ajustes.roles.planificador.as_str(), e.ajustes.roles.ejecutor.as_str()), ("claude-code", "qwen-code"));
+    assert_eq!(e.ajustes.agentes.len(), CATALOGO.len());
+    assert_eq!(validar_roles(&e.ajustes), Ok(()));
     assert_eq!(e.ajustes.agente.techo_topes, TECHO_DURO);
     assert_eq!(e.ajustes.rutas.db, f.dir_datos.join("ecosistema.db"));
     assert_eq!(e.ajustes.rutas.boveda, f.dir_datos.join("boveda"));
@@ -77,8 +80,8 @@ fn los_toml_heredados_siguen_valiendo_y_ajustes_les_gana() {
     escribe(&f, "boveda.toml", "raiz = \"~/x\"\n");
     let e = cargar_de(&f);
     let a = &e.ajustes;
-    assert_eq!(a.modelo.nombre, "otro");
-    assert_eq!(a.modelo.base_url, "http://localhost:9000/v1");
+    assert_eq!(a.modelos["local"].nombre, "otro");
+    assert_eq!(a.modelos["local"].base_url, "http://localhost:9000/v1");
     assert_eq!(a.agente.techo_topes.turnos, 5);
     assert_eq!(a.agente.techo_topes.tiempo_s, 3600);
     assert_eq!(a.agente.skills.max_por_trabajo, 1);
@@ -87,12 +90,16 @@ fn los_toml_heredados_siguen_valiendo_y_ajustes_les_gana() {
     assert_eq!(a.orquestador.rutinas_dir, PathBuf::from("/r"));
     assert_eq!(a.rutas.boveda, expandir_tilde("~/x"));
     assert!(a.rutas.boveda.is_absolute());
-    assert_eq!(e.origenes["modelo.nombre"], Origen::Heredado { fichero: "orquestador.toml" });
+    assert_eq!(e.origenes["modelos.local.nombre"], Origen::Heredado { fichero: "orquestador.toml" });
     assert_eq!(e.origenes["rutas.boveda"].legible(), "heredado: boveda.toml");
 
     escribe(&f, "ajustes.toml", "[modelo]\nnombre = \"nuevo\"\n");
     let e = cargar_de(&f);
-    assert_eq!(e.ajustes.modelo.nombre, "nuevo");
+    assert_eq!(e.ajustes.modelos["local"].nombre, "nuevo");
+    assert_eq!(e.origenes["modelos.local.nombre"].legible(), "heredado: ajustes.toml [modelo]");
+    assert!(e.avisos.is_empty(), "{:?}", e.avisos);
+    escribe(&f, "ajustes.toml", "[modelo]\nnombre = \"nuevo\"\n[modelos.local]\nnombre = \"mas-nuevo\"\n");
+    assert_eq!(cargar_de(&f).ajustes.modelos["local"].nombre, "mas-nuevo");
     assert_eq!(e.ajustes.agente.techo_topes.turnos, 5);
 }
 
@@ -115,8 +122,8 @@ fn base_url_solo_loopback() {
     let (_d, f) = fuentes();
     escribe(&f, "ajustes.toml", "[modelo]\nbase_url = \"http://10.0.0.1:8080/v1\"\n");
     let e = cargar_de(&f);
-    assert_eq!(e.ajustes.modelo.base_url, "http://127.0.0.1:8080/v1");
-    assert!(e.avisos.iter().any(|a| a.contains("modelo.base_url")), "{:?}", e.avisos);
+    assert_eq!(e.ajustes.modelos["local"].base_url, "http://127.0.0.1:8080/v1");
+    assert!(e.avisos.iter().any(|a| a.contains("modelos.local")), "{:?}", e.avisos);
 }
 
 #[test]
@@ -143,7 +150,7 @@ fn un_ajustes_toml_roto_se_ignora_sin_panico() {
     escribe(&f, "orquestador.toml", "modelo = \"heredado\"\n");
     let e = cargar_de(&f);
     assert!(e.existe);
-    assert_eq!(e.ajustes.modelo.nombre, "heredado");
+    assert_eq!(e.ajustes.modelos["local"].nombre, "heredado");
     assert!(e.avisos.iter().any(|a| a.contains("ajustes.toml")));
     // y no se sobrescribe un fichero roto
     let r = establecer(&f, Canal::Terminal, None, &cambio("web.sondeo_ms", json!(5000)));
@@ -153,7 +160,7 @@ fn un_ajustes_toml_roto_se_ignora_sin_panico() {
 #[test]
 fn desde_la_web_no_se_tocan_las_claves_de_terminal() {
     let (_d, f) = fuentes();
-    for (k, v) in [("agente.sandbox", json!(false)), ("modelo.qwen_bin", json!("/tmp/x")), ("rutas.db", json!("/tmp/x.db"))] {
+    for (k, v) in [("agente.sandbox", json!(false)), ("modelo.qwen_bin", json!("/tmp/x")), ("agentes.codex.bin", json!("/tmp/x")), ("rutas.db", json!("/tmp/x.db"))] {
         let r = establecer(&f, Canal::Web, Some(""), &cambio(k, v));
         assert!(matches!(r, Err(ErrorAjustes::NoEditable { .. })), "{k}: {r:?}");
     }
@@ -271,7 +278,11 @@ fn el_resumen_lleva_todas_las_claves_por_seccion() {
     let (_d, f) = fuentes();
     let r = cargar_de(&f).resumen(&f);
     let total: usize = r.secciones.iter().map(|s| s.claves.len()).sum();
-    assert_eq!(total, CLAVES.len());
+    let e = cargar_de(&f);
+    assert_eq!(total, e.claves.len());
+    // 2 roles, 2 claves por agente del catálogo y 3 del perfil local
+    let por = |id: &str| r.secciones.iter().find(|s| s.id == id).unwrap().claves.len();
+    assert_eq!((por("roles"), por("agentes"), por("modelos")), (2, 2 * CATALOGO.len(), 3));
     let v = serde_json::to_value(&r).unwrap();
     assert_eq!(v["cliente"]["sondeo_ms"], 3000);
     assert_eq!(v["heredados"].as_array().unwrap().len(), 3);
@@ -280,4 +291,204 @@ fn el_resumen_lleva_todas_las_claves_por_seccion() {
     assert_eq!(turnos["origen"]["tipo"], "defecto");
     assert_eq!((turnos["min"].clone(), turnos["max"].clone()), (json!(1), json!(100)));
     assert_eq!(turnos["endurecible"], true);
+    let agentes = v["secciones"].as_array().unwrap().iter().find(|s| s["id"] == "agentes").unwrap();
+    let bin = agentes["claves"].as_array().unwrap().iter().find(|c| c["clave"] == "agentes.codex.bin").unwrap();
+    assert_eq!((bin["titulo"].clone(), bin["edicion"].clone()), (json!("Codex · binario"), json!("terminal")));
+    let roles = v["secciones"].as_array().unwrap().iter().find(|s| s["id"] == "roles").unwrap();
+    assert_eq!(roles["claves"][1]["permitidos"], json!(IDS_AGENTES));
+}
+
+// ------------------------------------------------- 017: roles, agentes y modelos
+
+#[test]
+fn el_catalogo_y_los_roles() {
+    assert_eq!(CATALOGO.iter().map(|a| a.id).collect::<Vec<_>>(), IDS_AGENTES);
+    let admite = |id, r| ficha(id).unwrap().admite(r);
+    for id in ["qwen-code", "codex", "opencode"] {
+        assert!(admite(id, Rol::Ejecutor) && admite(id, Rol::Planificador), "{id}");
+    }
+    for id in ["claude-code", "antigravity"] {
+        assert!(!admite(id, Rol::Ejecutor) && admite(id, Rol::Planificador), "{id}");
+    }
+    assert!(ficha("gpt").is_none());
+    // en disco, los nombres de siempre; se aceptan los dos
+    assert_eq!(serde_json::to_value(Rol::Planificador).unwrap(), json!("claude-code"));
+    assert_eq!(serde_json::to_value(Rol::Ejecutor).unwrap(), json!("modelo-local"));
+    assert_eq!(serde_json::from_value::<Rol>(json!("ejecutor")).unwrap(), Rol::Ejecutor);
+    assert_eq!(serde_json::from_value::<Rol>(json!("claude-code")).unwrap(), Rol::Planificador);
+    assert_eq!((Rol::desde("planificador"), Rol::desde("modelo-local"), Rol::desde("otro")), (Some(Rol::Planificador), Some(Rol::Ejecutor), None));
+    // claves con patrón
+    assert!(clave("modelos.gpt.nombre").is_some());
+    assert!(clave("modelos.GPT.nombre").is_none());
+    assert!(clave("modelos.gpt.otro").is_none());
+    assert!(clave("agentes.codex.modelo").is_some());
+    assert!(clave("agentes.nadie.bin").is_none());
+    assert!(clave("modelos.*.nombre").is_none());
+    assert_eq!(sin_alias("modelo.qwen_bin"), "agentes.qwen-code.bin");
+}
+
+#[test]
+fn cambiar_de_ejecutor_desde_la_web_aplica_en_caliente() {
+    let (_d, f) = fuentes();
+    let a = establecer(&f, Canal::Web, Some(""), &cambio("roles.ejecutor", json!("codex"))).unwrap();
+    assert_eq!((a[0].clave.as_str(), a[0].antes.clone(), a[0].despues.clone()), ("roles.ejecutor", json!("qwen-code"), json!("codex")));
+    assert_eq!(a[0].aplica, Aplica::EnCaliente);
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.agente_de(Rol::Ejecutor).0, "codex");
+    assert_eq!(e.ajustes.modelo_ejecutor().base_url, "http://127.0.0.1:8080/v1");
+    // y el planificador también, a un agente distinto
+    establecer(&f, Canal::Web, Some(&version(&f)), &cambio("roles.planificador", json!("opencode"))).unwrap();
+    assert_eq!(cargar_de(&f).ajustes.roles.planificador, "opencode");
+    let r = establecer(&f, Canal::Web, Some(&version(&f)), &cambio("roles.ejecutor", json!("nadie")));
+    assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{r:?}");
+}
+
+#[test]
+fn ningun_agente_ocupa_los_dos_roles() {
+    let (_d, f) = fuentes();
+    establecer(&f, Canal::Terminal, None, &cambio("roles.ejecutor", json!("codex"))).unwrap();
+    let r = establecer(&f, Canal::Terminal, None, &cambio("roles.planificador", json!("codex")));
+    match r {
+        Err(ErrorAjustes::ValorInvalido { clave, motivo }) => {
+            assert_eq!(clave, "roles.planificador");
+            assert!(motivo.contains("a la vez"), "{motivo}");
+        }
+        otro => panic!("{otro:?}"),
+    }
+    // escrito a mano: al cargar, aviso y el planificador vuelve al de por defecto
+    escribe(&f, "ajustes.toml", "[roles]\nplanificador = \"codex\"\nejecutor = \"codex\"\n");
+    let e = cargar_de(&f);
+    assert_eq!((e.ajustes.roles.planificador.as_str(), e.ajustes.roles.ejecutor.as_str()), ("claude-code", "codex"));
+    assert!(e.avisos.iter().any(|a| a.contains("roles.planificador")), "{:?}", e.avisos);
+}
+
+#[test]
+fn cada_agente_solo_ocupa_los_roles_que_admite() {
+    let (_d, f) = fuentes();
+    for id in ["antigravity", "claude-code"] {
+        let r = establecer(&f, Canal::Terminal, None, &cambio("roles.ejecutor", json!(id)));
+        assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{id}: {r:?}");
+    }
+    assert!(!f.fichero().exists());
+    escribe(&f, "ajustes.toml", "[roles]\nejecutor = \"antigravity\"\n");
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.roles.ejecutor, "qwen-code");
+    assert!(e.avisos.iter().any(|a| a.contains("no puede ser ejecutor")), "{:?}", e.avisos);
+    // Antigravity sí como planificador
+    std::fs::remove_file(f.fichero()).unwrap();
+    establecer(&f, Canal::Terminal, None, &cambio("roles.planificador", json!("antigravity"))).unwrap();
+}
+
+#[test]
+fn el_modelo_del_ejecutor_es_local() {
+    let (_d, f) = fuentes();
+    // un perfil remoto: solo para el planificador
+    let lote = vec![
+        ("modelos.gpt.nombre".to_string(), Some(json!("gpt-5-codex"))),
+        ("modelos.gpt.remoto".to_string(), Some(json!(true))),
+    ];
+    establecer(&f, Canal::Web, Some(""), &lote).unwrap();
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.modelos["gpt"], PerfilModelo { nombre: "gpt-5-codex".into(), base_url: "".into(), remoto: true });
+    establecer(&f, Canal::Terminal, None, &cambio("agentes.codex.modelo", json!("gpt"))).unwrap();
+    establecer(&f, Canal::Terminal, None, &cambio("roles.planificador", json!("codex"))).unwrap();
+    assert_eq!(cargar_de(&f).ajustes.modelo_de("codex").unwrap().nombre, "gpt-5-codex");
+    // codex como ejecutor con un modelo remoto: no
+    let mut lote = vec![("roles.planificador".to_string(), Some(json!("claude-code")))];
+    lote.push(("roles.ejecutor".to_string(), Some(json!("codex"))));
+    let r = establecer(&f, Canal::Terminal, None, &lote);
+    match r {
+        Err(ErrorAjustes::ValorInvalido { motivo, .. }) => assert!(motivo.contains("remoto"), "{motivo}"),
+        otro => panic!("{otro:?}"),
+    }
+    // ni volver remoto el perfil que usa el ejecutor
+    let r = establecer(&f, Canal::Web, Some(&version(&f)), &cambio("modelos.local.remoto", json!(true)));
+    assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{r:?}");
+    // ni quitarle el modelo al ejecutor
+    let r = establecer(&f, Canal::Web, Some(&version(&f)), &cambio("agentes.qwen-code.modelo", json!("")));
+    assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{r:?}");
+    // ni apuntar a un perfil que no existe
+    let r = establecer(&f, Canal::Web, Some(&version(&f)), &cambio("agentes.opencode.modelo", json!("nada")));
+    assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{r:?}");
+    // ni borrar un perfil que alguien usa
+    let quitar = vec![("modelos.gpt.nombre".to_string(), None), ("modelos.gpt.remoto".to_string(), None)];
+    let r = establecer(&f, Canal::Web, Some(&version(&f)), &quitar);
+    assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{r:?}");
+
+    // escrito a mano: el ejecutor pierde el perfil remoto y vuelve al suyo
+    escribe(&f, "ajustes.toml", "[modelos.gpt]\nnombre = \"g\"\nremoto = true\n[agentes.qwen-code]\nmodelo = \"gpt\"\n");
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.agentes["qwen-code"].modelo, "local");
+    assert!(e.avisos.iter().any(|a| a.contains("agentes.qwen-code.modelo") && a.contains("remoto")), "{:?}", e.avisos);
+}
+
+#[test]
+fn perfiles_de_modelo() {
+    let (_d, f) = fuentes();
+    // un perfil local nuevo, con su URL de loopback, y Codex como ejecutor con él
+    let lote = vec![
+        ("modelos.rapido.nombre".to_string(), Some(json!("qwen3-8b"))),
+        ("modelos.rapido.base_url".to_string(), Some(json!("http://127.0.0.1:8081/v1"))),
+        ("agentes.codex.modelo".to_string(), Some(json!("rapido"))),
+        ("roles.ejecutor".to_string(), Some(json!("codex"))),
+    ];
+    establecer(&f, Canal::Web, Some(""), &lote).unwrap();
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.modelo_ejecutor().nombre, "qwen3-8b");
+    assert_eq!(e.ajustes.modelos.len(), 2);
+    assert!(e.claves.iter().any(|(n, _)| n == "modelos.rapido.remoto"));
+    // un perfil a medias (sin URL y sin ser remoto) no se escribe
+    let r = establecer(&f, Canal::Web, Some(&version(&f)), &cambio("modelos.otro.nombre", json!("x")));
+    assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{r:?}");
+    // ni un perfil local con una URL de fuera
+    let r = establecer(&f, Canal::Web, Some(&version(&f)), &cambio("modelos.rapido.base_url", json!("https://api.ejemplo.com/v1")));
+    assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{r:?}");
+    // id de perfil inválido
+    let r = establecer(&f, Canal::Web, Some(&version(&f)), &cambio("modelos.Mal.nombre", json!("x")));
+    assert!(matches!(r, Err(ErrorAjustes::ClaveDesconocida(_))), "{r:?}");
+    // escrito a mano a medias: se descarta el perfil, con aviso
+    escribe(&f, "ajustes.toml", "[modelos.medio]\nnombre = \"x\"\n");
+    let e = cargar_de(&f);
+    assert!(!e.ajustes.modelos.contains_key("medio"));
+    assert!(!e.valores.contains_key("modelos.medio.nombre"));
+    assert!(e.avisos.iter().any(|a| a.contains("modelos.medio") && a.contains("descarta")), "{:?}", e.avisos);
+}
+
+#[test]
+fn las_claves_antiguas_del_modelo_pasan_a_las_nuevas_al_escribir() {
+    let (_d, f) = fuentes();
+    escribe(&f, "ajustes.toml", "[modelo]\nnombre = \"viejo\"\nqwen_bin = \"/opt/qwen\"\n\n[web]\nsondeo_ms = 4000\n");
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.agentes["qwen-code"].bin, "/opt/qwen");
+    assert_eq!(e.origenes["agentes.qwen-code.bin"].legible(), "heredado: ajustes.toml [modelo]");
+    // el nombre antiguo sigue valiendo para escribir, y se escribe el nuevo
+    let a = establecer(&f, Canal::Terminal, None, &cambio("modelo.nombre", json!("nuevo"))).unwrap();
+    assert_eq!(a[0].clave, "modelos.local.nombre");
+    let t = std::fs::read_to_string(f.fichero()).unwrap();
+    assert!(t.contains("[modelos.local]") && t.contains("nombre = \"nuevo\""), "{t}");
+    assert!(!t.contains("\"viejo\""), "{t}");
+    assert!(t.contains("qwen_bin = \"/opt/qwen\""), "{t}");
+    establecer(&f, Canal::Terminal, None, &cambio("agentes.qwen-code.bin", json!("/opt/qwen2"))).unwrap();
+    let t = std::fs::read_to_string(f.fichero()).unwrap();
+    assert!(!t.contains("[modelo]"), "{t}");
+    assert!(t.contains("sondeo_ms = 4000"), "{t}");
+    let e = cargar_de(&f);
+    assert_eq!((e.ajustes.modelos["local"].nombre.as_str(), e.ajustes.agentes["qwen-code"].bin.as_str()), ("nuevo", "/opt/qwen2"));
+    assert!(e.avisos.is_empty(), "{:?}", e.avisos);
+}
+
+#[test]
+fn un_ajustes_toml_imposible_cae_a_los_roles_de_fabrica() {
+    let (_d, f) = fuentes();
+    escribe(
+        &f,
+        "ajustes.toml",
+        "[modelos.local]\nremoto = true\n[roles]\nplanificador = \"qwen-code\"\nejecutor = \"opencode\"\n[agentes.opencode]\nmodelo = \"\"\n",
+    );
+    let e = cargar_de(&f);
+    assert_eq!(validar_roles(&e.ajustes), Ok(()));
+    assert_eq!(e.ajustes.roles.ejecutor, "qwen-code");
+    assert_ne!(e.ajustes.roles.planificador, e.ajustes.roles.ejecutor);
+    assert!(!e.ajustes.modelo_ejecutor().remoto);
+    assert!(!e.conflictos.is_empty());
 }

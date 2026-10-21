@@ -56,10 +56,11 @@ fn techo_parcial<'de, D: Deserializer<'de>>(d: D) -> Result<Topes, D::Error> {
 impl ConfigOrquestador {
     pub fn desde_ajustes(a: &Ajustes) -> Self {
         let s = &a.agente.skills;
+        let perfil = a.modelo_ejecutor();
         Self {
-            base_url: a.modelo.base_url.clone(),
-            modelo: a.modelo.nombre.clone(),
-            qwen_bin: a.modelo.qwen_bin.clone(),
+            base_url: perfil.base_url.clone(),
+            modelo: perfil.nombre.clone(),
+            qwen_bin: a.agentes["qwen-code"].bin.clone(),
             techo_topes: techo(a),
             avisos_escritorio: a.agente.avisos_escritorio,
             sandbox: a.agente.sandbox,

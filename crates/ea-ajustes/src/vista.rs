@@ -5,13 +5,13 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::cargar::{Efectivos, Origen};
-use crate::claves::{Tipo, CLAVES, SECCIONES};
+use crate::claves::{titulo, Clave, Tipo, SECCIONES};
 use crate::fuentes::Fuentes;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FilaAjuste {
-    pub clave: &'static str,
-    pub titulo: &'static str,
+    pub clave: String,
+    pub titulo: String,
     pub descripcion: &'static str,
     pub tipo: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,7 +72,7 @@ impl Efectivos {
             .map(|(id, titulo)| SeccionAjustes {
                 id,
                 titulo,
-                claves: CLAVES.iter().filter(|c| c.seccion == *id).map(|c| self.fila(c)).collect(),
+                claves: self.claves.iter().filter(|(_, c)| c.seccion == *id).map(|(n, c)| self.fila(n, c)).collect(),
             })
             .collect();
         Resumen {
@@ -90,29 +90,30 @@ impl Efectivos {
         }
     }
 
-    fn fila(&self, c: &'static crate::claves::Clave) -> FilaAjuste {
+    fn fila(&self, nombre: &str, c: &'static Clave) -> FilaAjuste {
         let (min, max) = match c.tipo {
             Tipo::Entero { min, max } => (Some(min), Some(max)),
             _ => (None, None),
         };
-        let origen = self.origenes[c.nombre].clone();
+        let origen = self.origenes[nombre].clone();
         let fijada_por = match origen {
             Origen::Entorno { variable } => Some(variable),
             _ => None,
         };
         FilaAjuste {
-            clave: c.nombre,
-            titulo: c.titulo,
+            clave: nombre.to_string(),
+            titulo: titulo(nombre, c),
             descripcion: c.descripcion,
             tipo: c.tipo.nombre(),
             min,
             max,
             permitidos: match c.tipo {
                 Tipo::Lista { permitidos } => permitidos,
+                Tipo::Eleccion { permitidos } => Some(permitidos),
                 _ => None,
             },
-            valor: self.valores[c.nombre].clone(),
-            defecto: self.defectos[c.nombre].clone(),
+            valor: self.valores[nombre].clone(),
+            defecto: self.defectos[nombre].clone(),
             origen,
             edicion: c.edicion.nombre(),
             endurecible: c.endurecible,

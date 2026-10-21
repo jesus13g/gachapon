@@ -4,7 +4,8 @@
 
 use serde_json::Value;
 
-use crate::fuentes::Ajustes;
+use crate::agentes::{ficha, id_perfil_valido, IDS_AGENTES};
+use crate::fuentes::{Ajustes, ConfigAgente, PerfilModelo};
 use crate::validar::expandir_tilde;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +19,13 @@ pub enum Tipo {
     Ruta,
     /// Lista de nombres; con `permitidos`, solo esos.
     Lista { permitidos: Option<&'static [&'static str]> },
+    /// Uno de una lista cerrada.
+    Eleccion { permitidos: &'static [&'static str] },
+    /// URL de un perfil de modelo: vacía o `http(s)://` sin credenciales. Que
+    /// sea de loopback se exige al perfil no remoto (validación cruzada).
+    UrlPerfil,
+    /// Id de un perfil de modelo, o vacío.
+    Perfil,
 }
 
 impl Tipo {
@@ -29,6 +37,9 @@ impl Tipo {
             Tipo::Url => "url",
             Tipo::Ruta => "ruta",
             Tipo::Lista { .. } => "lista",
+            Tipo::Eleccion { .. } => "eleccion",
+            Tipo::UrlPerfil => "url",
+            Tipo::Perfil => "perfil",
         }
     }
 }
@@ -93,7 +104,9 @@ impl Aplica {
 
 #[derive(Debug)]
 pub struct Clave {
-    /// `seccion.subseccion.clave`, igual que en `ajustes.toml`.
+    /// `seccion.subseccion.clave`, igual que en `ajustes.toml`. Con `*` es un
+    /// patrón: `modelos.*.nombre` vale para cada perfil y `agentes.*.bin` para
+    /// cada agente del catálogo (ver `concretas`).
     pub nombre: &'static str,
     pub seccion: &'static str,
     pub titulo: &'static str,
@@ -105,14 +118,18 @@ pub struct Clave {
     pub aplica: Aplica,
     /// Variable de entorno que la fija (y entonces nadie la cambia).
     pub entorno: Option<&'static str>,
-    /// Fichero antiguo y ruta con puntos dentro de él.
-    pub heredada: Option<(&'static str, &'static str)>,
+    /// Fuentes antiguas, por orden de preferencia: fichero y ruta con puntos
+    /// dentro de él. Las de una instancia de un patrón están en
+    /// `HEREDADAS_INSTANCIA`.
+    pub heredada: &'static [(&'static str, &'static str)],
 }
 
 /// Secciones en el orden en que se muestran.
 pub static SECCIONES: &[(&str, &str)] = &[
-    ("modelo", "Modelo local"),
-    ("agente", "Agente local"),
+    ("roles", "Roles"),
+    ("agentes", "Agentes"),
+    ("modelos", "Modelos"),
+    ("agente", "Ejecutor: contención y skills"),
     ("orquestador", "Orquestador"),
     ("red", "Red"),
     ("rutas", "Rutas"),
@@ -121,55 +138,119 @@ pub static SECCIONES: &[(&str, &str)] = &[
 
 const TODOS: &[&str] = &["ea-orchestrator", "ea-web", "ea-mcp"];
 const ORQ: &str = "orquestador.toml";
+/// La sección `[modelo]` que `ajustes.toml` tenía antes de la 017: se lee
+/// como fuente heredada del perfil `local` y de `agentes.qwen-code.bin`.
+pub(crate) const AJ_VIEJO: &str = "ajustes.toml [modelo]";
+/// Claves antiguas de `ajustes.toml` y su nombre de ahora.
+pub static ALIAS: &[(&str, &str)] = &[
+    ("modelo.nombre", "modelos.local.nombre"),
+    ("modelo.base_url", "modelos.local.base_url"),
+    ("modelo.qwen_bin", "agentes.qwen-code.bin"),
+];
+
+/// Fuentes heredadas de instancias concretas de un patrón.
+static HEREDADAS_INSTANCIA: &[(&str, &[(&str, &str)])] = &[
+    ("modelos.local.nombre", &[(AJ_VIEJO, "modelo.nombre"), (ORQ, "modelo")]),
+    ("modelos.local.base_url", &[(AJ_VIEJO, "modelo.base_url"), (ORQ, "base_url")]),
+    ("agentes.qwen-code.bin", &[(AJ_VIEJO, "modelo.qwen_bin"), (ORQ, "qwen_bin")]),
+];
 
 pub static CLAVES: &[Clave] = &[
     Clave {
-        nombre: "modelo.nombre",
-        seccion: "modelo",
-        titulo: "Modelo",
-        descripcion: "Nombre del modelo que sirve llama-server y usa Qwen Code (-m).",
-        tipo: Tipo::Texto { max: 200 },
+        nombre: "roles.planificador",
+        seccion: "roles",
+        titulo: "Planificador",
+        descripcion: "Agente que formaliza y revisa (sesión interactiva). No puede ser el mismo que el ejecutor.",
+        tipo: Tipo::Eleccion { permitidos: IDS_AGENTES },
         edicion: Edicion::Web,
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "modelo")),
+        heredada: &[],
     },
     Clave {
-        nombre: "modelo.base_url",
-        seccion: "modelo",
-        titulo: "URL del servidor",
-        descripcion: "Endpoint OpenAI de llama-server. Solo 127.0.0.1, localhost o [::1].",
-        tipo: Tipo::Url,
+        nombre: "roles.ejecutor",
+        seccion: "roles",
+        titulo: "Ejecutor",
+        descripcion: "Agente que ejecuta desatendido en bwrap con un modelo local. El cambio vale para el próximo trabajo que se tome; el que está en curso sigue con el suyo.",
+        tipo: Tipo::Eleccion { permitidos: IDS_AGENTES },
         edicion: Edicion::Web,
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "base_url")),
+        heredada: &[],
     },
     Clave {
-        nombre: "modelo.qwen_bin",
-        seccion: "modelo",
-        titulo: "Binario de Qwen Code",
-        descripcion: "Programa que lanza el ejecutor. Es código que se ejecuta: solo desde la terminal.",
+        nombre: "agentes.*.bin",
+        seccion: "agentes",
+        titulo: "binario",
+        descripcion: "Programa que se lanza. Es código que se ejecuta: solo desde la terminal.",
         tipo: Tipo::Texto { max: 4096 },
         edicion: Edicion::Terminal,
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "qwen_bin")),
+        heredada: &[],
+    },
+    Clave {
+        nombre: "agentes.*.modelo",
+        seccion: "agentes",
+        titulo: "modelo",
+        descripcion: "Perfil de modelo (modelos.<id>) que usa el agente; vacío: el que tenga configurado él mismo (solo para un planificador). El del ejecutor tiene que ser local.",
+        tipo: Tipo::Perfil,
+        edicion: Edicion::Web,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
+    },
+    Clave {
+        nombre: "modelos.*.nombre",
+        seccion: "modelos",
+        titulo: "nombre del modelo",
+        descripcion: "Nombre del modelo tal como lo pide el agente (-m).",
+        tipo: Tipo::Texto { max: 200 },
+        edicion: Edicion::Web,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
+    },
+    Clave {
+        nombre: "modelos.*.base_url",
+        seccion: "modelos",
+        titulo: "URL del servidor",
+        descripcion: "Endpoint compatible con OpenAI. Un perfil local solo admite 127.0.0.1, localhost o [::1]; uno remoto puede dejarla vacía.",
+        tipo: Tipo::UrlPerfil,
+        edicion: Edicion::Web,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
+    },
+    Clave {
+        nombre: "modelos.*.remoto",
+        seccion: "modelos",
+        titulo: "remoto",
+        descripcion: "Modelo en la nube: solo lo puede usar el planificador, nunca el ejecutor.",
+        tipo: Tipo::Booleano,
+        edicion: Edicion::Web,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
     },
     Clave {
         nombre: "agente.sandbox",
         seccion: "agente",
         titulo: "Sandbox (bubblewrap)",
-        descripcion: "Ejecuta Qwen dentro de bwrap: solo el worktree es escribible. Apagarlo solo desde la terminal.",
+        descripcion: "Ejecuta al agente ejecutor dentro de bwrap: solo el worktree es escribible. Apagarlo solo desde la terminal.",
         tipo: Tipo::Booleano,
         edicion: Edicion::Terminal,
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "sandbox")),
+        heredada: &[(ORQ, "sandbox")],
     },
     Clave {
         nombre: "agente.avisos_escritorio",
@@ -181,43 +262,43 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "avisos_escritorio")),
+        heredada: &[(ORQ, "avisos_escritorio")],
     },
     Clave {
         nombre: "agente.techo_topes.turnos",
         seccion: "agente",
         titulo: "Techo de turnos",
-        descripcion: "Máximo de turnos de Qwen por llamada; las órdenes que pidan más se recortan.",
+        descripcion: "Máximo de turnos del ejecutor por llamada (si su CLI lo admite); las órdenes que pidan más se recortan.",
         tipo: Tipo::Entero { min: 1, max: 100 },
         edicion: Edicion::Web,
         endurecible: true,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "topes.turnos")),
+        heredada: &[(ORQ, "topes.turnos")],
     },
     Clave {
         nombre: "agente.techo_topes.tiempo_s",
         seccion: "agente",
         titulo: "Techo de tiempo (s)",
-        descripcion: "Máximo de segundos por llamada a Qwen; las órdenes que pidan más se recortan.",
+        descripcion: "Máximo de segundos por llamada al ejecutor; las órdenes que pidan más se recortan.",
         tipo: Tipo::Entero { min: 60, max: 3600 },
         edicion: Edicion::Web,
         endurecible: true,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "topes.tiempo_s")),
+        heredada: &[(ORQ, "topes.tiempo_s")],
     },
     Clave {
         nombre: "agente.techo_topes.llamadas_herramienta",
         seccion: "agente",
         titulo: "Techo de llamadas a herramientas",
-        descripcion: "Máximo de llamadas a herramientas por llamada a Qwen.",
+        descripcion: "Máximo de llamadas a herramientas por llamada al ejecutor (si su CLI lo admite).",
         tipo: Tipo::Entero { min: 1, max: 200 },
         edicion: Edicion::Web,
         endurecible: true,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "topes.llamadas_herramienta")),
+        heredada: &[(ORQ, "topes.llamadas_herramienta")],
     },
     Clave {
         nombre: "agente.techo_topes.iteraciones",
@@ -229,19 +310,19 @@ pub static CLAVES: &[Clave] = &[
         endurecible: true,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "topes.iteraciones")),
+        heredada: &[(ORQ, "topes.iteraciones")],
     },
     Clave {
         nombre: "agente.skills.dir",
         seccion: "agente",
-        titulo: "Catálogo de skills de Qwen",
-        descripcion: "Directorio con las skills <nombre>.md del agente local.",
+        titulo: "Catálogo de skills del ejecutor",
+        descripcion: "Directorio con las skills <nombre>.md del ejecutor.",
         tipo: Tipo::Ruta,
         edicion: Edicion::Terminal,
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "skills.dir")),
+        heredada: &[(ORQ, "skills.dir")],
     },
     Clave {
         nombre: "agente.skills.habilitadas",
@@ -253,7 +334,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "skills.habilitadas")),
+        heredada: &[(ORQ, "skills.habilitadas")],
     },
     Clave {
         nombre: "agente.skills.max_por_trabajo",
@@ -265,7 +346,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: true,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "skills.max_por_trabajo")),
+        heredada: &[(ORQ, "skills.max_por_trabajo")],
     },
     Clave {
         nombre: "agente.skills.max_caracteres",
@@ -277,7 +358,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: true,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "skills.max_caracteres")),
+        heredada: &[(ORQ, "skills.max_caracteres")],
     },
     Clave {
         nombre: "agente.skills.pueden_elegir",
@@ -289,7 +370,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: true,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: Some((ORQ, "skills.pueden_elegir")),
+        heredada: &[(ORQ, "skills.pueden_elegir")],
     },
     Clave {
         nombre: "orquestador.intervalo_sondeo_s",
@@ -301,7 +382,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::Reinicio(&["ea-orchestrator"]),
         entorno: None,
-        heredada: Some(("orchestrator.toml", "intervalo_sondeo_s")),
+        heredada: &[("orchestrator.toml", "intervalo_sondeo_s")],
     },
     Clave {
         nombre: "orquestador.intervalo_heartbeat_s",
@@ -313,7 +394,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::Reinicio(TODOS),
         entorno: None,
-        heredada: Some(("orchestrator.toml", "intervalo_heartbeat_s")),
+        heredada: &[("orchestrator.toml", "intervalo_heartbeat_s")],
     },
     Clave {
         nombre: "orquestador.rutinas_dir",
@@ -325,7 +406,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::Reinicio(&["ea-web", "ea-mcp"]),
         entorno: None,
-        heredada: Some(("orchestrator.toml", "rutinas_dir")),
+        heredada: &[("orchestrator.toml", "rutinas_dir")],
     },
     Clave {
         nombre: "red.puerto_web",
@@ -337,7 +418,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::Reinicio(&["ea-web"]),
         entorno: Some("EA_WEB_PORT"),
-        heredada: None,
+        heredada: &[],
     },
     Clave {
         nombre: "red.puerto_mcp",
@@ -349,7 +430,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::Reinicio(&["ea-mcp"]),
         entorno: Some("EA_MCP_PORT"),
-        heredada: None,
+        heredada: &[],
     },
     Clave {
         nombre: "rutas.db",
@@ -361,7 +442,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::Reinicio(TODOS),
         entorno: Some("EA_DB_PATH"),
-        heredada: None,
+        heredada: &[],
     },
     Clave {
         nombre: "rutas.estado",
@@ -373,7 +454,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::Reinicio(TODOS),
         entorno: Some("EA_ESTADO_DIR"),
-        heredada: None,
+        heredada: &[],
     },
     Clave {
         nombre: "rutas.boveda",
@@ -385,7 +466,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::Reinicio(&["ea-web", "ea-mcp"]),
         entorno: Some("EA_BOVEDA_DIR"),
-        heredada: Some(("boveda.toml", "raiz")),
+        heredada: &[("boveda.toml", "raiz")],
     },
     Clave {
         nombre: "web.sondeo_ms",
@@ -397,7 +478,7 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: None,
+        heredada: &[],
     },
     Clave {
         nombre: "web.diario_limite",
@@ -409,12 +490,86 @@ pub static CLAVES: &[Clave] = &[
         endurecible: false,
         aplica: Aplica::EnCaliente,
         entorno: None,
-        heredada: None,
+        heredada: &[],
     },
 ];
 
+/// La definición de una clave concreta: una fija o la instancia de un patrón
+/// (`modelos.<id>.campo` con un id válido, `agentes.<id>.campo` con un agente
+/// del catálogo).
 pub fn clave(nombre: &str) -> Option<&'static Clave> {
-    CLAVES.iter().find(|c| c.nombre == nombre)
+    if let Some(c) = CLAVES.iter().find(|c| c.nombre == nombre && !c.nombre.contains('*')) {
+        return Some(c);
+    }
+    let (grupo, id, campo) = trocear(nombre)?;
+    let valido = match grupo {
+        "modelos" => id_perfil_valido(id),
+        "agentes" => ficha(id).is_some(),
+        _ => false,
+    };
+    if !valido {
+        return None;
+    }
+    CLAVES.iter().find(|c| c.nombre.strip_prefix(grupo).and_then(|r| r.strip_prefix(".*.")) == Some(campo))
+}
+
+/// `grupo.id.campo` en sus tres trozos.
+fn trocear(nombre: &str) -> Option<(&str, &str, &str)> {
+    let mut p = nombre.splitn(3, '.');
+    let (g, id, campo) = (p.next()?, p.next()?, p.next()?);
+    (!campo.contains('.')).then_some((g, id, campo))
+}
+
+/// El nombre de ahora de una clave antigua de `ajustes.toml` (`modelo.*`).
+pub fn sin_alias(nombre: &str) -> &str {
+    ALIAS.iter().find(|(viejo, _)| *viejo == nombre).map_or(nombre, |(_, nuevo)| nuevo)
+}
+
+/// Las fuentes heredadas de una clave concreta.
+pub(crate) fn heredadas(nombre: &str, c: &'static Clave) -> &'static [(&'static str, &'static str)] {
+    HEREDADAS_INSTANCIA.iter().find(|(n, _)| *n == nombre).map_or(c.heredada, |(_, h)| h)
+}
+
+/// Las claves concretas, en el orden en que se muestran: las fijas tal cual,
+/// `agentes.*` para cada agente del catálogo y `modelos.*` para cada perfil
+/// de `perfiles`.
+pub fn concretas(perfiles: &[String]) -> Vec<(String, &'static Clave)> {
+    let mut salida = Vec::new();
+    let mut hechos: Vec<&str> = Vec::new();
+    for c in CLAVES {
+        let Some((grupo, _)) = c.nombre.split_once(".*.") else {
+            salida.push((c.nombre.to_string(), c));
+            continue;
+        };
+        if hechos.contains(&grupo) {
+            continue;
+        }
+        hechos.push(grupo);
+        let ids: Vec<&str> = match grupo {
+            "agentes" => IDS_AGENTES.to_vec(),
+            _ => perfiles.iter().map(String::as_str).collect(),
+        };
+        let patrones: Vec<&'static Clave> =
+            CLAVES.iter().filter(|p| p.nombre.split_once(".*.").is_some_and(|(g, _)| g == grupo)).collect();
+        for id in ids {
+            for p in &patrones {
+                let campo = p.nombre.rsplit('.').next().unwrap_or_default();
+                salida.push((format!("{grupo}.{id}.{campo}"), *p));
+            }
+        }
+    }
+    salida
+}
+
+/// Título para la interfaz: el de la clave o, en un patrón, con el agente o
+/// el perfil delante («Codex · binario», «local · remoto»).
+pub fn titulo(nombre: &str, c: &Clave) -> String {
+    if !c.nombre.contains('*') {
+        return c.titulo.to_string();
+    }
+    let (grupo, id, _) = trocear(nombre).unwrap_or_default();
+    let quien = if grupo == "agentes" { ficha(id).map_or(id, |f| f.nombre) } else { id };
+    format!("{quien} · {}", c.titulo)
 }
 
 fn ruta(p: &std::path::Path) -> Value {
@@ -423,10 +578,29 @@ fn ruta(p: &std::path::Path) -> Value {
 
 /// Valor de una clave en unos ajustes tipados.
 pub(crate) fn valor_de(a: &Ajustes, nombre: &str) -> Value {
+    if let Some((grupo, id, campo)) = trocear(nombre) {
+        match (grupo, campo) {
+            ("modelos", _) => {
+                return a.modelos.get(id).map_or(Value::Null, |p| match campo {
+                    "nombre" => p.nombre.clone().into(),
+                    "base_url" => p.base_url.clone().into(),
+                    "remoto" => p.remoto.into(),
+                    _ => Value::Null,
+                });
+            }
+            ("agentes", _) => {
+                return a.agentes.get(id).map_or(Value::Null, |g| match campo {
+                    "bin" => g.bin.clone().into(),
+                    "modelo" => g.modelo.clone().into(),
+                    _ => Value::Null,
+                });
+            }
+            _ => {}
+        }
+    }
     match nombre {
-        "modelo.nombre" => a.modelo.nombre.clone().into(),
-        "modelo.base_url" => a.modelo.base_url.clone().into(),
-        "modelo.qwen_bin" => a.modelo.qwen_bin.clone().into(),
+        "roles.planificador" => a.roles.planificador.clone().into(),
+        "roles.ejecutor" => a.roles.ejecutor.clone().into(),
         "agente.sandbox" => a.agente.sandbox.into(),
         "agente.avisos_escritorio" => a.agente.avisos_escritorio.into(),
         "agente.techo_topes.turnos" => a.agente.techo_topes.turnos.into(),
@@ -462,10 +636,37 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
     let t = || v.as_str().unwrap_or_default().to_string();
     let r = || expandir_tilde(v.as_str().unwrap_or_default());
     let b = || v.as_bool().unwrap_or_default();
+    if let Some((grupo, id, campo)) = trocear(nombre) {
+        match grupo {
+            "modelos" => {
+                let p = a.modelos.entry(id.to_string()).or_insert_with(|| PerfilModelo {
+                    nombre: String::new(),
+                    base_url: String::new(),
+                    remoto: false,
+                });
+                match campo {
+                    "nombre" => p.nombre = t(),
+                    "base_url" => p.base_url = t(),
+                    "remoto" => p.remoto = b(),
+                    _ => {}
+                }
+                return;
+            }
+            "agentes" => {
+                let g = a.agentes.entry(id.to_string()).or_insert_with(|| ConfigAgente { bin: id.to_string(), modelo: String::new() });
+                match campo {
+                    "bin" => g.bin = t(),
+                    "modelo" => g.modelo = t(),
+                    _ => {}
+                }
+                return;
+            }
+            _ => {}
+        }
+    }
     match nombre {
-        "modelo.nombre" => a.modelo.nombre = t(),
-        "modelo.base_url" => a.modelo.base_url = t(),
-        "modelo.qwen_bin" => a.modelo.qwen_bin = t(),
+        "roles.planificador" => a.roles.planificador = t(),
+        "roles.ejecutor" => a.roles.ejecutor = t(),
         "agente.sandbox" => a.agente.sandbox = b(),
         "agente.avisos_escritorio" => a.agente.avisos_escritorio = b(),
         "agente.techo_topes.turnos" => a.agente.techo_topes.turnos = n() as u32,

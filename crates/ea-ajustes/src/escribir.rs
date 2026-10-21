@@ -11,7 +11,7 @@ use serde_json::Value;
 use toml_edit::{DocumentMut, Item, Table, TableLike};
 
 use crate::cargar::{cargar_de, resolver, Origen};
-use crate::claves::{clave, Aplica, Canal, Clave, Edicion, Tipo};
+use crate::claves::{clave, heredadas, sin_alias, Aplica, Canal, Clave, Edicion, Tipo, AJ_VIEJO};
 use crate::error::ErrorAjustes;
 use crate::fuentes::Fuentes;
 use crate::validar::validar_valor;
@@ -21,7 +21,7 @@ static CONTADOR: AtomicU64 = AtomicU64::new(0);
 /// Un cambio ya escrito.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Aplicado {
-    pub clave: &'static str,
+    pub clave: String,
     pub antes: Value,
     pub despues: Value,
     pub aplica: Aplica,
@@ -83,7 +83,9 @@ pub fn interpretar(c: &Clave, texto: &str) -> Result<Value, ErrorAjustes> {
         Tipo::Lista { .. } => {
             Value::from(t.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>())
         }
-        Tipo::Texto { .. } | Tipo::Url | Tipo::Ruta => Value::String(t.to_string()),
+        Tipo::Texto { .. } | Tipo::Url | Tipo::Ruta | Tipo::Eleccion { .. } | Tipo::UrlPerfil | Tipo::Perfil => {
+            Value::String(t.to_string())
+        }
     };
     validar_valor(c, &v).map_err(invalido)
 }
@@ -153,6 +155,25 @@ fn poner(doc: &mut DocumentMut, nombre: &str, valor: Option<&Value>) -> Result<(
     Ok(())
 }
 
+/// Quita las tablas que se han quedado sin nada (p. ej. `[modelo]` al pasar
+/// sus claves a `modelos.local`), salvo que lleven un comentario.
+fn quitar_tablas_vacias(doc: &mut DocumentMut) {
+    fn vacia(i: &Item) -> bool {
+        match i.as_table() {
+            Some(t) => {
+                let comentada = t.decor().prefix().and_then(|p| p.as_str()).is_some_and(|p| p.contains('#'));
+                !comentada && t.iter().all(|(_, v)| vacia(v))
+            }
+            None => false,
+        }
+    }
+    let raiz = doc.as_table_mut();
+    let sobran: Vec<String> = raiz.iter().filter(|(_, v)| vacia(v)).map(|(k, _)| k.to_string()).collect();
+    for k in sobran {
+        raiz.remove(&k);
+    }
+}
+
 /// ¿`nuevo` es igual o más estricto que `actual`? Números: menor o igual;
 /// listas: subconjunto.
 fn no_afloja(nuevo: &Value, actual: &Value) -> bool {
@@ -188,50 +209,71 @@ pub fn establecer(
     let mut doc: DocumentMut = texto.parse().map_err(|e: toml_edit::TomlError| ErrorAjustes::FicheroInvalido(e.message().to_string()))?;
     let antes = cargar_de(f);
 
-    let mut claves: Vec<&'static Clave> = Vec::new();
+    let mut claves: Vec<(String, &'static Clave)> = Vec::new();
+    let mut pedidas: Vec<(String, bool)> = Vec::new();
     for (nombre, valor) in cambios {
-        let c = clave(nombre).ok_or_else(|| ErrorAjustes::ClaveDesconocida(nombre.clone()))?;
+        // `modelo.nombre` y compañía siguen valiendo: se escriben con su
+        // nombre de ahora.
+        let nombre = sin_alias(nombre.trim()).to_string();
+        let c = clave(&nombre).ok_or_else(|| ErrorAjustes::ClaveDesconocida(nombre.clone()))?;
         if let Some(var) = c.entorno
             && f.entorno.var(var).is_some() {
-                return Err(ErrorAjustes::FijadaPorEntorno { clave: c.nombre.into(), variable: var.into() });
+                return Err(ErrorAjustes::FijadaPorEntorno { clave: nombre, variable: var.into() });
             }
         if canal == Canal::Web && c.edicion == Edicion::Terminal {
-            return Err(ErrorAjustes::NoEditable { clave: c.nombre.into(), canal: "la web".into() });
+            return Err(ErrorAjustes::NoEditable { clave: nombre, canal: "la web".into() });
         }
         let valor = match valor {
-            Some(v) => Some(validar_valor(c, v).map_err(|motivo| ErrorAjustes::ValorInvalido { clave: c.nombre.into(), motivo })?),
+            Some(v) => Some(validar_valor(c, v).map_err(|motivo| ErrorAjustes::ValorInvalido { clave: nombre.clone(), motivo })?),
             None => None,
         };
-        poner(&mut doc, c.nombre, valor.as_ref())?;
-        claves.push(c);
+        poner(&mut doc, &nombre, valor.as_ref())?;
+        // Al escribir la clave nueva se quita la antigua de `[modelo]`, para
+        // que el fichero no diga dos cosas.
+        if valor.is_some() {
+            for (fichero, ruta) in heredadas(&nombre, c) {
+                if *fichero == AJ_VIEJO {
+                    poner(&mut doc, ruta, None)?;
+                }
+            }
+        }
+        pedidas.push((nombre.clone(), valor.is_some()));
+        claves.push((nombre, c));
     }
+    quitar_tablas_vacias(&mut doc);
 
     // El resultado se evalúa como si ya estuviera escrito.
     let nuevo_texto = doc.to_string();
     let despues = resolver(f, Some(&nuevo_texto), huella(nuevo_texto.as_bytes()), true);
-    for c in &claves {
-        let (n, a) = (&despues.valores[c.nombre], &antes.valores[c.nombre]);
+    // Un conflicto nuevo de la validación cruzada (puertos, perfiles, roles)
+    // impide escribir: lo pedido no es lo que quedaría.
+    if let Some(motivo) = despues.conflictos.iter().find(|c| !antes.conflictos.contains(c)) {
+        let clave = claves
+            .iter()
+            .map(|(n, _)| n)
+            .find(|n| motivo.contains(n.as_str()))
+            .or_else(|| claves.first().map(|(n, _)| n))
+            .cloned()
+            .unwrap_or_default();
+        return Err(ErrorAjustes::ValorInvalido { clave, motivo: motivo.clone() });
+    }
+    let nulo = Value::Null;
+    for (nombre, c) in &claves {
+        let n = despues.valores.get(nombre).unwrap_or(&nulo);
+        let a = antes.valores.get(nombre).unwrap_or(&nulo);
         if canal == Canal::Web && c.endurecible && !no_afloja(n, a) {
-            return Err(ErrorAjustes::SoloEndurecer { clave: c.nombre.into(), actual: a.to_string() });
+            return Err(ErrorAjustes::SoloEndurecer { clave: nombre.clone(), actual: a.to_string() });
         }
-        // Lo pedido debe ser lo que queda (salvo al quitar la clave): si la
-        // validación cruzada (puertos) lo ha descartado, no se escribe.
-        if despues.origenes[c.nombre] != Origen::Ajustes && cambios.iter().any(|(k, v)| k == c.nombre && v.is_some()) {
+        // Lo pedido debe ser lo que queda (salvo al quitar la clave).
+        if despues.origenes.get(nombre) != Some(&Origen::Ajustes) && pedidas.iter().any(|(k, puesta)| k == nombre && *puesta) {
             let motivo = despues
                 .avisos
                 .iter()
-                .find(|a| a.contains(c.nombre))
+                .find(|a| a.contains(nombre.as_str()))
                 .cloned()
                 .unwrap_or_else(|| "el valor no se puede aplicar".into());
-            return Err(ErrorAjustes::ValorInvalido { clave: c.nombre.into(), motivo });
+            return Err(ErrorAjustes::ValorInvalido { clave: nombre.clone(), motivo });
         }
-    }
-    let choque = despues.avisos.iter().any(|a| a.starts_with("red.puerto_web y red.puerto_mcp coinciden"));
-    if choque && claves.iter().any(|c| c.nombre.starts_with("red.")) {
-        return Err(ErrorAjustes::ValorInvalido {
-            clave: "red".into(),
-            motivo: "red.puerto_web y red.puerto_mcp no pueden coincidir".into(),
-        });
     }
     if let Some(v) = version
         && v != actual_version {
@@ -240,14 +282,14 @@ pub fn establecer(
 
     escribir_atomico(&fichero, nuevo_texto.as_bytes())?;
     let mut aplicados = Vec::new();
-    for c in claves {
-        if aplicados.iter().any(|a: &Aplicado| a.clave == c.nombre) {
+    for (nombre, c) in claves {
+        if aplicados.iter().any(|a: &Aplicado| a.clave == nombre) {
             continue;
         }
         aplicados.push(Aplicado {
-            clave: c.nombre,
-            antes: antes.valores[c.nombre].clone(),
-            despues: despues.valores[c.nombre].clone(),
+            antes: antes.valores.get(&nombre).cloned().unwrap_or(Value::Null),
+            despues: despues.valores.get(&nombre).cloned().unwrap_or(Value::Null),
+            clave: nombre,
             aplica: c.aplica,
         });
     }

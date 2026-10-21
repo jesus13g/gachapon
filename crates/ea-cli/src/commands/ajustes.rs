@@ -5,7 +5,7 @@
 
 use anyhow::{bail, Context, Result};
 use comfy_table::Table;
-use ea_ajustes::{cargar_de, clave, establecer as escribir, interpretar, Canal, Fuentes, CLAVES, SECCIONES};
+use ea_ajustes::{cargar_de, clave, establecer as escribir, interpretar, sin_alias, Canal, Fuentes, SECCIONES};
 use ea_store::{EventOutcome, NewEvent, Store};
 use serde_json::{json, Value};
 
@@ -31,8 +31,8 @@ pub fn ver(json: bool) -> Result<()> {
     for (id, titulo) in SECCIONES {
         let mut t = Table::new();
         t.set_header(vec!["Clave", "Valor", "Origen", "Edición", "Aplica"]);
-        for c in CLAVES.iter().filter(|c| c.seccion == *id) {
-            let origen = &e.origenes[c.nombre];
+        for (nombre, c) in e.claves.iter().filter(|(_, c)| c.seccion == *id) {
+            let origen = &e.origenes[nombre];
             let edicion = match origen {
                 ea_ajustes::Origen::Entorno { variable } => format!("fijada por {variable}"),
                 _ if c.endurecible && c.edicion == ea_ajustes::Edicion::Web => "web (solo bajar)".into(),
@@ -42,7 +42,7 @@ pub fn ver(json: bool) -> Result<()> {
                 ea_ajustes::Aplica::EnCaliente => "en caliente".to_string(),
                 ea_ajustes::Aplica::Reinicio(s) => format!("reiniciar {}", s.join(", ")),
             };
-            t.add_row(vec![c.nombre.to_string(), mostrar(&e.valores[c.nombre]), origen.legible(), edicion, aplica]);
+            t.add_row(vec![nombre.clone(), mostrar(&e.valores[nombre]), origen.legible(), edicion, aplica]);
         }
         println!("\n{titulo}\n{t}");
     }
@@ -56,9 +56,11 @@ pub fn ver(json: bool) -> Result<()> {
 }
 
 pub fn obtener(nombre: &str) -> Result<()> {
-    let c = clave(nombre).with_context(|| format!("no existe el ajuste {nombre:?} (mira `ea ajustes ver`)"))?;
+    let nombre = sin_alias(nombre.trim());
+    clave(nombre).with_context(|| format!("no existe el ajuste {nombre:?} (mira `ea ajustes ver`)"))?;
     let e = cargar_de(&Fuentes::sistema());
-    println!("{}", mostrar(&e.valores[c.nombre]));
+    let v = e.valores.get(nombre).with_context(|| format!("el perfil de {nombre:?} no existe o se ha descartado (mira los avisos de `ea ajustes ver`)"))?;
+    println!("{}", mostrar(v));
     Ok(())
 }
 
@@ -82,7 +84,7 @@ pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
     let mut lote: Vec<(String, Option<Value>)> = Vec::new();
     for c in cambios {
         let (k, v) = c.split_once('=').with_context(|| format!("{c:?}: se espera clave=valor"))?;
-        let k = k.trim();
+        let k = sin_alias(k.trim());
         let def = clave(k).with_context(|| format!("no existe el ajuste {k:?} (mira `ea ajustes ver`)"))?;
         lote.push((k.to_string(), Some(interpretar(def, v)?)));
     }

@@ -1868,7 +1868,7 @@ async fn los_ajustes_se_ven_con_origen_y_edicion() {
     assert!(v["fichero"].as_str().unwrap().starts_with(f._dir.path().to_str().unwrap()));
     assert_eq!(v["cliente"], json!({ "sondeo_ms": 3000, "diario_limite": 300 }));
     let ids: Vec<&str> = v["secciones"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["modelo", "agente", "orquestador", "red", "rutas", "web"]);
+    assert_eq!(ids, ["roles", "agentes", "modelos", "agente", "orquestador", "red", "rutas", "web"]);
     let turnos = clave_de(&v, "agente.techo_topes.turnos");
     assert_eq!((turnos["valor"].clone(), turnos["origen"]["tipo"].clone()), (json!(100), json!("defecto")));
     assert_eq!((turnos["edicion"].clone(), turnos["endurecible"].clone()), (json!("web"), json!(true)));
@@ -1914,6 +1914,15 @@ async fn la_web_no_afloja_ni_toca_lo_de_terminal() {
     assert_eq!(s, StatusCode::BAD_REQUEST);
     let (s, _) = post(&f, "/api/ajustes", json!({ "version": version, "cambios": { "no.existe": 1 } })).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+    // roles (017): el ejecutor se cambia desde aquí; un agente no ocupa los dos
+    let (s, _) = post(&f, "/api/ajustes", json!({ "version": version, "cambios": { "agentes.codex.bin": "/tmp/x" } })).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, v) = post(&f, "/api/ajustes", json!({ "version": version, "cambios": { "roles.ejecutor": "codex" } })).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["aplicados"][0]["clave"], "roles.ejecutor");
+    let version = v["ajustes"]["version"].clone();
+    let (s, v) = post(&f, "/api/ajustes", json!({ "version": version, "cambios": { "roles.planificador": "codex" } })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{v}");
     let cuerpo = json!({ "version": version, "cambios": { "web.sondeo_ms": 5000 } });
     let (s, _) = enviar(&f, Method::POST, "/api/ajustes", "localhost:8092", Some(cuerpo.clone()), false).await;
     assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);

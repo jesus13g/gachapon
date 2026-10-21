@@ -110,18 +110,27 @@ rango, una URL que no es local, un fichero que no es TOML) deja un aviso en
 `ea ajustes ver` y en ⚙ Ajustes y cae a la capa siguiente: nunca impide arrancar.
 
 Los ficheros antiguos se siguen leyendo, como fuentes heredadas de solo lectura
-(el sistema nunca los escribe): `orquestador.toml` (`modelo` → `modelo.nombre`,
-`base_url`, `qwen_bin`, `sandbox`, `avisos_escritorio` y las secciones `[topes]`
+(el sistema nunca los escribe): `orquestador.toml` (`modelo` →
+`modelos.local.nombre`, `base_url` → `modelos.local.base_url`, `qwen_bin` →
+`agentes.qwen-code.bin`, `sandbox`, `avisos_escritorio` y las secciones `[topes]`
 → `agente.techo_topes` y `[skills]` → `agente.skills`), `orchestrator.toml`
 (`intervalo_sondeo_s`, `intervalo_heartbeat_s`, `rutinas_dir` → `orquestador.*`) y
-`boveda.toml` (`raiz` → `rutas.boveda`). El sistema solo escribe `ajustes.toml`
-(de forma atómica y conservando comentarios y claves ajenas).
+`boveda.toml` (`raiz` → `rutas.boveda`). La sección `[modelo]` que tenía
+`ajustes.toml` antes de los roles también se lee así, y los nombres
+`modelo.nombre`, `modelo.base_url` y `modelo.qwen_bin` siguen valiendo en `ea
+ajustes`: al escribir uno se guarda con su nombre nuevo y se quita el antiguo.
+El sistema solo escribe `ajustes.toml` (de forma atómica y conservando
+comentarios y claves ajenas).
 
 | Clave | Defecto | Rango o forma | Entorno | Quién la cambia | Aplica |
 |---|---|---|---|---|---|
-| `modelo.nombre` | `qwen3-coder-30b` | texto | | web y terminal | en caliente |
-| `modelo.base_url` | `http://127.0.0.1:8080/v1` | solo `127.0.0.1`, `localhost` o `[::1]` | | web y terminal | en caliente |
-| `modelo.qwen_bin` | `qwen` | texto | | solo terminal | en caliente |
+| `roles.planificador` | `claude-code` | un agente del catálogo que admita el rol | | web y terminal | en caliente |
+| `roles.ejecutor` | `qwen-code` | `qwen-code`, `codex` u `opencode`; ≠ planificador | | web y terminal | en caliente (próximo trabajo) |
+| `agentes.<id>.bin` | `claude`, `qwen`, `codex`, `opencode`, `agy` | texto | | solo terminal | en caliente |
+| `agentes.<id>.modelo` | `local` (`""` en `claude-code` y `antigravity`) | id de un perfil o vacío | | web y terminal | en caliente |
+| `modelos.<perfil>.nombre` | `local`: `qwen3-coder-30b` | texto | | web y terminal | en caliente |
+| `modelos.<perfil>.base_url` | `local`: `http://127.0.0.1:8080/v1` | perfil no remoto: solo `127.0.0.1`, `localhost` o `[::1]` | | web y terminal | en caliente |
+| `modelos.<perfil>.remoto` | `false` | sí/no; uno remoto solo vale para el planificador | | web y terminal | en caliente |
 | `agente.sandbox` | `true` | sí/no | | solo terminal | en caliente |
 | `agente.avisos_escritorio` | `true` | sí/no | | web y terminal | en caliente |
 | `agente.techo_topes.turnos` | 100 | 1–100 | | web solo baja; terminal | en caliente |
@@ -149,6 +158,16 @@ todo para aislar pruebas). `red.puerto_web` y `red.puerto_mcp` no pueden
 coincidir; el host no se configura (siempre `127.0.0.1`). Una clave que fija su
 variable de entorno no se cambia desde ningún canal mientras esté definida.
 
+**Roles, agentes y modelos** (spec 017, en curso). Cada rol lo ocupa un agente
+del catálogo; el planificador y el ejecutor son agentes distintos, y el modelo
+del ejecutor tiene que ser un perfil local. Un cambio que rompa alguna de estas
+reglas no se escribe; si están rotas en un `ajustes.toml` editado a mano, `ea
+ajustes ver` lo avisa y se usan los valores por defecto de lo afectado. Un
+perfil nuevo se crea en un solo cambio: `ea ajustes establecer
+modelos.rapido.nombre=qwen3-8b modelos.rapido.base_url=http://127.0.0.1:8081/v1`.
+Por ahora el orquestador sigue lanzando a Qwen Code con el perfil del ejecutor;
+los adaptadores de Codex y OpenCode llegan en las siguientes tareas de la 017.
+
 **Techo de topes.** Los topes de cada orden (`turnos`, `tiempo_s`,
 `llamadas_herramienta`, `iteraciones`; por defecto 30/900/60/5) los pone quien la
 escribe. El ejecutor los recorta a `agente.techo_topes` antes de lanzar a Qwen
@@ -161,8 +180,8 @@ ese techo.
 gesto directo del usuario, como el editor de Memoria: solo llega a las claves
 marcadas «web», los techos y topes de skills solo bajan desde ahí, pide un
 segundo clic y comprueba la versión del fichero (409 si cambió). Lo que toca la
-seguridad del agente local (sandbox, binario de Qwen, quién elige skills, rutas)
-es solo de terminal. Cada cambio queda en el diario como `ajustes_cambiados`
+seguridad del ejecutor (sandbox, binarios de los agentes, quién elige skills,
+rutas) es solo de terminal. Cada cambio queda en el diario como `ajustes_cambiados`
 (actor `usuario`, con el canal y los valores antes y después). Ni `ea-mcp` ni el
 orquestador tienen forma de leer o escribir los ajustes. Claude Code sí podría
 editar `ajustes.toml` con su herramienta de ficheros, igual que antes
@@ -172,7 +191,7 @@ editar `ajustes.toml` con su herramienta de ficheros, igual que antes
 ea ajustes ver [--json]                      # valor, origen, quién lo cambia y cuándo se aplica; avisos debajo
 ea ajustes obtener red.puerto_web            # solo el valor
 ea ajustes establecer agente.techo_topes.turnos=60 web.sondeo_ms=5000
-ea ajustes establecer --quitar modelo.nombre # vuelve a mandar la capa siguiente
+ea ajustes establecer --quitar modelos.local.nombre # vuelve a mandar la capa siguiente
 ea ajustes ruta                              # ajustes.toml y los heredados, con si existen
 ```
 
@@ -187,7 +206,7 @@ systemctl --user restart llama-server
 ```
 
 Después ajusta el nombre (y la URL si cambia) con
-`ea ajustes establecer modelo.nombre=<modelo>` (o desde ⚙ Ajustes). Se aplica en
+`ea ajustes establecer modelos.local.nombre=<modelo>` (o desde ⚙ Ajustes). Se aplica en
 caliente: el ejecutor relee los ajustes en cada ciclo. No hay que tocar código.
 
 ## Actualizar desde una versión anterior

@@ -523,7 +523,7 @@ pub use ea_ajustes::{FilaAjuste as ClaveVista, Resumen as AjustesVista, SeccionA
 
 #[derive(Serialize)]
 pub struct AjusteAplicado {
-    pub clave: &'static str,
+    pub clave: String,
     pub antes: Value,
     pub despues: Value,
     /// `caliente` o `reinicio`.
