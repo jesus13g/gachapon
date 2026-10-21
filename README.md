@@ -358,7 +358,7 @@ si el repo está en otro sitio, el resumen de cada adaptador basta para arrancar
 `agentes/flujo/` en la raíz del repo es la referencia. Los formatos salen de lo
 instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
-Antigravity no se ha probado en una sesión real.
+Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina`, y `GET /api/mcp` da `ea-ecosistema` conectado.
 
 ## Hook de subagentes
 
@@ -544,6 +544,7 @@ argumento) y del rol que ocupa ese agente **en ese momento** según los ajustes
 | `qwen-code-mcp-client`, `qwen-code` | Qwen Code |
 | `codex-mcp-client` | Codex |
 | `opencode` | OpenCode |
+| `antigravity-client` | Antigravity (`agy`) |
 | `ea-orchestrator` | el propio orquestador (actor `orquestador`) |
 
 - El agente que ocupa el planificador actúa como `claude-code` (el nombre en
@@ -584,8 +585,10 @@ Registro en los demás agentes (misma URL, `http://127.0.0.1:8765/mcp`):
 | Claude Code | `claude mcp add --transport http --scope user ea-ecosistema <url>` | `claude-code` |
 | Qwen Code | `qwen mcp add --transport http ea-ecosistema <url>` | `qwen-code-mcp-client` |
 | Codex | `codex mcp add ea-ecosistema --url <url>` | `codex-mcp-client` |
-| OpenCode | en `opencode.json`: `"mcp": {"ea-ecosistema": {"type": "remote", "url": "<url>"}}` (o `opencode mcp add`) | `opencode` |
-| Antigravity | `agy mcp add -t http ea-ecosistema <url>` | aún desconocido: mientras tanto solo lee; su nombre queda en el diario (`detalle.cliente`) la primera vez que conecte |
+| OpenCode | `opencode mcp add --global --url <url> ea-ecosistema` (escribe `"mcp": {"servers": {"ea-ecosistema": {"type": "remote", "url": "<url>"}}}` en `~/.config/opencode/opencode.json`) | `opencode` |
+| Antigravity | `agy mcp add -t http ea-ecosistema <url>` | `antigravity-client` |
+
+`agy` 1.4 prueba antes con una petición `server/discover` (`ea-mcp` la rechaza con un error de parámetros; `agy` manda después `initialize` con su `clientInfo`, sin comprobar aún que conecta con sesión iniciada).
 
 El nombre de cliente sale de lo que cada agente manda en `initialize`
 (`clientInfo.name`); es lo que decide sus permisos, junto con el rol que ocupa.

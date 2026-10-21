@@ -86,8 +86,8 @@ pub static CATALOGO: &[FichaAgente] = &[
     },
     FichaAgente { id: "codex", nombre: "Codex", roles: AMBOS, topes: "solo tiempo", clientes_mcp: &["codex-mcp-client"] },
     FichaAgente { id: "opencode", nombre: "OpenCode", roles: AMBOS, topes: "solo tiempo", clientes_mcp: &["opencode"] },
-    // Su nombre de cliente MCP está sin comprobar: mientras tanto, solo lee.
-    FichaAgente { id: "antigravity", nombre: "Antigravity", roles: PLANIFICADOR, topes: "—", clientes_mcp: &[] },
+    // `agy` 1.4 se presenta como `antigravity-client` (capturado del `initialize`).
+    FichaAgente { id: "antigravity", nombre: "Antigravity", roles: PLANIFICADOR, topes: "—", clientes_mcp: &["antigravity-client"] },
 ];
 
 pub fn ficha(id: &str) -> Option<&'static FichaAgente> {

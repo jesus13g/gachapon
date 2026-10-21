@@ -870,10 +870,13 @@ mod tests {
         assert_eq!(actor(Some("qwen-code-mcp-client"), &a), Llamante { actor: "modelo-local", agente: Some("qwen-code"), cliente: Some("qwen-code-mcp-client".into()) });
         assert_eq!(actor(Some("ea-orchestrator"), &a).actor, "orquestador");
         assert_eq!(actor(Some("codex-mcp-client"), &a).actor, ACTOR_SIN_ROL);
+        assert_eq!(actor(Some("antigravity-client"), &a).actor, ACTOR_SIN_ROL);
         assert_eq!(actor(Some("lo-que-sea"), &a).actor, ACTOR_DESCONOCIDO);
         assert_eq!(actor(None, &a).actor, ACTOR_DESCONOCIDO, "antes era claude-code");
         a.roles.planificador = "opencode".into();
         assert_eq!(actor(Some("opencode"), &a), Llamante { actor: "claude-code", agente: Some("opencode"), cliente: Some("opencode".into()) });
         assert_eq!(actor(Some("claude-code"), &a).actor, ACTOR_SIN_ROL);
+        a.roles.planificador = "antigravity".into();
+        assert_eq!(actor(Some("antigravity-client"), &a), Llamante { actor: "claude-code", agente: Some("antigravity"), cliente: Some("antigravity-client".into()) });
     }
 }
