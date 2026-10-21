@@ -172,7 +172,11 @@ impl Entorno {
             miembros: vec![m("claude-code", RolEquipo::Planificador), m("qwen-code", RolEquipo::Ejecutor), m("codex", RolEquipo::Ejecutor)],
             creado_por: "ea-cli".into(),
         };
-        self.bus.crear_equipo(nuevo, &self.ajustes).unwrap().id
+        // Se despierta con holgura; el tope de los ajustes del orquestador puede
+        // bajarse después (lo que prueban algunas pruebas).
+        let mut holgado = self.ajustes.clone();
+        holgado.orquestador.paralelo = 8;
+        self.bus.crear_equipo(nuevo, &holgado).unwrap().id
     }
 
     fn contexto(&self, doble: &Arc<Doble>) -> Contexto {
