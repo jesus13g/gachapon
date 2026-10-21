@@ -2656,8 +2656,11 @@ fn lanzadas(f: &Fixture) -> Vec<Vec<String>> {
 #[tokio::test]
 async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
     let f = montar();
-    let id = proponer_accion(&f, "ea_eliminar_rutina", json!({ "slug": "revision-diaria" })).await;
+    let _g = aislar_bus(&f).await;
     let reversible = proponer_accion(&f, "ea_encolar_rutina", json!({ "slug": "revision-diaria" })).await;
+    // Solo se borra para siempre una rutina retirada (en la papelera).
+    ea_bus::retirar_rutina(&f.state.config.rutinas_dir, "revision-diaria").unwrap();
+    let id = proponer_accion(&f, "ea_eliminar_rutina", json!({ "slug": "revision-diaria" })).await;
 
     // Texto libre, comandos, campos de más o lo que se decide desde la web: 400.
     for cuerpo in [
@@ -2709,7 +2712,7 @@ async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
     // Abrir no decide nada: la propuesta sigue pendiente y la rutina, en su sitio.
     let (_, p) = get(&f, "/api/propuestas?estado=pendiente").await;
     assert_eq!(p.as_array().unwrap().len(), 2);
-    assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+    assert!(ea_bus::ruta_retirada(&f.state.config.rutinas_dir, "revision-diaria").unwrap().exists());
     let (_, d) = get(&f, "/api/diario?accion=accion_terminal").await;
     assert_eq!(d.as_array().unwrap().len(), 2);
     assert_eq!(d[0]["actor"], "usuario");
