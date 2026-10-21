@@ -201,6 +201,21 @@ fn apunta_al_repo(ruta: &Path, repo: Option<&Path>) -> bool {
     destino.starts_with(base)
 }
 
+/// El mecanismo de cambio del elemento. Lo que vive en el PROYECTO está
+/// versionado en su repo (y su id no distingue un proyecto de otro): no se
+/// mueve a un almacén, se edita en el repo.
+fn poner_mecanismo(e: &mut Elemento, mecanismo: Mecanismo) {
+    if mecanismo == Mecanismo::Mover && e.ambito == Ambito::Proyecto {
+        e.mecanismo = Mecanismo::No;
+        e.nota = Some(NOTA_PROYECTO.into());
+    } else {
+        e.mecanismo = mecanismo;
+    }
+}
+
+/// Por qué un elemento de proyecto no se activa ni se desactiva desde aquí.
+pub const NOTA_PROYECTO: &str = "está en el proyecto (versionado): se edita en el repo";
+
 /// Skills de directorio `<dir>/<n>/SKILL.md` (frontmatter `name`/`description`).
 /// Un enlace al `claude/skills` del repo pasa a ámbito `ecosistema`. El
 /// nombre del elemento es el del directorio (el que se mueve al desactivar).
@@ -221,7 +236,7 @@ pub fn skills_en(
         let Some(mut e) = crear(avisos, agente, Tipo::Skill, ambito, &nombre, ruta, version) else { continue };
         e.descripcion = recortar(frontmatter(&texto).get("description").map_or("", String::as_str));
         e.activado = Activado::Si;
-        e.mecanismo = mecanismo;
+        poner_mecanismo(&mut e, mecanismo);
         sal.push(e);
     }
     sal
@@ -239,7 +254,7 @@ pub fn md_en(dir: &Path, agente: &str, tipo: Tipo, ambito: Ambito, mecanismo: Me
         let fm = leer_texto(&ruta).map(|t| frontmatter(&t)).unwrap_or_default();
         e.descripcion = recortar(fm.get("description").or_else(|| fm.get("descripcion")).map_or("", String::as_str));
         e.activado = Activado::Si;
-        e.mecanismo = mecanismo;
+        poner_mecanismo(&mut e, mecanismo);
         sal.push(e);
     }
     sal

@@ -220,13 +220,12 @@ fn mover_skill_enlace_subagente_y_comando_ida_y_vuelta() {
     assert!(fs::symlink_metadata(&enlace).unwrap().file_type().is_symlink());
     assert_eq!(fs::read_link(&enlace).unwrap(), destino);
 
-    // Subagente y comando de fichero, y skills de otros agentes y de proyecto.
+    // Subagente y comando de fichero, y skills de otros agentes.
     for (id, ruta) in [
         ("claude-code/subagente/usuario/revisor", m.home.join(".claude/agents/revisor.md")),
         ("claude-code/comando/usuario/saludo", m.home.join(".claude/commands/saludo.md")),
         ("opencode/subagente/usuario/oa", m.home.join(".config/opencode/agent/oa.md")),
         ("codex/skill/usuario/cx", m.home.join(".codex/skills/cx")),
-        ("claude-code/skill/proyecto/local", m.proyecto.join(".claude/skills/local")),
     ] {
         let antes = fs::read_dir(ruta.parent().unwrap()).unwrap().count();
         cambiar(&m, id, false, &o).unwrap();
@@ -250,10 +249,51 @@ fn mover_con_el_destino_ocupado_se_rechaza() {
     assert!(matches!(e, ErrorBiblioteca::Ocupado(_)), "{e}");
     assert!(lee(propia.join("SKILL.md")).contains("Otra"));
     assert_eq!(desactivadas(&m.ctx.raices).len(), 1, "sigue guardada");
-    // Y desactivar otra con el mismo nombre en el almacén (p. ej. de proyecto) también.
-    escribe(m.proyecto.join(".claude/skills/propia/SKILL.md"), "---\ndescription: De proyecto\n---\n");
-    let e = planear("claude-code/skill/proyecto/propia", false, &m.ctx).unwrap_err();
-    assert!(matches!(e, ErrorBiblioteca::Ocupado(_)), "{e}");
+}
+
+#[test]
+fn lo_del_proyecto_no_se_mueve_porque_esta_versionado() {
+    let m = mundo();
+    escribe(m.proyecto.join(".claude/agents/p.md"), "---\ndescription: Del proyecto\n---\n");
+    let inv = inventario(&m);
+    for id in ["claude-code/skill/proyecto/local", "claude-code/subagente/proyecto/p"] {
+        let e = inv.buscar(id).unwrap_or_else(|| panic!("falta {id}"));
+        assert_eq!(e.mecanismo, Mecanismo::No, "{id}");
+        assert_eq!(e.nota.as_deref(), Some("está en el proyecto (versionado): se edita en el repo"));
+        let err = planear(id, false, &m.ctx).unwrap_err();
+        assert!(matches!(&err, ErrorBiblioteca::NoSePuede(t) if t.contains("versionado")), "{err}");
+    }
+    assert!(m.proyecto.join(".claude/skills/local/SKILL.md").exists());
+    // Los de usuario siguen movibles.
+    assert_eq!(inv.buscar("claude-code/skill/usuario/propia").unwrap().mecanismo, Mecanismo::Mover);
+}
+
+#[test]
+fn dos_aplicaciones_de_mover_a_la_vez_no_pierden_entradas_del_indice() {
+    let m = mundo();
+    let ids = [
+        "claude-code/skill/usuario/propia",
+        "claude-code/subagente/usuario/revisor",
+        "claude-code/comando/usuario/saludo",
+        "codex/skill/usuario/cx",
+        "opencode/subagente/usuario/oa",
+    ];
+    let cambios: Vec<Cambio> = ids.iter().map(|i| planear(i, false, &m.ctx).unwrap()).collect();
+    let barrera = std::sync::Barrier::new(cambios.len());
+    std::thread::scope(|s| {
+        for c in &cambios {
+            let (m, barrera) = (&m, &barrera);
+            s.spawn(move || {
+                barrera.wait();
+                aplicar_con(c, &m.ctx, &OrdenesDoble::default()).unwrap();
+            });
+        }
+    });
+    let indice = lee(m.ctx.raices.estado.join("biblioteca/desactivadas/indice.json"));
+    for i in ids {
+        assert!(indice.contains(i), "se perdió {i} del índice: {indice}");
+    }
+    assert_eq!(desactivadas(&m.ctx.raices).len(), ids.len());
 }
 
 #[test]
