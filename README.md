@@ -1,8 +1,9 @@
 # ecosistema-asistente
 
-Orquestador en Rust que reparte el trabajo entre **Claude Code** (formaliza y
-revisa) y un **agente local** (Qwen Code sobre `llama-server`, que ejecuta). Ambos
-trabajan sobre el mismo worktree de git y se comunican por un bus de ficheros con
+Orquestador en Rust que reparte el trabajo entre dos roles: el **planificador**
+(formaliza y revisa; por defecto Claude Code) y el **ejecutor** (ejecuta; por
+defecto Qwen Code sobre `llama-server`). El agente de cada rol es intercambiable
+([Agentes y roles](#agentes-y-roles)). Ambos trabajan sobre el mismo worktree de git y se comunican por un bus de ficheros con
 colas y semáforos. Diseño y razones en `orquestador-claude-qwen.md`.
 
 [![Cómo funciona gachapon en 15 segundos](docs/media/gachapon-explicado.gif)](docs/media/gachapon-explicado.mp4)
@@ -11,13 +12,14 @@ colas y semáforos. Diseño y razones en `orquestador-claude-qwen.md`.
 
 ## Estado actual
 
-Funcionan el bus, el ejecutor, las skills de Claude Code, la CLI (`ea`), el
+Funcionan el bus, el ejecutor, las skills del planificador, la CLI (`ea`), el
 monitor (TUI y `ea-web`), el servidor de herramientas MCP, la bóveda compartida y
-las mutaciones supervisadas. El agente local es hoy Qwen3-Coder-30B-A3B.
+las mutaciones supervisadas. Por defecto el ejecutor es Qwen Code con
+Qwen3-Coder-30B-A3B (`ea agentes` dice qué ocupa cada rol ahora).
 
 ### Roles
 
-| | Claude Code | Agente local |
+| | Planificador | Ejecutor |
 |---|---|---|
 | Lanza el trabajo | Sí (y el calendario, para rutinas) | Nunca por su cuenta |
 | Define qué se hace | Objetivo, plan o proceso | No |
@@ -25,19 +27,43 @@ las mutaciones supervisadas. El agente local es hoy Qwen3-Coder-30B-A3B.
 | Revisa | Sí: cierra, reformula o continúa | No |
 
 El criterio de éxito es un comando de shell que comprueba el **sistema**, no el
-agente: Qwen no se da el visto bueno a sí mismo.
+agente: ningún agente se da el visto bueno a sí mismo.
+
+### Agentes y roles
+
+El agente de cada rol se elige entre un catálogo cerrado (cada uno necesita su
+adaptador en el código). La nube solo se usa para planificar: el ejecutor corre
+desatendido en `bwrap` y su modelo es siempre un endpoint local.
+
+| Agente | Id | Planificador | Ejecutor | Notas |
+|---|---|:-:|:-:|---|
+| Claude Code | `claude-code` | sí (por defecto) | no | modelo remoto de Anthropic |
+| Qwen Code | `qwen-code` | no | sí (por defecto) | contra `llama-server` |
+| Codex | `codex` | sí | sí | como ejecutor, contra `llama-server` (`/v1/responses`) |
+| OpenCode | `opencode` | sí | sí | como ejecutor, contra `llama-server` |
+| Antigravity (`agy`) | `antigravity` | sí | no | solo modelos de Google; sin modo desatendido local |
+
+Un agente no ocupa los dos roles a la vez (planificador ≠ ejecutor). Cómo se
+configuran los modelos (`modelos.*`), los agentes (`agentes.*`) y los roles
+(`roles.*`), con sus validaciones y el cambio en caliente, está en
+[Configuración](#configuración-ajustestoml) (apartado «Roles, agentes y
+modelos») y en la tabla de claves; `ea agentes` lo muestra en vivo y `ea agentes
+rol <rol> <agente>` lo cambia desde una terminal real. El ejecutor se cambia en
+caliente (vale desde el siguiente trabajo; el que está en curso conserva el suyo);
+el planificador, cuando se quiera, sin reconectar su MCP. Cómo trabaja cada
+planificador, en [Adaptadores del planificador](#adaptadores-del-planificador).
 
 ### Los tres modos
 
 | | `/mision` | `/obra` | `/rutina` |
 |---|---|---|---|
 | Para qué | Alcanzar un objetivo iterando | Implementar un plan por fases | Repetir un proceso conocido |
-| Vuelve a Claude Code | Al terminar o quedar bloqueado | Al terminar, o cada `revisar_cada` fases | Solo si falla y tú lo confirmas |
+| Vuelve al planificador | Al terminar o quedar bloqueado | Al terminar, o cada `revisar_cada` fases | Solo si falla y tú lo confirmas |
 | Se guarda | Orden e informe | Plan, fases, diffs por fase | Definición TOML versionada |
 
 Una rutina que falla deja un **paquete de corrección** en espera. Hasta que no lo
 confirmas (`ea trabajo confirmar` o el botón de `ea-web`, con contexto opcional) no
-llega a Claude Code, que entonces corrige la definición y sube la versión.
+llega al planificador, que entonces corrige la definición y sube la versión.
 
 ### El bus
 
@@ -263,27 +289,76 @@ volver a arrancar los servicios.
 - `crates/ea-cli`: binario `ea`, CLI y TUI.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
-- `claude/skills/`: las skills de Claude Code.
+- `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
+  rutina, revisar); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
+- `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).
 - `claude/hooks/`: los hooks de Claude Code que usa `ea-web`.
 - `qwen/skills/`: las skills propias del agente local.
 
-## Skills de Claude Code
+## Adaptadores del planificador
 
-Versionadas en `claude/skills/<nombre>/SKILL.md` y enlazadas en `~/.claude/skills/`.
-Claude Code solo formaliza y revisa; el trabajo lo hace el agente local.
+Las instrucciones del planificador son una **guía neutral común** más un
+**adaptador fino por agente**, sin copias del procedimiento:
 
-| Skill | Qué hace |
+- `agentes/flujo/{mision,obra,rutina,revisar}.md`: el procedimiento sin nombrar al
+  agente ni al modelo (comandos reales de `ea` y herramientas MCP de solo lectura;
+  el ejecutor y su modelo se consultan con `ea agentes`).
+- Cada adaptador solo trae el frontmatter del agente, las reglas que no se rompen
+  y un resumen, y remite a su `agentes/flujo/<x>.md`. Una prueba
+  (`crates/ea-cli/tests/adaptadores.rs`) comprueba que ese fichero existe.
+
+| Flujo | Qué hace |
 | --- | --- |
-| `/mision` | Formaliza objetivo y criterio de éxito y crea el trabajo con `ea trabajo crear --orden` |
-| `/obra` | Plan por fases pequeñas (instrucciones, entregable, criterio por fase) y `revisar_cada` |
-| `/rutina` | Proceso repetible como TOML versionado: registrar, lanzar, timer y corrección |
-| `/revisar` | Consume la cola `claude-code`: `ea trabajo ver`, `diff` si hace falta, y cierra, reformula o continúa |
+| misión | Formaliza objetivo y criterio de éxito y crea el trabajo con `ea trabajo crear --orden` (o `--por planificador`) |
+| obra | Plan por fases pequeñas (instrucciones, entregable, criterio por fase) y `revisar_cada` |
+| rutina | Proceso repetible como TOML versionado: registrar, lanzar, timer y corrección |
+| revisar | Consume la cola del planificador (`ea cola planificador`): `ea trabajo ver`, `diff` si hace falta, y cierra, reformula o continúa |
+
+Los adaptadores se instalan con enlaces simbólicos (nada se instala solo en tu
+HOME; los comandos se ejecutan desde la raíz del repo). Un agente solo necesita
+el suyo, y solo si va a ser planificador.
+
+| Agente | Adaptador | Formato | Destino |
+|---|---|---|---|
+| Claude Code | `claude/skills/<x>/` | skills (`/mision`, `/obra`, `/rutina`, `/revisar`) | `~/.claude/skills/` |
+| Codex | `agentes/codex/skills/ea-<x>/` y `agentes/codex/AGENTS.md` | skills (`$ea-mision`…) y un fragmento de `AGENTS.md` | `~/.codex/skills/`, `~/.codex/AGENTS.md` |
+| OpenCode | `agentes/opencode/commands/ea-<x>.md` y `agentes/opencode/AGENTS.md` | comandos (`/ea-mision`…, con `$ARGUMENTS`) y un fragmento de `AGENTS.md` | `~/.config/opencode/commands/`, `~/.config/opencode/AGENTS.md` |
+| Antigravity | `agentes/antigravity/skills/ea-<x>/` y `agentes/antigravity/rules/ea-planificador.md` | skills (los workflows están obsoletos en favor de ellas) y una regla `model_decision` | `~/.gemini/config/skills/`, `~/.gemini/config/rules/` |
 
 ```bash
+# Claude Code (las skills vivas: editarlas cambia las skills en uso)
 for s in mision obra rutina revisar; do
   ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
 done
+
+# Codex: skills y reglas (el fragmento se añade una sola vez)
+mkdir -p ~/.codex/skills
+for s in mision obra rutina revisar; do
+  ln -sfn "$PWD/agentes/codex/skills/ea-$s" ~/.codex/skills/ea-$s
+done
+cat agentes/codex/AGENTS.md >> ~/.codex/AGENTS.md
+
+# OpenCode: comandos y reglas
+mkdir -p ~/.config/opencode/commands
+for s in mision obra rutina revisar; do
+  ln -sfn "$PWD/agentes/opencode/commands/ea-$s.md" ~/.config/opencode/commands/ea-$s.md
+done
+cat agentes/opencode/AGENTS.md >> ~/.config/opencode/AGENTS.md
+
+# Antigravity: skills y regla
+mkdir -p ~/.gemini/config/skills ~/.gemini/config/rules
+for s in mision obra rutina revisar; do
+  ln -sfn "$PWD/agentes/antigravity/skills/ea-$s" ~/.gemini/config/skills/ea-$s
+done
+ln -sfn "$PWD/agentes/antigravity/rules/ea-planificador.md" ~/.gemini/config/rules/ea-planificador.md
 ```
+
+Los adaptadores nombran la ruta `~/Proyectos/ecosistema-asistente/agentes/flujo/`;
+si el repo está en otro sitio, el resumen de cada adaptador basta para arrancar y
+`agentes/flujo/` en la raíz del repo es la referencia. Los formatos salen de lo
+instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
+personalización y su carga de `{command,commands}/**/*.md`), pero el de
+Antigravity no se ha probado en una sesión real.
 
 ## Hook de subagentes
 
@@ -312,8 +387,10 @@ orden el campo `skills` (y cada fase de una obra puede llevar las suyas), y el
 orquestador inyecta solo esas en el system prompt de Qwen con
 `--append-system-prompt`. El texto inyectado queda en
 `trabajos/<id>/skills-agente.md` (`skills-qwen.md` en los trabajos de antes).
+Son las skills del ejecutor, tenga el agente que tenga (Codex y OpenCode las
+reciben como prefijo del prompt); el comando conserva el nombre `ea qwen-skills`.
 
-Las elige Claude Code al formalizar (`/mision`, `/obra`). `[agente.skills]` de
+Las elige el planificador al formalizar (`/mision`, `/obra`). `[agente.skills]` de
 `ajustes.toml` (o el heredado `[skills]` de `orquestador.toml`) decide qué se
 puede elegir y quién:
 
@@ -499,6 +576,19 @@ directorio):
 ```bash
 claude mcp add --transport http --scope user ea-ecosistema http://127.0.0.1:8765/mcp
 ```
+
+Registro en los demás agentes (misma URL, `http://127.0.0.1:8765/mcp`):
+
+| Agente | Registro | Nombre de cliente MCP |
+|---|---|---|
+| Claude Code | `claude mcp add --transport http --scope user ea-ecosistema <url>` | `claude-code` |
+| Qwen Code | `qwen mcp add --transport http ea-ecosistema <url>` | `qwen-code-mcp-client` |
+| Codex | `codex mcp add ea-ecosistema --url <url>` | `codex-mcp-client` |
+| OpenCode | en `opencode.json`: `"mcp": {"ea-ecosistema": {"type": "remote", "url": "<url>"}}` (o `opencode mcp add`) | `opencode` |
+| Antigravity | `agy mcp add -t http ea-ecosistema <url>` | aún desconocido: mientras tanto solo lee; su nombre queda en el diario (`detalle.cliente`) la primera vez que conecte |
+
+El nombre de cliente sale de lo que cada agente manda en `initialize`
+(`clientInfo.name`); es lo que decide sus permisos, junto con el rol que ocupa.
 
 ### Mutaciones supervisadas (fase 6)
 
