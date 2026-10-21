@@ -26,7 +26,7 @@ fn ver_en_json_es_json_valido() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
     assert_eq!(v["fichero"], d.path().join("config/ajustes.toml").display().to_string());
-    assert_eq!(v["secciones"].as_array().unwrap().len(), 8);
+    assert_eq!(v["secciones"].as_array().unwrap().len(), 9);
 }
 
 #[test]

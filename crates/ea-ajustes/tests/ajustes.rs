@@ -492,3 +492,19 @@ fn un_ajustes_toml_imposible_cae_a_los_roles_de_fabrica() {
     assert!(!e.ajustes.modelo_ejecutor().remoto);
     assert!(!e.conflictos.is_empty());
 }
+
+#[test]
+fn categorias_de_la_biblioteca_se_escriben_desde_la_web_y_se_leen() {
+    let (_d, f) = fuentes();
+    assert!(cargar_de(&f).ajustes.biblioteca.categorias.is_empty());
+    let id = "claude-code/plugin/usuario/foo@mkt.v2";
+    establecer(&f, Canal::Web, None, &cambio("biblioteca.categorias", json!({ id: " Trabajo ", "codex/mcp/usuario/x": "Pruebas" }))).unwrap();
+    let e = cargar_de(&f);
+    assert!(e.avisos.is_empty(), "{:?}", e.avisos);
+    assert_eq!(e.ajustes.biblioteca.categorias[id], "Trabajo");
+    assert_eq!(e.ajustes.biblioteca.categorias.len(), 2);
+    // una categoría vacía o un valor que no es texto se rechazan
+    assert!(establecer(&f, Canal::Web, None, &cambio("biblioteca.categorias", json!({ id: "" }))).is_err());
+    assert!(establecer(&f, Canal::Web, None, &cambio("biblioteca.categorias", json!({ id: 3 }))).is_err());
+    assert!(interpretar(clave("biblioteca.categorias").unwrap(), r#"{"a/b/c/d":"X"}"#).is_ok());
+}

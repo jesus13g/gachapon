@@ -129,6 +129,24 @@ pub fn validar_valor(c: &Clave, v: &Value) -> Result<Value, String> {
             }
             Ok(Value::String(t.to_string()))
         }
+        Tipo::Mapa => {
+            let m = v.as_object().ok_or("se espera una tabla de texto a texto")?;
+            if m.len() > 2000 {
+                return Err("la tabla supera 2000 entradas".into());
+            }
+            let mut salida = serde_json::Map::new();
+            for (k, val) in m {
+                let cat = val.as_str().ok_or_else(|| format!("la categoría de {k:?} debe ser un texto"))?.trim();
+                if k.is_empty() || k.len() > 300 || k.chars().any(char::is_control) {
+                    return Err(format!("id inválido: {k:?}"));
+                }
+                if cat.is_empty() || cat.chars().count() > 64 || cat.chars().any(char::is_control) {
+                    return Err(format!("categoría inválida para {k:?} (1 a 64 caracteres, sin control)"));
+                }
+                salida.insert(k.clone(), Value::String(cat.to_string()));
+            }
+            Ok(Value::Object(salida))
+        }
         Tipo::Lista { permitidos } => {
             let lista = v.as_array().ok_or("se espera una lista de textos")?;
             if lista.len() > 100 {
