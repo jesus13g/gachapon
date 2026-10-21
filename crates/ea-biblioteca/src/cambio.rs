@@ -51,7 +51,6 @@ mod ordenes;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::IsTerminal;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -89,14 +88,23 @@ impl Contexto {
         Self { raices, fuentes, canal }
     }
 
-    /// El entorno real; el canal de ajustes es `Terminal` solo con un TTY.
+    /// El entorno real con el canal `Web` (el más restrictivo): para planear.
+    /// Quien APLICA pasa el canal real de la confirmación con
+    /// [`Contexto::sistema_con_canal`]; el canal nunca se deduce del TTY del
+    /// proceso (un `ea-web` lanzado desde una terminal no es una terminal).
     pub fn sistema() -> Self {
         Self::con_raices(Raices::desde_entorno())
     }
 
+    /// El entorno real con el canal por el que el usuario confirmó.
+    pub fn sistema_con_canal(canal: Canal) -> Self {
+        Self { raices: Raices::desde_entorno(), fuentes: Fuentes::sistema(), canal }
+    }
+
+    /// Con las raíces dadas y el canal más restrictivo (`Web`): las funciones
+    /// `plan_cambio` y `aplicar` no pueden cambiar `agente.skills.habilitadas`.
     pub fn con_raices(raices: Raices) -> Self {
-        let tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
-        Self { raices, fuentes: Fuentes::sistema(), canal: if tty { Canal::Terminal } else { Canal::Web } }
+        Self { raices, fuentes: Fuentes::sistema(), canal: Canal::Web }
     }
 
     fn ajustes(&self) -> Ajustes {

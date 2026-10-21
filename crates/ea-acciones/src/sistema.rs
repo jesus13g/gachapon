@@ -18,6 +18,7 @@ use ea_store::Store;
 use tokio::process::Command;
 use tokio::time::timeout;
 
+use crate::catalogo::Canal;
 use crate::temporizador::{comprobar_calendario, Calendario, EstadoTimer, Temporizadores};
 use crate::terminal::{TerminalSimulada, TerminalSistema};
 
@@ -116,7 +117,19 @@ pub trait Sistema: Consulta {
     /// Aplica un [`Cambio`] de la biblioteca: revalida contra el estado de
     /// ahora y lo ejecuta con su mecanismo (comando oficial, campo con copia
     /// previa, mover o ajustes).
-    fn biblioteca_aplicar(&self, cambio: &Cambio) -> impl Future<Output = Result<Hecho, String>> + Send;
+    ///
+    /// `canal` es por donde confirmó el usuario: decide si puede cambiar los
+    /// ajustes de las skills del ejecutor (solo `Terminal`), nunca el TTY del
+    /// proceso.
+    fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> impl Future<Output = Result<Hecho, String>> + Send;
+}
+
+/// El canal de ajustes que corresponde al de la confirmación.
+pub fn canal_de_ajustes(canal: Canal) -> ea_ajustes::Canal {
+    match canal {
+        Canal::Terminal => ea_ajustes::Canal::Terminal,
+        Canal::Web => ea_ajustes::Canal::Web,
+    }
 }
 
 /// Planifica con el entorno real y comprueba que el binario del comando
@@ -128,9 +141,9 @@ fn planear_real(elemento: &str, activar: bool) -> Result<Cambio, String> {
 }
 
 /// Aplica en un hilo aparte: puede lanzar una orden de hasta 30 s.
-async fn aplicar_real(cambio: &Cambio) -> Result<Hecho, String> {
+async fn aplicar_real(cambio: &Cambio, canal: Canal) -> Result<Hecho, String> {
     let c = cambio.clone();
-    tokio::task::spawn_blocking(move || ea_biblioteca::aplicar_con(&c, &Contexto::sistema(), &OrdenesReales))
+    tokio::task::spawn_blocking(move || ea_biblioteca::aplicar_con(&c, &Contexto::sistema_con_canal(canal_de_ajustes(canal)), &OrdenesReales))
         .await
         .map_err(|e| format!("la tarea del cambio falló: {e}"))?
         .map_err(|e| e.to_string())
@@ -342,8 +355,8 @@ impl Sistema for SistemaReal {
         self.temporizadores.desprogramar(slug).await
     }
 
-    async fn biblioteca_aplicar(&self, cambio: &Cambio) -> Result<Hecho, String> {
-        aplicar_real(cambio).await
+    async fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> Result<Hecho, String> {
+        aplicar_real(cambio, canal).await
     }
 }
 
@@ -602,8 +615,9 @@ impl Sistema for SistemaSimulado {
         }
         Ok(habia)
     }
-    async fn biblioteca_aplicar(&self, cambio: &Cambio) -> Result<Hecho, String> {
-        let h = ea_biblioteca::aplicar_con(cambio, &self.contexto_biblioteca()?, &self.ordenes).map_err(|e| e.to_string())?;
+    async fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> Result<Hecho, String> {
+        let ctx = Contexto { canal: canal_de_ajustes(canal), ..self.contexto_biblioteca()? };
+        let h = ea_biblioteca::aplicar_con(cambio, &ctx, &self.ordenes).map_err(|e| e.to_string())?;
         self.mutaciones.lock().unwrap().push(format!("biblioteca:{}:{}", if h.activar { "activar" } else { "desactivar" }, h.id));
         Ok(h)
     }

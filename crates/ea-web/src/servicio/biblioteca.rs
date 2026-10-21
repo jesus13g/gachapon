@@ -304,8 +304,9 @@ impl Sistema for SistemaBiblioteca {
     async fn timer_desprogramar(&self, slug: &str) -> Result<bool, String> {
         self.base.timer_desprogramar(slug).await
     }
-    async fn biblioteca_aplicar(&self, cambio: &Cambio) -> Result<Hecho, String> {
-        let (c, ctx) = (cambio.clone(), self.ctx.clone());
+    async fn biblioteca_aplicar(&self, cambio: &Cambio, canal: ea_acciones::Canal) -> Result<Hecho, String> {
+        let (c, mut ctx) = (cambio.clone(), self.ctx.clone());
+        ctx.canal = ea_acciones::canal_de_ajustes(canal);
         // Puede lanzar una orden de hasta 30 s: en un hilo aparte.
         tokio::task::spawn_blocking(move || ea_biblioteca::aplicar_con(&c, &ctx, &OrdenesReales))
             .await

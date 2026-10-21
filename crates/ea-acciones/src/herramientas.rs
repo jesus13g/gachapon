@@ -946,7 +946,7 @@ pub async fn aplicar_en_sistema<S: Sistema>(
             if cambio.id != a.elemento || cambio.activar != activar {
                 return Err(ErrorAccion::NoAplica("el cambio simulado no es el de esta herramienta y este elemento".into()));
             }
-            let h = sistema.biblioteca_aplicar(&cambio).await.map_err(ErrorAccion::Sistema)?;
+            let h = sistema.biblioteca_aplicar(&cambio, canal).await.map_err(ErrorAccion::Sistema)?;
             let datos = json!({
                 "elemento": h.id, "activar": h.activar, "mecanismo": h.mecanismo, "objetivo": h.objetivo,
                 "antes": h.antes, "despues": h.despues, "copia": h.copia,
