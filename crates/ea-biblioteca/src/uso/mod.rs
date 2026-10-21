@@ -341,7 +341,8 @@ pub fn calcular_uso(_raices: &Raices, inv: &Inventario, fuentes: &FuentesUso) ->
         let clave = format!("opencode:{}", fuentes.opencode_db.display());
         vivas.insert(clave.clone());
         let previa = cache.fuentes.get(&clave).cloned().unwrap_or_default();
-        let (hallazgos, marca) = opencode::leer(&fuentes.opencode_db, previa.offset as i64, &mut avisos);
+        let visto = opencode::Visto { marca: previa.offset as i64, ids: previa.vistos.clone() };
+        let (hallazgos, visto) = opencode::leer(&fuentes.opencode_db, &visto, &mut avisos);
         let mut nuevos: BTreeMap<(Tipo, String), (u64, Option<i64>)> = BTreeMap::new();
         for h in hallazgos {
             let e = nuevos.entry((h.tipo, h.nombre)).or_insert((0, None));
@@ -349,7 +350,8 @@ pub fn calcular_uso(_raices: &Raices, inv: &Inventario, fuentes: &FuentesUso) ->
             e.1 = e.1.max(h.ts_ms);
         }
         let mut en = previa;
-        en.offset = marca.max(0) as u64;
+        en.offset = visto.marca.max(0) as u64;
+        en.vistos = visto.ids;
         acumular(&mut en.regs, nuevos);
         acum.registros(inv, "opencode", "opencode", "opencode", &en.regs);
         cache.fuentes.insert(clave, en);

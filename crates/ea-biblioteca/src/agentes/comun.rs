@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::modelo::{Activado, Ambito, DefMcp, Elemento, Mecanismo, Tipo};
-use crate::redactar::{nombres_de, redactar_args, redactar_texto, redactar_url};
+use crate::redactar::{nombres_de, redactar_args, redactar_texto, redactar_url, sin_control};
 
 pub fn leer_texto(ruta: &Path) -> Option<String> {
     std::fs::read_to_string(ruta).ok()
@@ -161,7 +161,9 @@ pub fn frontmatter(texto: &str) -> BTreeMap<String, String> {
 
 /// Descripción corta (una línea, hasta 300 caracteres).
 pub fn recortar(texto: &str) -> String {
-    let uno: String = texto.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Un fichero ajeno no cuela secuencias de escape: fuera los caracteres de control.
+    let limpio = sin_control(texto);
+    let uno: String = limpio.split_whitespace().collect::<Vec<_>>().join(" ");
     if uno.chars().count() > 300 { uno.chars().take(299).collect::<String>() + "…" } else { uno }
 }
 
@@ -201,6 +203,21 @@ fn apunta_al_repo(ruta: &Path, repo: Option<&Path>) -> bool {
     destino.starts_with(base)
 }
 
+/// El mecanismo de cambio del elemento. Lo que vive en el PROYECTO está
+/// versionado en su repo (y su id no distingue un proyecto de otro): no se
+/// mueve a un almacén, se edita en el repo.
+fn poner_mecanismo(e: &mut Elemento, mecanismo: Mecanismo) {
+    if mecanismo == Mecanismo::Mover && e.ambito == Ambito::Proyecto {
+        e.mecanismo = Mecanismo::No;
+        e.nota = Some(NOTA_PROYECTO.into());
+    } else {
+        e.mecanismo = mecanismo;
+    }
+}
+
+/// Por qué un elemento de proyecto no se activa ni se desactiva desde aquí.
+pub const NOTA_PROYECTO: &str = "está en el proyecto (versionado): se edita en el repo";
+
 /// Skills de directorio `<dir>/<n>/SKILL.md` (frontmatter `name`/`description`).
 /// Un enlace al `claude/skills` del repo pasa a ámbito `ecosistema`. El
 /// nombre del elemento es el del directorio (el que se mueve al desactivar).
@@ -221,7 +238,7 @@ pub fn skills_en(
         let Some(mut e) = crear(avisos, agente, Tipo::Skill, ambito, &nombre, ruta, version) else { continue };
         e.descripcion = recortar(frontmatter(&texto).get("description").map_or("", String::as_str));
         e.activado = Activado::Si;
-        e.mecanismo = mecanismo;
+        poner_mecanismo(&mut e, mecanismo);
         sal.push(e);
     }
     sal
@@ -239,7 +256,7 @@ pub fn md_en(dir: &Path, agente: &str, tipo: Tipo, ambito: Ambito, mecanismo: Me
         let fm = leer_texto(&ruta).map(|t| frontmatter(&t)).unwrap_or_default();
         e.descripcion = recortar(fm.get("description").or_else(|| fm.get("descripcion")).map_or("", String::as_str));
         e.activado = Activado::Si;
-        e.mecanismo = mecanismo;
+        poner_mecanismo(&mut e, mecanismo);
         sal.push(e);
     }
     sal
@@ -280,7 +297,8 @@ pub fn def_mcp(v: &Value) -> DefMcp {
     headers.extend(nombres_de(v.get("env_http_headers")));
     headers.sort();
     env.dedup();
-    DefMcp { transporte: transporte.into(), comando, args: redactar_args(&args), url, env, headers }
+    let args = redactar_args(&args).iter().map(|a| sin_control(a)).collect();
+    DefMcp { transporte: transporte.into(), comando: comando.map(|c| sin_control(&c)), args, url, env, headers }
 }
 
 /// Un MCP con su definición ya redactada.

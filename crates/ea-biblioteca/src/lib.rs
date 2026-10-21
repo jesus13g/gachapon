@@ -22,9 +22,10 @@ use serde::Serialize;
 
 pub use cambio::{aplicar, aplicar_con, desactivadas, plan_cambio, plan_cambio_con, planear, Cambio, Contexto, Hecho, Objetivo, Ordenes, OrdenesDoble, OrdenesReales};
 pub use error::ErrorBiblioteca;
+pub use redactar::sin_control;
 pub use modelo::{Activado, Ambito, DefMcp, Elemento, Id, Mecanismo, Tipo, AGENTE_ECOSISTEMA};
 pub use raices::Raices;
-pub use sesion::{limpiar_sesiones, materializar, plan_sesion, EnlaceEfimero, FicheroEfimero, FuenteMcp, PlanSesion, AGENTES_CON_SESION};
+pub use sesion::{limpiar_sesiones, materializar, materializar_con_entorno, plan_sesion, EnlaceEfimero, FicheroEfimero, FuenteMcp, PlanSesion, AGENTES_CON_SESION};
 
 /// Orden de los agentes en el inventario.
 fn orden_agente(a: &str) -> usize {
@@ -114,8 +115,16 @@ impl Biblioteca {
             if let Some(c) = a.biblioteca.categorias.get(&e.id) {
                 e.categoria = c.clone();
             }
+            // Lo que viene de ficheros ajenos no lleva secuencias de escape.
+            e.descripcion = sin_control(&e.descripcion);
+            e.version_formato = sin_control(&e.version_formato);
+            e.nota = e.nota.as_deref().map(sin_control);
+            if let Some(d) = &mut e.def_mcp {
+                d.env.iter_mut().chain(d.headers.iter_mut()).for_each(|n| *n = sin_control(n));
+            }
             elementos.push(e);
         }
+        let avisos = avisos.iter().map(|a| sin_control(a)).collect();
         elementos.sort_by(|x, y| {
             (orden_agente(&x.agente), x.tipo, x.ambito.texto(), &x.nombre).cmp(&(orden_agente(&y.agente), y.tipo, y.ambito.texto(), &y.nombre))
         });

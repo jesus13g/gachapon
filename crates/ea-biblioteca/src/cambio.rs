@@ -31,8 +31,11 @@
 //!   (que se pierde; el efecto es el mismo).
 //!   Codex 0.159.3 respeta `enabled = false` (`codex mcp list --json` lo
 //!   informa como `"enabled": false`, comprobado con un `CODEX_HOME` temporal).
-//! - **Mover** (skills, subagentes y comandos de fichero): el fichero, el
-//!   directorio o el ENLACE (con `rename`, nunca se sigue el destino) va a
+//! - **Mover** (skills, subagentes y comandos de fichero, NO los de proyecto,
+//!   que están versionados en su repo y se editan allí): el fichero, el
+//!   directorio o el ENLACE (con `renameat2` y `RENAME_NOREPLACE`, nunca se
+//!   sigue el destino ni se pisa uno creado entre medias, y bajo un `flock`
+//!   exclusivo sobre `desactivadas/.lock`) va a
 //!   `<estado>/biblioteca/desactivadas/<agente>/<tipo>/<nombre>` y se apunta
 //!   en `indice.json` de ese directorio con su origen; al activar vuelve. Si
 //!   el sitio original está ocupado, se rechaza. `rename` exige el mismo
@@ -51,7 +54,6 @@ mod ordenes;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::IsTerminal;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -89,14 +91,23 @@ impl Contexto {
         Self { raices, fuentes, canal }
     }
 
-    /// El entorno real; el canal de ajustes es `Terminal` solo con un TTY.
+    /// El entorno real con el canal `Web` (el más restrictivo): para planear.
+    /// Quien APLICA pasa el canal real de la confirmación con
+    /// [`Contexto::sistema_con_canal`]; el canal nunca se deduce del TTY del
+    /// proceso (un `ea-web` lanzado desde una terminal no es una terminal).
     pub fn sistema() -> Self {
         Self::con_raices(Raices::desde_entorno())
     }
 
+    /// El entorno real con el canal por el que el usuario confirmó.
+    pub fn sistema_con_canal(canal: Canal) -> Self {
+        Self { raices: Raices::desde_entorno(), fuentes: Fuentes::sistema(), canal }
+    }
+
+    /// Con las raíces dadas y el canal más restrictivo (`Web`): las funciones
+    /// `plan_cambio` y `aplicar` no pueden cambiar `agente.skills.habilitadas`.
     pub fn con_raices(raices: Raices) -> Self {
-        let tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
-        Self { raices, fuentes: Fuentes::sistema(), canal: if tty { Canal::Terminal } else { Canal::Web } }
+        Self { raices, fuentes: Fuentes::sistema(), canal: Canal::Web }
     }
 
     fn ajustes(&self) -> Ajustes {
@@ -195,6 +206,11 @@ pub fn plan_cambio_con(el: &Elemento, activar: bool, ctx: &Contexto) -> Resultad
             return no(el.nota.as_deref().unwrap_or("el agente no ofrece un interruptor para esto"));
         }
         _ => {}
+    }
+    // Un elemento de proyecto no se mueve (versionado; ids que colisionan entre
+    // proyectos). Se puede RECUPERAR uno que una versión anterior ya guardó.
+    if el.mecanismo == Mecanismo::Mover && el.ambito == Ambito::Proyecto && !activar {
+        return no(crate::agentes::comun::NOTA_PROYECTO);
     }
     match (el.activado, activar) {
         (Activado::Si, true) => return no("ya está activado"),
@@ -562,21 +578,58 @@ fn plan_mover(el: &Elemento, activar: bool, r: &Raices) -> Resultado<Cambio> {
     })
 }
 
-fn aplicar_mover(c: &Cambio, desde: &Path, hacia: &Path, r: &Raices) -> Resultado<String> {
-    let mover = |a: &Path, b: &Path| -> Resultado<()> {
-        if let Some(p) = b.parent() {
-            fs::create_dir_all(p)?;
+/// Mueve `a` a `b` sin pisar nada: `renameat2` con `RENAME_NOREPLACE` (Linux),
+/// atómico frente a un destino creado entre la comprobación y el movimiento.
+fn renombrar_sin_pisar(a: &Path, b: &Path) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let c = |p: &Path| CString::new(p.as_os_str().as_bytes()).map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL));
+    let (origen, destino) = (c(a)?, c(b)?);
+    // SAFETY: dos cadenas C válidas y terminadas en NUL que viven toda la llamada.
+    let r = unsafe { libc::syscall(libc::SYS_renameat2, libc::AT_FDCWD, origen.as_ptr(), libc::AT_FDCWD, destino.as_ptr(), libc::RENAME_NOREPLACE) };
+    if r == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
+/// `renombrar_sin_pisar` con errores en español.
+fn mover_sin_pisar(a: &Path, b: &Path) -> Resultado<()> {
+    if let Some(p) = b.parent() {
+        fs::create_dir_all(p)?;
+    }
+    renombrar_sin_pisar(a, b).map_err(|e| match e.raw_os_error() {
+        Some(libc::EXDEV) => {
+            ErrorBiblioteca::Io(format!("{} y {} están en sistemas de ficheros distintos: no se puede mover sin copiar", a.display(), b.display()))
         }
-        fs::rename(a, b).map_err(|e| {
-            if e.raw_os_error() == Some(18) {
-                ErrorBiblioteca::Io(format!("{} y {} están en sistemas de ficheros distintos: no se puede mover sin copiar", a.display(), b.display()))
-            } else {
-                e.into()
-            }
-        })
-    };
+        Some(libc::EEXIST | libc::ENOTEMPTY) => ErrorBiblioteca::Ocupado(format!("{} ya existe; no se pisa", b.display())),
+        Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => ErrorBiblioteca::Io(format!(
+            "no se puede mover {} a {} sin riesgo de pisar algo: el sistema de ficheros no admite RENAME_NOREPLACE ({e})",
+            a.display(),
+            b.display()
+        )),
+        _ => e.into(),
+    })
+}
+
+/// Cerrojo exclusivo de `<estado>/biblioteca/desactivadas/.lock`: serializa
+/// leer el índice, mover y escribirlo. Se suelta al cerrar el fichero.
+fn bloquear_almacen(r: &Raices) -> Resultado<fs::File> {
+    let base = base_desactivadas(r);
+    fs::create_dir_all(&base)?;
+    let ruta = base.join(".lock");
+    let f = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(&ruta)?;
+    f.lock().map_err(|e| ErrorBiblioteca::Io(format!("{}: no se pudo tomar el cerrojo: {e}", ruta.display())))?;
+    Ok(f)
+}
+
+fn aplicar_mover(c: &Cambio, desde: &Path, hacia: &Path, r: &Raices) -> Resultado<String> {
+    // Todo el ciclo bajo el cerrojo: dos aplicaciones a la vez no se pierden el índice.
+    let _cerrojo = bloquear_almacen(r)?;
     let mut indice = leer_indice(r)?;
-    mover(desde, hacia)?;
+    if c.activar != indice.elementos.contains_key(&c.id) {
+        return Err(ErrorBiblioteca::Revalidacion(
+            if c.activar { "ya no está en el índice de desactivadas".to_string() } else { "ya está en el índice de desactivadas".to_string() },
+        ));
+    }
+    mover_sin_pisar(desde, hacia)?;
     if c.activar {
         indice.elementos.remove(&c.id);
     } else {
@@ -584,7 +637,7 @@ fn aplicar_mover(c: &Cambio, desde: &Path, hacia: &Path, r: &Raices) -> Resultad
     }
     if let Err(e) = escribir_indice(r, &indice) {
         // Sin índice no hay vuelta: se deshace el movimiento.
-        let _ = fs::rename(hacia, desde);
+        let _ = renombrar_sin_pisar(hacia, desde);
         return Err(e);
     }
     Ok(format!("{} movido a {}", desde.display(), hacia.display()))
@@ -724,4 +777,47 @@ pub fn aplicar_con(c: &Cambio, ctx: &Contexto, ordenes: &dyn Ordenes) -> Resulta
         copia,
         texto,
     })
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+
+    #[test]
+    fn un_destino_que_aparece_entre_la_comprobacion_y_el_movimiento_no_se_pisa() {
+        let d = tempfile::tempdir().unwrap();
+        let home = d.path().join("home");
+        let r = Raices::nuevo(home.clone(), None, d.path().join("estado"), None);
+        let desde = home.join(".claude/skills/propia");
+        fs::create_dir_all(&desde).unwrap();
+        fs::write(desde.join("SKILL.md"), "x").unwrap();
+        let hacia = base_desactivadas(&r).join("claude-code/skill/propia");
+        let c = Cambio {
+            id: "claude-code/skill/usuario/propia".into(),
+            activar: false,
+            mecanismo: Mecanismo::Mover,
+            antes: json!({ "en": desde }),
+            despues: json!({ "en": hacia }),
+            objetivo: Objetivo::Mover { desde: desde.clone(), hacia: hacia.clone() },
+        };
+        // Alguien crea el destino después de planear y de revalidar.
+        fs::create_dir_all(&hacia).unwrap();
+        fs::write(hacia.join("ajeno.txt"), "no me pises").unwrap();
+        let e = aplicar_mover(&c, &desde, &hacia, &r).unwrap_err();
+        assert!(matches!(e, ErrorBiblioteca::Ocupado(_)), "{e}");
+        assert_eq!(fs::read_to_string(hacia.join("ajeno.txt")).unwrap(), "no me pises");
+        assert!(desde.join("SKILL.md").exists(), "el origen sigue en su sitio");
+        assert!(leer_indice(&r).unwrap().elementos.is_empty(), "no quedó entrada en el índice");
+
+        // Un fichero suelto tampoco se pisa.
+        let a = d.path().join("a");
+        let b = d.path().join("b");
+        fs::write(&a, "a").unwrap();
+        fs::write(&b, "b").unwrap();
+        assert_eq!(renombrar_sin_pisar(&a, &b).unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&b).unwrap(), "b");
+        fs::remove_file(&b).unwrap();
+        renombrar_sin_pisar(&a, &b).unwrap();
+        assert_eq!(fs::read_to_string(&b).unwrap(), "a");
+    }
 }

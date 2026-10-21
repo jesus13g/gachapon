@@ -104,7 +104,7 @@ pub fn listar(
             t.set_header(vec![if ids { "Id" } else { "Nombre" }, "Agente", "Ámbito", "Activado", "Cómo se cambia", "Usos"]);
             for e in lista {
                 t.add_row(vec![
-                    if ids { e.id.clone() } else { e.nombre.clone() },
+                    limpio(if ids { &e.id } else { &e.nombre }),
                     e.agente.clone(),
                     e.ambito.texto(),
                     texto_estado(e.activado).to_string(),
@@ -118,10 +118,15 @@ pub fn listar(
     if !inv.avisos.is_empty() {
         println!("\nAvisos del inventario:");
         for a in &inv.avisos {
-            println!("  ! {a}");
+            println!("  ! {}", limpio(a));
         }
     }
     Ok(())
+}
+
+/// Texto de un fichero ajeno listo para un terminal: sin secuencias de escape.
+fn limpio(texto: &str) -> String {
+    ea_biblioteca::sin_control(texto)
 }
 
 pub fn ver(id: &str, json: bool) -> Result<()> {
@@ -138,14 +143,14 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     println!("  Agente:       {}", e.agente);
     println!("  Ámbito:       {}", e.ambito);
     println!("  Categoría:    {}", e.categoria);
-    println!("  Origen:       {}", e.ruta.display());
+    println!("  Origen:       {}", limpio(&e.ruta.display().to_string()));
     if !e.descripcion.is_empty() {
-        println!("  Descripción:  {}", e.descripcion);
+        println!("  Descripción:  {}", limpio(&e.descripcion));
     }
     println!("  Activado:     {}", texto_estado(e.activado));
     println!("  Cómo se cambia: {}", texto_mecanismo(e.mecanismo));
     if let Some(n) = &e.nota {
-        println!("  Nota:         {n}");
+        println!("  Nota:         {}", limpio(n));
     }
     if !e.version_formato.is_empty() {
         println!("  Formato:      versión {}", e.version_formato);
@@ -153,10 +158,10 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     if let Some(d) = &e.def_mcp {
         println!("  Servidor MCP: {}", d.transporte);
         if let Some(c) = &d.comando {
-            println!("    comando:    {} {}", c, d.args.join(" "));
+            println!("    comando:    {} {}", limpio(c), limpio(&d.args.join(" ")));
         }
         if let Some(u) = &d.url {
-            println!("    url:        {u}");
+            println!("    url:        {}", limpio(u));
         }
         if !d.env.is_empty() {
             println!("    variables:  {} (solo los nombres)", d.env.join(", "));
@@ -223,7 +228,7 @@ pub fn uso(id: Option<String>, json: bool) -> Result<()> {
             t.add_row(vec![
                 s.agente.clone(),
                 s.tipo.to_string(),
-                s.nombre.clone(),
+                limpio(&s.nombre),
                 s.total.to_string(),
                 s.ultimo.clone().unwrap_or_default(),
                 por_actor(&s.por),
@@ -242,7 +247,7 @@ pub fn uso(id: Option<String>, json: bool) -> Result<()> {
     if !informe.avisos.is_empty() {
         println!("\nAvisos:");
         for a in &informe.avisos {
-            println!("  ! {a}");
+            println!("  ! {}", limpio(a));
         }
     }
     Ok(())
@@ -308,7 +313,7 @@ pub fn sesion(store: &mut Store, agente: &str, ids: &[String], directorio: Optio
     println!("  Comando: {}", plan.comando());
     println!("  Directorio efímero: {}", plan.directorio.display());
     for f in &plan.ficheros {
-        println!("  Fichero {:o}: {}", f.modo, f.ruta.display());
+        println!("  Fichero {:o}: {}", f.modo, limpio(&f.ruta.display().to_string()));
     }
     for e in &plan.enlaces {
         println!("  Enlace: {} -> {}", e.ruta.display(), e.destino.display());
@@ -355,4 +360,14 @@ pub fn categoria(id: &str, categoria: Option<&str>, quitar: bool) -> Result<()> 
         None => println!("{id}: vuelve a su categoría por defecto (el origen)."),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::limpio;
+
+    #[test]
+    fn lo_que_se_imprime_no_lleva_secuencias_de_escape() {
+        assert_eq!(limpio("\x1b[31mrojo\x1b[0m\x07 ok\n"), "[31mrojo[0m ok\n");
+    }
 }

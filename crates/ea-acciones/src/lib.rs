@@ -28,7 +28,7 @@ pub use diff::diff_lineas;
 pub use error::ErrorAccion;
 pub use flujo::{aceptar_propuesta, aceptar_propuesta_con_resultado, ejecutar, ejecutar_directo, proponer, rechazar_propuesta, Resultado};
 pub use herramientas::{campos, observar, simular_con, validar_argumentos, Campo, Hechos, Simulacion};
-pub use sistema::{Consulta, EstadoServicio, Sistema, SistemaReal, SistemaSimulado, SoloConsulta};
+pub use sistema::{canal_de_ajustes, Consulta, EstadoServicio, Sistema, SistemaReal, SistemaSimulado, SoloConsulta};
 pub use temporizador::{Calendario, EstadoTimer, Temporizadores};
 pub use terminal::{lanzar_en_terminal, Terminal, TerminalSimulada, TerminalSistema, LANZADORES};
 pub use sesion::lanzar_sesion;

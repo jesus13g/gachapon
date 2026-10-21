@@ -1990,8 +1990,8 @@ function usoFicha(id) {
   if (!U?.mapa) return U?.error ? `<p class="hot">no se pudo calcular el uso: ${esc(U.error)}</p>` : '<p class="m">calculando el uso…</p>';
   const u = U.mapa.get(id);
   if (!u) return '<p class="m">sin usos registrados</p>';
-  return `<p class="m">${u.total} ${u.total === 1 ? 'uso' : 'usos'}${u.ultimo ? ' · el último, hace ' + hace(u.ultimo) : ''}</p>` +
-    u.por.map(p => `<p class="m bib-uso"><b>${esc(nombreAgenteBib(p.actor))}</b> · ${p.usos} ${p.usos === 1 ? 'uso' : 'usos'}${p.ultimo ? ' · hace ' + hace(p.ultimo) : ''}</p>`).join('');
+  return `<p class="m">${u.total} ${u.total === 1 ? 'uso' : 'usos'}${u.ultimo ? ' · el último, hace ' + esc(hace(u.ultimo)) : ''}</p>` +
+    u.por.map(p => `<p class="m bib-uso"><b>${esc(nombreAgenteBib(p.actor))}</b> · ${p.usos} ${p.usos === 1 ? 'uso' : 'usos'}${p.ultimo ? ' · hace ' + esc(hace(p.ultimo)) : ''}</p>`).join('');
 }
 
 function cambioFicha(e) {

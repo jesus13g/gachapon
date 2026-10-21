@@ -199,3 +199,42 @@ async fn solo_consulta_simula_y_propone_pero_no_ejecuta() {
     assert_eq!(fs::read_to_string(home.join(".codex/config.toml")).unwrap(), CODEX, "nada cambió");
     assert!(!acciones(&store).iter().any(|a| a == "accion_ejecutada" || a == "biblioteca_cambio"));
 }
+
+/// El canal de ajustes es el de la CONFIRMACIÓN, no el del TTY del proceso: un
+/// `ea-web` lanzado desde una terminal no puede cambiar las skills del ejecutor.
+#[tokio::test]
+async fn las_skills_del_ejecutor_solo_cambian_si_confirma_la_terminal_y_no_la_web() {
+    let d = tempfile::tempdir().unwrap();
+    let home = d.path().join("home");
+    let skills = d.path().join("qwen-skills");
+    fs::create_dir_all(&skills).unwrap();
+    for n in ["rust", "tests"] {
+        fs::write(skills.join(format!("{n}.md")), "---\ndescripcion: x\n---\n").unwrap();
+    }
+    fs::create_dir_all(&home).unwrap();
+    let fuentes = Fuentes::aislada(d.path());
+    fs::create_dir_all(fuentes.fichero().parent().unwrap()).unwrap();
+    fs::write(fuentes.fichero(), format!("[agente.skills]\ndir = \"{}\"\n", skills.display())).unwrap();
+    let original = lee(&fuentes.fichero());
+    let raices = Raices::nuevo(home, None, d.path().join("estado"), None);
+    // El contexto dice «terminal», como si el proceso tuviera TTY.
+    let ctx = Contexto::nuevo(raices, fuentes.clone(), CanalAjustes::Terminal);
+    let sis = SistemaSimulado::default().con_biblioteca(ctx);
+    let mut store = Store::open_at(&d.path().join("t.db")).unwrap();
+    let args = json!({ "elemento": "qwen-code/skill/ecosistema/tests" });
+    let h = "ea_desactivar_herramienta";
+
+    let hechos = observar(&sis, h, &args).await.unwrap();
+    let (p, _) = proponer(&store, &sis, &hechos, "claude-code", None, h, &args).unwrap();
+    let r = aceptar_propuesta(&mut store, &sis, p.id, "usuario", Canal::Web).await.unwrap();
+    assert_eq!(r.ejecucion.as_ref().unwrap().estado, EstadoEjecucion::Fallida, "{r:?}");
+    assert_eq!(lee(&fuentes.fichero()), original, "la web no escribió ajustes");
+    assert!(sis.mutaciones().is_empty());
+
+    // Otra propuesta (la anterior ya se resolvió): la terminal sí.
+    let hechos = observar(&sis, h, &args).await.unwrap();
+    let (p, _) = proponer(&store, &sis, &hechos, "claude-code", None, h, &args).unwrap();
+    let r = aceptar_propuesta(&mut store, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
+    assert_eq!(r.ejecucion.as_ref().unwrap().estado, EstadoEjecucion::Ejecutada, "{r:?}");
+    assert!(lee(&fuentes.fichero()).contains("habilitadas"));
+}

@@ -508,6 +508,7 @@ name = "ea-biblioteca"
 version = "0.1.0"
 dependencies = [
  "ea-ajustes",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",
