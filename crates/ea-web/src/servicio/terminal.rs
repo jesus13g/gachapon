@@ -20,9 +20,7 @@ use serde_json::{json, Map, Value};
 use super::{ErrorWeb, Resultado, ACTOR};
 use crate::AppState;
 
-/// Los programas que abren una terminal con un comando, por orden de
-/// preferencia: el estándar de freedesktop y el de Omarchy.
-const LANZADORES: [&str; 2] = ["xdg-terminal-exec", "omarchy-launch-terminal"];
+use ea_acciones::LANZADORES;
 
 /// Cómo se abre la terminal. `WebConfig::load` usa `Sistema`; las pruebas,
 /// `Simulada` (nunca se abre una ventana de verdad desde una prueba).
@@ -166,29 +164,9 @@ async fn validar_propuesta(s: &AppState, id: i64) -> Resultado<Orden> {
 }
 
 fn lanzar(ea: &Path, orden: &Orden) -> Resultado<()> {
-    let mut ultimo = None;
-    for lanzador in LANZADORES {
-        let r = std::process::Command::new(lanzador)
-            .arg(ea)
-            .args(orden.argv())
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-        match r {
-            // Sin esperar: la ventana vive lo que el usuario quiera. Un hilo
-            // la recoge al cerrarse para no dejar un proceso zombi.
-            Ok(mut hijo) => {
-                std::thread::spawn(move || hijo.wait());
-                return Ok(());
-            }
-            Err(e) => ultimo = Some(format!("{lanzador}: {e}")),
-        }
-    }
-    Err(ErrorWeb::NoDisponible(format!(
-        "no hay terminal que abrir ({}); escribe el comando a mano",
-        ultimo.unwrap_or_default()
-    )))
+    let mut argv = vec![ea.display().to_string()];
+    argv.extend(orden.argv());
+    ea_acciones::lanzar_en_terminal(&argv).map_err(ErrorWeb::NoDisponible)
 }
 
 /// Abre una terminal con el comando que confirma en ella. Queda en el

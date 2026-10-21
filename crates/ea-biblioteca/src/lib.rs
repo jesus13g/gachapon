@@ -11,6 +11,7 @@ mod error;
 mod modelo;
 pub mod raices;
 pub mod redactar;
+pub mod sesion;
 
 use std::collections::HashSet;
 
@@ -20,6 +21,7 @@ use serde::Serialize;
 pub use error::ErrorBiblioteca;
 pub use modelo::{Activado, Ambito, DefMcp, Elemento, Id, Mecanismo, Tipo, AGENTE_ECOSISTEMA};
 pub use raices::Raices;
+pub use sesion::{limpiar_sesiones, materializar, plan_sesion, EnlaceEfimero, FicheroEfimero, FuenteMcp, PlanSesion, AGENTES_CON_SESION};
 
 /// Orden de los agentes en el inventario.
 fn orden_agente(a: &str) -> usize {

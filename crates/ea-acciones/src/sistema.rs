@@ -11,12 +11,14 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use ea_biblioteca::{Inventario, PlanSesion, Raices};
 use ea_boveda::{Boveda, ErrorBoveda, PlanPromocion};
 use ea_store::Store;
 use tokio::process::Command;
 use tokio::time::timeout;
 
 use crate::temporizador::{comprobar_calendario, Calendario, EstadoTimer, Temporizadores};
+use crate::terminal::{TerminalSimulada, TerminalSistema};
 
 /// Servicios que se pueden reiniciar: lista cerrada.
 pub const SERVICIOS_REINICIABLES: [&str; 4] =
@@ -46,6 +48,11 @@ pub trait Consulta: Send + Sync {
     /// Lo que haría promover una nota a la región compartida, sin hacerlo.
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda>;
 
+    /// El plan de una sesión de `agente` con solo las herramientas `ids` de
+    /// la biblioteca (spec 018, F5), sin secretos y sin escribir nada.
+    /// `directorio`: la carpeta del proyecto (por defecto, la actual).
+    fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String>;
+
     /// Cómo está el timer de systemd de una rutina (fichero, `OnCalendar`,
     /// activo). No cambia nada.
     fn timer_estado(&self, slug: &str) -> impl Future<Output = Result<EstadoTimer, String>> + Send;
@@ -69,6 +76,10 @@ pub trait Sistema: Consulta {
 
     /// Devuelve el TOML de la papelera a su sitio ([`ea_bus::restaurar_rutina`]).
     fn rutina_restaurar(&self, slug: &str) -> Result<(), String>;
+
+    /// Escribe los ficheros efímeros de la sesión (0600) y abre la terminal
+    /// con el agente (argv, sin shell). Las pruebas usan un doble.
+    fn sesion_lanzar(&self, plan: &PlanSesion) -> Result<(), String>;
 
     /// Registra la definición `texto` (lo mismo que `ea rutina registrar`:
     /// la versión en SQLite y la copia en `rutinas_dir`). Devuelve el slug y
@@ -175,6 +186,9 @@ impl Consulta for SoloConsulta {
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
         self.boveda.planear_promocion(ruta, destino)
     }
+    fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String> {
+        crate::sesion::plan_real(agente, ids, directorio)
+    }
     /// Los timers de `systemd --user` de esta sesión, solo para mirar.
     async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
         Temporizadores::usuario().estado(slug).await
@@ -208,6 +222,9 @@ impl Consulta for SistemaReal {
     }
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
         self.boveda.planear_promocion(ruta, destino)
+    }
+    fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String> {
+        crate::sesion::plan_real(agente, ids, directorio)
     }
     async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
         self.temporizadores.estado(slug).await
@@ -253,6 +270,10 @@ impl Sistema for SistemaReal {
 
     fn rutina_restaurar(&self, slug: &str) -> Result<(), String> {
         ea_bus::restaurar_rutina(&self.rutinas_dir, slug).map_err(|e| e.to_string())
+    }
+
+    fn sesion_lanzar(&self, plan: &PlanSesion) -> Result<(), String> {
+        crate::sesion::lanzar_real(plan, &TerminalSistema)
     }
 
     fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String> {
@@ -302,6 +323,11 @@ pub struct SistemaSimulado {
     pub mutaciones: Mutex<Vec<String>>,
     /// Timers programados, por slug: su `OnCalendar` (activos todos).
     pub timers: Mutex<HashMap<String, String>>,
+    /// El inventario y las raíces (con un runtime temporal) sobre los que se
+    /// planean las sesiones de la biblioteca.
+    pub biblioteca: Mutex<Option<(Inventario, Raices)>>,
+    /// Las terminales que se habrían abierto.
+    pub terminal: TerminalSimulada,
 }
 
 impl SistemaSimulado {
@@ -331,6 +357,16 @@ impl SistemaSimulado {
     pub fn con_timer(self, slug: &str, calendario: &str) -> Self {
         self.timers.lock().unwrap().insert(slug.to_string(), calendario.to_string());
         self
+    }
+
+    pub fn con_biblioteca(self, inventario: Inventario, raices: Raices) -> Self {
+        *self.biblioteca.lock().unwrap() = Some((inventario, raices));
+        self
+    }
+
+    /// Los argv que se habrían abierto en una terminal.
+    pub fn terminales(&self) -> Vec<Vec<String>> {
+        self.terminal.lanzadas()
     }
 
     pub fn mutaciones(&self) -> Vec<String> {
@@ -382,6 +418,11 @@ impl Consulta for SistemaSimulado {
             bytes: contenido.len(),
             huella: ea_boveda::huella(contenido),
         })
+    }
+    fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String> {
+        let b = self.biblioteca.lock().unwrap();
+        let (inventario, raices) = b.as_ref().ok_or("el sistema simulado no tiene biblioteca")?;
+        crate::sesion::plan_en(agente, ids, directorio, inventario, raices)
     }
     async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
         if !slug_valido(slug) {
@@ -440,6 +481,15 @@ impl Sistema for SistemaSimulado {
         let c = self.retiradas.lock().unwrap().remove(slug).ok_or_else(|| format!("la rutina '{slug}' no está en la papelera"))?;
         self.rutinas.lock().unwrap().insert(slug.to_string(), c);
         self.mutaciones.lock().unwrap().push(format!("restaurar:{slug}"));
+        Ok(())
+    }
+    fn sesion_lanzar(&self, plan: &PlanSesion) -> Result<(), String> {
+        let raices = {
+            let b = self.biblioteca.lock().unwrap();
+            b.as_ref().ok_or("el sistema simulado no tiene biblioteca")?.1.clone()
+        };
+        crate::sesion::lanzar_con(plan, Raices { proyecto: plan.cwd.clone(), ..raices }, &self.terminal)?;
+        self.mutaciones.lock().unwrap().push(format!("sesion:{}", plan.id));
         Ok(())
     }
     /// Con la misma política que el bus (`comprobar_registro`), pero el

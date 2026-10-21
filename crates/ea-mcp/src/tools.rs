@@ -24,7 +24,7 @@ use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
     BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
-    EncolarRutinaArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
+    EncolarRutinaArgs, LanzarSesionArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
 };
 
 /// Quién hace una llamada MCP: el actor que se escribe en el diario y del
@@ -730,6 +730,32 @@ impl EaTools {
     }
 
     #[tool(
+        description = "[Riesgo: mutación reversible] Abre en una terminal del usuario un agente \
+            (claude-code, qwen-code, codex u opencode) con SOLO las herramientas elegidas de la \
+            biblioteca (ids `agente/tipo/ámbito/nombre`). Los secretos de los MCP van a ficheros \
+            0600 efímeros, nunca a argumentos. NO lo abre: con simular=true describe el comando y \
+            los ficheros (sin secretos); sin él encola una propuesta que el usuario debe aceptar \
+            (terminal o panel web). No está disponible para el agente local.",
+        annotations(
+            title = "Lanzar sesión con herramientas",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_lanzar_sesion(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<LanzarSesionArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut a = json!({ "agente": args.agente, "herramientas": args.herramientas });
+        if let Some(d) = args.directorio {
+            a["directorio"] = json!(d);
+        }
+        self.mutante(context, "ea_lanzar_sesion", a, args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
         description = "[Riesgo: mutación reversible] Quita el timer de systemd de una rutina \
             (systemctl --user disable --now ea-rutina@<slug>.timer y borra su fichero). La \
             rutina sigue registrada. NO lo hace: con simular=true lo describe; sin él encola \
@@ -846,7 +872,7 @@ impl ServerHandler for EaTools {
                  herramientas que cambian el sistema (ea_encolar_rutina, \
                  ea_registrar_rutina, ea_programar_rutina, ea_desprogramar_rutina, \
                  ea_retirar_rutina, ea_restaurar_rutina, ea_reiniciar_servicio, \
-                 ea_eliminar_rutina, ea_promover_nota) nunca se \
+                 ea_eliminar_rutina, ea_promover_nota, ea_lanzar_sesion) nunca se \
                  ejecutan desde aquí: con simular=true describen lo que harían; sin él \
                  encolan una propuesta que solo el usuario puede aceptar. Las \
                  irreversibles solo se confirman desde una terminal. La bóveda de \

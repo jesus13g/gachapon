@@ -149,6 +149,18 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Devuelve una rutina retirada a rutinas_dir (sin volver a programar su timer)",
     },
+    // Spec 018, F5: abre en una terminal un agente con SOLO las herramientas
+    // elegidas de la biblioteca. Reversible: se cierra la ventana y los
+    // ficheros efímeros (0600, en el runtime) caducan solos a las 24 h; no
+    // cambia la configuración de ningún agente. Nunca para el ejecutor
+    // (`local: false`): abrir una ventana del escritorio es del usuario.
+    Herramienta {
+        nombre: "ea_lanzar_sesion",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Abre en una terminal un agente (Claude Code, Qwen Code, Codex u OpenCode) con solo las herramientas elegidas de la biblioteca",
+    },
     // Vaciar la papelera: solo una rutina ya retirada, y solo desde la terminal.
     Herramienta {
         nombre: "ea_eliminar_rutina",

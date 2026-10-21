@@ -78,6 +78,22 @@ pub struct RegistrarRutinaArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct LanzarSesionArgs {
+    /// Agente que se lanza: "claude-code", "qwen-code", "codex" u "opencode".
+    pub agente: String,
+    /// Ids de la biblioteca de herramientas (`agente/tipo/ámbito/nombre`,
+    /// p. ej. "claude-code/mcp/usuario/mi-servidor"): solo estos estarán
+    /// disponibles en la sesión.
+    pub herramientas: Vec<String>,
+    /// Carpeta del proyecto (ruta absoluta; opcional).
+    pub directorio: Option<String>,
+    /// Si es true, solo describe la sesión (comando y ficheros, sin secretos).
+    /// Si es false (por defecto), encola una propuesta que el usuario debe
+    /// aceptar: nada se abre aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ProgramarRutinaArgs {
     /// Nombre (slug) de una rutina registrada, p. ej. "revision-diaria".
     pub slug: String,
