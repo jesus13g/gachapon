@@ -81,6 +81,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/memoria/{proyecto}/{fichero}/renombrar", post(memoria_renombrar))
         .route("/api/memoria/{proyecto}/{fichero}/mostrar", post(memoria_mostrar))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
+        .route("/api/biblioteca", get(biblioteca_listar))
+        .route("/api/biblioteca/uso", get(biblioteca_uso))
+        .route("/api/biblioteca/simular", post(biblioteca_simular))
+        .route("/api/biblioteca/ejecutar", post(biblioteca_ejecutar))
+        // Los ids llevan «/» y «@»: la página los codifica (%2F), pero valen también sin codificar.
+        .route("/api/biblioteca/{*id}", get(biblioteca_ficha))
         .route("/api/ajustes", get(ajustes_ver).post(ajustes_cambiar))
         .route("/api/sesion", get(sesion))
         .layer(middleware::from_fn_with_state(state.clone(), guardia))

@@ -7,7 +7,7 @@
 const tour = (() => {
   const NOMBRES = {
     inicio: 'Inicio', trabajos: 'Trabajos', diario: 'Diario', rutinas: 'Rutinas',
-    propuestas: 'Propuestas', acciones: 'Acciones', sistema: 'Sistema', boveda: 'Bóveda', memoria: 'Memoria', ajustes: 'Ajustes',
+    propuestas: 'Propuestas', acciones: 'Acciones', sistema: 'Sistema', boveda: 'Bóveda', memoria: 'Memoria', biblioteca: 'Biblioteca', ajustes: 'Ajustes',
   };
 
   // Cada paso: sección (opcional), anclas candidatas (la primera visible gana),
@@ -61,6 +61,8 @@ const tour = (() => {
       texto: 'Lo que Claude Code recuerda de cada proyecto: una carpeta por proyecto y, dentro, una nota por memoria; <b>≡</b> es el índice. Pulsa una para abrirla (o <b>j / k</b>); pulsa la carpeta para plegarla.' },
     { sec: 'memoria', ancla: ['#filas .nota-cab', '#lista'], titulo: 'Leer, editar y más',
       texto: '<b>✎</b> (o <b>Ctrl+E</b>) alterna lectura y edición sin perder el borrador; <b>Ctrl+S</b> guarda, y si la memoria cambió en disco avisa antes de pisarla. <b>⋯</b> renombra (y pone al día los enlaces), copia la ruta, la muestra en el explorador o la elimina para siempre.' },
+    { sec: 'biblioteca', ancla: ['#lista .f', '#lista'], titulo: 'La biblioteca de herramientas',
+      texto: 'Lo que cada agente tiene instalado: skills, plugins, subagentes, MCP, comandos y extensiones, por categoría y tipo (<b>●</b> activado, <b>○</b> no) y con cuánto se usan. Abre una para ver su origen y su uso; <b>⏻</b> activa o desactiva (simula y pide aceptar), <b>▶ sesión con…</b> abre una terminal con solo lo que elijas y <b>✎</b> le da una categoría propia. Nunca se enseñan los secretos de un MCP.' },
     { sec: 'ajustes', ancla: ['#lista .f', '#lista'], titulo: 'Ajustes',
       texto: 'Cómo se comporta el ecosistema y de dónde sale cada valor. <b>◐</b> se cambia aquí (segundo clic para confirmar; los topes solo bajan), <b>⌨</b> solo en una terminal con <b>ea ajustes</b> y <b>⊘</b> lo fija una variable de entorno.' },
     { ancla: ['#proyectos:not(.plegada)', '#proyectos', '#bproy'], titulo: 'Proyectos',
