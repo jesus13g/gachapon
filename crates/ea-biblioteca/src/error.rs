@@ -24,6 +24,9 @@ pub enum ErrorBiblioteca {
     Io(String),
     #[error("ajustes: {0}")]
     Ajustes(String),
+    /// Una sesión que no se puede planear o materializar (spec 018, F5).
+    #[error("sesión: {0}")]
+    Sesion(String),
 }
 
 impl From<std::io::Error> for ErrorBiblioteca {
