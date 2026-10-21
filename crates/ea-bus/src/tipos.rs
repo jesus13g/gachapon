@@ -8,6 +8,10 @@ use crate::error::{ErrorBus, Resultado};
 /// ejecutor (`modelo-local`). Lo define `ea-ajustes` (spec 017, RF-001).
 pub use ea_ajustes::Rol;
 
+/// Miembro de un equipo y su rol dentro de él (spec 019). Los define
+/// `ea-ajustes`, que valida los equipos.
+pub use ea_ajustes::{Miembro, RolEquipo};
+
 /// Quién ejecutó una iteración: el agente (id del catálogo) y el nombre del
 /// modelo con el que se tomó el trabajo (spec 017, RF-008). Opcional en todo
 /// lo que se guarda, para leer trabajos de antes.
@@ -108,8 +112,64 @@ pub struct Orden {
     /// Skills del ejecutor que lleva el trabajo (las elige quien tenga la llave).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
+    /// Equipo para el que se crea el trabajo (spec 019, RF-004).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub equipo: Option<String>,
+    /// Agente ejecutor concreto del equipo; sin él, lo toma cualquiera.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asignado_a: Option<String>,
+    /// Agente del equipo al que llega la entrega para revisarla.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisor: Option<String>,
+    /// El sistema crea un `git worktree` para el trabajo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub worktree_propio: bool,
     pub creada_en: String,
     pub creada_por: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EstadoEquipo {
+    Despierto,
+    Dormido,
+}
+
+impl EstadoEquipo {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EstadoEquipo::Despierto => "despierto",
+            EstadoEquipo::Dormido => "dormido",
+        }
+    }
+}
+
+/// Un grupo de agentes despertado por el usuario para una tarea
+/// (`equipos/<id>/equipo.json`, spec 019, RF-001).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Equipo {
+    pub id: String,
+    pub titulo: String,
+    pub objetivo: String,
+    /// Repo sobre el que trabaja el equipo.
+    pub worktree_base: String,
+    pub miembros: Vec<Miembro>,
+    pub estado: EstadoEquipo,
+    pub creado_en: String,
+    pub creado_por: String,
+    /// Ids de los trabajos creados para el equipo, en orden.
+    #[serde(default)]
+    pub trabajos: Vec<String>,
+}
+
+impl Equipo {
+    pub fn miembro(&self, agente: &str) -> Option<&Miembro> {
+        self.miembros.iter().find(|m| m.agente == agente)
+    }
+
+    pub fn con_rol(&self, agente: &str, rol: RolEquipo) -> bool {
+        self.miembro(agente).is_some_and(|m| m.rol == rol)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

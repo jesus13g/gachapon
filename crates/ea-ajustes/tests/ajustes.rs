@@ -508,3 +508,18 @@ fn categorias_de_la_biblioteca_se_escriben_desde_la_web_y_se_leen() {
     assert!(establecer(&f, Canal::Web, None, &cambio("biblioteca.categorias", json!({ id: 3 }))).is_err());
     assert!(interpretar(clave("biblioteca.categorias").unwrap(), r#"{"a/b/c/d":"X"}"#).is_ok());
 }
+
+// ------------------------------------------------- 019: equipos
+
+#[test]
+fn el_paralelo_vale_uno_por_defecto_va_de_1_a_8_y_solo_se_cambia_desde_la_terminal() {
+    let (_d, f) = fuentes();
+    assert_eq!(cargar_de(&f).ajustes.orquestador.paralelo, 1);
+    let c = clave("orquestador.paralelo").unwrap();
+    assert_eq!(interpretar(c, "4").unwrap(), json!(4));
+    assert!(interpretar(c, "0").is_err());
+    assert!(interpretar(c, "9").is_err());
+    assert!(establecer(&f, Canal::Web, Some(""), &cambio("orquestador.paralelo", json!(2))).is_err());
+    establecer(&f, Canal::Terminal, None, &cambio("orquestador.paralelo", json!(3))).unwrap();
+    assert_eq!(cargar_de(&f).ajustes.orquestador.paralelo, 3);
+}

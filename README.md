@@ -182,6 +182,7 @@ comentarios y claves ajenas).
 | `agente.skills.pueden_elegir` | `["claude-code"]` | ⊆ `["claude-code", "planificador"]` | | solo terminal | en caliente |
 | `orquestador.intervalo_sondeo_s` | 5 | 1–300 | | web y terminal | reiniciar `ea-orchestrator` |
 | `orquestador.intervalo_heartbeat_s` | 30 | 5–600 | | web y terminal | reiniciar los tres servicios |
+| `orquestador.paralelo` | 1 | 1–8 | | solo terminal | reiniciar `ea-orchestrator` |
 | `orquestador.rutinas_dir` | `<config>/rutinas` | ruta | | solo terminal | reiniciar `ea-web`, `ea-mcp` |
 | `red.puerto_web` | 8092 | 1024–65535 | `EA_WEB_PORT` | web y terminal | reiniciar `ea-web` |
 | `red.puerto_mcp` | 8765 | 1024–65535 | `EA_MCP_PORT` | web y terminal | reiniciar `ea-mcp` (y cambiar la URL del MCP en Claude Code) |

@@ -831,6 +831,10 @@ mod tests {
             rutina: None,
             notas_revision: vec!["usa mayúsculas".into()],
             skills: vec![],
+            equipo: None,
+            asignado_a: None,
+            revisor: None,
+            worktree_propio: false,
             creada_en: String::new(),
             creada_por: "test".into(),
         }

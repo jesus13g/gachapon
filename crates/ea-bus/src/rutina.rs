@@ -159,6 +159,10 @@ impl Rutina {
             rutina: Some(RutinaRef { slug: c.slug.clone(), version: c.version }),
             notas_revision: vec![],
             skills: vec![],
+            equipo: None,
+            asignado_a: None,
+            revisor: None,
+            worktree_propio: false,
             creada_en: String::new(),
             creada_por: "rutina".into(),
         })

@@ -48,6 +48,10 @@ pub fn crear(
             rutina: None,
             notas_revision: vec![],
             skills,
+            equipo: None,
+            asignado_a: None,
+            revisor: None,
+            worktree_propio: false,
             creada_en: String::new(),
             creada_por: por,
         }

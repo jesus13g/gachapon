@@ -801,6 +801,10 @@ fn orden(modo: ea_bus::Modo, titulo: &str, worktree: &str) -> ea_bus::Orden {
         rutina: None,
         notas_revision: vec![],
         skills: vec![],
+        equipo: None,
+        asignado_a: None,
+        revisor: None,
+        worktree_propio: false,
         creada_en: String::new(),
         creada_por: "test".into(),
     }

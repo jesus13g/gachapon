@@ -250,6 +250,10 @@ async fn los_trabajos_del_bus_se_leen_pero_no_se_crean_desde_mcp() {
             rutina: None,
             notas_revision: vec![],
             skills: vec![],
+            equipo: None,
+            asignado_a: None,
+            revisor: None,
+            worktree_propio: false,
             creada_en: String::new(),
             creada_por: "test".into(),
         })

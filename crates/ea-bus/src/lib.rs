@@ -6,6 +6,7 @@
 mod bus;
 mod candado;
 pub mod config;
+mod equipo;
 mod error;
 mod fs_atomico;
 mod instantanea;
@@ -15,6 +16,7 @@ pub mod skills;
 mod tipos;
 
 pub use bus::{comprobar_registro, Bus, EntradaCola, ENV_ESTADO, raiz_estado};
+pub use equipo::NuevoEquipo;
 pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
 pub use config::{ConfigOrquestador, PerfilEjecutor, TipoAgente};
 pub use skills::{bloque_prompt, ConfigSkills, Skill};
@@ -33,6 +35,7 @@ pub use instantanea::{
     SALIDA_AGENTE, SALIDA_ANTIGUA, SKILLS_AGENTE,
 };
 pub use tipos::{
-    EjecutadoPor, Estado, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Modo, Orden, ResultadoInforme, Rol, RutinaRef, Topes,
+    EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Miembro, Modo, Orden,
+    ResultadoInforme, Rol, RolEquipo, RutinaRef, Topes,
     transicion,
 };

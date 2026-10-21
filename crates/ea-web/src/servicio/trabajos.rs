@@ -360,6 +360,10 @@ pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
         rutina: None,
         notas_revision: vec![],
         skills: vec![],
+        equipo: None,
+        asignado_a: None,
+        revisor: None,
+        worktree_propio: false,
         creada_en: String::new(),
         creada_por: ACTOR.into(),
     };
