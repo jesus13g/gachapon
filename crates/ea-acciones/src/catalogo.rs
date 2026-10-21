@@ -149,6 +149,18 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Devuelve una rutina retirada a rutinas_dir (sin volver a programar su timer)",
     },
+    // Spec 018, F5: abre en una terminal un agente con SOLO las herramientas
+    // elegidas de la biblioteca. Reversible: se cierra la ventana y los
+    // ficheros efímeros (0600, en el runtime) caducan solos a los 7 días; no
+    // cambia la configuración de ningún agente. Nunca para el ejecutor
+    // (`local: false`): abrir una ventana del escritorio es del usuario.
+    Herramienta {
+        nombre: "ea_lanzar_sesion",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Abre en una terminal un agente (Claude Code, Qwen Code, Codex u OpenCode) con solo las herramientas elegidas de la biblioteca",
+    },
     // Vaciar la papelera: solo una rutina ya retirada, y solo desde la terminal.
     Herramienta {
         nombre: "ea_eliminar_rutina",
@@ -174,6 +186,17 @@ pub const CATALOGO: &[Herramienta] = &[
         local: true,
         resumen: "Lee una nota de la bóveda (por trozos)",
     },
+    // Biblioteca de herramientas (spec 018, RF-014): solo mirar, sin secretos
+    // (las definiciones MCP salen redactadas). Toda lectura es también del
+    // modelo local, con cotas más estrechas; nada de la biblioteca toca su
+    // proyección MCP ni su sandbox (plan, art. VIII).
+    Herramienta {
+        nombre: "ea_biblioteca",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Inventario de herramientas de los agentes (skills, plugins, subagentes, MCP, comandos y extensiones) con su estado y su uso",
+    },
     // Excepción razonada a §11.1: la región
     // propia de cada agente es de libertad total (decisión 8), así que
     // escribir ahí no pide confirmación. No puede nombrar otra región, no
@@ -194,6 +217,24 @@ pub const CATALOGO: &[Herramienta] = &[
         ejecucion: Ejecucion::Supervisada,
         local: true,
         resumen: "Propone copiar una nota a la región compartida (la decide el usuario)",
+    },
+    // Biblioteca de herramientas (spec 018, F4): activar o desactivar una skill,
+    // plugin, subagente, MCP, comando o extensión de un agente. Reversible (la
+    // una deshace la otra, con copia previa de lo que se edita); lo decide el
+    // usuario. Fuera del modelo local: el ejecutor no se amplía las herramientas.
+    Herramienta {
+        nombre: "ea_activar_herramienta",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Activa un elemento de la biblioteca (skill, plugin, subagente, MCP, comando o extensión)",
+    },
+    Herramienta {
+        nombre: "ea_desactivar_herramienta",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Desactiva un elemento de la biblioteca (skill, plugin, subagente, MCP, comando o extensión)",
     },
 ];
 

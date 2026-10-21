@@ -3,7 +3,7 @@
 Orquestador en Rust (repo público `jesus13g/gachapon`) que reparte el trabajo
 entre dos roles: el **planificador** (formaliza y revisa; por defecto Claude
 Code) y el **ejecutor** (ejecuta; por defecto Qwen Code sobre `llama-server`).
-Desde la constitución 1.3.0 el agente de cada rol es intercambiable (Claude
+Desde la constitución 1.3.0 (1.3.1 con las sesiones interactivas de la biblioteca) el agente de cada rol es intercambiable (Claude
 Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017). Se comunican
 por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
 `orquestador-claude-qwen.md`.
@@ -27,7 +27,7 @@ código. Esas notas son de la bóveda: se escriben con `ea_escribir_nota` (escri
 
 ```bash
 cargo build --release      # binarios en target/release/{ea,ea-mcp,ea-orchestrator,ea-web}
-cargo test --workspace     # toda la suite (unas 120 pruebas)
+cargo test --workspace     # toda la suite (unas 380 pruebas)
 cargo test -p ea-bus       # un solo crate
 systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en release
 ```
@@ -41,6 +41,7 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 | Crate | Qué es |
 |---|---|
 | `ea-ajustes` | Ajustes: `ajustes.toml` (más los TOML heredados), registro de claves con quién las cambia, validación y escritura atómica; base del grafo, no depende de ningún `ea-*` |
+| `ea-biblioteca` | Biblioteca de herramientas (spec 018): inventario de solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de los cinco agentes y del ecosistema, uso por actor, planes de activar/desactivar y de sesión efímera; solo depende de `ea-ajustes` |
 | `ea-store` | SQLite: diario, propuestas, índice de la bóveda, trabajos, fases, rutinas. Una sola migración (`0001_inicial.sql`) |
 | `ea-bus` | Bus de ficheros: colas, estado de trabajos (máquina de estados pura), semáforo `flock`, rutinas TOML, `ConfigOrquestador` (la parte de los ajustes que usa el ejecutor) |
 | `ea-orchestrator` | Ejecutor: toma de la cola `modelo-local`, lanza Qwen en `bwrap`, corre el criterio y entrega el informe |

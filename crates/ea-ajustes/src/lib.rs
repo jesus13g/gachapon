@@ -29,7 +29,7 @@ pub use ejecucion::{dir_ejecucion, fichero_clave_web, DIR_WEB, FICHERO_CLAVE};
 pub use error::ErrorAjustes;
 pub use escribir::{escribir_atomico, establecer, huella, interpretar, Aplicado};
 pub use fuentes::{
-    Agente, Ajustes, ConfigAgente, Entorno, Fuentes, Orquestador, PerfilModelo, Roles, Red, Rutas, Skills, TechoTopes, Web, ENV_CONFIG, TECHO_DURO,
+    Agente, Ajustes, AjustesBiblioteca, ConfigAgente, Entorno, Fuentes, Orquestador, PerfilModelo, Roles, Red, Rutas, Skills, TechoTopes, Web, ENV_CONFIG, TECHO_DURO,
 };
 pub use validar::{expandir_tilde, validar_base_url, validar_perfil, validar_roles, validar_url_remota};
 pub use vista::{Cliente, FilaAjuste, Heredado, Resumen, SeccionAjustes};

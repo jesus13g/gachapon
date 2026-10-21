@@ -3,7 +3,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'ajustes'];
+const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'biblioteca', 'ajustes'];
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
 const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
@@ -38,6 +38,7 @@ const TITULOS = {
   sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y qué agente ocupa cada rol. Despliega un rol para cambiar de agente.'],
   boveda: ['Bóveda', 'Las notas de los agentes y las tuyas, como en Obsidian. Elige una en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto. El buscador busca también dentro del contenido.'],
   memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Elige una nota en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto.'],
+  biblioteca: ['Biblioteca', 'Las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, con su estado y quién los usa. Ábrela para activar o desactivar, o lanza una sesión con solo las que elijas.'],
   ajustes: ['Ajustes', 'Cómo se comporta el ecosistema. Lo marcado ⌨ se cambia en una terminal con `ea ajustes`.'],
 };
 const VACIO = {
@@ -47,6 +48,7 @@ const VACIO = {
   propuestas: 'Nada espera tu decisión.',
   boveda: 'No hay notas.',
   memoria: 'Ningún proyecto tiene memoria (~/.claude/projects/*/memory).',
+  biblioteca: 'La biblioteca está vacía: ningún agente tiene herramientas en disco (o los filtros no dejan ninguna).',
 };
 
 const st = {
@@ -102,6 +104,11 @@ const st = {
   rutRet: {},          // por rutina: { herr, sim, err }: retirar o restaurar, ver retiroRutina()
   rutRetiradas: false, // la barra de Rutinas enseña las retiradas en vez de las activas
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
+  bAgente: null, bTipo: null, bCat: null, bEstado: null, // filtros de la biblioteca (van al hash)
+  bibUso: null,        // uso de la biblioteca: { mapa: id -> uso, en, cargando }
+  bibCambio: {},       // por elemento: { sim, res, err } de activar o desactivar
+  bibSes: null,        // formulario «▶ sesión con…»: { agente, ids, sim, res, err }
+  bibCat: null,        // categoría en edición: { id, v, err }
   ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
   rfBorrador: {},      // trabajo -> { nota, fase }: lo escrito para reformularlo, sin enviar
   sondeoMs: null,      // web.sondeo_ms de los ajustes (null: 3000)
@@ -1924,13 +1931,267 @@ function historialHerramienta(hs) {
       `<span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span></div>`;
   }).join('') + '</div>';
 }
+// ----------------------------------------------------------------- biblioteca
+//
+// ◫ Biblioteca (spec 018): lo que cada agente tiene (skills, plugins,
+// subagentes, MCP, comandos, extensiones) con su estado y su uso. Todo lo que
+// llega ya viene redactado por el servidor (de un MCP, solo los nombres de
+// sus variables y cabeceras). Activar o desactivar y abrir una sesión pasan
+// por simular → aceptar, como en ▶ Acciones: el segundo clic es del usuario.
+// La categoría propia es `biblioteca.categorias` de los ajustes.
+
+const AGENTE_BIB = {
+  'claude-code': 'Claude Code', 'qwen-code': 'Qwen Code', codex: 'Codex', opencode: 'OpenCode',
+  antigravity: 'Antigravity', ecosistema: 'ecosistema', ejecutor: 'ejecutor',
+};
+const nombreAgenteBib = a => AGENTE_BIB[a] ?? a;
+const TIPOS_BIB = [['skill', 'skills'], ['plugin', 'plugins'], ['subagente', 'subagentes'], ['mcp', 'servidores MCP'], ['comando', 'comandos'], ['extension', 'extensiones']];
+const ESTADO_BIB = { si: ['●', 'ok', 'activado'], no: ['○', 'm', 'desactivado'], desconocido: ['?', 'm', 'no se sabe si está activado'] };
+const MECANISMO_BIB = {
+  'comando-oficial': 'con el comando oficial del agente', campo: 'editando su campo «enabled» (con copia previa)',
+  mover: 'moviéndolo al almacén del ecosistema', ajustes: 'por ajustes.toml (solo desde una terminal)',
+  'solo-sesion': 'solo se acota en una sesión', no: 'no se puede cambiar',
+};
+
+// Pide el informe de uso en segundo plano (la primera vez tarda ~1 s): la
+// lista sale al momento y los usos aparecen cuando llegan.
+function cargaUsoBib(forzar = false) {
+  const U = st.bibUso;
+  if (U?.cargando || (!forzar && U && Date.now() - U.en < 30000)) return;
+  st.bibUso = { ...(U ?? {}), cargando: true, en: U?.en ?? 0 };
+  ea.bibliotecaUso().then(inf => {
+    st.bibUso = { en: Date.now(), mapa: new Map(inf.usos.map(u => [u.id, u])), avisos: inf.avisos };
+  }).catch(e => {
+    st.bibUso = { en: Date.now(), mapa: new Map(), error: e.message };
+  }).finally(() => {
+    if (st.sec === 'biblioteca') { st.html = ''; pintar(); }
+  });
+}
+
+const usoBib = id => st.bibUso?.mapa?.get(id);
+
+function filtraBib(d) {
+  return d.elementos.filter(e =>
+    (!st.bAgente || e.agente === st.bAgente) && (!st.bTipo || e.tipo === st.bTipo) &&
+    (!st.bCat || e.categoria === st.bCat) && (!st.bEstado || e.activado === st.bEstado));
+}
+
+// La definición de un MCP, ya sin secretos: de env y cabeceras, solo los nombres.
+function defMcp(m) {
+  if (!m) return '';
+  const linea = [m.comando && [m.comando, ...(m.args ?? [])].join(' '), m.url].filter(Boolean).join(' · ');
+  return `<p class="et">definición del servidor</p><p class="m">${esc(m.transporte)}${linea ? ' · ' + esc(linea) : ''}</p>` +
+    (m.env?.length ? `<p class="m">variables de entorno: ${esc(m.env.join(', '))} (los valores no salen del servidor)</p>` : '') +
+    (m.headers?.length ? `<p class="m">cabeceras: ${esc(m.headers.join(', '))} (los valores no salen del servidor)</p>` : '');
+}
+
+function usoFicha(id) {
+  const U = st.bibUso;
+  if (!U?.mapa) return U?.error ? `<p class="hot">no se pudo calcular el uso: ${esc(U.error)}</p>` : '<p class="m">calculando el uso…</p>';
+  const u = U.mapa.get(id);
+  if (!u) return '<p class="m">sin usos registrados</p>';
+  return `<p class="m">${u.total} ${u.total === 1 ? 'uso' : 'usos'}${u.ultimo ? ' · el último, hace ' + esc(hace(u.ultimo)) : ''}</p>` +
+    u.por.map(p => `<p class="m bib-uso"><b>${esc(nombreAgenteBib(p.actor))}</b> · ${p.usos} ${p.usos === 1 ? 'uso' : 'usos'}${p.ultimo ? ' · hace ' + esc(hace(p.ultimo)) : ''}</p>`).join('');
+}
+
+function cambioFicha(e) {
+  const c = st.bibCambio[e.id] ?? {};
+  if (!e.cambio.posible) return `<p class="m">No se activa ni desactiva desde aquí: ${esc(e.cambio.motivo)}.</p>`;
+  const activar = e.activado !== 'si';
+  const cuando = activar ? 'activar' : 'desactivar';
+  let h = '';
+  if (c.sim) {
+    const edad = c.simEn ? Math.floor((Date.now() - c.simEn) / 1000) : 0;
+    h += `<p class="tx sal">Simulación: ${esc(c.sim.texto)}</p>` +
+      (edad > SIM_CADUCA_S ? `<p class="hot sal">La simulación es de hace ${unidades(edad)}: al aceptar se revalida contra el estado de ahora.</p>` : '') +
+      `<div class="acc sal">${btn('bib-ejecutar', '✓ aceptar y ' + cuando, 'hacer exactamente lo simulado (se revalida; queda en el diario)', { id: e.id }, 'hot')}` +
+      `${btn('bib-cancelar', '✕ no', 'descartar la simulación', { id: e.id })}</div>`;
+  } else {
+    h += `<div class="acc">${btn('bib-simular', '⏻ ' + cuando, `simular: qué se cambiaría (${MECANISMO_BIB[e.mecanismo] ?? e.mecanismo}) antes de aceptar`, { id: e.id, v: cuando })}`;
+  }
+  return h + (c.sim ? '' : '</div>') +
+    (c.res ? `<p class="tx sal">✓ ${esc(c.res.texto)}</p>` + (c.res.evento != null ? `<p class="sal">${btn('ir-evento', '≡ en el diario', 'ver el evento #' + c.res.evento + ' en ≡ Diario', { id: c.res.evento }, 'l')}</p>` : '') : '') +
+    (c.err ? `<p class="hot sal">✕ ${esc(c.err)}</p>` : '');
+}
+
+function categoriaFicha(e) {
+  const C = st.bibCat;
+  if (C?.id !== e.id) return '';
+  const cats = (st.datos?.categorias ?? []).map(c => `<option value="${esc(c)}"></option>`).join('');
+  return `<div class="fm bib-cat"><input data-bcat="${esc(e.id)}" value="${esc(C.v)}" list="bib-cats" maxlength="64" placeholder="categoría" aria-label="Categoría de ${esc(e.nombre)}" autocomplete="off" spellcheck="false">` +
+    `<datalist id="bib-cats">${cats}</datalist>` +
+    btn('bib-cat-guardar', '✓ guardar', 'guardar la categoría en ajustes.toml (biblioteca.categorias)', { id: e.id }) +
+    btn('bib-cat-quitar', '↺ origen', 'quitar la categoría propia: vuelve a la de su origen', { id: e.id }) +
+    btn('bib-cat', '✕', 'cerrar', { id: e.id }) + '</div>' +
+    (C.err ? `<p class="hot">✕ ${esc(C.err)}</p>` : '') +
+    '<p class="m">También con <b>ea ajustes establecer biblioteca.categorias=…</b>.</p>';
+}
+
+function filaBib(e) {
+  const [glifo, cls, tit] = ESTADO_BIB[e.activado] ?? ESTADO_BIB.desconocido;
+  const u = usoBib(e.id);
+  const usos = u ? `${u.total}` : st.bibUso?.mapa ? '—' : '…';
+  const row = `<i class="${cls}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(e.nombre)}">${esc(e.nombre)}</span>` +
+    `<span class="m">${esc(nombreAgenteBib(e.agente))}</span><span class="m" title="${esc(e.ambito)}">${esc(e.ambito)}</span>` +
+    `<span class="m" title="${u ? 'último uso hace ' + esc(hace(u.ultimo)) : ''}">${usos}</span>`;
+  const sesionOk = e.sesion.length > 0;
+  const det = `<p class="tx">${esc(e.descripcion || '(sin descripción)')}</p>` +
+    `<p class="m">${esc(e.id)}</p>` +
+    `<p class="m">${esc(e.tipo)} de ${esc(nombreAgenteBib(e.agente))} · ámbito ${esc(e.ambito)} · categoría <b>${esc(e.categoria)}</b> · ${esc(tit)}</p>` +
+    `<p class="m">origen: ${esc(e.ruta)}</p>` +
+    `<p class="m">se cambia: ${esc(MECANISMO_BIB[e.mecanismo] ?? e.mecanismo)}${e.version_formato ? ' · formato comprobado con la versión ' + esc(e.version_formato) : ''}</p>` +
+    (e.nota ? `<p class="m">⧉ ${esc(e.nota)}</p>` : '') +
+    defMcp(e.def_mcp) +
+    '<p class="et">uso</p>' + usoFicha(e.id) +
+    '<p class="et">acciones</p>' + cambioFicha(e) +
+    `<div class="acc">${btn('bib-sesion', '▶ sesión con…', sesionOk ? 'abrir una sesión de un agente en una terminal con solo las herramientas que elijas' : 'este elemento no tiene sentido en una sesión', { id: e.id }, sesionOk ? '' : 'off')}` +
+    `${btn('bib-cat', '✎ categoría', 'asignarle una categoría propia', { id: e.id })}</div>` + categoriaFicha(e);
+  return fila('l' + e.id, 'l', row, `${e.id} ${e.nombre} ${e.descripcion} ${e.agente} ${e.tipo} ${e.categoria} ${e.ambito}`, det, e.activado === 'no' ? ' fin' : '');
+}
+
+// El formulario «▶ sesión con…»: el agente, las herramientas compatibles con
+// él y, tras simular, el comando sin secretos. Lo escrito vive en st.bibSes.
+function formSesionBib(d) {
+  const S = st.bibSes;
+  if (!S) return [];
+  const compat = d.elementos.filter(e => e.sesion.includes(S.agente));
+  const lista = compat.map(e => `<label class="bs-el"><input type="checkbox" data-bs-el="${esc(e.id)}"${S.ids.includes(e.id) ? ' checked' : ''}> ` +
+    `<span class="x">${esc(e.nombre)}</span> <span class="m">${esc(e.tipo)} · ${esc(nombreAgenteBib(e.agente))} · ${esc(e.ambito)}</span></label>`).join('');
+  const det = '<div class="nm"><div class="fm">' +
+    `<select data-bs-agente title="el agente que se abre" aria-label="Agente">${d.agentes_sesion.map(a => `<option value="${esc(a)}"${a === S.agente ? ' selected' : ''}>${esc(nombreAgenteBib(a))}</option>`).join('')}</select>` +
+    `<span class="m">${S.ids.length} ${S.ids.length === 1 ? 'herramienta elegida' : 'herramientas elegidas'}</span></div>` +
+    `<div class="bs-lista">${lista || '<p class="m">Este agente no tiene herramientas compatibles en la biblioteca.</p>'}</div>` +
+    '<p class="m">Se abre en una terminal real, solo con lo elegido; no cambia la configuración de ningún agente y al cerrarla no queda nada activado. Los secretos de un MCP van solo a un fichero temporal (0600), nunca al comando.</p>' +
+    (S.sim ? `<p class="tx sal">Simulación: ${esc(S.sim.texto)}</p>` : '') +
+    (S.res ? `<p class="tx sal">✓ ${esc(S.res.texto)}</p>` : '') +
+    (S.err ? `<p class="hot sal">✕ ${esc(S.err)}</p>` : '') +
+    '<div class="acc">' + btn('bib-ses-simular', '◌ simular', 'ver el comando y los ficheros, sin abrir nada', {}, S.ids.length ? '' : 'off') +
+    (S.sim ? btn('bib-ses-ejecutar', '▶ abrir la terminal', 'abrir la terminal con exactamente lo simulado (se revalida)', {}, 'coin') : '') +
+    btn('bib-sesion', '✕ cerrar', 'cerrar el formulario') + '</div></div>';
+  const row = `<i>▶</i><span class="x">sesión de ${esc(nombreAgenteBib(S.agente))}</span><span class="m">con solo lo elegido</span><span class="m"></span><span class="m"></span>`;
+  return [suelto(`<article class="f o nueva"><div class="r l">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+function filasBiblioteca(d) {
+  const els = filtraBib(d);
+  const out = [...formSesionBib(d)];
+  if (d.avisos.length) {
+    out.push(suelto(`<p class="aj-cab m" title="${esc(d.avisos.join('\n'))}">${d.avisos.length} ${d.avisos.length === 1 ? 'aviso' : 'avisos'} al leer: ${esc(d.avisos[0])}${d.avisos.length > 1 ? ' …' : ''}</p>`, true));
+  }
+  if (!els.length) return out;
+  out.push(columnas('l', '', 'nombre', 'agente', 'ámbito', 'usos'));
+  const cats = [...new Set(els.map(e => e.categoria))].sort((a, b) => a.localeCompare(b));
+  for (const c of cats) {
+    const deC = els.filter(e => e.categoria === c);
+    out.push(grupo('◫', esc(c), deC.length));
+    for (const [t, plural] of TIPOS_BIB) {
+      const deT = deC.filter(e => e.tipo === t);
+      if (!deT.length) continue;
+      out.push(suelto(`<p class="bib-tipo m">${esc(plural)} · ${deT.length}</p>`));
+      out.push(...deT.map(filaBib));
+    }
+  }
+  return out;
+}
+
+// La barra: «▶ sesión con…» primero y los filtros, que se aplican aquí mismo.
+function barraBiblioteca() {
+  const d = st.datos;
+  const opcion = (v, t, actual) => `<option value="${esc(v)}"${v === (actual ?? '') ? ' selected' : ''}>${esc(t)}</option>`;
+  const sel = (campo, titulo, ops, actual) =>
+    `<select class="c${actual ? ' on' : ''}" data-bf="${campo}" title="${titulo}" aria-label="${titulo}">${ops.map(([v, t]) => opcion(v, t, actual)).join('')}</select>`;
+  const agentes = [...new Set([...(d?.elementos ?? []).map(e => e.agente), st.bAgente].filter(Boolean))];
+  const cats = [...new Set([...(d?.categorias ?? []), st.bCat].filter(Boolean))];
+  return `<button class="c${st.bibSes ? ' on' : ''}" data-a="bib-sesion" title="abrir una sesión de un agente con solo las herramientas que elijas" aria-pressed="${!!st.bibSes}">▶ sesión con…</button>` +
+    sel('agente', 'agente', [['', 'agente: todos'], ...agentes.map(a => [a, nombreAgenteBib(a)])], st.bAgente) +
+    sel('tipo', 'tipo', [['', 'tipo: todos'], ...TIPOS_BIB.map(([t, p]) => [t, p])], st.bTipo) +
+    sel('categoria', 'categoría', [['', 'categoría: todas'], ...cats.map(c => [c, c])], st.bCat) +
+    sel('estado', 'estado', [['', 'estado: todos'], ['si', '● activados'], ['no', '○ desactivados'], ['desconocido', '? desconocido']], st.bEstado);
+}
+
+// «▶ sesión con…»: abre el formulario (con `id` preelegido) o lo cierra.
+function abreSesionBib(id) {
+  if (!id && st.bibSes) { st.bibSes = null; return; }
+  const e = id && st.datos?.elementos.find(x => x.id === id);
+  const agente = e ? (e.sesion.includes(e.agente) ? e.agente : e.sesion[0]) : st.bibSes?.agente ?? st.datos?.agentes_sesion?.[0];
+  if (id && !e?.sesion.length) throw new Error('este elemento no tiene sentido en una sesión');
+  st.bibSes = { agente, ids: e ? [e.id] : [], sim: null, res: null, err: null, simEn: 0 };
+  $('#lista').scrollTop = 0;
+}
+
+async function accionBiblioteca(a, b) {
+  const { id } = b.dataset;
+  if (a === 'bib-sesion') { abreSesionBib(b.dataset.id); return; }
+  if (a === 'bib-simular' || a === 'bib-ejecutar' || a === 'bib-cancelar') {
+    const c = (st.bibCambio[id] ??= {});
+    const prev = c.sim;
+    c.sim = c.res = c.err = null;
+    if (a === 'bib-cancelar') return;
+    try {
+      if (a === 'bib-simular') {
+        c.sim = await ea.simularBiblioteca(b.dataset.v === 'activar' ? 'ea_activar_herramienta' : 'ea_desactivar_herramienta', { elemento: id });
+        c.simEn = Date.now();
+      } else if (prev) {
+        c.res = await ea.ejecutarBiblioteca(prev.herramienta, prev.argumentos, prev.precondicion);
+        st.bibUso = null;
+      }
+    } catch (e) {
+      c.err = e.message;
+    }
+    return;
+  }
+  if (a === 'bib-ses-simular' || a === 'bib-ses-ejecutar') {
+    const S = st.bibSes;
+    if (!S) return;
+    const prev = S.sim;
+    S.sim = S.res = S.err = null;
+    try {
+      if (a === 'bib-ses-simular') {
+        S.sim = await ea.simularBiblioteca('ea_lanzar_sesion', { agente: S.agente, herramientas: S.ids });
+        S.simEn = Date.now();
+      } else if (prev) {
+        S.res = await ea.ejecutarBiblioteca(prev.herramienta, prev.argumentos, prev.precondicion);
+        avisa('▶ sesión abierta en una terminal', true);
+      }
+    } catch (e) {
+      S.err = e.message;
+    }
+    return;
+  }
+  if (a === 'bib-cat') {
+    if (st.bibCat?.id === id) { st.bibCat = null; return; }
+    const e = st.datos?.elementos.find(x => x.id === id);
+    st.bibCat = { id, v: e?.categoria ?? '', err: null };
+    return;
+  }
+  if (a === 'bib-cat-guardar' || a === 'bib-cat-quitar') {
+    const C = st.bibCat;
+    if (!C || C.id !== id) return;
+    const nueva = a === 'bib-cat-quitar' ? '' : ($(`[data-bcat="${CSS.escape(id)}"]`)?.value ?? C.v).trim();
+    if (a === 'bib-cat-guardar' && !nueva) { C.err = 'escribe la categoría (o usa ↺ origen)'; return; }
+    try {
+      // El mapa de ahora, con la huella de ajustes.toml que se leyó.
+      const aj = await ea.ajustes();
+      const clave = aj.secciones.flatMap(s => s.claves).find(c => c.clave === 'biblioteca.categorias');
+      const mapa = { ...(clave?.valor ?? {}) };
+      if (nueva) mapa[id] = nueva; else delete mapa[id];
+      await ea.cambiarAjustes(aj.version, { 'biblioteca.categorias': Object.keys(mapa).length ? mapa : null });
+      st.bibCat = null;
+      avisa(nueva ? `✓ categoría «${nueva}»` : '✓ vuelve a la categoría de su origen', true);
+    } catch (e) {
+      C.err = e.message;
+    }
+  }
+}
+
 // ------------------------------------------------------------------- ajustes
 
 const ORIGEN_AJ = { defecto: () => 'por defecto', ajustes: () => 'ajustes.toml', heredado: o => 'heredado: ' + o.fichero, entorno: o => 'entorno: ' + o.variable };
 const origenAj = o => (ORIGEN_AJ[o.tipo] ?? (() => o.tipo))(o);
 // Un valor para leerlo y tal como se escribiría en la terminal.
-const valorAj = v => (Array.isArray(v) ? (v.length ? v.join(', ') : '(ninguna)') : typeof v === 'boolean' ? (v ? 'sí' : 'no') : String(v ?? ''));
-const crudoAj = v => (Array.isArray(v) ? v.join(',') : String(v ?? ''));
+const esMapaAj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+const valorAj = v => (esMapaAj(v) ? (Object.keys(v).length ? Object.entries(v).map(([k, x]) => `${k} → ${x}`).join(', ') : '(ninguna)') : Array.isArray(v) ? (v.length ? v.join(', ') : '(ninguna)') : typeof v === 'boolean' ? (v ? 'sí' : 'no') : String(v ?? ''));
+const crudoAj = v => (esMapaAj(v) ? JSON.stringify(v) : Array.isArray(v) ? v.join(',') : String(v ?? ''));
 const armadoAj = n => !!(st.armado && st.armado.n === n && st.armado.hasta > Date.now());
 
 function filaAjuste(c) {
@@ -2005,6 +2266,10 @@ async function guardaAjuste(clave, defecto) {
       if (!/^\d+$/.test(crudo)) throw new Error(`'${c.titulo}' debe ser un número`);
       valor = Number(crudo);
     } else if (c.tipo === 'lista') valor = crudo.split(',').map(x => x.trim()).filter(Boolean);
+    else if (c.tipo === 'mapa') {
+      try { valor = JSON.parse(crudo || '{}'); } catch { throw new Error(`'${c.titulo}' debe ser JSON de texto a texto, p. ej. {"id": "categoría"}`); }
+      if (!esMapaAj(valor)) throw new Error(`'${c.titulo}' debe ser un objeto JSON`);
+    }
     else valor = crudo;
   }
   const r = await ea.cambiarAjustes(d.version, { [clave]: valor });
@@ -2145,6 +2410,7 @@ function construir() {
     case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
       ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', 'última', ''), filasRutinas(d))] : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
+    case 'biblioteca': return d ? filasBiblioteca(d) : [];
     case 'ajustes': return d ? filasAjustes(d) : [];
     default: return st.estado ? [columnas('s', '', 'servicio o rol', 'qué hace', 'desde', ''), ...filasSistema(st.estado, false, d)] : [];
   }
@@ -2281,6 +2547,7 @@ function barra() {
     h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
         `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
   }
+  else if (st.sec === 'biblioteca') h = barraBiblioteca();
   if (fb.dataset.h !== h) { fb.dataset.h = h; fb.innerHTML = h; }
 }
 
@@ -2489,6 +2756,10 @@ async function cargaSeccion() {
     const filtros = filtrosDiario();
     datos = fundeDiario(await ea.diario(filtros), filtros.limite);
   }
+  else if (sec === 'biblioteca') {
+    datos = await ea.biblioteca();
+    cargaUsoBib();
+  }
   else if (sec === 'ajustes') {
     datos = await ea.ajustes();
     aplicaCliente(datos.cliente);
@@ -2566,7 +2837,7 @@ function marco() {
 
 // Prefijo de la clave de las filas que se pueden enlazar, por sección. Bóveda
 // y Memoria no llevan fila: su nota abierta la recuerda el navegador.
-const FILA = { inicio: 'j', trabajos: 'j', diario: 'e', rutinas: 'r', propuestas: 'p', acciones: 'a', sistema: 's', ajustes: 'g' };
+const FILA = { inicio: 'j', trabajos: 'j', diario: 'e', rutinas: 'r', propuestas: 'p', acciones: 'a', sistema: 's', biblioteca: 'l', ajustes: 'g' };
 
 // Los parámetros de cada sección en el hash: nombre -> { lee(valor), escribe() }.
 // `lee` recibe el texto del hash (undefined si no está: el valor por
@@ -2592,6 +2863,12 @@ const PARAMS = {
     latidos: bandera('latidos'),
   },
   propuestas: { todas: bandera('propTodas') },
+  biblioteca: {
+    agente: texto('bAgente', v => /^[a-z0-9-]{1,32}$/.test(v)),
+    tipo: texto('bTipo', v => TIPOS_BIB.some(([t]) => t === v)),
+    categoria: texto('bCat', v => v.length <= 64),
+    estado: texto('bEstado', v => v === 'si' || v === 'no' || v === 'desconocido'),
+  },
   // La versión elegida en la ficha enlazada (ver versionesHtml); diff=1, su
   // diff con la anterior. Solo se escribe si es de la fila del enlace.
   rutinas: {
@@ -2908,6 +3185,8 @@ async function accion(b) {
       }
       st.armado = null;
       await guardaAjuste(b.dataset.c, a === 'ajuste-defecto');
+    } else if (a.startsWith('bib-')) {
+      await accionBiblioteca(a, b);
     } else if (a === 'ir-trabajo') {
       st.filtroEstado = null;
       abre('trabajos', 'j' + id);
@@ -3221,6 +3500,24 @@ $('#lista').addEventListener('input', ev => {
   // Lo escrito en una fase de la obra.
   const nf = ev.target.closest('[data-nf]');
   if (nf && st.nueva?.fases[nf.dataset.nf]) { st.nueva.fases[nf.dataset.nf][nf.dataset.nc] = nf.value; st.nueva.err = null; return; }
+  // El formulario «▶ sesión con…» de la biblioteca: lo simulado deja de valer.
+  const bs = ev.target.closest('[data-bs-el], [data-bs-agente]');
+  if (bs && st.bibSes) {
+    const S = st.bibSes;
+    if (bs.dataset.bsEl !== undefined) {
+      S.ids = bs.checked ? [...new Set([...S.ids, bs.dataset.bsEl])] : S.ids.filter(x => x !== bs.dataset.bsEl);
+    } else {
+      S.agente = bs.value;
+      S.ids = S.ids.filter(i => st.datos?.elementos.find(e => e.id === i)?.sesion.includes(S.agente));
+      bs.blur();
+    }
+    S.sim = S.res = S.err = null;
+    st.html = '';
+    pintar();
+    return;
+  }
+  const bc = ev.target.closest('[data-bcat]');
+  if (bc && st.bibCat) { st.bibCat.v = bc.value; st.bibCat.err = null; return; }
   const el = ev.target.closest('[data-campo]');
   if (!el) return;
   const c = (st.consola[el.dataset.h] ??= {});
@@ -3239,6 +3536,14 @@ $('#lista').addEventListener('focusout', ev => {
 
 // Los desplegables y las fechas de la barra del diario: filtros del servidor.
 $('#fb').addEventListener('change', ev => {
+  const bf = ev.target.closest('[data-bf]');
+  if (bf && st.sec === 'biblioteca') {
+    st[{ agente: 'bAgente', tipo: 'bTipo', categoria: 'bCat', estado: 'bEstado' }[bf.dataset.bf]] = bf.value || null;
+    bf.blur();
+    st.html = '';
+    pintar();
+    return;
+  }
   const c = ev.target.closest('[data-df]');
   if (!c || st.sec !== 'diario') return;
   const v = c.value || null;
@@ -3327,6 +3632,12 @@ document.addEventListener('keydown', ev => {
     if (b) accion(b);
     return;
   }
+  if (ev.key === 'Enter' && t.matches('input[data-bcat]')) {
+    ev.preventDefault();
+    const b = $(`button[data-a="bib-cat-guardar"][data-id="${CSS.escape(t.dataset.bcat)}"]`);
+    if (b) accion(b);
+    return;
+  }
   if (ev.key === 'Enter' && t.matches('input[data-campo]')) {
     ev.preventDefault();
     accion({ dataset: { a: 'simular', h: t.dataset.h } });
@@ -3341,6 +3652,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'p') proyectos(true);
   else if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
   else if (ev.key === 't') tour.iniciar();
+  else if (ev.key === 'b') ir('biblioteca');
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);

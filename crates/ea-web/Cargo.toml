@@ -14,6 +14,7 @@ ea-bus = { path = "../ea-bus" }
 ea-acciones = { path = "../ea-acciones" }
 ea-boveda = { path = "../ea-boveda" }
 ea-ajustes = { path = "../ea-ajustes" }
+ea-biblioteca = { path = "../ea-biblioteca" }
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "process", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

@@ -26,6 +26,8 @@ pub enum Tipo {
     UrlPerfil,
     /// Id de un perfil de modelo, o vacío.
     Perfil,
+    /// Tabla de texto a texto (`{ "clave" = "valor" }`); en la CLI, JSON.
+    Mapa,
 }
 
 impl Tipo {
@@ -40,6 +42,7 @@ impl Tipo {
             Tipo::Eleccion { .. } => "eleccion",
             Tipo::UrlPerfil => "url",
             Tipo::Perfil => "perfil",
+            Tipo::Mapa => "mapa",
         }
     }
 }
@@ -134,6 +137,7 @@ pub static SECCIONES: &[(&str, &str)] = &[
     ("red", "Red"),
     ("rutas", "Rutas"),
     ("web", "Panel web"),
+    ("biblioteca", "Biblioteca"),
 ];
 
 const TODOS: &[&str] = &["ea-orchestrator", "ea-web", "ea-mcp"];
@@ -481,6 +485,18 @@ pub static CLAVES: &[Clave] = &[
         heredada: &[],
     },
     Clave {
+        nombre: "biblioteca.categorias",
+        seccion: "biblioteca",
+        titulo: "Categorías propias",
+        descripcion: "Categoría que agrupa a cada elemento de la biblioteca: id del elemento (agente/tipo/ámbito/nombre) a nombre de categoría. Sin entrada, la categoría es el origen.",
+        tipo: Tipo::Mapa,
+        edicion: Edicion::Web,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
+    },
+    Clave {
         nombre: "web.diario_limite",
         seccion: "web",
         titulo: "Eventos del diario",
@@ -622,6 +638,7 @@ pub(crate) fn valor_de(a: &Ajustes, nombre: &str) -> Value {
         "rutas.boveda" => ruta(&a.rutas.boveda),
         "web.sondeo_ms" => a.web.sondeo_ms.into(),
         "web.diario_limite" => a.web.diario_limite.into(),
+        "biblioteca.categorias" => serde_json::to_value(&a.biblioteca.categorias).unwrap_or(Value::Null),
         _ => Value::Null,
     }
 }
@@ -688,6 +705,12 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
         "rutas.boveda" => a.rutas.boveda = r(),
         "web.sondeo_ms" => a.web.sondeo_ms = n() as u64,
         "web.diario_limite" => a.web.diario_limite = n() as u32,
+        "biblioteca.categorias" => {
+            a.biblioteca.categorias = v
+                .as_object()
+                .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+                .unwrap_or_default();
+        }
         _ => {}
     }
 }

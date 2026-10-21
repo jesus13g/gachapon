@@ -530,3 +530,37 @@ pub struct CuerpoAjustes {
 pub async fn ajustes_cambiar(State(s): Estado, Json(b): Json<CuerpoAjustes>) -> Api<AjustesCambiados> {
     ok(servicio::ajustes::cambiar(&s, &b.version, b.cambios).await)
 }
+
+// -------------------------------------------------------------- biblioteca
+
+#[derive(Deserialize)]
+pub struct BibliotecaQuery {
+    agente: Option<String>,
+    tipo: Option<String>,
+    categoria: Option<String>,
+    activado: Option<String>,
+}
+
+pub async fn biblioteca_listar(
+    State(s): Estado,
+    Query(q): Query<BibliotecaQuery>,
+) -> Api<servicio::biblioteca::BibliotecaVista> {
+    let p = servicio::biblioteca::Peticion { agente: q.agente, tipo: q.tipo, categoria: q.categoria, activado: q.activado };
+    ok(servicio::biblioteca::listar(&s, &p).await)
+}
+
+pub async fn biblioteca_ficha(State(s): Estado, Path(id): Path<String>) -> Api<servicio::biblioteca::FichaVista> {
+    ok(servicio::biblioteca::ficha(&s, &id).await)
+}
+
+pub async fn biblioteca_uso(State(s): Estado) -> Api<ea_biblioteca::uso::InformeUso> {
+    Ok(Json((*servicio::biblioteca::uso(&s).await?).clone()))
+}
+
+pub async fn biblioteca_simular(State(s): Estado, Json(b): Json<AccionBody>) -> Api<Simulacion> {
+    ok(servicio::biblioteca::simular(&s, &b.herramienta, &b.argumentos).await)
+}
+
+pub async fn biblioteca_ejecutar(State(s): Estado, Json(b): Json<AccionBody>) -> Api<ResultadoAccion> {
+    ok(servicio::biblioteca::ejecutar(&s, &b.herramienta, &b.argumentos, &b.precondicion).await)
+}

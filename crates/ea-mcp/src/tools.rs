@@ -24,7 +24,7 @@ use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
     BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
-    EncolarRutinaArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
+    BibliotecaArgs, EncolarRutinaArgs, HerramientaArgs, LanzarSesionArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
 };
 
 /// Quién hace una llamada MCP: el actor que se escribe en el diario y del
@@ -76,6 +76,8 @@ pub struct EaTools {
     boveda: Boveda,
     /// De dónde se leen los roles vigentes en cada llamada.
     ajustes: ea_ajustes::Fuentes,
+    /// Dónde mira la biblioteca; `None`: el entorno real en cada llamada.
+    raices: Option<ea_biblioteca::Raices>,
     // Leído por el código que genera `#[tool_handler]` sobre el impl de
     // `ServerHandler` más abajo; el análisis de dead-code no lo ve porque
     // ese acceso vive en un bloque distinto expandido por macro.
@@ -153,6 +155,64 @@ fn respond(body: ToolBody) -> Result<CallToolResult, McpError> {
     }
 }
 
+/// Cotas de `ea_biblioteca`: (límite por defecto, máximo, largo de la
+/// descripción). El modelo local, con 8192 tokens de contexto, recibe las más
+/// estrechas, como en la bóveda.
+const COTAS_BIBLIOTECA: (usize, usize, usize) = (50, 200, 200);
+const COTAS_BIBLIOTECA_LOCAL: (usize, usize, usize) = (15, 40, 80);
+
+/// El cuerpo de `ea_biblioteca`: la ficha de un id o el listado filtrado y
+/// acotado. Todo sale del inventario, que ya viene redactado.
+fn biblioteca_json(
+    args: &BibliotecaArgs,
+    raices: &ea_biblioteca::Raices,
+    ajustes: &ea_ajustes::Ajustes,
+    (por_defecto, maximo, largo): (usize, usize, usize),
+) -> ToolBody {
+    use ea_biblioteca::uso::{calcular_uso, FuentesUso};
+    use ea_biblioteca::{Activado, Biblioteca, Filtro, Tipo};
+
+    let inv = Biblioteca::cargar(raices, ajustes);
+    let informe = calcular_uso(raices, &inv, &FuentesUso::desde_raices(raices));
+    let uso_vacio = json!({ "total": 0, "ultimo": null, "por": [] });
+    if let Some(id) = args.id.as_deref().map(str::trim).filter(|i| !i.is_empty()) {
+        let e = inv.buscar(id).ok_or_else(|| format!("no existe el elemento {id:?} (lista sin id para ver los que hay)"))?;
+        let uso = informe.buscar(id).map_or(uso_vacio, |u| json!(u));
+        return Ok(json!({ "elemento": e, "uso": uso }));
+    }
+    let tipo = match args.tipo.as_deref() {
+        Some(t) => Some(Tipo::desde(t).ok_or_else(|| format!("tipo desconocido {t:?} (uno de: {})", Tipo::TODOS.map(|t| t.as_str()).join(", ")))?),
+        None => None,
+    };
+    let filtro = Filtro {
+        agente: args.agente.clone(),
+        tipo,
+        categoria: args.categoria.clone(),
+        activado: args.activado.map(Activado::desde_bool),
+    };
+    let limite = args.limite.filter(|n| *n > 0).map_or(por_defecto, |n| (n as usize).min(maximo));
+    let todos = inv.filtrar(&filtro);
+    let elementos: Vec<_> = todos
+        .iter()
+        .take(limite)
+        .map(|e| {
+            let descripcion: String = e.descripcion.chars().take(largo).collect();
+            json!({
+                "id": e.id, "agente": e.agente, "tipo": e.tipo, "ambito": e.ambito, "nombre": e.nombre,
+                "categoria": e.categoria, "activado": e.activado, "mecanismo": e.mecanismo,
+                "descripcion": descripcion,
+                "usos": informe.buscar(&e.id).map_or(0, |u| u.total),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "total": todos.len(),
+        "mostrados": elementos.len(),
+        "elementos": elementos,
+        "avisos": inv.avisos.iter().take(20).collect::<Vec<_>>(),
+    }))
+}
+
 #[tool_router]
 impl EaTools {
     pub fn new(store: Arc<Mutex<Store>>) -> Self {
@@ -170,8 +230,15 @@ impl EaTools {
             consulta: Arc::new(SoloConsulta { rutinas_dir, boveda: boveda.clone() }),
             boveda,
             ajustes: ea_ajustes::Fuentes::sistema(),
+            raices: None,
             tool_router: Self::tool_router(),
         }
+    }
+
+    /// La biblioteca mira estas raíces en vez del entorno real (pruebas).
+    pub fn con_raices(mut self, raices: ea_biblioteca::Raices) -> Self {
+        self.raices = Some(raices);
+        self
     }
 
     /// Lee los roles de estos ajustes en vez de los del sistema (pruebas).
@@ -461,6 +528,45 @@ impl EaTools {
         respond(body)
     }
 
+    #[tool(
+        description = "Inventario de herramientas de los agentes (skills, plugins, \
+            subagentes, servidores MCP, comandos y extensiones de Claude Code, Qwen \
+            Code, Codex, OpenCode y Antigravity, más los del ecosistema) con su \
+            agente, ámbito, categoría, si están activados y cuánto se usan. Sin \
+            'id', lista con filtros (agente, tipo, categoria, activado, limite); \
+            con 'id' devuelve la ficha de ese elemento (definición MCP sin secretos) \
+            y su uso por actor. Solo lectura: activar, desactivar y abrir sesiones \
+            acotadas se pide con ea_activar_herramienta, ea_desactivar_herramienta y \
+            ea_lanzar_sesion, que solo proponen.",
+        annotations(title = "Biblioteca de herramientas", read_only_hint = true)
+    )]
+    async fn ea_biblioteca(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<BibliotecaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let quien = self.llamante(&context);
+        let started = Instant::now();
+        let args_json = json!({
+            "id": args.id, "agente": args.agente, "tipo": args.tipo, "categoria": args.categoria,
+            "activado": args.activado, "limite": args.limite,
+        });
+        let body: ToolBody = async {
+            let h = buscar("ea_biblioteca").ok_or("herramienta desconocida: ea_biblioteca")?;
+            autorizar_mcp(quien.actor, h)?;
+            let raices = self.raices.clone().unwrap_or_else(ea_biblioteca::Raices::desde_entorno);
+            let ajustes = ea_ajustes::cargar_de(&self.ajustes).ajustes;
+            // Leer el disco y la base del diario no es asunto del ejecutor async.
+            let cotas = if quien.actor == "modelo-local" { COTAS_BIBLIOTECA_LOCAL } else { COTAS_BIBLIOTECA };
+            tokio::task::spawn_blocking(move || biblioteca_json(&args, &raices, &ajustes, cotas))
+                .await
+                .map_err(|e| e.to_string())?
+        }
+        .await;
+        self.log_invocation(&quien, "mcp_biblioteca", None, started, args_json, &body).await;
+        respond(body)
+    }
+
     /// Autoriza una herramienta del catálogo por el actor y, si falla, deja la
     /// denegación en el diario (§11.3). `Ok(())` si puede seguir.
     async fn autorizar(
@@ -730,6 +836,32 @@ impl EaTools {
     }
 
     #[tool(
+        description = "[Riesgo: mutación reversible] Abre en una terminal del usuario un agente \
+            (claude-code, qwen-code, codex u opencode) con SOLO las herramientas elegidas de la \
+            biblioteca (ids `agente/tipo/ámbito/nombre`). Los secretos de los MCP van a ficheros \
+            0600 efímeros, nunca a argumentos. NO lo abre: con simular=true describe el comando y \
+            los ficheros (sin secretos); sin él encola una propuesta que el usuario debe aceptar \
+            (terminal o panel web). No está disponible para el agente local.",
+        annotations(
+            title = "Lanzar sesión con herramientas",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_lanzar_sesion(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<LanzarSesionArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut a = json!({ "agente": args.agente, "herramientas": args.herramientas });
+        if let Some(d) = args.directorio {
+            a["directorio"] = json!(d);
+        }
+        self.mutante(context, "ea_lanzar_sesion", a, args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
         description = "[Riesgo: mutación reversible] Quita el timer de systemd de una rutina \
             (systemctl --user disable --now ea-rutina@<slug>.timer y borra su fichero). La \
             rutina sigue registrada. NO lo hace: con simular=true lo describe; sin él encola \
@@ -812,6 +944,50 @@ impl EaTools {
     }
 
     #[tool(
+        description = "[Riesgo: mutación reversible] Activa un elemento de la biblioteca de \
+            herramientas (skill, plugin, subagente, MCP, comando o extensión de un agente) \
+            por su id `agente/tipo/ámbito/nombre`. NO lo activa: con simular=true describe \
+            qué fichero o comando se usaría y el valor antes y después; sin él encola una \
+            propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con \
+            ea_desactivar_herramienta.",
+        annotations(
+            title = "Activar herramienta",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_activar_herramienta(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<HerramientaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_activar_herramienta", json!({ "elemento": args.elemento }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
+        description = "[Riesgo: mutación reversible] Desactiva un elemento de la biblioteca de \
+            herramientas (skill, plugin, subagente, MCP, comando o extensión de un agente) \
+            por su id `agente/tipo/ámbito/nombre`. NO lo desactiva: con simular=true describe \
+            qué fichero o comando se usaría y el valor antes y después; sin él encola una \
+            propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con \
+            ea_activar_herramienta.",
+        annotations(
+            title = "Desactivar herramienta",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_desactivar_herramienta(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<HerramientaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_desactivar_herramienta", json!({ "elemento": args.elemento }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
         description = "[Riesgo: mutación IRREVERSIBLE] Borra para siempre la copia retirada de \
             una rutina (la de la papelera; antes hay que retirarla con ea_retirar_rutina). Sus \
             versiones siguen en SQLite. NO lo ejecuta: con simular=true lo describe; sin él \
@@ -842,11 +1018,14 @@ impl ServerHandler for EaTools {
                  una vista general (orquestador, trabajos, colas y semáforos); \
                  ea_listar_trabajos y ea_ver_trabajo inspeccionan los trabajos del \
                  bus (solo lectura: crear o decidir trabajo se hace con la CLI y las \
-                 skills); ea_listar_diario consulta el historial de eventos. Las \
+                 skills); ea_listar_diario consulta el historial de eventos; \
+                 ea_biblioteca lista las herramientas de los agentes (skills, plugins, \
+                 subagentes, MCP) con su estado y su uso. Las \
                  herramientas que cambian el sistema (ea_encolar_rutina, \
                  ea_registrar_rutina, ea_programar_rutina, ea_desprogramar_rutina, \
                  ea_retirar_rutina, ea_restaurar_rutina, ea_reiniciar_servicio, \
-                 ea_eliminar_rutina, ea_promover_nota) nunca se \
+                 ea_eliminar_rutina, ea_promover_nota, ea_activar_herramienta, \
+                 ea_desactivar_herramienta, ea_lanzar_sesion) nunca se \
                  ejecutan desde aquí: con simular=true describen lo que harían; sin él \
                  encolan una propuesta que solo el usuario puede aceptar. Las \
                  irreversibles solo se confirman desde una terminal. La bóveda de \

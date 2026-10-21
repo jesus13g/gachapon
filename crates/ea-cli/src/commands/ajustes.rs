@@ -112,7 +112,7 @@ pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
 }
 
 /// Al diario, si la base abre (mejor esfuerzo: el cambio ya está escrito).
-fn apuntar(f: &Fuentes, aplicados: &[ea_ajustes::Aplicado]) {
+pub(super) fn apuntar(f: &Fuentes, aplicados: &[ea_ajustes::Aplicado]) {
     let cambios: Vec<Value> =
         aplicados.iter().map(|a| json!({ "clave": a.clave, "antes": a.antes, "despues": a.despues })).collect();
     let detalle = json!({ "canal": "terminal", "fichero": f.fichero().display().to_string(), "cambios": cambios });

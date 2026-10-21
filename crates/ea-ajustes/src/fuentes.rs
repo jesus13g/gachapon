@@ -109,6 +109,7 @@ pub struct Ajustes {
     pub red: Red,
     pub rutas: Rutas,
     pub web: Web,
+    pub biblioteca: AjustesBiblioteca,
 }
 
 /// Un perfil de modelo. `base_url` vacío: el endpoint propio del agente (solo
@@ -187,6 +188,13 @@ pub struct Rutas {
     pub boveda: PathBuf,
 }
 
+/// Ajustes de la biblioteca de herramientas (spec 018).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+pub struct AjustesBiblioteca {
+    /// Categoría propia por id de elemento (`<agente>/<tipo>/<ámbito>/<nombre>`).
+    pub categorias: BTreeMap<String, String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Web {
     pub sondeo_ms: u64,
@@ -244,6 +252,7 @@ impl Ajustes {
                 boveda: f.dir_datos.join("boveda"),
             },
             web: Web { sondeo_ms: 3000, diario_limite: 300 },
+            biblioteca: AjustesBiblioteca::default(),
         }
     }
 

@@ -478,6 +478,8 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "ea-acciones"
 version = "0.1.0"
 dependencies = [
+ "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
  "ea-store",
@@ -497,6 +499,22 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+ "toml",
+ "toml_edit",
+]
+
+[[package]]
+name = "ea-biblioteca"
+version = "0.1.0"
+dependencies = [
+ "ea-ajustes",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
  "toml",
  "toml_edit",
 ]
@@ -537,6 +555,7 @@ dependencies = [
  "crossterm 0.28.1",
  "ea-acciones",
  "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
  "ea-store",
@@ -559,6 +578,7 @@ dependencies = [
  "axum",
  "ea-acciones",
  "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
  "ea-store",
@@ -614,6 +634,7 @@ dependencies = [
  "directories",
  "ea-acciones",
  "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
  "ea-store",

@@ -277,6 +277,10 @@ volver a arrancar los servicios.
 - `crates/ea-ajustes`: los ajustes (`ajustes.toml` y los TOML heredados), con
   su registro de claves, validación y escritura atómica; no depende de ningún
   otro crate.
+- `crates/ea-biblioteca`: la biblioteca de herramientas (spec 018): inventario de
+  solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de
+  los agentes, su uso, los planes de activar y desactivar y de sesión efímera;
+  solo depende de `ea-ajustes`.
 - `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
   propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
@@ -458,6 +462,7 @@ ea propuestas listar|ver|decidir <id> --aceptar|--rechazar
 ea acciones listar|simular|ejecutar          # catálogo de herramientas
 ea boveda estado|listar|buscar|leer|promover|reindexar
 ea ajustes ver|obtener|establecer|ruta       # ajustes.toml (establecer: solo con TTY)
+ea biblioteca listar|ver|uso|activar|desactivar|sesion|categoria  # herramientas de los agentes (ver «Biblioteca»)
 ea tui                                       # interfaz interactiva
 ```
 
@@ -523,6 +528,7 @@ riesgo (§7.3):
 | Herramienta | Riesgo | Desde un agente |
 |---|---|---|
 | `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
+| `ea_biblioteca` (sin `id`: lista con filtros `agente`, `tipo`, `categoria`, `activado` y `limite`, por defecto 50 y hasta 200, y 15 y 40 para el agente local; con `id`: la ficha con la definición MCP sin secretos y el uso por actor) | lectura | se ejecuta |
 | `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta |
 | `ea_escribir_nota` | mutación reversible | se ejecuta, solo en la región propia del agente |
 | `ea_promover_nota` | mutación reversible | solo simula o propone |
@@ -530,7 +536,9 @@ riesgo (§7.3):
 | `ea_registrar_rutina` (`toml`: la definición entera; la versión debe subir; la simulación muestra el diff frente a la registrada y el criterio resultante; no lanza nada) | mutación reversible | solo simula o propone |
 | `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone |
 | `ea_programar_rutina` (`slug` de una rutina registrada y `calendario`, un `OnCalendar`; la simulación da las próximas 3 ejecuciones) y `ea_desprogramar_rutina` (`slug`) | mutación reversible | solo simula o propone |
+| `ea_lanzar_sesion` (`agente`: `claude-code`, `qwen-code`, `codex` u `opencode`; `herramientas`: ids de la biblioteca; `directorio` opcional; abre una terminal con el agente y solo esas herramientas, con los secretos de los MCP en ficheros 0600 del runtime y nunca en argumentos; la simulación muestra el comando y los ficheros sin secretos; no está disponible para el agente local) | mutación reversible | solo simula o propone |
 | `ea_retirar_rutina` (su TOML a la papelera y su timer desprogramado) y `ea_restaurar_rutina` (vuelve, sin timer), con `slug` | mutación reversible | solo simula o propone |
+| `ea_activar_herramienta` y `ea_desactivar_herramienta` (`elemento`: id `agente/tipo/ámbito/nombre` de la biblioteca; la simulación da el comando o fichero y el valor antes y después; comando oficial, campo `enabled` con copia previa, mover a un almacén o `agente.skills.habilitadas`; nunca `~/.claude.json`) | mutación reversible | solo simula o propone |
 | `ea_eliminar_rutina` (borra para siempre la copia retirada; antes hay que retirarla) | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
 Toda invocación queda registrada en el diario. El actor sale del nombre con
@@ -592,6 +600,40 @@ Registro en los demás agentes (misma URL, `http://127.0.0.1:8765/mcp`):
 
 El nombre de cliente sale de lo que cada agente manda en `initialize`
 (`clientInfo.name`); es lo que decide sus permisos, junto con el rol que ocupa.
+
+### Biblioteca
+
+Inventario de solo lectura de lo que tienen los agentes: skills, plugins,
+subagentes, servidores MCP, comandos y extensiones de Claude Code, Qwen Code,
+Codex, OpenCode y Antigravity, más lo del ecosistema (spec 018). Cada elemento
+tiene un id estable `agente/tipo/ámbito/nombre` (p. ej.
+`claude-code/skill/usuario/revisar`) y se agrupa por categoría, que por defecto
+es su origen (`usuario`, `proyecto`, `ecosistema`, `plugin:<id>`, `integrada`).
+Lo que la propia biblioteca desactiva moviéndolo a su almacén sigue en el
+inventario con `activado: no`. Nada de lo que sale lleva secretos: de un MCP
+solo se ven los nombres de las variables y las cabeceras, y de la URL el
+esquema, el host y el puerto.
+
+```bash
+ea biblioteca listar [--agente A] [--tipo T] [--categoria C] [--activados|--desactivados] [--ids] [--json]
+                                             # tabla por categoría y tipo: agente, ámbito, estado, cómo se cambia y usos; avisos al final
+ea biblioteca ver <id> [--json]              # ficha: origen, descripción, estado, mecanismo, nota, MCP redactado y uso por actor
+ea biblioteca uso [<id>] [--json]            # usos por elemento y actor, lo usado sin elemento en el inventario y la actividad por agente
+ea biblioteca activar|desactivar <id> [--esperar]
+                                             # crea la propuesta (como «usuario») y muestra la simulación
+ea biblioteca sesion <agente> <id>… [--directorio D] [--esperar]
+                                             # propone abrir el agente solo con esas herramientas; muestra el comando y los ficheros, sin secretos
+ea biblioteca categoria <id> <categoria>|--quitar
+                                             # atajo de `biblioteca.categorias` (solo con TTY)
+```
+
+`activar`, `desactivar` y `sesion` solo proponen: se aceptan con `ea propuestas
+decidir <n> --aceptar` o en ◇ Propuestas. Con `--esperar` y una terminal
+interactiva real piden confirmación y aplican en el acto (y esperan a Intro al
+terminar); sin terminal, `--esperar` deja la propuesta pendiente. El uso sale
+de los contadores y transcripciones de cada agente, el diario y los trabajos del
+ejecutor, con una caché incremental en `~/.local/state/ecosistema-asistente/biblioteca/`;
+los agentes llegan a él por `ea_biblioteca` (MCP).
 
 ### Mutaciones supervisadas (fase 6)
 
@@ -841,6 +883,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ▦ | Sistema: servicios (reiniciar ↻, pide confirmar), orquestador y una fila por rol (planificador y ejecutor) con su agente, modelo y última actividad. La ficha de un rol lista los agentes que lo admiten (binario ●/✕, modelo, si responde, topes) y cambia el agente con «⇄ poner de …» (segundo clic) | `7` |
 | ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista y ↺ restaurar). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera | `8` |
 | ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. Apunta `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
+| ◫ | Biblioteca (spec 018): las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo (●/○ activado, usos), con filtros de agente, tipo, categoría y estado y el cuadro de buscar. La ficha da origen, descripción, cómo se cambia, la definición de un MCP sin secretos (solo los nombres de sus variables y cabeceras) y el uso por actor. ⏻ desactivar/activar simula (antes/después) y pide aceptar, ▶ sesión con… abre una terminal con solo las herramientas elegidas (la simulación lleva el comando sin secretos) y ✎ categoría escribe `biblioteca.categorias` por los ajustes. Enlace `#biblioteca/<id>` | `b` |
 | ⚙ | Ajustes: los de `ajustes.toml` por secciones, con valor, origen (por defecto, `ajustes.toml`, heredado o entorno) y si se aplican en caliente o piden reinicio; avisos arriba. ◐ se cambia aquí (✓ guardar y ↺ por defecto piden un segundo clic; los techos solo bajan), ⌨ solo en una terminal (la fila da el comando) y ⊘ lo fija una variable de entorno. Apunta `ajustes_cambiados` en el diario | `0` |
 
 `/` filtra, `j`/`k` mueve, `Enter` abre o cierra la ficha, `Esc` cierra, `?`
@@ -942,7 +985,7 @@ cambió en disco, 400 si cambia la firma), `POST /api/boveda/crear` (`{"ruta",
 defecto, rango, origen, edición, quién la fija y si pide reinicio; `version` y
 `cliente`) y `POST /api/ajustes` (`{"version": "...", "cambios": {"clave": valor}}`,
 `null` quita la clave; 400 inválido, 403 solo terminal o aflojar un techo, 409
-versión vieja o fijada por el entorno). Solo atiende `Host: localhost|127.0.0.1`.
+versión vieja o fijada por el entorno); la biblioteca, por `GET /api/biblioteca` (`?agente=&tipo=&categoria=&activado=`; `{elementos, avisos, categorias, total, agentes_sesion}`, cada elemento ya redactado y con `cambio: {posible, motivo}` y `sesion`), `GET /api/biblioteca/<id>` (el id con `/` codificado como `%2F`; ficha y `uso`), `GET /api/biblioteca/uso` (informe, con caché) y `POST /api/biblioteca/{simular,ejecutar}` (solo `ea_activar_herramienta`, `ea_desactivar_herramienta` y `ea_lanzar_sesion`, con el cuerpo de `/api/acciones/*`). Solo atiende `Host: localhost|127.0.0.1`.
 
 Ejecuciones de las rutinas (solo lectura, leídas del bus): en ↻ Rutinas, la
 columna «última» de cada fila dice el estado de su trabajo más reciente y hace

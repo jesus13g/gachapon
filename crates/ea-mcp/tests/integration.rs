@@ -101,6 +101,7 @@ async fn expone_el_catalogo_y_responde_a_una_llamada() {
         "ea_listar_trabajos",
         "ea_ver_trabajo",
         "ea_listar_diario",
+        "ea_biblioteca",
         "ea_encolar_rutina",
         "ea_registrar_rutina",
         "ea_reiniciar_servicio",

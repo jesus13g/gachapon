@@ -80,6 +80,7 @@ pub fn interpretar(c: &Clave, texto: &str) -> Result<Value, ErrorAjustes> {
             _ => return Err(invalido(format!("{t:?} no es true ni false"))),
         },
         Tipo::Entero { .. } => Value::from(t.parse::<i64>().map_err(|_| invalido(format!("{t:?} no es un entero")))?),
+        Tipo::Mapa => serde_json::from_str::<Value>(t).map_err(|e| invalido(format!("se espera JSON de texto a texto: {e}")))?,
         Tipo::Lista { .. } => {
             Value::from(t.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>())
         }
@@ -100,6 +101,13 @@ fn a_toml(v: &Value) -> toml_edit::Value {
                 a.push(e.as_str().unwrap_or_default());
             }
             toml_edit::Value::Array(a)
+        }
+        Value::Object(m) => {
+            let mut t = toml_edit::InlineTable::new();
+            for (k, v) in m {
+                t.insert(k, v.as_str().unwrap_or_default().into());
+            }
+            toml_edit::Value::InlineTable(t)
         }
         otro => otro.as_str().unwrap_or_default().into(),
     }

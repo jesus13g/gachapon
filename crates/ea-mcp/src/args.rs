@@ -50,6 +50,16 @@ pub struct RutinaArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct HerramientaArgs {
+    /// Id del elemento de la biblioteca: `agente/tipo/ámbito/nombre`, p. ej.
+    /// "codex/mcp/usuario/docs" o "claude-code/plugin/usuario/foo@mkt".
+    pub elemento: String,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct EncolarRutinaArgs {
     /// Nombre (slug) de la rutina, p. ej. "revision-diaria".
     pub slug: String,
@@ -74,6 +84,22 @@ pub struct RegistrarRutinaArgs {
     /// Si es true, solo describe lo que se haría (diff frente a la versión
     /// registrada y criterio resultante). Si es false (por defecto), encola
     /// una propuesta que el usuario debe aceptar: nada se registra aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LanzarSesionArgs {
+    /// Agente que se lanza: "claude-code", "qwen-code", "codex" u "opencode".
+    pub agente: String,
+    /// Ids de la biblioteca de herramientas (`agente/tipo/ámbito/nombre`,
+    /// p. ej. "claude-code/mcp/usuario/mi-servidor"): solo estos estarán
+    /// disponibles en la sesión.
+    pub herramientas: Vec<String>,
+    /// Carpeta del proyecto (ruta absoluta; opcional).
+    pub directorio: Option<String>,
+    /// Si es true, solo describe la sesión (comando y ficheros, sin secretos).
+    /// Si es false (por defecto), encola una propuesta que el usuario debe
+    /// aceptar: nada se abre aquí.
     pub simular: Option<bool>,
 }
 
@@ -170,4 +196,25 @@ pub fn parse_flexible_date(s: &str) -> Result<OffsetDateTime, String> {
     let date = time::Date::parse(s, &date_fmt)
         .map_err(|_| format!("fecha inválida: '{s}' (usa RFC3339 o AAAA-MM-DD)"))?;
     Ok(date.midnight().assume_utc())
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BibliotecaArgs {
+    /// Id de un elemento (`agente/tipo/ámbito/nombre`, p. ej.
+    /// "claude-code/skill/usuario/revisar"): devuelve su ficha completa
+    /// (origen, estado, cómo se cambia, definición MCP sin secretos) y su uso
+    /// por actor. Sin id, lista el inventario y los demás argumentos filtran.
+    pub id: Option<String>,
+    /// Filtra por agente: claude-code, qwen-code, codex, opencode,
+    /// antigravity o ecosistema.
+    pub agente: Option<String>,
+    /// Filtra por tipo: skill, plugin, subagente, mcp, comando o extension.
+    pub tipo: Option<String>,
+    /// Filtra por categoría (por defecto, el origen: usuario, proyecto,
+    /// ecosistema, plugin:<id> o integrada).
+    pub categoria: Option<String>,
+    /// true: solo los activados; false: solo los desactivados.
+    pub activado: Option<bool>,
+    /// Número máximo de elementos a devolver (por defecto 50, como mucho 200).
+    pub limite: Option<i64>,
 }

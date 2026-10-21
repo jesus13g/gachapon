@@ -3,7 +3,8 @@
 //! Es la "capa interna" de §7.3; el catálogo y las definiciones MCP solo
 //! nombran estas herramientas.
 
-use ea_store::Store;
+use ea_biblioteca::{Cambio, Id};
+use ea_store::{EventOutcome, NewEvent, Store};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -101,10 +102,88 @@ impl ProgramarRutina {
     }
 }
 
+/// Los ids de `ea_lanzar_sesion`: una lista, o un texto con ids separados por
+/// espacios, comas o saltos de línea (el formulario de la web).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum IdsSesion {
+    Lista(Vec<String>),
+    Texto(String),
+}
+
+/// `ea_lanzar_sesion`: el agente, las herramientas de la biblioteca (ids) y,
+/// si se quiere, la carpeta del proyecto.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LanzarSesion {
+    agente: String,
+    herramientas: IdsSesion,
+    #[serde(default)]
+    directorio: Option<String>,
+}
+
+const MAX_HERRAMIENTAS_SESION: usize = 40;
+
+impl LanzarSesion {
+    fn ids(&self) -> Vec<String> {
+        match &self.herramientas {
+            IdsSesion::Lista(l) => l.iter().map(|i| i.trim().to_string()).filter(|i| !i.is_empty()).collect(),
+            IdsSesion::Texto(t) => t.split(|c: char| c.is_whitespace() || c == ',').filter(|i| !i.is_empty()).map(str::to_string).collect(),
+        }
+    }
+
+    fn directorio(&self) -> Option<&str> {
+        self.directorio.as_deref().map(str::trim).filter(|d| !d.is_empty())
+    }
+
+    /// Validación sin mirar el mundo: forma y tamaños. Que los ids existan y
+    /// tengan sentido lo decide el plan de la biblioteca.
+    fn comprobar(&self) -> Result<(), ErrorAccion> {
+        if !ea_ajustes::IDS_AGENTES.contains(&self.agente.as_str()) {
+            return Err(ErrorAccion::Argumentos(format!(
+                "agente desconocido '{}' (uno de: {})",
+                self.agente,
+                ea_ajustes::IDS_AGENTES.join(", ")
+            )));
+        }
+        let ids = self.ids();
+        if ids.is_empty() {
+            return Err(ErrorAccion::Argumentos("hay que elegir al menos una herramienta de la biblioteca".into()));
+        }
+        if ids.len() > MAX_HERRAMIENTAS_SESION {
+            return Err(ErrorAccion::Argumentos(format!("demasiadas herramientas ({}; como mucho {MAX_HERRAMIENTAS_SESION})", ids.len())));
+        }
+        if let Some(i) = ids.iter().find(|i| i.len() > 300 || i.chars().any(char::is_control)) {
+            return Err(ErrorAccion::Argumentos(format!("id de herramienta no válido: {i:?}")));
+        }
+        if let Some(d) = self.directorio()
+            && (d.len() > 1024 || d.chars().any(char::is_control))
+        {
+            return Err(ErrorAccion::Argumentos("directorio no válido".into()));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PorServicio {
     servicio: String,
+}
+
+/// `ea_activar_herramienta` y `ea_desactivar_herramienta`: el id de un
+/// elemento de la biblioteca (`agente/tipo/ámbito/nombre`).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PorElemento {
+    elemento: String,
+}
+
+impl PorElemento {
+    /// Solo ids con la forma del inventario, nunca texto libre.
+    fn comprobar(&self) -> Result<(), ErrorAccion> {
+        Id::analizar(&self.elemento).map(|_| ()).map_err(|e| ErrorAccion::Argumentos(e.to_string()))
+    }
 }
 
 #[derive(Deserialize)]
@@ -214,6 +293,8 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
         "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
         "ea_programar_rutina" => parsear::<ProgramarRutina>(args)?.comprobar().map(|_| ()),
         "ea_desprogramar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => parsear::<PorElemento>(args)?.comprobar(),
+        "ea_lanzar_sesion" => parsear::<LanzarSesion>(args)?.comprobar(),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -250,6 +331,13 @@ const CAMPOS_PROMOVER: &[Campo] = &[
     Campo { obligatorio: false, ..campo("destino", "destino en «compartida» (opcional)") },
 ];
 
+const CAMPOS_ELEMENTO: &[Campo] = &[campo("elemento", "id del elemento de la biblioteca (agente/tipo/ámbito/nombre, p. ej. codex/mcp/usuario/docs)")];
+const CAMPOS_SESION: &[Campo] = &[
+    Campo { opciones: &ea_biblioteca::AGENTES_CON_SESION, ..campo("agente", "agente que se lanza") },
+    Campo { largo: true, ..campo("herramientas", "ids de la biblioteca (ea biblioteca listar), uno por línea") },
+    Campo { obligatorio: false, ..campo("directorio", "carpeta del proyecto, ruta absoluta (opcional)") },
+];
+
 /// Los argumentos que acepta una herramienta supervisada, en el orden en que
 /// conviene pedirlos. Debe casar con las estructuras de arriba (lo vigila
 /// una prueba).
@@ -261,6 +349,8 @@ pub fn campos(nombre: &str) -> &'static [Campo] {
         "ea_reiniciar_servicio" => CAMPOS_SERVICIO,
         "ea_registrar_rutina" => CAMPOS_REGISTRAR,
         "ea_promover_nota" => CAMPOS_PROMOVER,
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => CAMPOS_ELEMENTO,
+        "ea_lanzar_sesion" => CAMPOS_SESION,
         _ => &[],
     }
 }
@@ -526,6 +616,40 @@ pub fn simular_con<C: Consulta>(
                 json!({ "huella": huella(&contenido) }),
             )
         }
+        "ea_lanzar_sesion" => {
+            let a: LanzarSesion = parsear(args)?;
+            a.comprobar()?;
+            let plan = consulta.sesion_plan(&a.agente, &a.ids(), a.directorio()).map_err(ErrorAccion::NoAplica)?;
+            let mut argumentos = json!({ "agente": plan.agente, "herramientas": plan.herramientas });
+            if let Some(d) = a.directorio() {
+                argumentos["directorio"] = json!(d);
+            }
+            let ficheros: Vec<String> = plan
+                .ficheros
+                .iter()
+                .map(|f| f.ruta.strip_prefix(&plan.directorio).unwrap_or(&f.ruta).display().to_string())
+                .chain(plan.enlaces.iter().map(|e| format!("{} (enlace)", e.ruta.strip_prefix(&plan.directorio).unwrap_or(&e.ruta).display())))
+                .collect();
+            let entorno = if plan.entorno.is_empty() {
+                "ninguna".to_string()
+            } else {
+                plan.entorno.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" ")
+            };
+            let texto = format!(
+                "Abriría una terminal con {} y solo estas {} herramientas de la biblioteca: {}. Comando (sin shell): {}. \
+                 Escribe en {} (0700) los ficheros {} con modo 0600 —las definiciones completas de los MCP, con sus \
+                 secretos, se releen de su fuente solo al aceptar y solo van a esos ficheros—; caducan a los 7 días. \
+                 Variables de entorno: {entorno}. No cambia la configuración de ningún agente.",
+                plan.agente,
+                plan.herramientas.len(),
+                plan.herramientas.join(", "),
+                plan.comando(),
+                plan.directorio.display(),
+                if ficheros.is_empty() { "(ninguno)".to_string() } else { ficheros.join(", ") },
+            );
+            let huella = huella(&serde_json::to_string(&plan).map_err(|e| ErrorAccion::Sistema(e.to_string()))?);
+            (argumentos, texto, json!({ "plan": huella }))
+        }
         "ea_programar_rutina" => {
             let a: ProgramarRutina = parsear(args)?;
             let c = a.comprobar()?.to_string();
@@ -621,6 +745,16 @@ pub fn simular_con<C: Consulta>(
                 json!({ "huella": plan.huella, "destino": plan.destino }),
             )
         }
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => {
+            let a: PorElemento = parsear(args)?;
+            a.comprobar()?;
+            let activar = nombre == "ea_activar_herramienta";
+            let cambio = consulta.biblioteca_cambio(&a.elemento, activar).map_err(ErrorAccion::NoAplica)?;
+            // El cambio entero es la precondición: al aceptar se recalcula y debe ser idéntico
+            // (incluida la huella del fichero que se editaría).
+            let precondicion = json!({ "cambio": cambio });
+            (json!({ "elemento": a.elemento }), format!("{} Es reversible: {} lo deshace.", cambio.describir(), if activar { "desactivarlo" } else { "activarlo" }), precondicion)
+        }
         otro => return Err(ErrorAccion::NoSupervisada(otro.to_string())),
     };
     Ok(Simulacion { herramienta: h.nombre, riesgo: h.riesgo, argumentos, texto, precondicion })
@@ -676,8 +810,9 @@ pub fn aplicar_en_store(
             }))
         }
         "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" | "ea_registrar_rutina" => Ok(None),
-        "ea_programar_rutina" | "ea_desprogramar_rutina" => Ok(None),
+        "ea_programar_rutina" | "ea_desprogramar_rutina" | "ea_lanzar_sesion" => Ok(None),
         "ea_retirar_rutina" | "ea_restaurar_rutina" => Ok(None),
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => Ok(None),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -721,6 +856,26 @@ pub async fn aplicar_en_sistema<S: Sistema>(
                 texto: format!("Rutina '{slug}' registrada en la versión {version}."),
                 trabajo: None,
                 datos: json!({ "rutina": slug, "version": version }),
+            })
+        }
+        "ea_lanzar_sesion" => {
+            let a: LanzarSesion = parsear(args)?;
+            a.comprobar()?;
+            let plan = sistema.sesion_plan(&a.agente, &a.ids(), a.directorio()).map_err(ErrorAccion::NoAplica)?;
+            sistema.sesion_lanzar(&plan).map_err(ErrorAccion::Sistema)?;
+            Ok(Aplicada {
+                texto: format!(
+                    "Sesión de {} abierta en una terminal con {} herramientas de la biblioteca ({}).",
+                    plan.agente,
+                    plan.herramientas.len(),
+                    plan.id
+                ),
+                trabajo: None,
+                // Sin secretos: ids y argv (rutas de ficheros 0600, nunca su contenido).
+                datos: json!({
+                    "sesion": plan.id, "agente": plan.agente, "herramientas": plan.herramientas,
+                    "argv": plan.argv_terminal(),
+                }),
             })
         }
         "ea_programar_rutina" => {
@@ -779,6 +934,36 @@ pub async fn aplicar_en_sistema<S: Sistema>(
                 ),
                 trabajo: None,
                 datos: json!({ "rutina": a.slug, "desprogramada": habia }),
+            })
+        }
+        "ea_activar_herramienta" | "ea_desactivar_herramienta" => {
+            let a: PorElemento = parsear(args)?;
+            let activar = nombre == "ea_activar_herramienta";
+            // Lo que aceptó el usuario es el cambio simulado; la biblioteca lo revalida
+            // contra el estado de ahora y rechaza el que no coincida con lo que habría hecho.
+            let cambio: Cambio = serde_json::from_value(precondicion["cambio"].clone())
+                .map_err(|_| ErrorAccion::NoAplica("la propuesta no lleva el cambio simulado".into()))?;
+            if cambio.id != a.elemento || cambio.activar != activar {
+                return Err(ErrorAccion::NoAplica("el cambio simulado no es el de esta herramienta y este elemento".into()));
+            }
+            let h = sistema.biblioteca_aplicar(&cambio, canal).await.map_err(ErrorAccion::Sistema)?;
+            let datos = json!({
+                "elemento": h.id, "activar": h.activar, "mecanismo": h.mecanismo, "objetivo": h.objetivo,
+                "antes": h.antes, "despues": h.despues, "copia": h.copia,
+            });
+            // Un evento propio con el valor anterior (art. VI): el de la acción lo lleva también en `resultado`.
+            let _ = store.append_event(NewEvent {
+                actor: actor.to_string(),
+                action: "biblioteca_cambio".to_string(),
+                trabajo: None,
+                outcome: Some(EventOutcome::Ok),
+                duration_ms: None,
+                detail: Some(datos.to_string()),
+            });
+            Ok(Aplicada {
+                texto: format!("{} {}: {}.", if activar { "Activado" } else { "Desactivado" }, h.id, h.texto),
+                trabajo: None,
+                datos,
             })
         }
         "ea_restaurar_rutina" => {
