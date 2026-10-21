@@ -186,6 +186,17 @@ pub const CATALOGO: &[Herramienta] = &[
         local: true,
         resumen: "Lee una nota de la bóveda (por trozos)",
     },
+    // Biblioteca de herramientas (spec 018, RF-014): solo mirar, sin secretos
+    // (las definiciones MCP salen redactadas). Toda lectura es también del
+    // modelo local, con cotas más estrechas; nada de la biblioteca toca su
+    // proyección MCP ni su sandbox (plan, art. VIII).
+    Herramienta {
+        nombre: "ea_biblioteca",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Inventario de herramientas de los agentes (skills, plugins, subagentes, MCP, comandos y extensiones) con su estado y su uso",
+    },
     // Excepción razonada a §11.1: la región
     // propia de cada agente es de libertad total (decisión 8), así que
     // escribir ahí no pide confirmación. No puede nombrar otra región, no

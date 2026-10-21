@@ -92,6 +92,11 @@ impl Biblioteca {
         todos.extend(agentes::antigravity::leer(r, &mut avisos));
         todos.extend(agentes::ecosistema::leer(r, a, &mut avisos));
 
+        // Lo que la biblioteca movió al almacén ya no está en su sitio: se
+        // añade con `activado: no`, salvo que haya otro con su id a la vista.
+        let a_la_vista: HashSet<String> = todos.iter().map(|e| e.id.clone()).collect();
+        todos.extend(desactivadas(r).into_iter().filter(|e| !a_la_vista.contains(&e.id)));
+
         // Un id es único: el primero manda y el repetido deja un aviso.
         let mut vistos = HashSet::new();
         let mut elementos = Vec::with_capacity(todos.len());

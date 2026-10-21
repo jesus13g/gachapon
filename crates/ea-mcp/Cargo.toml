@@ -14,6 +14,7 @@ ea-acciones = { path = "../ea-acciones" }
 ea-bus = { path = "../ea-bus" }
 ea-boveda = { path = "../ea-boveda" }
 ea-ajustes = { path = "../ea-ajustes" }
+ea-biblioteca = { path = "../ea-biblioteca" }
 rmcp = { version = "3.3", features = [
     "server",
     "macros",

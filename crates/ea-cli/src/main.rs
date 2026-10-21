@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
+use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     salir_en_silencio_si_se_cierra_la_tuberia();
@@ -28,6 +28,18 @@ fn main() -> Result<()> {
                 Some(AgentesAccion::Rol { rol, agente }) => commands::agentes::rol(&rol, &agente),
             };
         }
+        // La biblioteca lee el disco; solo proponer necesita la base.
+        Command::Biblioteca { accion } => match accion {
+            BibliotecaAccion::Listar { agente, tipo, categoria, activados, desactivados, ids, json } => {
+                return commands::biblioteca::listar(agente, tipo, categoria, activados, desactivados, ids, json);
+            }
+            BibliotecaAccion::Ver { id, json } => return commands::biblioteca::ver(&id, json),
+            BibliotecaAccion::Uso { id, json } => return commands::biblioteca::uso(id, json),
+            BibliotecaAccion::Categoria { id, categoria, quitar } => {
+                return commands::biblioteca::categoria(&id, categoria.as_deref(), quitar);
+            }
+            accion => Cli { command: Command::Biblioteca { accion } },
+        },
         otro => Cli { command: otro },
     };
     let mut store = Store::open()?;
@@ -109,6 +121,18 @@ fn main() -> Result<()> {
         },
         Command::Cola { agente, json } => commands::trabajo::cola(agente.as_deref(), json)?,
         Command::Semaforos => commands::trabajo::semaforos(),
+        Command::Biblioteca { accion } => match accion {
+            BibliotecaAccion::Activar { id, esperar } => {
+                commands::al_final(esperar, commands::biblioteca::cambiar(&mut store, &id, true, esperar))?
+            }
+            BibliotecaAccion::Desactivar { id, esperar } => {
+                commands::al_final(esperar, commands::biblioteca::cambiar(&mut store, &id, false, esperar))?
+            }
+            BibliotecaAccion::Sesion { agente, ids, directorio, esperar } => {
+                commands::al_final(esperar, commands::biblioteca::sesion(&mut store, &agente, &ids, directorio, esperar))?
+            }
+            _ => unreachable!("se atiende antes de abrir la base"),
+        },
         Command::Tui => tui::run(&mut store)?,
         Command::Ajustes { .. } | Command::Agentes { .. } => unreachable!("se atiende antes de abrir la base"),
     }
