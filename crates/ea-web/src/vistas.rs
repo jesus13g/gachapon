@@ -129,6 +129,11 @@ pub struct RutinaFila {
     pub error: Option<&'static str>,
     pub registrada: String,
     pub proxima: Option<i64>,
+    /// El `OnCalendar` de su timer (`ea-rutina@<slug>.timer`), si lo tiene.
+    pub calendario: Option<String>,
+    /// Estado del timer en systemd (`active`, `inactive`…); `None` si no se
+    /// pregunta (sin `systemctl`).
+    pub timer: Option<String>,
     /// El trabajo más reciente de la rutina en el bus, si lo hay.
     pub ultima: Option<RutinaEjecucion>,
 }

@@ -90,6 +90,7 @@ const st = {
   rutEd: null,         // editor de TOML abierto: ver editorRutina()
   rutVer: {},          // por rutina: { abierto, lista, err, txt: { n: TOML } }: ver versionesHtml()
   rutVerSel: null,     // versión elegida: { slug (null: la fila del enlace), n, diff }
+  rutHor: {},          // por rutina: { v: OnCalendar escrito, sim, quitar, err }: ver horarioRutina()
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
   ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
   rfBorrador: {},      // trabajo -> { nota, fase }: lo escrito para reformularlo, sin enviar
@@ -730,7 +731,7 @@ function filasRutinas(rs) {
     const row = capsula(COLOR.rutina, r.error ? 'averiada' : atascada ? 'hot' : '') +
       `<span class="x">${esc(r.slug)}</span><span class="m">v${r.version}</span>` +
       `<span class="m ${r.error || atascada ? 'hot' : ''}">${esc(desc)}</span>` +
-      `<span class="m">${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
+      `<span class="m"${r.calendario ? ` title="${esc('OnCalendar=' + r.calendario)}"` : ''}>${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
       ultimaRutina(r.ultima) +
       (r.error ? '<span class="hot fuera">fuera de servicio</span>'
         : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
@@ -740,12 +741,73 @@ function filasRutinas(rs) {
     const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
       ejecucionesRutina(d.ejecuciones) +
       formEntradas(r) +
+      horarioRutina(r) +
       (editando ? editorRutina()
         : `<div class="acc">${btn('red', '✎ nueva versión', 'edita el TOML y registra una versión nueva (la versión ya va subida en uno)', { slug: r.slug })}</div>` +
           `<pre class="toml">${esc(d.contenido ?? '')}</pre>`) +
       versionesHtml(r.slug) : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
+}
+
+// ------------------------------------------- horario de una rutina (R4)
+//
+// El timer de systemd de la rutina (`ea-rutina@<slug>.timer`): su OnCalendar,
+// si está activo y un campo para cambiarlo. «◷ guardar» simula primero
+// (systemd-analyze valida y da las próximas 3 ejecuciones) y el segundo clic
+// ejecuta lo simulado con su precondición: si el timer cambió entre medias,
+// la revalidación lo para. «✕ desprogramar», igual. Lo de .sal caduca al
+// cambiar el campo.
+function horarioRutina(r) {
+  if (r.error) return '';
+  const H = st.rutHor[r.slug] || {};
+  const act = r.timer === 'active' ? 'activo' : r.timer ? esc(r.timer) : '';
+  const ahora = r.calendario ? `<b>${esc(r.calendario)}</b>${act ? ' · ' + act : ''}${r.proxima ? ' · próxima ' + en(r.proxima) : ''}`
+    : r.timer === 'active' ? 'activo con el horario de la plantilla' : 'sin programar';
+  const listo = q => H.sim && !!H.quitar === q;
+  let h = `<div class="hor"><p class="et">horario</p><p class="m">${ahora}</p><div class="fm">` +
+    `<label class="m">OnCalendar <input data-rhor="${esc(r.slug)}" value="${esc(H.v ?? r.calendario ?? '')}" placeholder="*-*-* 08:00:00" spellcheck="false" ` +
+    `title="expresión OnCalendar de systemd: *-*-* 08:00:00 (cada día a las 8), Mon *-*-* 09:00 (los lunes), daily…" aria-label="OnCalendar de ${esc(r.slug)}"></label>` +
+    btn('rhguardar', listo(false) ? '✓ confirmar' : '◷ guardar',
+      listo(false) ? 'segundo clic: programa el timer como dice la simulación' : 'simula el horario (systemd lo valida y da las próximas 3 ejecuciones); el segundo clic lo guarda', { slug: r.slug }) +
+    (r.calendario || r.timer === 'active'
+      ? btn('rhquitar', listo(true) ? '✓ confirmar' : '✕ desprogramar',
+        listo(true) ? 'segundo clic: desactiva y borra el timer' : 'simula quitar el timer (la rutina sigue registrada); el segundo clic lo quita', { slug: r.slug })
+      : '') + '</div>';
+  if (H.sim) h += `<p class="tx sal">${esc(H.sim.texto)}</p>`;
+  if (H.err) h += `<p class="hot sal">✕ ${esc(H.err)}</p>`;
+  return h + '</div>';
+}
+
+async function accionHorario(a, slug, b) {
+  const H = (st.rutHor[slug] ??= {});
+  const quitar = a === 'rhquitar';
+  const herr = quitar ? 'ea_desprogramar_rutina' : 'ea_programar_rutina';
+  if (H.sim && !!H.quitar === quitar) {
+    let r;
+    try {
+      r = await ea.ejecutar(herr, H.sim.argumentos, H.sim.precondicion);
+    } catch (e) {
+      if (e.status === 403) throw e;
+      H.sim = null;
+      H.err = e.message;
+    }
+    if (r) {
+      delete st.rutHor[slug];
+      avisa('✓ ' + r.texto, true);
+    }
+    return;
+  }
+  const campo = b.closest('.hor')?.querySelector('[data-rhor]');
+  if (campo) H.v = campo.value;
+  H.sim = H.err = null;
+  H.quitar = quitar;
+  try {
+    H.sim = await ea.simular(herr, quitar ? { slug } : { slug, calendario: H.v ?? '' });
+  } catch (e) {
+    if (e.status === 403) throw e;
+    H.err = e.message;
+  }
 }
 
 // --------------------------------------- ejecuciones de una rutina (R2)
@@ -2592,6 +2654,8 @@ async function accion(b) {
         st.abiertos.add('r' + r.rutina);
         st.sel = 'r' + r.rutina;
       }
+    } else if (a === 'rhguardar' || a === 'rhquitar') {
+      await accionHorario(a, slug, b);
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;
@@ -2880,6 +2944,21 @@ $('#lista').addEventListener('input', ev => {
     st.rutEd.val = st.rutEd.err = st.rutEd.armado = null;
     st.html = '';
     $$('.sal', rt.closest('.det')).forEach(n => n.remove());
+    return;
+  }
+  // El horario de una rutina: lo simulado deja de valer al cambiar el campo.
+  const rh = ev.target.closest('[data-rhor]');
+  if (rh) {
+    const H = (st.rutHor[rh.dataset.rhor] ??= {});
+    H.v = rh.value;
+    H.sim = H.err = null;
+    st.html = '';
+    const caja = rh.closest('.hor');
+    $$('.sal', caja).forEach(n => n.remove());
+    const g = $('[data-a="rhguardar"]', caja);
+    if (g) g.textContent = '◷ guardar';
+    const q = $('[data-a="rhquitar"]', caja);
+    if (q) q.textContent = '✕ desprogramar';
     return;
   }
   // Las entradas de una rutina: la vista previa deja de valer.

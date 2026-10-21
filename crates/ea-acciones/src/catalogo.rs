@@ -114,6 +114,23 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Reinicia un servicio del ecosistema (lista cerrada)",
     },
+    // El timer de una rutina (spec 004, H5): se deshace desprogramándolo
+    // (o programándolo otra vez con el horario anterior). Solo crea trabajos
+    // a su hora, nunca los ejecuta (art. V).
+    Herramienta {
+        nombre: "ea_programar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Programa una rutina registrada con un timer de systemd (OnCalendar)",
+    },
+    Herramienta {
+        nombre: "ea_desprogramar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Desactiva y borra el timer de systemd de una rutina",
+    },
     Herramienta {
         nombre: "ea_eliminar_rutina",
         riesgo: Riesgo::Irreversible,

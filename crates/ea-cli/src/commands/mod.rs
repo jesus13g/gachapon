@@ -47,6 +47,7 @@ pub fn sistema() -> ea_acciones::SistemaReal {
         rutinas_dir: ea_ajustes::cargar().orquestador.rutinas_dir,
         boveda: ea_acciones::Boveda::configurada(),
         propio: None,
+        temporizadores: ea_acciones::Temporizadores::usuario(),
     }
 }
 

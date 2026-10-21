@@ -105,6 +105,15 @@ pub async fn servicios(consultar: bool) -> Vec<Servicio> {
         .collect()
 }
 
+/// Próxima ejecución (marca unix) y estado (`active`, `inactive`…) del timer
+/// de una rutina, en una sola llamada. `slug` ya debe estar validado.
+pub async fn timer_rutina(slug: &str) -> Option<(Option<i64>, String)> {
+    let unidad = vec![format!("ea-rutina@{slug}.timer")];
+    let bloques = show(&unidad, &["NextElapseUSecRealtime", "ActiveState"]).await?;
+    let b = bloques.first()?;
+    Some((marca_unix(b.get("NextElapseUSecRealtime")), b.get("ActiveState").cloned().unwrap_or_default()))
+}
+
 /// Próxima ejecución del timer de una rutina (marca unix), si está
 /// instalado y programado. `slug` ya debe estar validado por el llamador.
 pub async fn proxima_ejecucion(slug: &str) -> Option<i64> {

@@ -111,6 +111,7 @@ fn sistema(s: &AppState) -> SistemaReal {
         rutinas_dir: s.config.rutinas_dir.clone(),
         boveda: s.boveda.clone(),
         propio: Some("ea-web"),
+        temporizadores: s.config.temporizadores.clone(),
     }
 }
 

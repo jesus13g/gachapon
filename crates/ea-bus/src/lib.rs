@@ -19,6 +19,9 @@ pub use config::ConfigOrquestador;
 pub use skills::{bloque_prompt, ConfigSkills, Skill};
 pub use rutina::{slug_valido, validar_entradas, CabeceraRutina, Paso, Rutina, MAX_DEFINICION, MAX_ENTRADAS, MAX_VALOR_ENTRADA};
 pub use error::{ErrorBus, Resultado};
+/// Escritura atómica (temporal, `fsync` y renombrado), también para quien
+/// escribe fuera del bus (el timer de una rutina, en `ea-acciones`).
+pub use fs_atomico::escribir_atomico;
 pub use instantanea::{arbol_de_fase, diff_stat_de_fase, rango_diff_fase, resumen_salida_agente, EXCLUIR_DIFF};
 pub use tipos::{
     Agente, Estado, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Modo, Orden, ResultadoInforme, RutinaRef, Topes, transicion,

@@ -103,6 +103,8 @@ async fn expone_el_catalogo_y_responde_a_una_llamada() {
         "ea_registrar_rutina",
         "ea_reiniciar_servicio",
         "ea_eliminar_rutina",
+        "ea_programar_rutina",
+        "ea_desprogramar_rutina",
     ] {
         assert!(
             names.contains(&expected),

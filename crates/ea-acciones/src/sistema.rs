@@ -16,6 +16,8 @@ use ea_store::Store;
 use tokio::process::Command;
 use tokio::time::timeout;
 
+use crate::temporizador::{comprobar_calendario, Calendario, EstadoTimer, Temporizadores};
+
 /// Servicios que se pueden reiniciar: lista cerrada.
 pub const SERVICIOS_REINICIABLES: [&str; 4] =
     ["llama-server", "ea-mcp", "ea-orchestrator", "ea-web"];
@@ -39,6 +41,17 @@ pub trait Consulta: Send + Sync {
 
     /// Lo que haría promover una nota a la región compartida, sin hacerlo.
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda>;
+
+    /// Cómo está el timer de systemd de una rutina (fichero, `OnCalendar`,
+    /// activo). No cambia nada.
+    fn timer_estado(&self, slug: &str) -> impl Future<Output = Result<EstadoTimer, String>> + Send;
+
+    /// Valida un `OnCalendar` con `systemd-analyze calendar` (que no cambia
+    /// nada). `Ok(Err)`: systemd no lo acepta.
+    fn calendario_validar(
+        &self,
+        calendario: &str,
+    ) -> impl Future<Output = Result<Result<Calendario, String>, String>> + Send;
 }
 
 pub trait Sistema: Consulta {
@@ -61,6 +74,14 @@ pub trait Sistema: Consulta {
         actor: &str,
         canal: &str,
     ) -> Result<PlanPromocion, ErrorBoveda>;
+
+    /// Escribe `ea-rutina@<slug>.timer` con ese `OnCalendar`, `daemon-reload`
+    /// y lo activa ([`Temporizadores::programar`]).
+    fn timer_programar(&self, slug: &str, calendario: &str) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// Desactiva y borra el timer de una rutina; `Ok(false)` si no lo había
+    /// ([`Temporizadores::desprogramar`]). Retirar una rutina lo reutiliza.
+    fn timer_desprogramar(&self, slug: &str) -> impl Future<Output = Result<bool, String>> + Send;
 }
 
 /// Los slugs acaban en una ruta de fichero: nada que no sea `[A-Za-z0-9_-]`.
@@ -132,6 +153,13 @@ impl Consulta for SoloConsulta {
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
         self.boveda.planear_promocion(ruta, destino)
     }
+    /// Los timers de `systemd --user` de esta sesión, solo para mirar.
+    async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
+        Temporizadores::usuario().estado(slug).await
+    }
+    async fn calendario_validar(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
+        Temporizadores::usuario().validar_calendario(calendario).await
+    }
 }
 
 /// El sistema real, para las interfaces del usuario (`ea`, `ea-web`).
@@ -141,6 +169,9 @@ pub struct SistemaReal {
     /// Servicio al que pertenece el proceso actual: no puede reiniciarse a
     /// sí mismo a mitad de la petición (`ea-web` pasa `Some("ea-web")`).
     pub propio: Option<&'static str>,
+    /// Dónde se escriben los timers de las rutinas y con qué órdenes
+    /// ([`Temporizadores::usuario`] fuera de las pruebas).
+    pub temporizadores: Temporizadores,
 }
 
 impl Consulta for SistemaReal {
@@ -152,6 +183,12 @@ impl Consulta for SistemaReal {
     }
     fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
         self.boveda.planear_promocion(ruta, destino)
+    }
+    async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
+        self.temporizadores.estado(slug).await
+    }
+    async fn calendario_validar(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
+        self.temporizadores.validar_calendario(calendario).await
     }
 }
 
@@ -206,6 +243,14 @@ impl Sistema for SistemaReal {
     ) -> Result<PlanPromocion, ErrorBoveda> {
         self.boveda.promover(store, ruta, destino, huella, actor, canal)
     }
+
+    async fn timer_programar(&self, slug: &str, calendario: &str) -> Result<(), String> {
+        self.temporizadores.programar(slug, calendario).await
+    }
+
+    async fn timer_desprogramar(&self, slug: &str) -> Result<bool, String> {
+        self.temporizadores.desprogramar(slug).await
+    }
 }
 
 /// Sistema en memoria para pruebas: no toca `systemd` ni el disco, y apunta
@@ -220,6 +265,8 @@ pub struct SistemaSimulado {
     pub fallo_reinicio: Mutex<Option<String>>,
     /// Registro de mutaciones aplicadas, p. ej. `reiniciar:ea-mcp`.
     pub mutaciones: Mutex<Vec<String>>,
+    /// Timers programados, por slug: su `OnCalendar` (activos todos).
+    pub timers: Mutex<HashMap<String, String>>,
 }
 
 impl SistemaSimulado {
@@ -238,6 +285,11 @@ impl SistemaSimulado {
 
     pub fn con_nota(self, ruta: &str, contenido: &str) -> Self {
         self.notas.lock().unwrap().insert(ruta.to_string(), contenido.to_string());
+        self
+    }
+
+    pub fn con_timer(self, slug: &str, calendario: &str) -> Self {
+        self.timers.lock().unwrap().insert(slug.to_string(), calendario.to_string());
         self
     }
 
@@ -284,6 +336,35 @@ impl Consulta for SistemaSimulado {
             bytes: contenido.len(),
             huella: ea_boveda::huella(contenido),
         })
+    }
+    async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
+        if !slug_valido(slug) {
+            return Err(format!("slug de rutina inválido: '{slug}'"));
+        }
+        let cal = self.timers.lock().unwrap().get(slug).cloned();
+        Ok(EstadoTimer {
+            fichero: cal.is_some(),
+            activo: Some(if cal.is_some() { "active" } else { "inactive" }.into()),
+            calendario: cal,
+        })
+    }
+    /// Una imitación de `systemd-analyze calendar`: acepta palabras de
+    /// calendario conocidas y expresiones con cifras o `*`; el resto, no.
+    async fn calendario_validar(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
+        let c = match comprobar_calendario(calendario) {
+            Ok(c) => c,
+            Err(e) => return Ok(Err(e)),
+        };
+        const PALABRAS: [&str; 12] =
+            ["daily", "weekly", "monthly", "hourly", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon..Fri"];
+        let vale = c.split_whitespace().all(|w| PALABRAS.contains(&w) || w.bytes().any(|b| b.is_ascii_digit() || b == b'*'));
+        if !vale {
+            return Ok(Err(format!("Failed to parse calendar specification '{c}': Invalid argument")));
+        }
+        Ok(Ok(Calendario {
+            normalizado: c.to_string(),
+            proximas: (1..=crate::temporizador::ITERACIONES).map(|i| format!("ejecución {i} de «{c}»")).collect(),
+        }))
     }
 }
 
@@ -336,5 +417,18 @@ impl Sistema for SistemaSimulado {
         notas.insert(plan.destino.clone(), c);
         self.mutaciones.lock().unwrap().push(format!("promover:{ruta}->{}", plan.destino));
         Ok(plan)
+    }
+    async fn timer_programar(&self, slug: &str, calendario: &str) -> Result<(), String> {
+        let c = comprobar_calendario(calendario)?;
+        self.timers.lock().unwrap().insert(slug.to_string(), c.to_string());
+        self.mutaciones.lock().unwrap().push(format!("programar:{slug}={c}"));
+        Ok(())
+    }
+    async fn timer_desprogramar(&self, slug: &str) -> Result<bool, String> {
+        let habia = self.timers.lock().unwrap().remove(slug).is_some();
+        if habia {
+            self.mutaciones.lock().unwrap().push(format!("desprogramar:{slug}"));
+        }
+        Ok(habia)
     }
 }

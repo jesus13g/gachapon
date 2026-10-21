@@ -42,7 +42,12 @@ iteraciones = 3
 
 ## Programarla
 
-El servicio `ea-rutina@<slug>.service` ya existe y solo ejecuta `ea rutina lanzar <slug>`. Para el horario, crea (o explica al usuario) `~/.config/systemd/user/ea-rutina@<slug>.timer` copiando `crates/ea-orchestrator/systemd/ea-rutina@.timer` y ajustando `OnCalendar=` (p. ej. `*-*-* 08:00:00`; `Mon *-*-* 09:00` para semanal). Luego `systemctl --user daemon-reload && systemctl --user enable --now ea-rutina@<slug>.timer`. Pide confirmación antes de activar timers.
+El servicio `ea-rutina@<slug>.service` ya existe y solo ejecuta `ea rutina lanzar <slug>` (crea el trabajo; no ejecuta nada). El horario se **propone** por MCP con `ea_programar_rutina` (`slug` de una rutina ya registrada y `calendario`, una expresión `OnCalendar` de una línea: p. ej. `*-*-* 08:00:00` cada día, `Mon *-*-* 09:00` los lunes, `daily`):
+
+1. Primero con `simular: true`: valida el calendario con `systemd-analyze` y enseña las próximas 3 ejecuciones y el horario actual. Si da error, corrige el calendario.
+2. Luego sin simular: encola una propuesta. Dile al usuario que la acepte en ◇ Propuestas del panel (o con `ea propuestas decidir <n> --aceptar`); al aceptarla se escribe `~/.config/systemd/user/ea-rutina@<slug>.timer` y se activa. También puede hacerlo él en la ficha de la rutina (↻ Rutinas, «◷ guardar»).
+
+Para quitar el horario, lo mismo con `ea_desprogramar_rutina` (`slug`). No copies la plantilla ni lances `systemctl` a mano.
 
 ## Corrección (paquete de corrección)
 
