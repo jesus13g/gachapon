@@ -132,6 +132,9 @@ pub struct RutinaFila {
     pub entradas: Option<BTreeMap<String, String>>,
     pub error: Option<&'static str>,
     pub registrada: String,
+    /// Dónde está su TOML: `activa`, `retirada` (en la papelera) o
+    /// `sin_fichero` ([`ea_bus::Ubicacion`]).
+    pub ubicacion: &'static str,
     pub proxima: Option<i64>,
     /// El `OnCalendar` de su timer (`ea-rutina@<slug>.timer`), si lo tiene.
     pub calendario: Option<String>,
@@ -149,6 +152,8 @@ pub struct RutinaDetalle {
     pub contenido: String,
     /// Las últimas ejecuciones (trabajos del bus), la más reciente primero.
     pub ejecuciones: Vec<RutinaEjecucion>,
+    /// `activa`, `retirada` o `sin_fichero`, como en la lista.
+    pub ubicacion: &'static str,
 }
 
 /// Una ejecución de una rutina: un trabajo del bus en modo rutina, con la

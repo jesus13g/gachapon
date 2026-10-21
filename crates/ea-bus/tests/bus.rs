@@ -460,6 +460,44 @@ fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
     assert!(bus.lanzar_rutina("no-existe", &[]).is_err());
 }
 
+/// La papelera de rutinas (spec 004, RF-011): el fichero decide si una
+/// rutina registrada está activa, retirada o sin fichero; SQLite no cambia.
+#[test]
+fn una_rutina_retirada_no_se_lanza_y_registrarla_la_restaura() {
+    use ea_bus::Ubicacion;
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let dir = d.path().join("rutinas");
+    bus.registrar_rutina(RUTINA, &dir).unwrap();
+    assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Activa);
+    assert!(ea_bus::restaurar_rutina(&dir, "prueba").is_err(), "no está retirada");
+
+    ea_bus::retirar_rutina(&dir, "prueba").unwrap();
+    assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Retirada);
+    assert!(dir.join(".papelera/prueba.toml").exists() && !dir.join("prueba.toml").exists());
+    assert!(ea_bus::retirar_rutina(&dir, "prueba").is_err(), "ya está retirada");
+    let e = bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap_err();
+    assert!(matches!(&e, ErrorBus::NoLanzable(m) if *m == Ubicacion::Retirada.motivo_no_lanzable("prueba").unwrap()), "{e}");
+    assert!(bus.listar_trabajos().unwrap().is_empty());
+
+    ea_bus::restaurar_rutina(&dir, "prueba").unwrap();
+    assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Activa);
+    bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap();
+
+    // Registrar una versión nueva de una retirada la vuelve a poner en uso.
+    ea_bus::retirar_rutina(&dir, "prueba").unwrap();
+    bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 2"), &dir).unwrap();
+    assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Activa);
+    assert!(!dir.join(".papelera/prueba.toml").exists());
+
+    // Sin fichero en ningún sitio: tampoco se lanza.
+    std::fs::remove_file(dir.join("prueba.toml")).unwrap();
+    assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::SinFichero);
+    assert!(matches!(bus.lanzar_rutina_en(&dir, "prueba", &[]), Err(ErrorBus::NoLanzable(_))));
+    assert!(ea_bus::ubicacion_rutina(&dir, "../x").is_err());
+}
+
 #[test]
 fn las_entradas_tienen_limites_y_no_admiten_caracteres_de_control() {
     let r = ea_bus::Rutina::parsear(RUTINA).unwrap();

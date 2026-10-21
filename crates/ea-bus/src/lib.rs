@@ -9,6 +9,7 @@ pub mod config;
 mod error;
 mod fs_atomico;
 mod instantanea;
+mod papelera;
 mod rutina;
 pub mod skills;
 mod tipos;
@@ -19,6 +20,11 @@ pub use config::ConfigOrquestador;
 pub use skills::{bloque_prompt, ConfigSkills, Skill};
 pub use rutina::{slug_valido, validar_entradas, CabeceraRutina, Paso, Rutina, MAX_DEFINICION, MAX_ENTRADAS, MAX_VALOR_ENTRADA};
 pub use error::{ErrorBus, Resultado};
+/// La papelera de las rutinas: retirar y restaurar sin tocar SQLite (spec 004, RF-011).
+pub use papelera::{
+    comprobar_lanzable, quitar_de_papelera, restaurar_rutina, retirar_rutina, ruta_activa, ruta_retirada, ubicacion_rutina,
+    Ubicacion, DIR_PAPELERA,
+};
 /// Escritura atómica (temporal, `fsync` y renombrado), también para quien
 /// escribe fuera del bus (el timer de una rutina, en `ea-acciones`).
 pub use fs_atomico::escribir_atomico;

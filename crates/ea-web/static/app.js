@@ -92,6 +92,8 @@ const st = {
   rutVer: {},          // por rutina: { abierto, lista, err, txt: { n: TOML } }: ver versionesHtml()
   rutVerSel: null,     // versión elegida: { slug (null: la fila del enlace), n, diff }
   rutHor: {},          // por rutina: { v: OnCalendar escrito, sim, quitar, err }: ver horarioRutina()
+  rutRet: {},          // por rutina: { herr, sim, err }: retirar o restaurar, ver retiroRutina()
+  rutRetiradas: false, // la barra de Rutinas enseña las retiradas en vez de las activas
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
   ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
   rfBorrador: {},      // trabajo -> { nota, fase }: lo escrito para reformularlo, sin enviar
@@ -728,25 +730,30 @@ function filasRutinas(rs) {
     const suyos = st.trabajos.filter(t => t.rutina?.slug === r.slug);
     const atascada = suyos.some(t => t.estado === 'en_espera') || r.ultima?.estado === 'en_espera';
     const enCola = suyos.some(t => t.estado === 'en_cola');
-    const desc = r.error ?? (r.descripcion ?? '') + (atascada ? ' · la última se atascó' : '');
+    const retirada = r.ubicacion && r.ubicacion !== 'activa';
+    const desc = retirada ? (r.ubicacion === 'retirada' ? 'retirada · en la papelera' : 'sin fichero en rutinas_dir')
+      : r.error ?? (r.descripcion ?? '') + (atascada ? ' · la última se atascó' : '');
     const row = capsula(COLOR.rutina, r.error ? 'averiada' : atascada ? 'hot' : '') +
       `<span class="x">${esc(r.slug)}</span><span class="m">v${r.version}</span>` +
       `<span class="m ${r.error || atascada ? 'hot' : ''}">${esc(desc)}</span>` +
       `<span class="m"${r.calendario ? ` title="${esc('OnCalendar=' + r.calendario)}"` : ''}>${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
       ultimaRutina(r.ultima) +
-      (r.error ? '<span class="hot fuera">fuera de servicio</span>'
+      (retirada ? '<span class="m fuera">retirada</span>'
+        : r.error ? '<span class="hot fuera">fuera de servicio</span>'
         : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
           `Lanzar ahora la rutina ${r.slug} con las entradas de su ficha: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
     const d = st.detalle[k];
     const editando = st.rutEd?.slug === r.slug;
-    const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
+    const det = d && retirada ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}</p>` +
+      retiroRutina(r) + ejecucionesRutina(d.ejecuciones) + `<pre class="toml">${esc(d.contenido ?? '')}</pre>` + versionesHtml(r.slug)
+      : d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
       ejecucionesRutina(d.ejecuciones) +
       formEntradas(r) +
       horarioRutina(r) +
       (editando ? editorRutina()
         : `<div class="acc">${btn('red', '✎ nueva versión', 'edita el TOML y registra una versión nueva (la versión ya va subida en uno)', { slug: r.slug })}</div>` +
           `<pre class="toml">${esc(d.contenido ?? '')}</pre>`) +
-      versionesHtml(r.slug) : '';
+      versionesHtml(r.slug) + retiroRutina(r) : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
 }
@@ -808,6 +815,57 @@ async function accionHorario(a, slug, b) {
   } catch (e) {
     if (e.status === 403) throw e;
     H.err = e.message;
+  }
+}
+
+// ------------------------------------- retirar y restaurar una rutina (R6)
+//
+// Retirar manda el TOML de la rutina a la papelera de rutinas_dir y quita su
+// timer; restaurar lo devuelve (sin volver a programar el timer). Las dos son
+// reversibles, así que se confirman aquí, como la papelera de la bóveda: el
+// primer clic simula (ea_retirar_rutina / ea_restaurar_rutina) y el segundo
+// ejecuta lo simulado con su precondición. Borrar para siempre una retirada
+// es irreversible y queda en la terminal.
+function retiroRutina(r) {
+  if (r.ubicacion === 'sin_fichero') {
+    return '<div class="ret"><p class="m">sin fichero en rutinas_dir: registra una versión nueva (✎) para volver a usarla</p></div>';
+  }
+  const herr = r.ubicacion === 'retirada' ? 'ea_restaurar_rutina' : 'ea_retirar_rutina';
+  const R = st.rutRet[r.slug] || {};
+  const listo = R.sim && R.herr === herr;
+  const [txt, ayuda] = herr === 'ea_retirar_rutina'
+    ? ['▣ retirar', 'simula retirar la rutina (su TOML va a la papelera y se quita su timer); el segundo clic la retira. Se restaura']
+    : ['↺ restaurar', 'simula devolver la rutina a rutinas_dir (sin volver a programar su timer); el segundo clic la restaura'];
+  let h = `<div class="ret acc">${btn('rretiro', listo ? '✓ confirmar' : txt, listo ? 'segundo clic: hace lo que dice la simulación' : ayuda, { slug: r.slug, v: herr })}</div>`;
+  if (listo) h += `<p class="tx sal">${esc(R.sim.texto)}</p>`;
+  if (R.err) h += `<p class="hot sal">✕ ${esc(R.err)}</p>`;
+  return h;
+}
+
+async function accionRetiro(slug, herr) {
+  const R = (st.rutRet[slug] ??= {});
+  if (R.sim && R.herr === herr) {
+    let r;
+    try {
+      r = await ea.ejecutar(herr, R.sim.argumentos, R.sim.precondicion);
+    } catch (e) {
+      if (e.status === 403) throw e;
+      R.sim = null;
+      R.err = e.message;
+    }
+    if (r) {
+      delete st.rutRet[slug];
+      delete st.rutHor[slug];
+      avisa('✓ ' + r.texto, true);
+    }
+    return;
+  }
+  Object.assign(R, { herr, sim: null, err: null });
+  try {
+    R.sim = await ea.simular(herr, { slug });
+  } catch (e) {
+    if (e.status === 403) throw e;
+    R.err = e.message;
   }
 }
 
@@ -2160,7 +2218,8 @@ function barra() {
       barraDiario();
   } else if (st.sec === 'rutinas') {
     const on = st.rutEd?.slug === '';
-    h = `<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>`;
+    h = `<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>` +
+      `<button class="c${st.rutRetiradas ? ' on' : ''}" data-a="rretiradas" title="las rutinas retiradas (en la papelera): se restauran desde su ficha" aria-pressed="${st.rutRetiradas}">▣ retiradas</button>`;
   } else if (st.sec === 'propuestas') {
     h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
         `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
@@ -2325,7 +2384,8 @@ function pintar() {
   if (st.sel && !st.vis.includes(st.sel)) st.sel = null;
 
   const vacio = q ? `Nada coincide con «${esc(st.q.trim())}».`
-    : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
+    : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.'
+      : st.sec === 'rutinas' && st.rutRetiradas ? 'No hay rutinas retiradas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
   const html = st.vis.length || st.sec === 'inicio' || vis.some(f => f.fijo) ? vis.map(f => f.html).join('') : `<p class="vacio">${vacio}</p>`;
   if (html !== st.html) {
     const lista = $('#lista');
@@ -2375,7 +2435,7 @@ async function cargaSeccion() {
     datos = await ea.ajustes();
     aplicaCliente(datos.cliente);
   }
-  else if (sec === 'rutinas') datos = await ea.rutinas();
+  else if (sec === 'rutinas') datos = await ea.rutinas(st.rutRetiradas);
   else if (sec === 'propuestas') datos = await ea.propuestas({ pendientes: !st.propTodas });
   else if (EDITOR[sec]) {
     datos = await EDITOR[sec].datos();
@@ -2477,6 +2537,7 @@ const PARAMS = {
   // La versión elegida en la ficha enlazada (ver versionesHtml); diff=1, su
   // diff con la anterior. Solo se escribe si es de la fila del enlace.
   rutinas: {
+    retiradas: bandera('rutRetiradas'),
     version: {
       lee: v => { st.rutVerSel = /^[1-9]\d{0,8}$/.test(v ?? '') ? { slug: null, n: Number(v), diff: false } : null; },
       escribe: () => { const s = st.rutVerSel, f = st.enlace?.startsWith('r') ? st.enlace.slice(1) : null; return s && f && selVersion(f) === s ? String(s.n) : null; },
@@ -2745,6 +2806,10 @@ async function accion(b) {
       }
     } else if (a === 'rhguardar' || a === 'rhquitar') {
       await accionHorario(a, slug, b);
+    } else if (a === 'rretiro') {
+      await accionRetiro(slug, v);
+    } else if (a === 'rretiradas') {
+      st.rutRetiradas = !st.rutRetiradas;
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;

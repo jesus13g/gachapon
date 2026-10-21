@@ -468,7 +468,9 @@ impl Bus {
 
     /// Valida y registra una rutina con [`comprobar_registro`] (tamaño,
     /// formato y versión mayor que la última registrada). Guarda la versión
-    /// en SQLite y copia el fichero a `dir` (`<slug>.toml`).
+    /// en SQLite y copia el fichero a `dir` (`<slug>.toml`). Si la rutina
+    /// estaba retirada, registrarla la vuelve a poner en uso: la copia vieja
+    /// de la papelera se borra (sus versiones siguen en SQLite).
     pub fn registrar_rutina(&self, texto: &str, dir: &Path) -> Resultado<Rutina> {
         let s = self.store_rutinas()?;
         let (r, _) = comprobar_registro(s, texto)?;
@@ -481,6 +483,7 @@ impl Bus {
         })?;
         fs::create_dir_all(dir)?;
         crate::fs_atomico::escribir_atomico(&dir.join(format!("{}.toml", r.rutina.slug)), texto.as_bytes())?;
+        crate::papelera::quitar_de_papelera(dir, &r.rutina.slug)?;
         Ok(r)
     }
 
@@ -506,6 +509,15 @@ impl Bus {
     /// Crea un trabajo de modo rutina con la última versión registrada.
     pub fn lanzar_rutina(&self, slug: &str, entradas: &[(String, String)]) -> Resultado<String> {
         self.crear_trabajo(self.rutina(slug)?.a_orden(entradas)?)
+    }
+
+    /// Como [`Bus::lanzar_rutina`], pero antes mira el fichero en
+    /// `rutinas_dir` ([`crate::comprobar_lanzable`]): una rutina retirada o
+    /// sin fichero no se lanza. Es lo que usan la CLI (y con ella el timer)
+    /// y la web; `ea_encolar_rutina` lo comprueba al simular.
+    pub fn lanzar_rutina_en(&self, dir: &Path, slug: &str, entradas: &[(String, String)]) -> Resultado<String> {
+        crate::papelera::comprobar_lanzable(dir, slug)?;
+        self.lanzar_rutina(slug, entradas)
     }
 
     /// Trabajos de una rutina que aún no han terminado.

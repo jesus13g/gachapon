@@ -176,6 +176,28 @@ fn comprobar_slug(slug: &str) -> Result<(), ErrorAccion> {
     }
 }
 
+/// Dónde está el TOML de la rutina según la [`Consulta`]: la misma regla que
+/// [`ea_bus::ubicacion_rutina`] (manda el de `rutinas_dir`), con el
+/// contenido de ese fichero.
+fn ubicacion<C: Consulta>(consulta: &C, slug: &str) -> Result<(ea_bus::Ubicacion, Option<String>), ErrorAccion> {
+    if let Some(c) = consulta.rutina_contenido(slug).map_err(ErrorAccion::Sistema)? {
+        return Ok((ea_bus::Ubicacion::Activa, Some(c)));
+    }
+    Ok(match consulta.rutina_retirada(slug).map_err(ErrorAccion::Sistema)? {
+        Some(c) => (ea_bus::Ubicacion::Retirada, Some(c)),
+        None => (ea_bus::Ubicacion::SinFichero, None),
+    })
+}
+
+/// Falla con `NoAplica` si la rutina no se puede lanzar ni programar
+/// (retirada o sin fichero), con el texto de [`ea_bus::Ubicacion::motivo_no_lanzable`].
+fn exigir_lanzable<C: Consulta>(consulta: &C, slug: &str) -> Result<(), ErrorAccion> {
+    match ubicacion(consulta, slug)?.0.motivo_no_lanzable(slug) {
+        None => Ok(()),
+        Some(m) => Err(ErrorAccion::NoAplica(m)),
+    }
+}
+
 /// Validación estructural de unos argumentos, sin mirar el estado del
 /// mundo: la herramienta existe y es supervisada, la forma es la esperada y
 /// los valores están en su dominio. La usa la carga de rutinas, para
@@ -184,7 +206,9 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
     supervisada(nombre)?;
     match nombre {
         "ea_encolar_rutina" => parsear::<EncolarRutina>(args)?.comprobar(),
-        "ea_eliminar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
+        "ea_eliminar_rutina" | "ea_retirar_rutina" | "ea_restaurar_rutina" => {
+            comprobar_slug(&parsear::<PorSlug>(args)?.slug)
+        }
         "ea_registrar_rutina" => parsear::<RegistrarRutina>(args)?.comprobar().map(|_| ()),
         "ea_reiniciar_servicio" => comprobar_servicio(&parsear::<PorServicio>(args)?.servicio),
         "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
@@ -232,6 +256,7 @@ const CAMPOS_PROMOVER: &[Campo] = &[
 pub fn campos(nombre: &str) -> &'static [Campo] {
     match nombre {
         "ea_encolar_rutina" | "ea_eliminar_rutina" | "ea_desprogramar_rutina" => CAMPOS_SLUG,
+        "ea_retirar_rutina" | "ea_restaurar_rutina" => CAMPOS_SLUG,
         "ea_programar_rutina" => CAMPOS_PROGRAMAR,
         "ea_reiniciar_servicio" => CAMPOS_SERVICIO,
         "ea_registrar_rutina" => CAMPOS_REGISTRAR,
@@ -261,7 +286,8 @@ pub async fn observar<C: Consulta>(consulta: &C, nombre: &str, args: &Value) -> 
             h.servicio = Some(consulta.servicio_estado(srv).await.map_err(ErrorAccion::Sistema)?);
         }
     }
-    if nombre == "ea_programar_rutina" || nombre == "ea_desprogramar_rutina" {
+    // Retirar también quita el timer: su simulación lo dice.
+    if matches!(nombre, "ea_programar_rutina" | "ea_desprogramar_rutina" | "ea_retirar_rutina") {
         if let Some(slug) = args["slug"].as_str().filter(|s| slug_valido(s)) {
             h.timer = Some(consulta.timer_estado(slug).await.map_err(ErrorAccion::Sistema)?);
         }
@@ -289,10 +315,8 @@ pub fn simular_con<C: Consulta>(
         "ea_encolar_rutina" => {
             let a: EncolarRutina = parsear(args)?;
             a.comprobar()?;
-            consulta
-                .rutina_contenido(&a.slug)
-                .map_err(ErrorAccion::Sistema)?
-                .ok_or_else(|| ErrorAccion::NoAplica(format!("la rutina '{}' no existe", a.slug)))?;
+            // Retirada o sin fichero: no se lanza (el mismo texto que la web y la CLI).
+            exigir_lanzable(consulta, &a.slug)?;
             let version = store
                 .ultima_rutina(&a.slug)?
                 .ok_or_else(|| {
@@ -397,15 +421,27 @@ pub fn simular_con<C: Consulta>(
         "ea_eliminar_rutina" => {
             let a: PorSlug = parsear(args)?;
             comprobar_slug(&a.slug)?;
-            let contenido = consulta
-                .rutina_contenido(&a.slug)
-                .map_err(ErrorAccion::Sistema)?
-                .ok_or_else(|| ErrorAccion::NoAplica(format!("la rutina '{}' no existe", a.slug)))?;
+            // Solo se borra para siempre lo que ya está en la papelera: el
+            // paso reversible (retirar) va antes, como en la bóveda.
+            let contenido = match ubicacion(consulta, &a.slug)? {
+                (ea_bus::Ubicacion::Retirada, Some(c)) => c,
+                (ea_bus::Ubicacion::Activa, _) => {
+                    return Err(ErrorAccion::NoAplica(format!(
+                        "la rutina '{}' está activa: retírala antes (ea_retirar_rutina); solo se borra para \
+                         siempre una rutina retirada",
+                        a.slug
+                    )))
+                }
+                _ => return Err(ErrorAccion::NoAplica(format!("la rutina '{}' no está en la papelera", a.slug))),
+            };
             (
                 json!({ "slug": a.slug }),
                 format!(
-                    "Borraría PARA SIEMPRE el fichero de la rutina '{}' ({} bytes, {} líneas). \
-                     No hay copia ni papelera. No desactiva su temporizador de systemd, si lo hay.",
+                    "Borraría PARA SIEMPRE la copia retirada de la rutina '{}' (rutinas_dir/{}/{}.toml, {} bytes, \
+                     {} líneas): ese fichero no se puede recuperar. Sus versiones registradas siguen en SQLite \
+                     como historial; registrar una versión nueva la vuelve a poner en uso.",
+                    a.slug,
+                    ea_bus::DIR_PAPELERA,
                     a.slug,
                     contenido.len(),
                     contenido.lines().count()
@@ -413,9 +449,89 @@ pub fn simular_con<C: Consulta>(
                 json!({ "huella": huella(&contenido), "bytes": contenido.len() }),
             )
         }
+        "ea_retirar_rutina" => {
+            let a: PorSlug = parsear(args)?;
+            comprobar_slug(&a.slug)?;
+            let contenido = match ubicacion(consulta, &a.slug)? {
+                (ea_bus::Ubicacion::Activa, Some(c)) => c,
+                (ea_bus::Ubicacion::Retirada, _) => {
+                    return Err(ErrorAccion::NoAplica(format!("la rutina '{}' ya está retirada", a.slug)))
+                }
+                _ => return Err(ErrorAccion::NoAplica(format!("la rutina '{}' no tiene fichero en rutinas_dir", a.slug))),
+            };
+            let version = store
+                .ultima_rutina(&a.slug)?
+                .map(|f| format!(" (versión {} registrada)", f.version))
+                .unwrap_or_else(|| " (no registrada)".to_string());
+            let timer = hechos.timer.clone().ok_or_else(|| ErrorAccion::Sistema("timer no observado".into()))?;
+            let del_timer = if timer.programado() {
+                let horario = timer.calendario.as_deref().map(|c| format!(" (OnCalendar={c})")).unwrap_or_default();
+                format!(
+                    "Antes desprograma su timer{horario}: `systemctl --user disable --now {}`, borra el fichero \
+                     del timer y daemon-reload.",
+                    unidad_timer(&a.slug)
+                )
+            } else {
+                "No tiene timer que desprogramar.".to_string()
+            };
+            let en_curso = bus_de(store, "simulacion")?
+                .trabajos_activos_de_rutina(&a.slug)
+                .map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
+            let en_curso = match en_curso.first() {
+                Some(t) => format!(" El trabajo {t}, ya creado, sigue su curso: retirar no lo cancela."),
+                None => String::new(),
+            };
+            (
+                json!({ "slug": a.slug }),
+                format!(
+                    "Retiraría la rutina '{}'{version}: mueve rutinas_dir/{}.toml ({} bytes) a la papelera \
+                     (rutinas_dir/{}/{}.toml). Deja de listarse y de poder lanzarse (CLI, web, \
+                     ea_encolar_rutina y el timer). {del_timer} Sus versiones siguen en SQLite. Se deshace \
+                     con ea_restaurar_rutina, que no vuelve a programar el timer.{en_curso}",
+                    a.slug,
+                    a.slug,
+                    contenido.len(),
+                    ea_bus::DIR_PAPELERA,
+                    a.slug
+                ),
+                json!({ "huella": huella(&contenido), "calendario_actual": timer.calendario, "fichero": timer.fichero }),
+            )
+        }
+        "ea_restaurar_rutina" => {
+            let a: PorSlug = parsear(args)?;
+            comprobar_slug(&a.slug)?;
+            let contenido = match ubicacion(consulta, &a.slug)? {
+                (ea_bus::Ubicacion::Retirada, Some(c)) => c,
+                (ea_bus::Ubicacion::Activa, _) => {
+                    return Err(ErrorAccion::NoAplica(format!("la rutina '{}' no está retirada", a.slug)))
+                }
+                _ => return Err(ErrorAccion::NoAplica(format!("la rutina '{}' no está en la papelera", a.slug))),
+            };
+            let lanzable = match store.ultima_rutina(&a.slug)? {
+                Some(f) => format!("vuelve a listarse y a poder lanzarse con la última versión registrada ({})", f.version),
+                None => "vuelve a listarse, pero no está registrada: para lanzarla hay que registrarla".to_string(),
+            };
+            (
+                json!({ "slug": a.slug }),
+                format!(
+                    "Restauraría la rutina '{}': devuelve rutinas_dir/{}/{}.toml ({} bytes) a rutinas_dir/{}.toml; \
+                     {lanzable}. No vuelve a programar su timer: si lo quieres, prográmalo después \
+                     (ea_programar_rutina).",
+                    a.slug,
+                    ea_bus::DIR_PAPELERA,
+                    a.slug,
+                    contenido.len(),
+                    a.slug
+                ),
+                json!({ "huella": huella(&contenido) }),
+            )
+        }
         "ea_programar_rutina" => {
             let a: ProgramarRutina = parsear(args)?;
             let c = a.comprobar()?.to_string();
+            // Una rutina retirada no se programa: el timer la lanzaría y
+            // `ea rutina lanzar` la rechazaría.
+            exigir_lanzable(consulta, &a.slug)?;
             // Solo las rutinas registradas: el timer lanza la última versión.
             let version = store
                 .ultima_rutina(&a.slug)?
@@ -561,6 +677,7 @@ pub fn aplicar_en_store(
         }
         "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" | "ea_registrar_rutina" => Ok(None),
         "ea_programar_rutina" | "ea_desprogramar_rutina" => Ok(None),
+        "ea_retirar_rutina" | "ea_restaurar_rutina" => Ok(None),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
 }
@@ -638,7 +755,37 @@ pub async fn aplicar_en_sistema<S: Sistema>(
             let a: PorSlug = parsear(args)?;
             sistema.rutina_eliminar(&a.slug).map_err(ErrorAccion::Sistema)?;
             Ok(Aplicada {
-                texto: format!("Rutina '{}' eliminada.", a.slug),
+                texto: format!("Copia retirada de la rutina '{}' borrada para siempre.", a.slug),
+                trabajo: None,
+                datos: json!({ "rutina": a.slug }),
+            })
+        }
+        "ea_retirar_rutina" => {
+            let a: PorSlug = parsear(args)?;
+            // El timer primero: si systemd falla, la rutina sigue como estaba
+            // (activa y con su horario) en vez de quedar retirada con un timer
+            // que la intenta lanzar.
+            let habia = sistema.timer_desprogramar(&a.slug).await.map_err(|e| {
+                ErrorAccion::Sistema(format!("no se pudo quitar el timer; la rutina no se ha retirado: {e}"))
+            })?;
+            sistema.rutina_retirar(&a.slug).map_err(|e| {
+                ErrorAccion::Sistema(if habia { format!("timer quitado, pero la rutina no se pudo retirar: {e}") } else { e })
+            })?;
+            Ok(Aplicada {
+                texto: format!(
+                    "Rutina '{}' retirada (su TOML está en la papelera){}.",
+                    a.slug,
+                    if habia { " y su timer desprogramado" } else { "" }
+                ),
+                trabajo: None,
+                datos: json!({ "rutina": a.slug, "desprogramada": habia }),
+            })
+        }
+        "ea_restaurar_rutina" => {
+            let a: PorSlug = parsear(args)?;
+            sistema.rutina_restaurar(&a.slug).map_err(ErrorAccion::Sistema)?;
+            Ok(Aplicada {
+                texto: format!("Rutina '{}' restaurada (sin timer: prográmala si lo quieres).", a.slug),
                 trabajo: None,
                 datos: json!({ "rutina": a.slug }),
             })

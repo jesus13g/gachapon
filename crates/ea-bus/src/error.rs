@@ -16,6 +16,10 @@ pub enum ErrorBus {
     Ocupado,
     #[error("{0}")]
     Argumentos(String),
+    /// La rutina está retirada o no tiene fichero en `rutinas_dir`
+    /// ([`crate::Ubicacion::motivo_no_lanzable`]).
+    #[error("{0}")]
+    NoLanzable(String),
     /// Las skills pedidas no pasan la llave, no existen, no están
     /// habilitadas o exceden los topes de `[agente.skills]`.
     #[error("skills: {0}")]

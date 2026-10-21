@@ -39,3 +39,36 @@ fn ver_una_version_concreta_de_una_rutina() {
     assert!(!o.status.success());
     assert!(String::from_utf8_lossy(&o.stderr).contains("no tiene versión 7"));
 }
+
+/// Una rutina retirada (su TOML en la papelera de `rutinas_dir`) no sale en
+/// `ea rutina listar` salvo con `--retiradas`, y `ea rutina lanzar` (lo que
+/// ejecuta su timer) la rechaza. Retirar sin terminal no hace nada.
+#[test]
+fn una_rutina_retirada_no_se_lista_ni_se_lanza_desde_la_cli() {
+    let d = tempfile::tempdir().unwrap();
+    let f = d.path().join("informe.toml");
+    std::fs::write(&f, RUTINA).unwrap();
+    let o = ea(d.path(), &["rutina", "registrar", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let rutinas = d.path().join("config/rutinas");
+    assert!(rutinas.join("informe.toml").exists());
+
+    // Sin TTY no se confirma: el fichero sigue en su sitio.
+    let o = ea(d.path(), &["rutina", "retirar", "informe"]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("terminal"), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(rutinas.join("informe.toml").exists());
+
+    // Retirada como lo haría `ea_retirar_rutina`.
+    std::fs::create_dir_all(rutinas.join(".papelera")).unwrap();
+    std::fs::rename(rutinas.join("informe.toml"), rutinas.join(".papelera/informe.toml")).unwrap();
+    let o = ea(d.path(), &["rutina", "listar"]);
+    assert!(!String::from_utf8_lossy(&o.stdout).contains("informe"), "{}", String::from_utf8_lossy(&o.stdout));
+    let o = ea(d.path(), &["rutina", "listar", "--retiradas"]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(out.contains("informe") && out.contains("papelera"), "{out}");
+    let o = ea(d.path(), &["rutina", "lanzar", "informe"]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("está retirada"), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(!d.path().join("estado/trabajos").exists() || std::fs::read_dir(d.path().join("estado/trabajos")).unwrap().next().is_none());
+}

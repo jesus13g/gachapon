@@ -49,10 +49,12 @@ fn main() -> Result<()> {
         },
         Command::Rutina { accion } => match accion {
             RutinaAccion::Registrar { fichero } => commands::rutinas::registrar(&fichero)?,
-            RutinaAccion::Listar => commands::rutinas::listar(&store)?,
+            RutinaAccion::Listar { retiradas } => commands::rutinas::listar(&store, retiradas)?,
             RutinaAccion::Ver { slug, version: None } => commands::rutinas::ver(&store, &slug)?,
             RutinaAccion::Ver { slug, version: Some(n) } => commands::rutinas::ver_version(&store, &slug, n)?,
             RutinaAccion::Lanzar { slug, entrada } => commands::rutinas::lanzar(&slug, &entrada)?,
+            RutinaAccion::Retirar { slug } => commands::rutinas::retirar(&mut store, &slug)?,
+            RutinaAccion::Restaurar { slug } => commands::rutinas::restaurar(&mut store, &slug)?,
         },
         Command::Propuestas { accion } => match accion {
             PropuestasAccion::Listar { estado } => commands::propuestas::listar(&store, estado)?,

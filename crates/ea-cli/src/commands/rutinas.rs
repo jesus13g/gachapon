@@ -31,15 +31,51 @@ fn proxima_ejecucion_systemd(slug: &str) -> Option<String> {
     }
 }
 
-pub fn listar(store: &Store) -> Result<()> {
-    let rutinas = store.listar_rutinas()?;
+/// Las rutinas registradas cruzadas con su fichero en `rutinas_dir`
+/// ([`ea_bus::ubicacion_rutina`]): las activas o, con `retiradas`, las que
+/// están en la papelera o sin fichero.
+pub fn filtrar_por_ubicacion(
+    filas: Vec<ea_store::FilaRutina>,
+    dir: &std::path::Path,
+    retiradas: bool,
+) -> Vec<(ea_store::FilaRutina, ea_bus::Ubicacion)> {
+    filas
+        .into_iter()
+        .filter_map(|f| {
+            let u = ea_bus::ubicacion_rutina(dir, &f.slug).unwrap_or(ea_bus::Ubicacion::SinFichero);
+            ((u == ea_bus::Ubicacion::Activa) != retiradas).then_some((f, u))
+        })
+        .collect()
+}
+
+pub fn listar(store: &Store, retiradas: bool) -> Result<()> {
+    let rutinas = filtrar_por_ubicacion(store.listar_rutinas()?, &rutinas_dir(), retiradas);
     if rutinas.is_empty() {
-        println!("No hay rutinas registradas (ea rutina registrar <fichero.toml>).");
+        if retiradas {
+            println!("No hay rutinas retiradas.");
+        } else {
+            println!("No hay rutinas en uso (ea rutina registrar <fichero.toml>; las retiradas: ea rutina listar --retiradas).");
+        }
         return Ok(());
     }
     let mut table = Table::new();
+    if retiradas {
+        table.set_header(vec!["Rutina", "Versión", "Dónde", "Última ejecución"]);
+        for (r, u) in rutinas {
+            let donde = match u {
+                ea_bus::Ubicacion::Retirada => "papelera (ea rutina restaurar)",
+                _ => "sin fichero (registra una versión nueva)",
+            };
+            let ultima = ultimo_trabajo(&r.slug)
+                .map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str()))
+                .unwrap_or_else(|| "nunca".to_string());
+            table.add_row(vec![r.slug, r.version.to_string(), donde.to_string(), ultima]);
+        }
+        println!("{table}");
+        return Ok(());
+    }
     table.set_header(vec!["Rutina", "Versión", "Última ejecución", "Próxima (systemd)"]);
-    for r in rutinas {
+    for (r, _) in rutinas {
         let ultima = ultimo_trabajo(&r.slug)
             .map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str()))
             .unwrap_or_else(|| "nunca".to_string());
@@ -119,7 +155,19 @@ pub fn lanzar(slug: &str, entradas: &[String]) -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("entrada inválida {e:?} (clave=valor)"))
         })
         .collect::<Result<Vec<_>>>()?;
-    let id = super::trabajo::bus()?.lanzar_rutina(slug, &pares)?;
+    // Una rutina retirada o sin fichero no se lanza, tampoco desde su timer.
+    let id = super::trabajo::bus()?.lanzar_rutina_en(&rutinas_dir(), slug, &pares)?;
     println!("{id}");
     Ok(())
+}
+
+/// `ea rutina retirar <slug>`: `ea_retirar_rutina` con su simulación y
+/// confirmación en una terminal interactiva, como `ea acciones ejecutar`.
+pub fn retirar(store: &mut Store, slug: &str) -> Result<()> {
+    super::acciones::ejecutar(store, "ea_retirar_rutina", &serde_json::json!({ "slug": slug }).to_string())
+}
+
+/// `ea rutina restaurar <slug>`: `ea_restaurar_rutina`, igual.
+pub fn restaurar(store: &mut Store, slug: &str) -> Result<()> {
+    super::acciones::ejecutar(store, "ea_restaurar_rutina", &serde_json::json!({ "slug": slug }).to_string())
 }

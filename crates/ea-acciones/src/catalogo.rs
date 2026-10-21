@@ -131,12 +131,31 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Desactiva y borra el timer de systemd de una rutina",
     },
+    // Retirar y restaurar una rutina (spec 004, RF-011): su TOML va a la
+    // papelera de `rutinas_dir` y vuelve, sin tocar SQLite. Se deshacen la
+    // una a la otra, como la papelera de la bóveda (art. IV.2, aclaración
+    // 1.2.0). Retirar también desprograma el timer.
+    Herramienta {
+        nombre: "ea_retirar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Retira una rutina: su TOML va a la papelera y se desprograma su timer",
+    },
+    Herramienta {
+        nombre: "ea_restaurar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Devuelve una rutina retirada a rutinas_dir (sin volver a programar su timer)",
+    },
+    // Vaciar la papelera: solo una rutina ya retirada, y solo desde la terminal.
     Herramienta {
         nombre: "ea_eliminar_rutina",
         riesgo: Riesgo::Irreversible,
         ejecucion: Ejecucion::Supervisada,
         local: false,
-        resumen: "Borra para siempre el fichero de una rutina",
+        resumen: "Borra para siempre la copia retirada de una rutina (la de la papelera)",
     },
     // Bóveda (fase 7). Leer y buscar son lecturas con resultados acotados
     // por actor (el modelo local, con 8192 tokens de contexto, recibe cotas
