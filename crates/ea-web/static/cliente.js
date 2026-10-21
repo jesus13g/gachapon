@@ -156,6 +156,15 @@ const ea = (() => {
 
     reiniciar: servicio => post(`/api/servicios/${c(servicio)}/reiniciar`),
 
+    // La biblioteca de herramientas (spec 018): el inventario ya redactado, su
+    // uso, y simular y ejecutar activar, desactivar y abrir una sesión.
+    biblioteca: () => api('/api/biblioteca'),
+    bibliotecaFicha: id => api('/api/biblioteca/' + c(id)),
+    bibliotecaUso: () => api('/api/biblioteca/uso'),
+    simularBiblioteca: (herramienta, argumentos) => post('/api/biblioteca/simular', { herramienta, argumentos }),
+    ejecutarBiblioteca: (herramienta, argumentos, precondicion) =>
+      post('/api/biblioteca/ejecutar', { herramienta, argumentos, precondicion }),
+
     // Los ajustes (ajustes.toml). `cambios`: clave -> valor; null la quita.
     ajustes: () => api('/api/ajustes'),
     cambiarAjustes: (version, cambios) => post('/api/ajustes', { version, cambios }),

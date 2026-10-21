@@ -62,6 +62,10 @@ pub struct WebConfig {
     /// Cómo se abre una terminal real para confirmar lo irreversible
     /// (`servicio::terminal`). Las pruebas usan una simulada.
     pub terminal: servicio::terminal::Terminal,
+    /// Dónde mira la biblioteca de herramientas (HOME, proyecto, estado,
+    /// runtime). `None`: las del entorno real (`Raices::desde_entorno`); las
+    /// pruebas ponen las suyas, bajo un directorio temporal.
+    pub biblioteca_raices: Option<ea_biblioteca::Raices>,
 }
 
 impl WebConfig {
@@ -92,6 +96,7 @@ impl WebConfig {
             ajustes: fuentes,
             temporizadores: ea_acciones::Temporizadores::usuario(),
             terminal: servicio::terminal::Terminal::del_sistema(),
+            biblioteca_raices: None,
         }
     }
 }
@@ -111,6 +116,10 @@ pub struct AppState {
     /// la trae en `X-EA-Clave`. `main` la deja en `$XDG_RUNTIME_DIR`; las
     /// pruebas la leen de aquí.
     pub clave: clave::ClaveSesion,
+    /// El último informe de uso de la biblioteca y cuándo se calculó: calcularlo
+    /// puede tardar (transcripciones), así que se reutiliza unos segundos. La
+    /// guarda también serializa los cálculos.
+    pub biblioteca_uso: Mutex<Option<(std::time::Instant, std::sync::Arc<ea_biblioteca::uso::InformeUso>)>>,
 }
 
 impl AppState {
@@ -123,6 +132,7 @@ impl AppState {
             ajustes_escritura: Mutex::new(()),
             // Sin /dev/urandom no hay forma honesta de proteger las escrituras.
             clave: clave::ClaveSesion::nueva().expect("no se pudo leer /dev/urandom para la clave de sesión"),
+            biblioteca_uso: Mutex::new(None),
         })
     }
 }

@@ -631,6 +631,7 @@ dependencies = [
  "directories",
  "ea-acciones",
  "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
  "ea-store",
