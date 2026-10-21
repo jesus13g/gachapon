@@ -1178,6 +1178,54 @@ async fn la_consola_lista_simula_y_ejecuta_acciones() {
     assert_eq!(s, StatusCode::CONFLICT);
 }
 
+/// A1: el resultado de una acción dice qué produjo, para enlazarlo: el
+/// trabajo y el id de su evento `accion_ejecutada` en el diario. Aceptar una
+/// propuesta devuelve lo mismo en `resultado`; listarlas, no.
+#[tokio::test]
+async fn el_resultado_de_una_accion_trae_su_trabajo_y_su_evento() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let evento_de = |d: &Value, id: i64| d.as_array().unwrap().iter().find(|e| e["id"] == id).cloned();
+
+    let cuerpo = json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "revision-diaria" } });
+    let (_, sim) = post(&f, "/api/acciones/simular", cuerpo).await;
+    let (s, r) = post(
+        &f,
+        "/api/acciones/ejecutar",
+        json!({ "herramienta": "ea_encolar_rutina", "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let trabajo = r["trabajo"].as_str().unwrap().to_string();
+    assert_eq!(r["datos"]["trabajo"], trabajo.as_str());
+    let ev = r["evento"].as_i64().expect("trae el evento");
+    let (_, d) = get(&f, "/api/diario").await;
+    let e = evento_de(&d, ev).expect("el evento está en el diario");
+    assert_eq!((e["accion"].as_str(), e["trabajo"].as_str()), (Some("accion_ejecutada"), Some(trabajo.as_str())));
+
+    // La misma rutina, ahora por una propuesta aceptada en la web.
+    let (s, _) = post(&f, &format!("/api/trabajos/{trabajo}/cancelar"), json!({})).await;
+    assert_eq!(s, StatusCode::OK);
+    let id = proponer_accion(&f, "ea_encolar_rutina", json!({ "slug": "revision-diaria" })).await;
+    let (_, ps) = get(&f, "/api/propuestas").await;
+    assert!(ps.as_array().unwrap().iter().all(|p| p.get("resultado").is_none()), "listar no trae resultado");
+    let (s, p) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "aceptar" })).await;
+    assert_eq!((s, p["ejecutada"]["estado"].as_str()), (StatusCode::OK, Some("ejecutada")), "{p}");
+    let otro = p["resultado"]["trabajo"].as_str().expect("trae el trabajo").to_string();
+    assert_ne!(otro, trabajo);
+    let ev = p["resultado"]["evento"].as_i64().expect("trae el evento");
+    let (_, d) = get(&f, "/api/diario").await;
+    let e = evento_de(&d, ev).unwrap();
+    assert_eq!((e["accion"].as_str(), e["trabajo"].as_str()), (Some("accion_ejecutada"), Some(otro.as_str())));
+
+    // Rechazar no ejecuta nada: sin resultado.
+    let (s, _) = post(&f, &format!("/api/trabajos/{otro}/cancelar"), json!({})).await;
+    assert_eq!(s, StatusCode::OK);
+    let id = proponer_accion(&f, "ea_encolar_rutina", json!({ "slug": "revision-diaria" })).await;
+    let (_, p) = post(&f, &format!("/api/propuestas/{id}/decidir"), json!({ "decision": "rechazar" })).await;
+    assert!(p.get("resultado").is_none(), "{p}");
+}
+
 #[tokio::test]
 async fn la_consola_valida_y_no_ejecuta_irreversibles() {
     let f = montar();

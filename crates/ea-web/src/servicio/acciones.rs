@@ -83,5 +83,5 @@ pub async fn ejecutar(
     let mut store = s.acciones.lock().await;
     let r = ea_acciones::ejecutar(&mut store, &sis, ACTOR, Canal::Web, herramienta, argumentos, precondicion, None)
         .await?;
-    Ok(ResultadoAccion { texto: r.texto, trabajo: r.trabajo, datos: r.datos })
+    Ok(ResultadoAccion { texto: r.texto, trabajo: r.trabajo, datos: r.datos, evento: r.evento })
 }

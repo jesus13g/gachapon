@@ -691,6 +691,17 @@ renombrar, `a`; al promover, `destino`; no la que fue a la papelera), la memoria
 inversa, «→ diario» en el historial de la ficha de un trabajo abre el diario
 filtrado por él.
 
+Lo que produjo una acción: tras «▶ ejecutar» en ▶ Acciones, o al aceptar una
+propuesta con acción en ◇ Propuestas (o en ⌂ Inicio), el resultado enlaza con
+lo que produjo: «→ trabajo» (`ea_encolar_rutina`), «→ nota en compartida»
+(`ea_promover_nota`), el estado nuevo del servicio y «→ Sistema»
+(`ea_reiniciar_servicio`), «→ rutina» (`ea_registrar_rutina`) y siempre
+«≡ en el diario», que abre su evento `accion_ejecutada`. La propuesta recién
+aceptada sigue a la vista con esos enlaces hasta que se cambia de sección.
+`POST /api/acciones/ejecutar` devuelve `{texto, trabajo, datos, evento}`
+(`evento`: id de ese evento) y `POST /api/propuestas/<id>/decidir`, al aceptar
+una que se ejecuta bien, añade lo mismo en `resultado`.
+
 API (JSON): `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea),
 `/api/colas`, `/api/semaforos`, `/api/rutinas`,
 `/api/rutinas/<slug>/versiones` (`[{version, creada_en, creada_por}]`, la más

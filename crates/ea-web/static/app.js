@@ -86,6 +86,7 @@ const st = {
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
   consola: {},         // por herramienta: { v: valores, sim, res, err }
+  propRes: null,       // la propuesta recién aceptada con su `resultado` (A1): ver filasPropuestas()
   rutEnt: {},          // por rutina: { v: entradas escritas, previa, err }
   rutEd: null,         // editor de TOML abierto: ver editorRutina()
   rutVer: {},          // por rutina: { abierto, lista, err, txt: { n: TOML } }: ver versionesHtml()
@@ -997,6 +998,10 @@ function versionesHtml(slug) {
 }
 
 function filasPropuestas(ps) {
+  // La recién aceptada (A1) sigue a la vista con lo que produjo, aunque ya no
+  // esté entre las pendientes, hasta que se cambia de sección.
+  const r = st.propRes;
+  if (r && !ps.some(p => p.id === r.id)) ps = [r, ...ps];
   return ps.map(p => {
     const k = 'p' + p.id;
     const pend = p.estado === 'pendiente';
@@ -1027,6 +1032,7 @@ function filasPropuestas(ps) {
       if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>.</p>`;
     }
     if (p.ejecutada) det += `<p class="${falla ? 'hot' : 'tx'}">Ejecución ${esc(p.ejecutada.estado)}: ${esc(p.ejecutada.detalle ?? '')}</p>`;
+    if (r && r.id === p.id && ac) det += enlacesResultado(ac.herramienta, r.resultado);
     if (p.decidida) det += `<p class="m">${hora(p.decidida)}</p>`;
     return fila(k, 'p', row, `${p.descripcion} ${quien} ${p.estado}`, det, pend ? '' : ' fin');
   });
@@ -1696,6 +1702,33 @@ function filasSistema(e, plano = false) {
   return out;
 }
 
+// ------------------------------------------- lo que produjo una acción (A1)
+//
+// Tras ejecutar una acción (en ▶ Acciones o al aceptar su propuesta), enlaces
+// a lo que produjo, con la navegación de siempre: el trabajo (ir-trabajo), la
+// nota promovida, el servicio reiniciado o la rutina registrada (ir-a) y, si
+// lo hay, su evento accion_ejecutada en el diario (ir-evento, sin filtros).
+// `r` es { texto, trabajo, datos, evento } de /api/acciones/ejecutar.
+function enlacesResultado(h, r) {
+  if (!r) return '';
+  const d = r.datos && typeof r.datos === 'object' ? r.datos : {};
+  const out = [];
+  if (r.trabajo) out.push(btn('ir-trabajo', '→ trabajo', 'abrir la ficha del trabajo ' + r.trabajo, { id: r.trabajo }, 'l'));
+  if (h === 'ea_promover_nota' && typeof d.destino === 'string') {
+    out.push(btn('ir-a', '→ nota en compartida', 'abrir ' + d.destino + ' en ▥ Bóveda', { dsec: 'boveda', dfila: d.destino }, 'l'));
+  }
+  if (h === 'ea_reiniciar_servicio' && typeof d.servicio === 'string') {
+    const activo = d.activo === 'active';
+    out.push(`<span class="${activo ? 'ok' : 'hot'}" title="estado tras reiniciar: ${esc(d.activo ?? '?')}">● ${activo ? 'en marcha' : esc(d.activo ?? '?')}</span>`,
+      btn('ir-a', '→ Sistema', 'ver ' + d.servicio + ' en ▦ Sistema', { dsec: 'sistema', dfila: d.servicio }, 'l'));
+  }
+  if (h === 'ea_registrar_rutina' && typeof d.rutina === 'string') {
+    out.push(btn('ir-a', '→ rutina ' + esc(d.rutina), 'ver la rutina en ↻ Rutinas', { dsec: 'rutinas', dfila: d.rutina }, 'l'));
+  }
+  if (r.evento != null) out.push(btn('ir-evento', '≡ en el diario', 'ver el evento #' + r.evento + ' en ≡ Diario', { id: r.evento }, 'l'));
+  return out.length ? `<p class="sal">${out.join(' ')}</p>` : '';
+}
+
 function filasAcciones(hs) {
   return hs.map(h => {
     const c = st.consola[h.nombre] || {};
@@ -1722,10 +1755,7 @@ function filasAcciones(hs) {
           ? `<div class="acc sal">${btn('ejecutar', '▶ ejecutar', 'ejecutar lo simulado', { h: h.nombre }, 'hot')}</div>`
           : `<p class="hot sal">Irreversible: solo desde la terminal, con <b>ea acciones ejecutar ${esc(h.nombre)} --args '${esc(JSON.stringify(c.sim.argumentos))}'</b>.</p>`);
       }
-      if (c.res) {
-        det += `<p class="tx sal">✓ ${esc(c.res.texto)}` +
-          '' + '</p>';
-      }
+      if (c.res) det += `<p class="tx sal">✓ ${esc(c.res.texto)}</p>` + enlacesResultado(h.nombre, c.res);
       if (c.err) det += `<p class="hot sal">✕ ${esc(c.err)}</p>`;
     }
     return fila('a' + h.nombre, 'a', row, `${h.nombre} ${h.resumen} ${h.riesgo}`, det, h.supervisada ? '' : ' fin');
@@ -1917,7 +1947,7 @@ function filasInicio(d) {
   ];
   const paq = st.trabajos.filter(t => t.estado === 'en_espera' && t.modo === 'rutina');
   if (paq.length) out.push(grupo('!', 'Cápsulas atascadas', paq.length, 'una rutina falló; nada pasa a Claude Code sin tu confirmación'), ...paq.map(avisoPaquete));
-  if (d.propuestas.length) {
+  if (d.propuestas.length || st.propRes) {
     out.push(grupo('◇', 'Esperan tu decisión', d.propuestas.length, 'acepta o rechaza; aceptar ejecuta la acción'), ...filasPropuestas(d.propuestas));
   }
   const e = st.estado;
@@ -2450,6 +2480,7 @@ function alCambiarHash(hash) {
 function ir(sec, enlace = null) {
   if (sec !== st.sec && !sueltaBorradores()) { escribeHash(false); return false; }
   const cambia = sec !== st.sec;
+  if (cambia) st.propRes = null;
   st.sec = sec;
   st.datos = null;
   st.html = '';
@@ -2578,6 +2609,9 @@ async function accion(b) {
       }
       st.armado = null;
       const p = await ea.decidir(id, v);
+      // Con lo que produjo (A1): la fila se queda abierta con sus enlaces.
+      st.propRes = p.resultado ? p : null;
+      if (p.resultado) st.abiertos.add(k);
       if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
     } else if (a === 'lanzar') {
       // Con lo escrito en la ficha; los fallos se quedan junto al formulario.
