@@ -90,15 +90,26 @@ una fase en una misión o rutina, se rechaza sin escribir nada.
 
 ### Seguridad
 
-Qwen Code corre dentro de **bubblewrap** (`bwrap`): sistema de ficheros de solo
-lectura salvo el worktree, un `/tmp` propio y `~/.qwen`, con `$XDG_RUNTIME_DIR`
-tapado por un tmpfs vacío (ahí están la clave de sesión del panel web y los
-sockets de D-Bus y `systemd --user`); la red queda abierta para llegar a
-`llama-server`. Con `sandbox = false` el agente corre con aprobación
-total y puede escribir donde escriba tu usuario. Además: topes por ejecución
-(turnos, tiempo, llamadas a herramientas, iteraciones; recortados al techo de los
-ajustes), exclusión de las
-herramientas web y semáforo para que los dos agentes no escriban a la vez.
+El agente ejecutor (Qwen Code, Codex u OpenCode) corre dentro de
+**bubblewrap** (`bwrap`): sistema de ficheros de solo lectura salvo el
+worktree, un `/tmp` propio y sus directorios de estado (`~/.qwen`; `~/.codex`;
+`~/.local/share/opencode`, `~/.local/state/opencode` y `~/.cache/opencode`), con
+`$XDG_RUNTIME_DIR` tapado por un tmpfs vacío (ahí están la clave de sesión del
+panel web y los sockets de D-Bus y `systemd --user`); la red queda abierta para
+llegar a `llama-server`. Con `sandbox = false` Qwen y OpenCode corren con
+aprobación total y pueden escribir donde escriba tu usuario; Codex usa entonces
+su propio sandbox (`workspace-write`). Además: topes por ejecución (recortados
+al techo de los ajustes; Codex y OpenCode solo admiten el de tiempo), exclusión
+de las herramientas web y semáforo para que dos agentes no escriban a la vez en
+el mismo worktree.
+
+Qué se le quita a cada agente para que no salga a la web:
+
+| Agente | Cómo | Herramientas que le quedan (comprobado) |
+|---|---|---|
+| Qwen Code | `--exclude-tools web_fetch web_search …` | las de ficheros y `run_shell_command` |
+| Codex | `--ignore-user-config`, `-c web_search="disabled"` y `--disable` de `apps`, `browser_use`, `computer_use`, `plugins`, `multi_agent`, `goals`, `view_image`… | `exec_command`, `write_stdin`, `request_user_input` |
+| OpenCode | configuración en línea (`OPENCODE_CONFIG_CONTENT`, sin la del usuario ni la del proyecto) que deniega `webfetch`, `websearch`, `codesearch`, `execute` y `question` | `edit`, `glob`, `grep`, `read`, `shell`, `skill`, `subagent`, `write` |
 
 ### Configuración (`ajustes.toml`)
 
@@ -168,14 +179,15 @@ perfil nuevo se crea en un solo cambio: `ea ajustes establecer
 modelos.rapido.nombre=qwen3-8b modelos.rapido.base_url=http://127.0.0.1:8081/v1`.
 Cada trabajo anota en `estado.json`, en `historial.jsonl` y en su informe (y en
 cada fase de una obra) con qué agente y modelo se ejecutó (`ejecutado_por`); el
-que está en curso conserva el suyo aunque cambie `roles.ejecutor`. Por ahora el
-orquestador solo sabe lanzar a Qwen Code: con otro ejecutor el trabajo se
-entrega bloqueado hasta que lleguen los adaptadores de Codex y OpenCode
-(siguientes tareas de la 017).
+que está en curso conserva el suyo aunque cambie `roles.ejecutor`. El
+orquestador elige el adaptador en cada ciclo, así que `ea ajustes establecer
+roles.ejecutor=codex` (o el selector de la web) vale desde el siguiente trabajo,
+sin reiniciar nada. Si el binario del ejecutor no está (`agentes.<id>.bin`, en
+el `PATH` del servicio), el trabajo se entrega bloqueado con ese motivo.
 
 **Techo de topes.** Los topes de cada orden (`turnos`, `tiempo_s`,
 `llamadas_herramienta`, `iteraciones`; por defecto 30/900/60/5) los pone quien la
-escribe. El ejecutor los recorta a `agente.techo_topes` antes de lanzar a Qwen
+escribe. El ejecutor los recorta a `agente.techo_topes` antes de lanzar al agente
 (mínimo por campo, al menos una iteración) y lo deja en el log. El techo nunca
 pasa de 100/3600/200/10. Un `[topes]` en un `orquestador.toml` antiguo pasa a ser
 ese techo.

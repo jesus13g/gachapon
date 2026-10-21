@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use ea_bus::{Bus, ConfigOrquestador};
 use ea_orchestrator::config;
-use ea_orchestrator::ejecutor::{ejecutar_uno, QwenCode};
+use ea_orchestrator::ejecutor::{ejecutar_uno, fabricar};
 use ea_store::{EventOutcome, NewEvent, Store};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -70,12 +70,14 @@ async fn main() -> anyhow::Result<()> {
 
     let sondeo = Duration::from_secs(config.intervalo_sondeo_s);
     loop {
-        // La configuración se relee en cada ciclo; el ejecutor bloquea (qwen
-        // tarda minutos), así que va en un hilo aparte.
+        // La configuración y el agente del rol ejecutor se rehacen en cada
+        // ciclo (un cambio de `roles.ejecutor` vale para el siguiente
+        // trabajo); el agente tarda minutos, así que va en un hilo aparte.
         let b = abrir_bus()?;
         let resultado = tokio::task::spawn_blocking(move || {
             let cfg = ConfigOrquestador::cargar();
-            ejecutar_uno(&b, &cfg, &QwenCode)
+            let agente = fabricar(&cfg.ejecutor);
+            ejecutar_uno(&b, &cfg, agente.as_ref())
         })
         .await;
         match resultado {

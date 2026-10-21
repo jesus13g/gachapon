@@ -1,7 +1,7 @@
-//! Orquestador del ecosistema de asistente. En reconstrucción hacia el
-//! modelo Claude Code + Qwen Code (ver `orquestador-claude-qwen.md`): el
-//! ejecutor (`ejecutor`) toma trabajos de la cola `modelo-local` y los
-//! lanza con Qwen Code headless.
+//! Orquestador del ecosistema de asistente: el ejecutor (`ejecutor`) toma
+//! trabajos de la cola del rol ejecutor (`modelo-local`) y los lanza con el
+//! agente que ocupe ese rol (`agentes`: Qwen Code, Codex u OpenCode).
 
+pub mod agentes;
 pub mod config;
 pub mod ejecutor;

@@ -1,28 +1,30 @@
-//! Ejecutor del agente local: toma un trabajo de la cola `modelo-local`, lo
-//! pasa a Qwen Code headless dentro del worktree, comprueba el criterio de
-//! éxito POR SU CUENTA (Qwen puede decir «success» sin haber hecho nada) y
-//! entrega el informe a la revisión.
+//! El bucle del ejecutor: toma un trabajo de la cola del ejecutor
+//! (`modelo-local`), lo pasa headless al agente que ocupa ese rol (Qwen
+//! Code, Codex u OpenCode: ver [`crate::agentes`]) dentro del worktree,
+//! comprueba el criterio de éxito POR SU CUENTA (el agente puede decir
+//! «success» sin haber hecho nada) y entrega el informe a la revisión.
 //!
 //! - Misión: si el criterio falla y quedan iteraciones, repite la llamada en
 //!   el mismo worktree con la evidencia del fallo; solo entrega al pasar, al
-//!   agotarlas o con el código 55 de los topes.
+//!   agotarlas o cuando el agente dice que agotó sus topes.
 //! - Obra: recorre las fases con ese mismo bucle, guarda una instantánea del
 //!   árbol tras cada una y se detiene para revisión cada `revisar_cada`.
 //! - Rutina: si pasa, se cierra sola; si falla, deja un paquete de
 //!   corrección en espera hasta que el usuario lo confirme.
 //!
-//! Seguridad: Qwen Code 0.25 solo trae sandbox con Docker/seatbelt, y aquí no
-//! se usa. Con `sandbox = true` (por defecto; probado con Qwen real), `qwen`
-//! se lanza dentro de bubblewrap (sistema de ficheros de solo lectura salvo el
-//! worktree, `/tmp` propio y `~/.qwen`; `$XDG_RUNTIME_DIR` tapado, para que
-//! no lea la clave del panel web; la red queda abierta para llegar a
-//! llama-server). Con `sandbox = false` el agente corre con
-//! `--approval-mode yolo`: puede escribir y ejecutar en cualquier sitio donde
-//! escriba el usuario. Se limita además con los topes de la orden (recortados
-//! al techo de los ajustes, `agente.techo_topes`), el aislamiento por worktree y `--exclude-tools` para las herramientas web.
-//! También se excluyen las de objetivos y notebooks: no le sirven y cada
-//! herramienta declarada cuesta tokens en todos los turnos (~900 entre las
-//! tres, medido con `bench/skills`).
+//! Seguridad: con `sandbox = true` (por defecto) el agente se lanza dentro de
+//! bubblewrap: sistema de ficheros de solo lectura salvo el worktree, `/tmp`
+//! propio y sus directorios de estado; `$XDG_RUNTIME_DIR` tapado, para que no
+//! lea la clave del panel web; la red queda abierta para llegar a
+//! llama-server. Con `sandbox = false` Qwen y OpenCode corren con aprobación
+//! automática y pueden escribir y ejecutar donde escriba el usuario. Además
+//! limitan los topes de la orden (recortados al techo de los ajustes,
+//! `agente.techo_topes`), el aislamiento por worktree y, en cada adaptador,
+//! la exclusión de las herramientas web.
+//!
+//! El agente se elige en cada ciclo ([`fabricar`]) y queda anotado en el
+//! trabajo al tomarlo (`ejecutado_por`); un agente que no se puede lanzar
+//! deja el trabajo bloqueado con el motivo.
 //!
 //! Cancelación cooperativa: el estado se relee antes de cada iteración y de
 //! cada fase, y mientras corre el agente se sondea cada `SONDEO_CANCELACION`.
@@ -40,14 +42,12 @@ use std::time::{Duration, Instant};
 
 use ea_bus::{
     Bus, Rol, CandadoWorktree, ConfigOrquestador, Evento, FaseInforme, Informe, Modo, Ocupante,
-    Orden, ResultadoInforme, Topes,
+    Orden, ResultadoInforme,
 };
 
 const ESPERA_CANDADO: Duration = Duration::from_secs(60);
 const TIEMPO_CRITERIO_S: u64 = 120;
 const MAX_EVIDENCIA: usize = 2048;
-/// Código con el que Qwen Code sale al agotar un tope.
-const SALIDA_TOPES: i32 = 55;
 /// Cada cuánto se relee `estado.json` mientras corre el agente.
 const SONDEO_CANCELACION: Duration = Duration::from_secs(2);
 /// Lo que se espera tras el `SIGTERM` al grupo antes del `SIGKILL`.
@@ -69,104 +69,7 @@ pub struct SalidaAgente {
     pub cancelado: bool,
 }
 
-pub trait AgenteLocal {
-    /// `sistema` se añade al system prompt (las skills); vacío si no hay.
-    /// `cancelado` dice si el trabajo se ha cancelado: el agente debe
-    /// consultarlo mientras corre y cortar en cuanto devuelva `true`.
-    fn ejecutar(
-        &self,
-        prompt: &str,
-        sistema: &str,
-        worktree: &Path,
-        topes: &Topes,
-        config: &ConfigOrquestador,
-        cancelado: &dyn Fn() -> bool,
-    ) -> SalidaAgente;
-}
-
-/// Qwen Code real, en modo headless.
-pub struct QwenCode;
-
-impl AgenteLocal for QwenCode {
-    fn ejecutar(
-        &self,
-        prompt: &str,
-        sistema: &str,
-        worktree: &Path,
-        topes: &Topes,
-        config: &ConfigOrquestador,
-        cancelado: &dyn Fn() -> bool,
-    ) -> SalidaAgente {
-        let mut args: Vec<String> = Vec::new();
-        let mut cmd = if config.sandbox {
-            let home = std::env::var("HOME").unwrap_or_default();
-            let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir());
-            args.extend(argumentos_bwrap(&home, worktree, ejecucion.as_deref()));
-            args.push(config.ejecutor.bin.clone());
-            Command::new("bwrap")
-        } else {
-            Command::new(&config.ejecutor.bin)
-        };
-        // `--exclude-tools` es un array: va antes de las demás opciones para
-        // que no se trague la orden, que va la última.
-        for a in [
-            "--exclude-tools", "web_fetch", "web_search", "get_goal", "update_goal", "notebook_edit", "--bare", "--auth-type", "openai",
-            "--openai-base-url", &config.ejecutor.modelo.base_url, "--openai-api-key", "local", "-m", &config.ejecutor.modelo.nombre,
-            "--approval-mode", "yolo",
-        ] {
-            args.push(a.into());
-        }
-        if !sistema.is_empty() {
-            args.push("--append-system-prompt".into());
-            args.push(sistema.into());
-        }
-        args.push("--max-session-turns".into());
-        args.push(topes.turnos.to_string());
-        args.push("--max-wall-time".into());
-        args.push(format!("{}s", topes.tiempo_s));
-        args.push("--max-tool-calls".into());
-        args.push(topes.llamadas_herramienta.to_string());
-        for a in ["--output-format", "json", prompt] {
-            args.push(a.into());
-        }
-        cmd.args(&args).current_dir(worktree);
-        // tope de seguridad del proceso: algo más que el de Qwen
-        let c = correr_cancelable(cmd, topes.tiempo_s + 120, cancelado);
-        let resumen = texto_final(&c.salida);
-        SalidaAgente { codigo: c.codigo, bruta: c.salida, resumen, cancelado: c.cancelado }
-    }
-}
-
-/// Argumentos de `bwrap` (sin el programa): `/` en solo lectura, `/tmp`
-/// propio, `~/.qwen` y el worktree escribibles. El directorio de ejecución
-/// de la sesión (`$XDG_RUNTIME_DIR`), si existe, queda tapado por un tmpfs
-/// vacío: ahí está la clave de sesión del panel web (con ella el agente,
-/// que tiene la red abierta, podría escribir por `127.0.0.1:8092`), y
-/// también los sockets de D-Bus y de `systemd --user`, que no necesita. Se
-/// tapa entero y no solo `ea-web/`: así no hace falta que exista ese
-/// subdirectorio (bwrap no puede crear el punto de montaje en un `/` de
-/// solo lectura) y no queda ningún otro socket de la sesión a su alcance.
-fn argumentos_bwrap(home: &str, worktree: &Path, ejecucion: Option<&Path>) -> Vec<String> {
-    let wt = worktree.to_string_lossy().to_string();
-    let qwen = format!("{home}/.qwen");
-    let mut args: Vec<String> =
-        ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"].map(String::from).into();
-    if let Some(d) = ejecucion {
-        args.push("--tmpfs".into());
-        args.push(d.to_string_lossy().into());
-    }
-    // Los bind escribibles van después del tmpfs: si alguno cayera dentro del
-    // directorio de ejecución, se montaría encima y seguiría visible.
-    for a in ["--bind", &qwen, &qwen, "--bind", &wt, &wt, "--chdir", &wt, "--unshare-pid", "--die-with-parent"] {
-        args.push(a.into());
-    }
-    args
-}
-
-/// Texto del último elemento `type=result` del array JSON de Qwen.
-fn texto_final(bruta: &str) -> String {
-    ea_bus::resumen_salida_agente(ea_bus::TipoAgente::QwenCode, bruta)
-}
+pub use crate::agentes::{fabricar, Ejecutor, QwenCode};
 
 /// Ejecuta con `timeout`; devuelve (código, stdout, stderr). Código `None`
 /// si no arrancó o murió por señal (incluido el 124 del timeout, que se
@@ -177,11 +80,11 @@ fn correr(cmd: Command, tope_s: u64) -> (Option<i32>, String, String) {
 }
 
 /// Resultado de [`correr_cancelable`].
-struct Corrida {
-    codigo: Option<i32>,
-    salida: String,
-    errores: String,
-    cancelado: bool,
+pub(crate) struct Corrida {
+    pub codigo: Option<i32>,
+    pub salida: String,
+    pub errores: String,
+    pub cancelado: bool,
 }
 
 /// Como [`correr`], pero el proceso (`timeout` y todo lo que cuelga de él,
@@ -189,7 +92,7 @@ struct Corrida {
 /// pregunta a `cancelado`: si dice que sí, se manda `SIGTERM` al grupo
 /// entero y, si el líder no ha salido tras `MARGEN_TERM`, `SIGKILL`. El
 /// `SIGKILL` final va siempre, para no dejar nietos sueltos.
-fn correr_cancelable(cmd: Command, tope_s: u64, cancelado: &dyn Fn() -> bool) -> Corrida {
+pub(crate) fn correr_cancelable(cmd: Command, tope_s: u64, cancelado: &dyn Fn() -> bool) -> Corrida {
     let prog = cmd.get_program().to_os_string();
     let args: Vec<_> = cmd.get_args().map(|a| a.to_os_string()).collect();
     let dir = cmd.get_current_dir().map(|d| d.to_path_buf());
@@ -197,6 +100,12 @@ fn correr_cancelable(cmd: Command, tope_s: u64, cancelado: &dyn Fn() -> bool) ->
     c.arg("-k").arg("10").arg(tope_s.to_string()).arg(prog).args(args);
     if let Some(d) = dir {
         c.current_dir(d);
+    }
+    for (k, v) in cmd.get_envs() {
+        match v {
+            Some(v) => c.env(k, v),
+            None => c.env_remove(k),
+        };
     }
     c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0);
     let mut hijo = match c.spawn() {
@@ -316,7 +225,9 @@ fn diff_entre(wt: &Path, a: &str, b: &str, stat: bool) -> String {
     git(wt, &args).unwrap_or_default()
 }
 
-fn construir_prompt(orden: &Orden, titulo: &str, cuerpo: &str, criterio: &str) -> String {
+/// El prompt no nombra al agente ni al modelo; `regla` es la de las
+/// herramientas propias del agente (vacía si no tiene).
+fn construir_prompt(orden: &Orden, titulo: &str, cuerpo: &str, criterio: &str, regla: &str) -> String {
     let mut p = format!("# {titulo}\n\n{cuerpo}\n");
     if !orden.notas_revision.is_empty() {
         p.push_str("\n## Notas de la revisión anterior (tenlas en cuenta)\n");
@@ -324,13 +235,12 @@ fn construir_prompt(orden: &Orden, titulo: &str, cuerpo: &str, criterio: &str) -
             p.push_str(&format!("- {n}\n"));
         }
     }
+    p.push_str("\n## Reglas\n- Trabaja SOLO dentro del directorio actual (el worktree); no toques nada fuera.\n- No hagas commits.\n");
+    if !regla.is_empty() {
+        p.push_str(&format!("- {regla}\n"));
+    }
     p.push_str(&format!(
-        "\n## Reglas\n\
-         - Trabaja SOLO dentro del directorio actual (el worktree); no toques nada fuera.\n\
-         - No hagas commits.\n\
-         - Para crear un fichero nuevo usa run_shell_command con `cat > ruta <<'EOF'`: no hay herramienta para escribir ficheros. `edit` solo cambia ficheros que ya has leído con read_file.\n\
-         - El criterio de éxito es el comando `{criterio}` y debe pasar.\n\
-         - Cuando termines, explica en 3 líneas qué hiciste.\n"
+        "- El criterio de éxito es el comando `{criterio}` y debe pasar.\n- Cuando termines, explica en 3 líneas qué hiciste.\n"
     ));
     p
 }
@@ -386,11 +296,11 @@ fn bloqueado(motivo: &str, evidencia: String) -> Informe {
 
 /// Toma y ejecuta un trabajo de la cola `modelo-local`. Devuelve su id, o
 /// `None` si no había nada (o la cola falló).
-pub fn ejecutar_uno(bus: &Bus, config: &ConfigOrquestador, agente: &dyn AgenteLocal) -> Option<String> {
+pub fn ejecutar_uno(bus: &Bus, config: &ConfigOrquestador, agente: &dyn Ejecutor) -> Option<String> {
     ejecutar_uno_con_espera(bus, config, agente, ESPERA_CANDADO)
 }
 
-fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn AgenteLocal, espera: Duration) -> Option<String> {
+fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn Ejecutor, espera: Duration) -> Option<String> {
     let id = match bus.tomar(Rol::Ejecutor) {
         Ok(Some(id)) => id,
         Ok(None) => return None,
@@ -435,10 +345,11 @@ fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn A
     };
     let inicio = Instant::now();
 
-    // Provisional hasta que existan los adaptadores de Codex y OpenCode
-    // (spec 017, T-004): no se lanza un binario con argumentos que no son suyos.
-    if config.ejecutor.tipo != ea_bus::TipoAgente::QwenCode {
-        let motivo = format!("el ejecutor {} aún no tiene adaptador en el orquestador", config.ejecutor.id);
+    // Un ejecutor que no se puede lanzar deja el trabajo bloqueado con el
+    // motivo, sin gastar iteraciones (spec 017).
+    if let Err(m) = agente.disponible(config) {
+        let motivo = format!("el ejecutor {} no está disponible: {m}", config.ejecutor.id);
+        tracing::warn!(%id, %motivo, "trabajo bloqueado");
         entregar(bus, config, &id, &orden, bloqueado(&motivo, String::new()));
         return Some(id);
     }
@@ -560,7 +471,7 @@ fn correr_criterio(wt: &Path, criterio: &str) -> (bool, String) {
 fn bucle(
     bus: &Bus,
     config: &ConfigOrquestador,
-    agente: &dyn AgenteLocal,
+    agente: &dyn Ejecutor,
     id: &str,
     orden: &Orden,
     wt: &Path,
@@ -580,7 +491,7 @@ fn bucle(
     if !sistema.is_empty() {
         let _ = std::fs::write(dir.join(ea_bus::SKILLS_AGENTE), &sistema);
     }
-    let base = construir_prompt(orden, titulo, cuerpo, criterio);
+    let base = construir_prompt(orden, titulo, cuerpo, criterio, agente.regla_herramientas());
     let max = orden.topes.iteraciones.max(1);
     let mut previa: Option<String> = None;
     let cancelado = || bus.esta_cancelado(id);
@@ -610,12 +521,12 @@ fn bucle(
         if pasa {
             return Some(Bucle { pasa: true, evidencia, motivo: None });
         }
-        if salida.codigo == Some(SALIDA_TOPES) {
-            return Some(Bucle { pasa: false, evidencia, motivo: Some("topes agotados (55)".into()) });
+        if let Some(c) = agente.codigo_topes().filter(|c| salida.codigo == Some(*c)) {
+            return Some(Bucle { pasa: false, evidencia, motivo: Some(format!("topes agotados ({c})")) });
         }
         if it == max {
             if salida.codigo != Some(0) {
-                evidencia.push_str(&format!("\n(qwen salió con código {:?})", salida.codigo));
+                evidencia.push_str(&format!("\n(el agente salió con código {:?})", salida.codigo));
             }
             return Some(Bucle { pasa: false, evidencia, motivo: Some("iteraciones agotadas".into()) });
         }
@@ -628,7 +539,7 @@ fn bucle(
 fn trabajar(
     bus: &Bus,
     config: &ConfigOrquestador,
-    agente: &dyn AgenteLocal,
+    agente: &dyn Ejecutor,
     id: &str,
     orden: &Orden,
     fase_actual: Option<u32>,
@@ -684,7 +595,7 @@ fn leer_texto(p: &Path) -> Option<String> {
 fn trabajar_obra(
     bus: &Bus,
     config: &ConfigOrquestador,
-    agente: &dyn AgenteLocal,
+    agente: &dyn Ejecutor,
     id: &str,
     orden: &Orden,
     fase_actual: Option<u32>,
@@ -816,7 +727,7 @@ fn recortar_resumen(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ea_bus::{EstadoTrabajo, Modo};
+    use ea_bus::{EstadoTrabajo, Modo, Topes};
     use std::sync::Mutex;
 
     /// Doble: ejecuta un script de shell en el worktree en lugar de Qwen.
@@ -827,13 +738,17 @@ mod tests {
         sistemas: Mutex<Vec<String>>,
         topes: Mutex<Vec<Topes>>,
     }
-    impl AgenteLocal for Doble {
+    impl Ejecutor for Doble {
         fn ejecutar(&self, prompt: &str, sistema: &str, wt: &Path, topes: &Topes, _: &ConfigOrquestador, _: &dyn Fn() -> bool) -> SalidaAgente {
             self.visto.lock().unwrap().push(prompt.to_string());
             self.topes.lock().unwrap().push(*topes);
             self.sistemas.lock().unwrap().push(sistema.to_string());
             let _ = Command::new("sh").arg("-c").arg(self.script).current_dir(wt).status();
             SalidaAgente { codigo: Some(self.codigo), bruta: "[]".into(), resumen: "hecho".into(), cancelado: false }
+        }
+        /// Como Qwen Code: 55 es «topes agotados».
+        fn codigo_topes(&self) -> Option<i32> {
+            Some(55)
         }
     }
     fn argumentos(c: &Command) -> Vec<String> {
@@ -888,23 +803,6 @@ mod tests {
 
     fn doble(script: &'static str, codigo: i32) -> Doble {
         Doble { script, codigo, visto: Mutex::new(vec![]), sistemas: Mutex::new(vec![]), topes: Mutex::new(vec![]) }
-    }
-
-    #[test]
-    fn bwrap_oculta_el_directorio_de_ejecucion() {
-        let ejecucion = tempfile::tempdir().unwrap();
-        let ej = ejecucion.path().to_string_lossy().to_string();
-        let args = argumentos_bwrap("/home/u", Path::new("/w/repo"), Some(ejecucion.path()));
-        let pos = |par: [&str; 2]| args.windows(2).position(|w| w[0] == par[0] && w[1] == par[1]);
-        let tmpfs = pos(["--tmpfs", &ej]).expect("tmpfs sobre el directorio de ejecución");
-        // Encima del / de solo lectura y antes de los bind escribibles.
-        assert!(pos(["--ro-bind", "/"]).unwrap() < tmpfs);
-        assert!(tmpfs < pos(["--bind", "/w/repo"]).unwrap());
-        assert!(tmpfs < pos(["--bind", "/home/u/.qwen"]).unwrap());
-        assert!(args.ends_with(&["--unshare-pid".into(), "--die-with-parent".into()]));
-        // Sin directorio de ejecución no hay nada que tapar.
-        let sin = argumentos_bwrap("/home/u", Path::new("/w/repo"), None);
-        assert_eq!(sin.iter().filter(|a| *a == "--tmpfs").count(), 1, "solo el de /tmp");
     }
 
     fn repo() -> tempfile::TempDir {
@@ -983,6 +881,104 @@ mod tests {
 
     fn config() -> ConfigOrquestador {
         ConfigOrquestador { avisos_escritorio: false, ..Default::default() }
+    }
+
+    #[test]
+    fn el_prompt_no_nombra_al_agente_y_lleva_la_regla_del_adaptador() {
+        let o = orden(Path::new("/w"), "test -f ok.txt");
+        let neutro = construir_prompt(&o, "t", "c", "test -f ok.txt", "");
+        assert!(!neutro.to_lowercase().contains("qwen") && !neutro.contains("run_shell_command"), "{neutro}");
+        assert!(neutro.contains("`test -f ok.txt`") && neutro.contains("## Reglas"));
+        let qwen = construir_prompt(&o, "t", "c", "x", QwenCode.regla_herramientas());
+        assert!(qwen.contains("- Para crear un fichero nuevo usa run_shell_command"));
+    }
+
+    #[test]
+    fn el_entorno_del_adaptador_llega_al_proceso() {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("printf %s \"$EA_PRUEBA\"").env("EA_PRUEBA", "hola");
+        assert_eq!(correr_cancelable(c, 10, &|| false).salida, "hola");
+    }
+
+    /// T-007 de la spec 017: una misión trivial con el agente de verdad,
+    /// dentro de bwrap y contra el endpoint local de los ajustes por defecto.
+    /// `EA_AGENTE_REAL=qwen-code|codex|opencode cargo test -p ea-orchestrator
+    /// -- --ignored --nocapture agente_real` (`EA_AGENTE_BIN` cambia el binario
+    /// `EA_AGENTE_OBJETIVO` la tarea y `EA_AGENTE_BASE_URL` el endpoint).
+    #[test]
+    #[ignore = "lanza un agente real contra llama-server"]
+    fn mision_trivial_con_el_agente_real() {
+        let id = std::env::var("EA_AGENTE_REAL").unwrap_or_else(|_| "opencode".into());
+        let tipo = ea_bus::TipoAgente::desde(&id).expect("qwen-code, codex u opencode");
+        let mut cfg = config();
+        cfg.ejecutor.id = id.clone();
+        cfg.ejecutor.tipo = tipo;
+        cfg.ejecutor.bin = std::env::var("EA_AGENTE_BIN").unwrap_or_else(|_| if id == "qwen-code" { "qwen".into() } else { id.clone() });
+        if let Ok(url) = std::env::var("EA_AGENTE_BASE_URL") {
+            cfg.ejecutor.modelo.base_url = url;
+        }
+        assert!(cfg.sandbox, "la prueba es dentro de bwrap");
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let mut o = orden(wt.path(), "test -f ok.txt");
+        o.topes = Topes { tiempo_s: 300, iteraciones: 1, ..Topes::default() };
+        o.notas_revision.clear(); // «usa mayúsculas» haría crear OK.TXT
+        // `EA_AGENTE_OBJETIVO` cambia la tarea (p. ej. «lista tus herramientas»).
+        if let Ok(obj) = std::env::var("EA_AGENTE_OBJETIVO") {
+            o.objetivo = format!("{obj} Después crea ok.txt.");
+        }
+        let t = bus.crear_trabajo(o).unwrap();
+        let agente = fabricar(&cfg.ejecutor);
+        let inicio = Instant::now();
+        ejecutar_uno(&bus, &cfg, agente.as_ref());
+        let inf = bus.leer_informe(&t).unwrap().unwrap();
+        let bruta = std::fs::read_to_string(e.path().join("estado/trabajos").join(&t).join(ea_bus::SALIDA_AGENTE)).unwrap_or_default();
+        println!("{id}: {:?} en {:?}\nmotivo: {:?}\nevidencia:\n{}\n--- salida ({} bytes), final:\n{}", inf.resultado, inicio.elapsed(), inf.motivo, inf.evidencia, bruta.len(), &bruta[bruta.len().saturating_sub(1500)..]);
+        assert_eq!(inf.resultado, ResultadoInforme::Terminado);
+        assert_eq!(inf.ejecutado_por.unwrap().agente, id);
+        assert!(inf.evidencia.contains("resumen del agente"), "el resumen se extrajo de la salida");
+    }
+
+    /// Doble que, mientras ejecuta, cambia `roles.ejecutor` en los ajustes
+    /// (como haría el usuario desde la web) y luego hace el trabajo.
+    struct CambiaEjecutor {
+        ajustes: std::path::PathBuf,
+    }
+    impl Ejecutor for CambiaEjecutor {
+        fn ejecutar(&self, _: &str, _: &str, wt: &Path, _: &Topes, _: &ConfigOrquestador, _: &dyn Fn() -> bool) -> SalidaAgente {
+            std::fs::create_dir_all(self.ajustes.parent().unwrap()).unwrap();
+            std::fs::write(&self.ajustes, "[roles]\nejecutor = \"opencode\"\n").unwrap();
+            std::fs::write(wt.join("ok.txt"), "").unwrap();
+            SalidaAgente { codigo: Some(0), bruta: "[]".into(), resumen: "hecho".into(), cancelado: false }
+        }
+    }
+
+    #[test]
+    fn cambiar_de_ejecutor_en_caliente_no_toca_el_trabajo_en_curso() {
+        // Lo que hace `main` en cada ciclo, sobre unos ajustes aislados.
+        let d = tempfile::tempdir().unwrap();
+        let f = ea_ajustes::Fuentes::aislada(d.path());
+        let ciclo = |bus: &Bus, agente: &dyn Ejecutor| {
+            let cfg = ConfigOrquestador { avisos_escritorio: false, ..ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes) };
+            ejecutar_uno(bus, &cfg, agente)
+        };
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = Bus::abrir_en(e.path()).unwrap();
+        let a = bus.crear_trabajo(orden(wt.path(), "test -f ok.txt")).unwrap();
+        let b = bus.crear_trabajo(orden(wt.path(), "test -f ok.txt")).unwrap();
+        let cambia = CambiaEjecutor { ajustes: f.dir_config.join("ajustes.toml") };
+        assert_eq!(ciclo(&bus, &cambia), Some(a.clone()));
+        assert_eq!(ciclo(&bus, &doble("true", 0)), Some(b.clone()));
+        let quien = |id: &str| bus.leer_informe(id).unwrap().unwrap().ejecutado_por.unwrap().agente;
+        assert_eq!(quien(&a), "qwen-code", "el trabajo en curso termina con el ejecutor con que se tomó");
+        assert_eq!(quien(&b), "opencode", "el siguiente sale con el nuevo");
+        assert_eq!(bus.leer_estado(&b).unwrap().ejecutado_por.unwrap().modelo, "qwen3-coder-30b");
+        // Y en el ciclo siguiente se fabrica el adaptador del nuevo ejecutor.
+        let cfg = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
+        assert_eq!(cfg.ejecutor.tipo, ea_bus::TipoAgente::OpenCode);
+        assert!(fabricar(&cfg.ejecutor).codigo_topes().is_none(), "no es el de Qwen");
     }
 
     #[test]
@@ -1235,15 +1231,16 @@ mod tests {
         assert!(d.contains("+++ b/f3") && !d.contains("+++ b/f1"));
         assert_eq!(bus.leer_estado(&id).unwrap().fase_actual, Some(4));
 
-        // Un ejecutor sin adaptador no se lanza: el trabajo queda bloqueado.
+        // Un ejecutor que no se puede lanzar no gasta iteraciones: el trabajo
+        // queda bloqueado con el motivo.
         let id = bus.crear_trabajo(fases3(wt.path(), None)).unwrap();
-        otro.ejecutor.tipo = ea_bus::TipoAgente::Codex;
-        let n = ag.visto.lock().unwrap().len();
-        ejecutar_uno(&bus, &otro, &ag);
+        otro.ejecutor.bin = "/no/existe/codex".into();
+        ejecutar_uno(&bus, &otro, &crate::agentes::Codex);
         let inf = bus.leer_informe(&id).unwrap().unwrap();
-        assert_eq!(inf.resultado, ResultadoInforme::Bloqueado);
-        assert!(inf.motivo.unwrap().contains("codex"));
-        assert_eq!(ag.visto.lock().unwrap().len(), n, "no se llamó al agente");
+        assert_eq!((inf.resultado, inf.fases_hechas), (ResultadoInforme::Bloqueado, 0));
+        let motivo = inf.motivo.unwrap();
+        assert!(motivo.contains("codex no está disponible") && motivo.contains("/no/existe/codex"), "{motivo}");
+        assert_eq!(bus.leer_estado(&id).unwrap().iteracion, 0);
     }
 
     #[test]
@@ -1330,7 +1327,7 @@ mod tests {
         raiz: std::path::PathBuf,
         llamadas: std::sync::atomic::AtomicUsize,
     }
-    impl AgenteLocal for Cancelador {
+    impl Ejecutor for Cancelador {
         fn ejecutar(&self, _: &str, _: &str, _: &Path, _: &Topes, _: &ConfigOrquestador, _: &dyn Fn() -> bool) -> SalidaAgente {
             if self.llamadas.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
                 let bus = Bus::abrir_en(&self.raiz).unwrap();
