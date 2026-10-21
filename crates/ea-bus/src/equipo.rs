@@ -140,6 +140,15 @@ impl Bus {
                 self.encolar(ea_ajustes::Rol::Ejecutor, &trabajo, "equipo dormido")?;
             }
         }
+        // Las sesiones de planificadores y revisores siguen abiertas en su
+        // terminal, pero ya no están en el equipo: se les quita la presencia.
+        // La de los ejecutores es del trabajador del orquestador, que la quita
+        // al reconciliar.
+        for m in equipo.miembros.iter().filter(|m| m.rol != RolEquipo::Ejecutor) {
+            if self.presencia_de(&m.agente)?.is_some_and(|p| p.equipo.as_deref() == Some(id)) {
+                self.quitar_presencia(&m.agente)?;
+            }
+        }
         self.diario_equipo("equipo_dormido", &equipo);
         Ok(equipo)
     }

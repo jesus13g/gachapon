@@ -24,7 +24,7 @@ use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
     BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
-    BibliotecaArgs, EncolarRutinaArgs, HerramientaArgs, LanzarSesionArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerTrabajoArgs,
+    BibliotecaArgs, EncolarRutinaArgs, HerramientaArgs, LanzarSesionArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerEquipoArgs, VerTrabajoArgs,
 };
 
 /// Quién hace una llamada MCP: el actor que se escribe en el diario y del
@@ -145,6 +145,33 @@ fn resumen_bus() -> (serde_json::Value, serde_json::Value, serde_json::Value) {
         .collect();
     (json!(por_estado), json!(colas), json!(semaforos))
 }
+
+/// Los equipos despiertos y las presencias anotadas (vivas o caducadas), para
+/// `ea_status`. Vacío si el bus no se puede leer.
+fn resumen_equipos() -> (serde_json::Value, serde_json::Value) {
+    let Ok(bus) = Bus::abrir() else { return (json!([]), json!([])) };
+    let equipos: Vec<_> = bus
+        .resumen_equipos()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.estado == ea_bus::EstadoEquipo::Despierto)
+        .map(|e| json!({ "id": e.id, "titulo": e.titulo, "trabajos": e.trabajos }))
+        .collect();
+    let presencias: Vec<_> = bus
+        .presencias()
+        .into_iter()
+        .map(|(p, viva)| {
+            json!({ "agente": p.agente, "rol": p.rol.as_str(), "equipo": p.equipo, "trabajo": p.trabajo, "viva": viva, "latido": p.latido })
+        })
+        .collect();
+    (json!(equipos), json!(presencias))
+}
+
+/// Cotas de `ea_listar_equipos` y `ea_ver_equipo`: el modelo local tiene
+/// poco contexto.
+const MAX_EQUIPOS: usize = 20;
+const TRABAJOS_POR_DEFECTO: usize = 10;
+const MAX_TRABAJOS: usize = 20;
 
 fn respond(body: ToolBody) -> Result<CallToolResult, McpError> {
     match body {
@@ -363,7 +390,7 @@ impl EaTools {
 
     #[tool(
         description = "Resumen del estado del ecosistema: orquestador, trabajos \
-            del bus por estado, colas, semáforos de worktree y los últimos eventos del diario. Primer vistazo antes \
+            del bus por estado, colas, semáforos de worktree, equipos despiertos con la presencia de los agentes y los últimos eventos del diario. Primer vistazo antes \
             de profundizar con las otras herramientas.",
         annotations(title = "Estado del ecosistema", read_only_hint = true)
     )]
@@ -377,6 +404,7 @@ impl EaTools {
         let body: ToolBody = async {
             let store = self.store.lock().await;
             let (por_estado, colas, semaforos) = resumen_bus();
+            let (equipos, presencias) = resumen_equipos();
             let events = store
                 .list_events(&EventFilter {
                     limit: Some(5),
@@ -400,6 +428,8 @@ impl EaTools {
                 "trabajos_por_estado": por_estado,
                 "colas": colas,
                 "semaforos": semaforos,
+                "equipos": equipos,
+                "presencias": presencias,
                 "ultimos_eventos": events.iter().map(event_to_json).collect::<Vec<_>>(),
             }))
         }
@@ -480,6 +510,62 @@ impl EaTools {
 
         self.log_invocation(&quien, "mcp_ver_trabajo", Some(&args.id), started, args_json, &body)
             .await;
+        respond(body)
+    }
+
+    #[tool(
+        description = "Lista los equipos de agentes (spec 019) con su estado, sus \
+            miembros (agente, rol y si están despiertos) y cuántos trabajos tienen; \
+            los más recientes primero. Solo lectura: despertar o dormir un equipo \
+            es del usuario (`ea equipo`).",
+        annotations(title = "Listar equipos", read_only_hint = true)
+    )]
+    async fn ea_listar_equipos(
+        &self,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let quien = self.llamante(&context);
+        let started = Instant::now();
+
+        let body: ToolBody = async {
+            let bus = Bus::abrir().map_err(|e| e.to_string())?;
+            let mut equipos = bus.resumen_equipos().map_err(|e| e.to_string())?;
+            equipos.reverse();
+            let total = equipos.len();
+            equipos.truncate(MAX_EQUIPOS);
+            Ok(json!({ "equipos": equipos, "total": total }))
+        }
+        .await;
+
+        self.log_invocation(&quien, "mcp_listar_equipos", None, started, json!({}), &body).await;
+        respond(body)
+    }
+
+    #[tool(
+        description = "Un equipo de agentes: objetivo, miembros con su presencia \
+            (despierto, en qué trabajo) y las entradas de su cola de órdenes o de \
+            revisión, y los últimos trabajos con su estado y su último informe en \
+            una línea. Solo lectura.",
+        annotations(title = "Ver equipo", read_only_hint = true)
+    )]
+    async fn ea_ver_equipo(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<VerEquipoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let quien = self.llamante(&context);
+        let started = Instant::now();
+        let args_json = json!({ "id": args.id, "trabajos": args.trabajos });
+
+        let body: ToolBody = async {
+            let bus = Bus::abrir().map_err(|e| e.to_string())?;
+            let n = args.trabajos.filter(|n| *n > 0).map_or(TRABAJOS_POR_DEFECTO, |n| (n as usize).min(MAX_TRABAJOS));
+            let v = bus.vista_equipo(&args.id, n).map_err(|e| e.to_string())?;
+            serde_json::to_value(v).map_err(|e| e.to_string())
+        }
+        .await;
+
+        self.log_invocation(&quien, "mcp_ver_equipo", None, started, args_json, &body).await;
         respond(body)
     }
 
@@ -1016,6 +1102,8 @@ impl ServerHandler for EaTools {
             .with_instructions(
                 "Herramientas del ecosistema de asistente personal. ea_status da \
                  una vista general (orquestador, trabajos, colas y semáforos); \
+                 ea_listar_equipos y ea_ver_equipo muestran los equipos de agentes \
+                 y su presencia (solo lectura: despertarlos o dormirlos es del usuario); \
                  ea_listar_trabajos y ea_ver_trabajo inspeccionan los trabajos del \
                  bus (solo lectura: crear o decidir trabajo se hace con la CLI y las \
                  skills); ea_listar_diario consulta el historial de eventos; \

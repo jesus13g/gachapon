@@ -433,6 +433,11 @@ cargo build --release
 # Trabajos (el bus)
 ea trabajo crear --modo mision --titulo "..." --worktree <dir> --objetivo "..." --criterio "<comando>"
 ea trabajo crear --orden orden.json          # obra completa, con fases
+ea trabajo crear ... --equipo <id> [--asignar <ejecutor>] [--revisor <agente>] [--worktree-propio]
+                                             # trabajo de un equipo despierto (spec 019): --asignar lo
+                                             #   deja en la cola de ese ejecutor; --revisor recibe la entrega
+                                             #   (distinto del ejecutor); --worktree-propio crea un git
+                                             #   worktree (rama ea/<id>) para correr en paralelo sobre el repo
 ea trabajo listar
 ea trabajo ver <id> [--json]                 # orden, estado e informe (con el agente y modelo que lo ejecutó)
 ea trabajo diff <id> [--fase N]              # diff desde commit_inicio
@@ -443,6 +448,16 @@ ea trabajo confirmar <id> [--contexto "..."] # paquete de corrección -> claude-
 ea cola [planificador|ejecutor] [--json]     # colas (valen claude-code y modelo-local)
 ea semaforos                                 # quién tiene el worktree
 
+# Equipos de agentes (spec 019; el flujo completo, en la documentación de F6)
+ea equipo despertar (--todos | --miembro agente:rol ...) --titulo T --objetivo O --worktree <repo> [--sin-terminal]
+                                             # TTY. Roles: planificador, ejecutor, revisor. --todos: los agentes
+                                             #   del PATH según lo que admiten. Planificadores y revisores abren una
+                                             #   sesión en una terminal real (`ea equipo sesion`, con presencia);
+                                             #   --sin-terminal solo enseña el comando de cada sesión
+ea equipo listar [--json]
+ea equipo ver <id> [--json]                  # miembros con presencia y colas, trabajos con su último informe
+ea equipo dormir <id>                        # TTY; lo pendiente de sus ejecutores vuelve a la cola de modelo-local
+
 # Rutinas versionadas
 ea rutina registrar <fichero.toml>           # valida y registra (la versión debe subir)
 ea rutina listar [--retiradas]|ver <slug>     # --retiradas: las de la papelera (o sin fichero)
@@ -451,8 +466,8 @@ ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si 
 ea rutina retirar|restaurar <slug>           # a la papelera y vuelta (simula y confirma con TTY)
 
 # Resto del ecosistema
-ea status                                    # orquestador, roles (agente y modelo), trabajos por estado, colas y semáforos
-ea agentes [--json]                          # catálogo: rol, binario, versión y si responde el modelo
+ea status                                    # orquestador, roles (agente y modelo), trabajos por estado, colas, semáforos y presencia de los equipos
+ea agentes [--json]                          # catálogo: rol, binario, versión, si responde el modelo y su presencia
 ea agentes rol <planificador|ejecutor> <agente>  # = ea ajustes establecer roles.<rol>=<agente> (TTY)
 ea diario listar|ver <id>                    # listar: --trabajo, --actor, --desde, --hasta,
                                              #   --resultado ok|error, --accion <prefijo> (bus_, mcp_…),
@@ -529,6 +544,7 @@ riesgo (§7.3):
 | Herramienta | Riesgo | Desde un agente |
 |---|---|---|
 | `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
+| `ea_listar_equipos`, `ea_ver_equipo` (miembros con presencia, colas y últimos trabajos con su informe; `ea_status` también trae equipos y presencias) | lectura (despertar y dormir equipos es de la CLI con TTY: ningún agente puede) | se ejecuta |
 | `ea_biblioteca` (sin `id`: lista con filtros `agente`, `tipo`, `categoria`, `activado` y `limite`, por defecto 50 y hasta 200, y 15 y 40 para el agente local; con `id`: la ficha con la definición MCP sin secretos y el uso por actor) | lectura | se ejecuta |
 | `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta |
 | `ea_escribir_nota` | mutación reversible | se ejecuta, solo en la región propia del agente |

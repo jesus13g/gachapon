@@ -437,3 +437,41 @@ fn crear_un_equipo_que_deja_ejecutores_sin_trabajador_se_rechaza() {
     let otro = nuevo(vec![m("opencode", RolEquipo::Ejecutor), m("claude-code", RolEquipo::Planificador)]);
     assert!(!error_de(e.bus.crear_equipo(otro, &e.a)).contains("orquestador.paralelo"));
 }
+
+#[test]
+fn dormir_quita_la_presencia_de_planificadores_y_revisores_del_equipo() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    let pid = std::process::id();
+    e.bus.anotar_presencia(&ea_bus::Presencia::nueva("claude-code", RolEquipo::Planificador, Some(&eq.id), pid)).unwrap();
+    e.bus.anotar_presencia(&ea_bus::Presencia::nueva("antigravity", RolEquipo::Revisor, Some("otro"), pid)).unwrap();
+    e.bus.dormir_equipo(&eq.id).unwrap();
+    assert_eq!(e.bus.presencia_de("claude-code").unwrap(), None);
+    assert!(e.bus.presencia_de("antigravity").unwrap().is_some(), "la de otro equipo no se toca");
+}
+
+#[test]
+fn la_vista_del_equipo_dice_presencia_cola_y_ultimo_informe() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    e.bus.anotar_presencia(&ea_bus::Presencia::nueva("claude-code", RolEquipo::Planificador, Some(&eq.id), std::process::id())).unwrap();
+    // pid 0 nunca cuenta como vivo: una presencia sin pid fiable no es presencia
+    e.bus.anotar_presencia(&ea_bus::Presencia::nueva("antigravity", RolEquipo::Revisor, Some(&eq.id), 0)).unwrap();
+    let id = entregar(&e, &eq.id, Some("antigravity"), "codex");
+    let otro = e.bus.crear_trabajo(Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), ..orden(e.d.path()) }).unwrap();
+    let v = e.bus.vista_equipo(&eq.id, 10).unwrap();
+    let miembro = |a: &str| v.miembros.iter().find(|m| m.agente == a).unwrap();
+    assert!(miembro("claude-code").viva && !miembro("antigravity").viva && !miembro("codex").viva);
+    assert_eq!(miembro("antigravity").cola, [id.clone()]);
+    assert_eq!(miembro("codex").cola, [otro.clone()]);
+    assert_eq!((v.trabajos_total, v.trabajos.len()), (2, 2));
+    let t = &v.trabajos[0];
+    assert_eq!((t.id.as_str(), t.estado), (id.as_str(), EstadoTrabajo::EnRevision));
+    let inf = t.informe.as_ref().unwrap();
+    assert_eq!(inf.resultado, ResultadoInforme::Terminado);
+    assert_eq!(inf.ejecutado_por.as_ref().unwrap().agente, "codex");
+    assert_eq!(v.trabajos[1].informe, None);
+    assert_eq!(e.bus.vista_equipo(&eq.id, 1).unwrap().trabajos[0].id, otro, "acotada a los últimos");
+    let r = e.bus.resumen_equipos().unwrap();
+    assert_eq!((r[0].trabajos, r[0].miembros.iter().filter(|m| m.viva).count()), (2, 1));
+}

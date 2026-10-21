@@ -103,6 +103,7 @@ fn mostrar_bus() {
         let n = bus.listar_cola(a).map(|c| c.len()).unwrap_or(0);
         println!("Cola {} ({}): {n}", a.nombre(), a.as_str());
     }
+    mostrar_presencias(&bus);
     let semaforos = ea_bus::listar_semaforos();
     if semaforos.is_empty() {
         println!("Semáforos: ningún worktree ocupado");
@@ -110,6 +111,33 @@ fn mostrar_bus() {
     for (_, o) in semaforos {
         println!("Semáforo: {} ocupa un worktree con el trabajo {} (pid {}, desde {})", o.agente, o.trabajo, o.pid, o.desde);
     }
+}
+
+/// Quién está despierto en los equipos y en qué trabaja; vacío si no hay
+/// presencias ni equipos despiertos.
+fn mostrar_presencias(bus: &Bus) {
+    for l in lineas_presencia(bus) {
+        println!("{l}");
+    }
+}
+
+/// Una línea por equipo despierto y por presencia anotada.
+pub fn lineas_presencia(bus: &Bus) -> Vec<String> {
+    let mut v = Vec::new();
+    let equipos = bus.resumen_equipos().unwrap_or_default();
+    for e in equipos.iter().filter(|e| e.estado == ea_bus::EstadoEquipo::Despierto) {
+        v.push(format!("Equipo {} ({}): {} trabajo(s)", e.id, e.titulo, e.trabajos));
+    }
+    for (p, viva) in bus.presencias() {
+        let donde = p.equipo.as_deref().map_or(String::new(), |e| format!(" en el equipo {e}"));
+        let estado = match (viva, &p.trabajo) {
+            (true, Some(t)) => format!("despierto, trabajando en {t}"),
+            (true, None) => "despierto, libre".into(),
+            (false, _) => format!("presencia caducada (último latido {})", p.latido),
+        };
+        v.push(format!("  {} ({}){donde}: {estado}", p.agente, p.rol.as_str()));
+    }
+    v
 }
 
 #[cfg(test)]

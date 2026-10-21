@@ -16,12 +16,23 @@ const LIMITE_VERSION: Duration = Duration::from_secs(5);
 pub fn listar(json: bool) -> Result<()> {
     let ajustes = ea_ajustes::cargar();
     let agentes = super::bloquear(disponibilidad(&ajustes));
+    let presencias = ea_bus::Bus::abrir().map(|b| b.presencias()).unwrap_or_default();
+    let presencia_de = |id: &str| presencias.iter().find(|(p, _)| p.agente == id);
     if json {
-        println!("{}", serde_json::to_string_pretty(&agentes)?);
+        let mut v = serde_json::to_value(&agentes)?;
+        for (a, fila) in agentes.iter().zip(v.as_array_mut().into_iter().flatten()) {
+            fila["presencia"] = match presencia_de(a.vista.id) {
+                Some((p, viva)) => serde_json::json!({
+                    "viva": viva, "rol": p.rol.as_str(), "equipo": p.equipo, "trabajo": p.trabajo, "desde": p.desde, "latido": p.latido
+                }),
+                None => serde_json::Value::Null,
+            };
+        }
+        println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
     let mut t = Table::new();
-    t.set_header(vec!["Agente", "Rol", "Admite", "Binario", "Versión", "Modelo"]);
+    t.set_header(vec!["Agente", "Rol", "Admite", "Binario", "Versión", "Modelo", "Presencia"]);
     for a in &agentes {
         let v = &a.vista;
         let binario = match &v.ruta {
@@ -36,11 +47,25 @@ pub fn listar(json: bool) -> Result<()> {
             binario,
             version,
             modelo(a),
+            texto_presencia(presencia_de(a.vista.id)),
         ]);
     }
     println!("{t}");
     println!("Cambiar de agente: ea agentes rol <planificador|ejecutor> <agente>");
     Ok(())
+}
+
+/// «despierto (equipo X, en el trabajo Y)», «caducada» o «—».
+fn texto_presencia(p: Option<&(ea_bus::Presencia, bool)>) -> String {
+    match p {
+        None => "—".into(),
+        Some((p, false)) => format!("caducada ({})", p.rol.as_str()),
+        Some((p, true)) => {
+            let equipo = p.equipo.as_deref().map_or(String::new(), |e| format!("equipo {e}, "));
+            let trabajo = p.trabajo.as_deref().map_or("libre".to_string(), |t| format!("en {t}"));
+            format!("despierto ({}, {equipo}{trabajo})", p.rol.as_str())
+        }
+    }
 }
 
 /// `$HOME/...` como `~/...`, para que la tabla quepa.

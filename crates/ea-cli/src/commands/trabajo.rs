@@ -13,6 +13,15 @@ pub(super) fn bus() -> Result<Bus> {
     })
 }
 
+/// Lo que `ea trabajo crear` añade para un equipo (spec 019).
+#[derive(Debug, Default)]
+pub struct DeEquipo {
+    pub equipo: Option<String>,
+    pub asignar: Option<String>,
+    pub revisor: Option<String>,
+    pub worktree_propio: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn crear(
     fichero: Option<PathBuf>,
@@ -23,6 +32,7 @@ pub fn crear(
     criterio: Option<String>,
     skills: Vec<String>,
     por: String,
+    de_equipo: DeEquipo,
 ) -> Result<()> {
     let orden: Orden = if let Some(f) = fichero {
         serde_json::from_str(&std::fs::read_to_string(&f)?).map_err(|e| anyhow!("orden inválida ({}): {e}", f.display()))?
@@ -48,10 +58,10 @@ pub fn crear(
             rutina: None,
             notas_revision: vec![],
             skills,
-            equipo: None,
-            asignado_a: None,
-            revisor: None,
-            worktree_propio: false,
+            equipo: de_equipo.equipo,
+            asignado_a: de_equipo.asignar,
+            revisor: de_equipo.revisor,
+            worktree_propio: de_equipo.worktree_propio,
             creada_en: String::new(),
             creada_por: por,
         }
@@ -91,7 +101,16 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     if let Some(e) = &estado.ejecutado_por {
         println!("ejecutor  {} ({})", e.agente, e.modelo);
     }
-    println!("worktree  {}", orden.worktree);
+    println!("worktree  {}{}", orden.worktree, if orden.worktree_propio { " (propio: se crea un git worktree para el trabajo)" } else { "" });
+    if let Some(e) = &orden.equipo {
+        println!("equipo    {e}");
+    }
+    if let Some(a) = &orden.asignado_a {
+        println!("asignado  {a}");
+    }
+    if let Some(r) = &orden.revisor {
+        println!("revisor   {r}");
+    }
     if let Some(c) = &orden.criterio_exito {
         println!("criterio  {c}");
     }
@@ -120,6 +139,9 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     }
     if let Some(e) = &i.ejecutado_por {
         println!("ejecutado_por {} ({})", e.agente, e.modelo);
+    }
+    if let Some(a) = &i.aviso {
+        println!("aviso         {a}");
     }
     for f in &i.fases {
         let por = f.ejecutado_por.as_ref().map(|e| format!("  · {} ({})", e.agente, e.modelo)).unwrap_or_default();
