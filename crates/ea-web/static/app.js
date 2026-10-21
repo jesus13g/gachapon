@@ -1014,7 +1014,8 @@ function filasPropuestas(ps) {
     const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
     let acc = '';
     if (pend) {
-      if (irrev) acc += `<span class="m" title="irreversible: solo desde la terminal (ea propuestas decidir ${p.id})">⌨ terminal</span>`;
+      // Irreversible: la web solo abre la terminal; la frase se escribe allí.
+      if (irrev) acc += btn('terminal', '⌨ terminal', `irreversible: abre una terminal con ea propuestas decidir ${p.id}; allí se confirma escribiendo «confirmo ${p.id}»`, { id: p.id }, 'hot');
       else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
       else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' }, 'coin');
       acc += btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
@@ -1029,7 +1030,7 @@ function filasPropuestas(ps) {
       det += `<p class="m">${esc(ac.herramienta)} · riesgo ${esc(ac.riesgo)} · propuesta por ${esc(p.proponente ?? '?')}</p>` +
         (conToml ? `<p class="m">toml: ${ac.argumentos.toml.length} caracteres</p><p class="et">simulación</p><pre class="diff">${colorDiff(ac.simulacion)}</pre>`
           : `<p class="m">${esc(JSON.stringify(ac.argumentos))}</p><p class="tx">Simulación: ${esc(ac.simulacion)}</p>`);
-      if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>.</p>`;
+      if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>, o pulsa ⌨ terminal y escribe allí «confirmo ${p.id}».</p>`;
     }
     if (p.ejecutada) det += `<p class="${falla ? 'hot' : 'tx'}">Ejecución ${esc(p.ejecutada.estado)}: ${esc(p.ejecutada.detalle ?? '')}</p>`;
     if (r && r.id === p.id && ac) det += enlacesResultado(ac.herramienta, r.resultado);
@@ -1779,7 +1780,8 @@ function filasAcciones(hs) {
           (edad > SIM_CADUCA_S ? `<p class="hot sal">La simulación es de hace ${unidades(edad)}: el sistema puede haber cambiado. Vuelve a simular; al ejecutar se revalida igualmente.</p>` : '') +
           (c.sim.confirmable
           ? `<div class="acc sal">${btn('ejecutar', '▶ ejecutar', 'ejecutar lo simulado', { h: h.nombre }, 'hot')}</div>`
-          : `<p class="hot sal">Irreversible: solo desde la terminal, con <b>ea acciones ejecutar ${esc(h.nombre)} --args '${esc(JSON.stringify(c.sim.argumentos))}'</b>.</p>`);
+          : `<p class="hot sal">Irreversible: solo desde la terminal, con <b>ea acciones ejecutar ${esc(h.nombre)} --args '${esc(JSON.stringify(c.sim.argumentos))}'</b>.</p>` +
+            `<div class="acc sal">${btn('terminal', '⌨ abrir en la terminal', `abre una terminal con ese comando; allí se confirma escribiendo «confirmo ${h.nombre}»`, { h: h.nombre }, 'hot')}</div>`);
       }
       if (c.res) det += `<p class="tx sal">✓ ${esc(c.res.texto)}</p>` + enlacesResultado(h.nombre, c.res);
       if (c.err) det += `<p class="hot sal">✕ ${esc(c.err)}</p>`;
@@ -2780,6 +2782,14 @@ async function accion(b) {
     } else if (a === 'ir-prop') {
       st.propTodas = true;
       abre('propuestas', 'p' + id);
+      return;
+    } else if (a === 'terminal') {
+      // Solo abre la ventana con el comando de la CLI; la confirmación
+      // (la frase «confirmo …») se escribe en esa terminal, nunca aquí.
+      const sim = h && st.consola[h]?.sim;
+      if (h && !sim) throw new Error('simula primero');
+      const r = await ea.abrirTerminal(h ? { herramienta: h, argumentos: sim.argumentos } : { propuesta: Number(id) });
+      avisa(`⌨ terminal abierta: confírmalo allí (${r.comando})`, true);
       return;
     } else if (a === 'ir-a') {
       irAFila(b.dataset.dsec, b.dataset.dfila);

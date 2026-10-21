@@ -22,6 +22,7 @@ pub mod memoria;
 pub mod propuestas;
 pub mod rutinas;
 pub mod servicios;
+pub mod terminal;
 pub mod trabajos;
 
 const ACTOR: &str = "usuario";

@@ -58,6 +58,9 @@ pub struct WebConfig {
     /// (`systemctl`, `systemd-analyze`). En las pruebas, un directorio
     /// temporal y órdenes simuladas.
     pub temporizadores: ea_acciones::Temporizadores,
+    /// Cómo se abre una terminal real para confirmar lo irreversible
+    /// (`servicio::terminal`). Las pruebas usan una simulada.
+    pub terminal: servicio::terminal::Terminal,
 }
 
 impl WebConfig {
@@ -87,6 +90,7 @@ impl WebConfig {
             estado_dir: a.rutas.estado,
             ajustes: fuentes,
             temporizadores: ea_acciones::Temporizadores::usuario(),
+            terminal: servicio::terminal::Terminal::del_sistema(),
         }
     }
 }

@@ -72,6 +72,7 @@ fn montar() -> Fixture {
         estado_dir: dir.path().join("estado"),
         ajustes: ea_ajustes::Fuentes::aislada(dir.path()),
         temporizadores: temporizadores_falsos(dir.path()),
+        terminal: ea_web::servicio::terminal::Terminal::simulada(dir.path().join("bin/ea")).0,
     };
     let state = Arc::new(AppState::new(store, config).expect("estado"));
     Fixture { app: api::router(state.clone()), state, _dir: dir }
@@ -2638,4 +2639,74 @@ async fn programar_desde_la_web_pide_simulacion_y_revalida() {
     let ev = f.state.store.lock().await.list_events(&ea_store::EventFilter { limit: Some(50), ..Default::default() }).unwrap();
     let de = |a: &str| ev.iter().filter(|e| e.action == a && e.detail.as_deref().unwrap_or("").contains("_rutina")).count();
     assert_eq!((de("accion_fallida"), de("accion_ejecutada")), (1, 2));
+}
+
+/// Lo que la terminal simulada de la prueba habría lanzado.
+fn lanzadas(f: &Fixture) -> Vec<Vec<String>> {
+    match &f.state.config.terminal {
+        ea_web::servicio::terminal::Terminal::Simulada { lanzadas, .. } => lanzadas.lock().unwrap().clone(),
+        _ => panic!("las pruebas usan la terminal simulada"),
+    }
+}
+
+#[tokio::test]
+async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
+    let f = montar();
+    let id = proponer_accion(&f, "ea_eliminar_rutina", json!({ "slug": "revision-diaria" })).await;
+    let reversible = proponer_accion(&f, "ea_encolar_rutina", json!({ "slug": "revision-diaria" })).await;
+
+    // Texto libre, comandos, campos de más o lo que se decide desde la web: 400.
+    for cuerpo in [
+        json!("ea propuestas decidir 1 --aceptar"),
+        json!({ "comando": "rm -rf ~" }),
+        json!({ "propuesta": id, "confirmo": id }),
+        json!({ "propuesta": format!("{id}; rm -rf ~") }),
+        json!({ "propuesta": reversible }),
+        json!({ "herramienta": "rm", "argumentos": {} }),
+        json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "revision-diaria" } }),
+        json!({ "herramienta": "ea_eliminar_rutina", "argumentos": { "slug": "../x" } }),
+        json!({ "herramienta": "ea_eliminar_rutina", "argumentos": { "slug": "x", "otro": "y" } }),
+        json!({ "herramienta": "ea_eliminar_rutina", "argumentos": "slug=x" }),
+    ] {
+        let (s, _) = post(&f, "/api/terminal/abrir", cuerpo.clone()).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{cuerpo}");
+    }
+    let (s, _) = enviar(&f, Method::POST, "/api/terminal/abrir", "localhost:8092", None, true).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "cuerpo vacío");
+    let (s, _) = post(&f, "/api/terminal/abrir", json!({ "propuesta": 9999 })).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    // Sin la clave de sesión no se abre nada.
+    let cuerpo = json!({ "propuesta": id });
+    let (s, _) =
+        enviar_con_clave(&f, Method::POST, "/api/terminal/abrir", "localhost:8092", Some(cuerpo), true, None).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert!(lanzadas(&f).is_empty(), "nada de lo anterior abre una ventana");
+
+    // Lo que sí: el comando de la CLI como argv, sin shell ni frase.
+    let (s, r) = post(&f, "/api/terminal/abrir", json!({ "propuesta": id })).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(r["comando"], format!("ea propuestas decidir {id} --aceptar"));
+    let args = json!({ "slug": "revision-diaria" });
+    let (s, _) = post(&f, "/api/terminal/abrir", json!({ "herramienta": "ea_eliminar_rutina", "argumentos": args })).await;
+    assert_eq!(s, StatusCode::OK);
+    let ea = match &f.state.config.terminal {
+        ea_web::servicio::terminal::Terminal::Simulada { ea, .. } => ea.display().to_string(),
+        _ => unreachable!(),
+    };
+    let id_txt = id.to_string();
+    let esperado: Vec<Vec<String>> = [
+        vec!["xdg-terminal-exec", &ea, "propuestas", "decidir", &id_txt, "--aceptar", "--esperar"],
+        vec!["xdg-terminal-exec", &ea, "acciones", "ejecutar", "ea_eliminar_rutina", "--args", r#"{"slug":"revision-diaria"}"#, "--esperar"],
+    ]
+    .into_iter()
+    .map(|v| v.into_iter().map(String::from).collect())
+    .collect();
+    assert_eq!(lanzadas(&f), esperado);
+    // Abrir no decide nada: la propuesta sigue pendiente y la rutina, en su sitio.
+    let (_, p) = get(&f, "/api/propuestas?estado=pendiente").await;
+    assert_eq!(p.as_array().unwrap().len(), 2);
+    assert!(f.state.config.rutinas_dir.join("revision-diaria.toml").exists());
+    let (_, d) = get(&f, "/api/diario?accion=accion_terminal").await;
+    assert_eq!(d.as_array().unwrap().len(), 2);
+    assert_eq!(d[0]["actor"], "usuario");
 }
