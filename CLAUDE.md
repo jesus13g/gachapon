@@ -6,8 +6,7 @@ Code) y el **ejecutor** (ejecuta; por defecto Qwen Code sobre `llama-server`).
 Desde la constitución 1.3.0 (1.3.1 con las sesiones interactivas de la biblioteca) el agente de cada rol es intercambiable (Claude
 Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017). El usuario puede
 despertar **equipos** de varios agentes que trabajan a la vez, con colas por
-agente, worktree propio y presencia (spec 019, rama `ecosistema-dinamico`;
-la enmienda 1.4.0 de la constitución está pendiente de aprobación). Se comunican
+agente, worktree propio y presencia (spec 019, constitución 1.4.0). Se comunican
 por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
 `orquestador-claude-qwen.md`.
 

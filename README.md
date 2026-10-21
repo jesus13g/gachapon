@@ -338,9 +338,8 @@ despierto.
   revisa un revisor (`/equipo` en Claude Code, `$ea-equipo` en Codex y
   Antigravity, `/ea-equipo` en OpenCode); la sesión de equipo arranca con un
   prompt que lo menciona.
-- **Pendiente:** la enmienda 1.4.0 de la constitución (varios agentes por rol)
-  espera la aprobación del usuario; el código vive en la rama
-  `ecosistema-dinamico`, sin fusionar.
+- **Constitución 1.4.0:** la enmienda que admite varios agentes por rol a la
+  vez (equipos) está aprobada.
 
 ## Adaptadores del planificador
 
