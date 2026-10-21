@@ -11,6 +11,7 @@ mod error;
 mod modelo;
 pub mod raices;
 pub mod redactar;
+pub mod uso;
 
 use std::collections::HashSet;
 
