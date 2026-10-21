@@ -113,30 +113,12 @@ fn contexto(s: &AppState) -> Contexto {
     Contexto::nuevo(raices(s), s.config.ajustes.clone(), ea_ajustes::Canal::Web)
 }
 
-/// Lee el disco (muchos ficheros): fuera del hilo asíncrono. Además del
-/// inventario, los elementos que la biblioteca desactivó moviéndolos (ya no
-/// están en su sitio, así que el inventario no los ve): con ellos la página
-/// puede ofrecer volver a activarlos.
+/// Lee el disco (muchos ficheros): fuera del hilo asíncrono. El inventario ya
+/// trae lo que la biblioteca desactivó moviéndolo, para poder reactivarlo.
 async fn inventario(s: &AppState) -> Resultado<Inventario> {
     let r = raices(s);
     let a = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
-    tokio::task::spawn_blocking(move || {
-        let mut inv = Biblioteca::cargar(&r, &a);
-        let mut hay: std::collections::HashSet<String> = inv.elementos.iter().map(|e| e.id.clone()).collect();
-        for mut e in ea_biblioteca::desactivadas(&r) {
-            if !hay.insert(e.id.clone()) {
-                continue;
-            }
-            if let Some(c) = a.biblioteca.categorias.get(&e.id) {
-                e.categoria = c.clone();
-            }
-            e.nota = Some("desactivada por la biblioteca: está en su almacén, no en su sitio".into());
-            inv.elementos.push(e);
-        }
-        let agente = |a: &str| ea_ajustes::IDS_AGENTES.iter().position(|x| *x == a).unwrap_or(ea_ajustes::IDS_AGENTES.len());
-        inv.elementos.sort_by_cached_key(|e| (agente(&e.agente), e.tipo, e.ambito.texto(), e.nombre.clone()));
-        inv
-    })
+    tokio::task::spawn_blocking(move || Biblioteca::cargar(&r, &a))
     .await
     .map_err(|e| ErrorWeb::Interno(format!("la lectura de la biblioteca falló: {e}")))
 }

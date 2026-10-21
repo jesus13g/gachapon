@@ -95,7 +95,10 @@ impl Biblioteca {
         // Lo que la biblioteca movió al almacén ya no está en su sitio: se
         // añade con `activado: no`, salvo que haya otro con su id a la vista.
         let a_la_vista: HashSet<String> = todos.iter().map(|e| e.id.clone()).collect();
-        todos.extend(desactivadas(r).into_iter().filter(|e| !a_la_vista.contains(&e.id)));
+        todos.extend(desactivadas(r).into_iter().filter(|e| !a_la_vista.contains(&e.id)).map(|mut e| {
+            e.nota = Some("desactivada por la biblioteca: está en su almacén, no en su sitio".into());
+            e
+        }));
 
         // Un id es único: el primero manda y el repetido deja un aviso.
         let mut vistos = HashSet::new();
