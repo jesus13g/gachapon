@@ -29,7 +29,12 @@ pub fn raices_de(directorio: Option<&str>) -> Result<Raices, String> {
         if !ruta.is_dir() {
             return Err(format!("{d} no es un directorio"));
         }
-        r.proyecto = Some(ruta).filter(|p| *p != r.home);
+        // Solo bajo el HOME: el proyecto decide qué ficheros se leen.
+        let home = std::fs::canonicalize(&r.home).unwrap_or_else(|_| r.home.clone());
+        if !ruta.starts_with(&home) {
+            return Err(format!("el directorio {d} está fuera del HOME: no se abre una sesión ahí"));
+        }
+        r.proyecto = Some(ruta).filter(|p| *p != r.home && *p != home);
     }
     Ok(r)
 }
@@ -59,8 +64,9 @@ pub fn lanzar_real(plan: &PlanSesion, terminal: &dyn Terminal) -> Result<(), Str
 
 /// Materializa con las `raices` dadas y abre la terminal.
 pub fn lanzar_con(plan: &PlanSesion, raices: Raices, terminal: &dyn Terminal) -> Result<(), String> {
-    materializar(plan, &raices).map_err(|e| e.to_string())?;
-    terminal.abrir(&plan.argv_terminal())
+    // El plan real es el devuelto: su directorio lleva un nonce propio.
+    let real = materializar(plan, &raices).map_err(|e| e.to_string())?;
+    terminal.abrir(&real.argv_terminal())
 }
 
 /// El plan sobre un inventario y unas raíces dados (el doble de las pruebas).
@@ -90,4 +96,17 @@ pub async fn lanzar_sesion<S: Sistema>(
         args["directorio"] = Value::String(d.to_string());
     }
     ejecutar_directo(store, sistema, actor, canal, "ea_lanzar_sesion", &args).await
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+
+    #[test]
+    fn el_directorio_de_una_sesion_tiene_que_estar_bajo_el_home() {
+        // `/` existe y es un directorio, pero no está bajo el HOME.
+        let e = raices_de(Some("/")).unwrap_err();
+        assert!(e.contains("fuera del HOME"), "{e}");
+        assert!(raices_de(Some("/usr")).is_err());
+    }
 }

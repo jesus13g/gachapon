@@ -24,7 +24,7 @@ pub use cambio::{aplicar, aplicar_con, desactivadas, plan_cambio, plan_cambio_co
 pub use error::ErrorBiblioteca;
 pub use modelo::{Activado, Ambito, DefMcp, Elemento, Id, Mecanismo, Tipo, AGENTE_ECOSISTEMA};
 pub use raices::Raices;
-pub use sesion::{limpiar_sesiones, materializar, plan_sesion, EnlaceEfimero, FicheroEfimero, FuenteMcp, PlanSesion, AGENTES_CON_SESION};
+pub use sesion::{limpiar_sesiones, materializar, materializar_con_entorno, plan_sesion, EnlaceEfimero, FicheroEfimero, FuenteMcp, PlanSesion, AGENTES_CON_SESION};
 
 /// Orden de los agentes en el inventario.
 fn orden_agente(a: &str) -> usize {

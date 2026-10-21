@@ -187,7 +187,11 @@ fn materializar_claude_escribe_los_secretos_solo_en_ficheros_0600() {
     let sel = ids(&m, &["claude-code/mcp/usuario/stdio-claude", "claude-code/mcp/usuario/remoto-claude", "claude-code/mcp/proyecto/del-proyecto", "claude-code/skill/usuario/propia"]);
     let plan = plan_sesion("claude-code", &sel, &m.inv, &m.r).unwrap();
     sin_secretos(&plan);
-    materializar(&plan, &m.r).unwrap();
+    let real = materializar(&plan, &m.r).unwrap();
+    assert!(real.directorio.starts_with(m.runtime.join("ea-biblioteca/sesiones")) && real.directorio != plan.directorio);
+    assert!(real.directorio.file_name().unwrap().to_str().unwrap().starts_with(&format!("{}-", plan.id)));
+    assert!(real.argv.iter().all(|a| !a.contains(&plan.directorio.display().to_string()) || a.contains(&real.directorio.display().to_string())));
+    let plan = real;
 
     assert_eq!(modo(&plan.directorio), 0o700);
     assert_eq!(modo(&plan.directorio.parent().unwrap().to_path_buf()), 0o700);
@@ -205,8 +209,10 @@ fn materializar_claude_escribe_los_secretos_solo_en_ficheros_0600() {
     assert_eq!(fs::read_link(&enlace).unwrap(), m.home.join(".claude/skills/propia"));
     assert!(plan.directorio.join("complemento/.claude-plugin/plugin.json").is_file());
 
-    // Materializar otra vez reemplaza la sesión sin quejarse.
-    materializar(&plan, &m.r).unwrap();
+    // Relanzar el mismo plan NO borra la sesión viva: crea otro directorio.
+    let otra = materializar(&plan_sesion("claude-code", &sel, &m.inv, &m.r).unwrap(), &m.r).unwrap();
+    assert_ne!(otra.directorio, plan.directorio);
+    assert!(plan.directorio.join("mcp.json").is_file() && otra.directorio.join("mcp.json").is_file());
 }
 
 #[test]
@@ -270,7 +276,9 @@ fn plan_de_opencode_usa_standalone_y_un_fichero_con_los_demas_apagados() {
     assert_eq!(en_plan["mcp"]["local-oc"]["enabled"], false);
     assert_eq!(en_plan["mcp"]["plano"]["enabled"], false);
 
-    materializar(&plan, &m.r).unwrap();
+    let plan = materializar(&plan, &m.r).unwrap();
+    let fichero = plan.directorio.join("opencode.json");
+    assert_eq!(plan.entorno, [("OPENCODE_CONFIG".to_string(), fichero.display().to_string())]);
     assert_eq!(modo(&fichero), 0o600);
     let real: serde_json::Value = serde_json::from_str(&texto(&fichero)).unwrap();
     assert_eq!(real["mcp"]["remoto-oc"]["headers"]["Authorization"], "SECRETO_HEADER_OPENCODE");
@@ -291,7 +299,8 @@ fn plan_de_qwen_nombra_los_propios_y_escribe_los_ajenos() {
     let d = plan.directorio.join("mcp.json").display().to_string();
     assert_eq!(plan.argv, ["qwen", "--mcp-config", &d, "--allowed-mcp-server-names", "stdio-claude", "qmcp", "-e", "ext1"]);
     sin_secretos(&plan);
-    materializar(&plan, &m.r).unwrap();
+    let plan = materializar(&plan, &m.r).unwrap();
+    assert!(plan.argv.contains(&plan.directorio.join("mcp.json").display().to_string()));
     let mcp: serde_json::Value = serde_json::from_str(&texto(&plan.directorio.join("mcp.json"))).unwrap();
     assert_eq!(mcp["mcpServers"]["stdio-claude"]["env"]["API_KEY"], "SECRETO_ENV_CLAUDE");
     assert!(mcp["mcpServers"].get("qmcp").is_none(), "los propios no se reescriben");
@@ -357,28 +366,107 @@ fn materializar_no_sale_del_runtime() {
     assert!(!m.home.join("fuera.json").exists());
 }
 
-fn envejecer(ruta: &Path, horas: u64) {
-    let f = fs::File::open(ruta).unwrap();
-    f.set_modified(SystemTime::now() - Duration::from_secs(horas * 3600)).unwrap();
+/// Una sesión creada hace `horas` (la marca `.creada` manda sobre el mtime).
+fn sesion_vieja(base: &Path, nombre: &str, horas: u64) {
+    let ahora = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    escribe(base.join(nombre).join("mcp.json"), "{}");
+    escribe(base.join(nombre).join(".creada"), &format!("{}\n", ahora - horas * 3600));
 }
 
 #[test]
-fn las_sesiones_de_mas_de_24_horas_se_limpian() {
+fn las_sesiones_se_limpian_por_antiguedad_de_creacion_con_margen_de_7_dias() {
     let m = mundo();
     let base = m.runtime.join("ea-biblioteca/sesiones");
-    for n in ["vieja", "reciente"] {
-        escribe(base.join(n).join("mcp.json"), "{}");
-    }
-    envejecer(&base.join("vieja"), 48);
-    envejecer(&base.join("reciente"), 2);
-    assert_eq!(limpiar_sesiones(&m.runtime, Duration::from_secs(24 * 3600), None), 1);
-    assert!(!base.join("vieja").exists() && base.join("reciente").exists());
+    sesion_vieja(&base, "vieja", 24 * 8);
+    sesion_vieja(&base, "de-ayer", 30);
+    sesion_vieja(&base, "reciente", 2);
+    // Un directorio con el mtime de hace años pero creado ahora no es vieja.
+    escribe(base.join("mtime-antiguo/x"), "x");
+    let f = fs::File::open(base.join("mtime-antiguo")).unwrap();
+    f.set_modified(SystemTime::now() - Duration::from_secs(40 * 24 * 3600)).unwrap();
+    escribe(base.join("mtime-antiguo/.creada"), &format!("{}\n", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()));
+    f.set_modified(SystemTime::now() - Duration::from_secs(40 * 24 * 3600)).unwrap();
+    assert_eq!(limpiar_sesiones(&m.runtime, Duration::from_secs(7 * 24 * 3600), None), 1);
+    assert!(!base.join("vieja").exists());
+    assert!(base.join("de-ayer").exists() && base.join("reciente").exists() && base.join("mtime-antiguo").exists());
 
     // Materializar también limpia, y no toca la sesión que escribe.
-    escribe(base.join("otra-vieja").join("x"), "x");
-    envejecer(&base.join("otra-vieja"), 30);
+    sesion_vieja(&base, "otra-vieja", 24 * 9);
     let plan = plan_sesion("claude-code", &ids(&m, &["claude-code/mcp/usuario/stdio-claude"]), &m.inv, &m.r).unwrap();
-    materializar(&plan, &m.r).unwrap();
+    let real = materializar(&plan, &m.r).unwrap();
     assert!(!base.join("otra-vieja").exists());
-    assert!(base.join("reciente").exists() && plan.directorio.exists());
+    assert!(base.join("reciente").exists() && real.directorio.exists());
+}
+
+#[test]
+fn nombres_que_empiezan_por_guion_se_rechazan() {
+    let m = mundo();
+    escribe(m.home.join(".qwen/extensions/-raro/qwen-extension.json"), r#"{"name":"-raro"}"#);
+    let inv = Biblioteca::cargar(&m.r, &Ajustes::por_defecto(&Fuentes::aislada(&m.home)));
+    assert!(inv.buscar("qwen-code/extension/usuario/-raro").is_some(), "el inventario debe verla");
+    let e = plan_sesion("qwen-code", &["qwen-code/extension/usuario/-raro".parse().unwrap()], &inv, &m.r).unwrap_err();
+    assert!(e.to_string().contains("«-»"), "{e}");
+}
+
+#[test]
+fn codex_rechaza_un_mcp_ajeno_si_lo_redactado_no_es_lo_original() {
+    let m = mundo();
+    // Una URL con ruta y argumentos con espacios: redactar los recorta o normaliza.
+    escribe(
+        m.proyecto.join(".mcp.json"),
+        r#"{"mcpServers":{"remoto-ruta":{"type":"http","url":"https://host/mcp"},"remoto":{"command":"npx","args":["mcp-remote","https://host/mcp"]},"espacios":{"command":"x","args":["a  b"]}}}"#,
+    );
+    let inv = Biblioteca::cargar(&m.r, &Ajustes::por_defecto(&Fuentes::aislada(&m.home)));
+    for id in ["claude-code/mcp/proyecto/remoto-ruta", "claude-code/mcp/proyecto/remoto", "claude-code/mcp/proyecto/espacios"] {
+        assert!(inv.buscar(id).is_some(), "{id}");
+        let e = plan_sesion("codex", &[id.parse::<Id>().unwrap()], &inv, &m.r);
+        assert!(e.is_err(), "{id} debe rechazarse: {e:?}");
+    }
+}
+
+#[test]
+fn materializar_no_lee_fuentes_que_por_un_enlace_salen_del_home() {
+    let m = mundo();
+    let plan0 = plan_sesion("claude-code", &ids(&m, &["claude-code/mcp/usuario/stdio-claude"]), &m.inv, &m.r).unwrap();
+    let fuera = m._d.path().join("fuera.json");
+    fs::write(&fuera, r#"{"mcpServers":{"stdio-claude":{"command":"malo"}}}"#).unwrap();
+    let enlace = m.home.join("enlace.json");
+    std::os::unix::fs::symlink(&fuera, &enlace).unwrap();
+    let mut plan = plan0.clone();
+    plan.mcp[0].ruta = enlace;
+    let e = materializar(&plan, &m.r).unwrap_err();
+    assert!(e.to_string().contains("fuera del HOME"), "{e}");
+}
+
+#[test]
+fn codex_resuelve_env_http_headers_y_bearer_desde_el_entorno_solo_al_materializar() {
+    let m = mundo();
+    escribe(
+        m.home.join(".codex/config.toml"),
+        r#"[mcp_servers.web]
+url = "https://web.ejemplo.com/mcp"
+bearer_token_env_var = "EA_PRUEBA_TOKEN"
+[mcp_servers.web.env_http_headers]
+"X-Api" = "EA_PRUEBA_CLAVE"
+"#,
+    );
+    let inv = Biblioteca::cargar(&m.r, &Ajustes::por_defecto(&Fuentes::aislada(&m.home)));
+    let plan = plan_sesion("claude-code", &["codex/mcp/usuario/web".parse().unwrap()], &inv, &m.r).unwrap();
+    sin_secretos(&plan);
+    assert!(!serde_json::to_string(&plan).unwrap().contains("VALOR_"));
+    let entorno = |k: &str| match k {
+        "EA_PRUEBA_TOKEN" => Some("VALOR_TOKEN".to_string()),
+        "EA_PRUEBA_CLAVE" => Some("VALOR_CLAVE".to_string()),
+        _ => None,
+    };
+    let real = materializar_con_entorno(&plan, &m.r, &entorno).unwrap();
+    let mcp: serde_json::Value = serde_json::from_str(&texto(&real.directorio.join("mcp.json"))).unwrap();
+    assert_eq!(mcp["mcpServers"]["web"]["headers"]["X-Api"], "VALOR_CLAVE");
+    assert_eq!(mcp["mcpServers"]["web"]["headers"]["Authorization"], "Bearer VALOR_TOKEN");
+    // Falta una variable: se rechaza con un mensaje claro y no se crea nada nuevo.
+    let antes = fs::read_dir(m.runtime.join("ea-biblioteca/sesiones")).unwrap().count();
+    let e = materializar_con_entorno(&plan, &m.r, &|k| (k == "EA_PRUEBA_TOKEN").then(|| "x".to_string())).unwrap_err();
+    assert!(e.to_string().contains("EA_PRUEBA_CLAVE") && e.to_string().contains("no está definida"), "{e}");
+    assert!(!e.to_string().contains("VALOR_"));
+    assert_eq!(fs::read_dir(m.runtime.join("ea-biblioteca/sesiones")).unwrap().count(), antes);
 }

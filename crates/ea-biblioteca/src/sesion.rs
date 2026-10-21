@@ -39,6 +39,15 @@
 //!   fichero y no `OPENCODE_CONFIG_CONTENT` para que el secreto no esté en el
 //!   entorno.
 //! - **Antigravity**: no admite sesiones en la v1.
+//!
+//! # Directorio de cada ejecución
+//!
+//! El plan es determinista (su `id` sale de una huella del agente, los ids y
+//! el proyecto, y es lo que se simula y revalida), pero cada [`materializar`]
+//! crea su PROPIO directorio `sesiones/<id>-<nonce>/` (nunca borra uno
+//! existente: dos lanzamientos del mismo plan no se pisan) y devuelve el plan
+//! con las rutas de ese directorio. Las sesiones se limpian a los 7 días de
+//! creadas (marca `.creada`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -58,8 +67,11 @@ use crate::Inventario;
 /// Los agentes que admiten sesión en la v1 (Antigravity no).
 pub const AGENTES_CON_SESION: [&str; 4] = ["claude-code", "qwen-code", "codex", "opencode"];
 
-/// Antigüedad a partir de la cual se borra una sesión del runtime.
-const EDAD_MAXIMA: Duration = Duration::from_secs(24 * 3600);
+/// Antigüedad (desde su creación) a partir de la cual se borra una sesión del
+/// runtime: con margen, porque una sesión de Claude o Codex puede durar días.
+const EDAD_MAXIMA: Duration = Duration::from_secs(7 * 24 * 3600);
+/// Fichero con los segundos Unix de la creación de la sesión.
+const MARCA_CREACION: &str = ".creada";
 const MODO_FICHERO: u32 = 0o600;
 const MODO_DIRECTORIO: u32 = 0o700;
 /// Lo que ocupa el sitio de un valor secreto en un plan.
@@ -213,7 +225,7 @@ fn mapa_de(v: Option<&Value>) -> BTreeMap<String, String> {
 }
 
 /// La definición COMPLETA, a partir del JSON original de cualquier agente.
-fn mcp_de_json(v: &Value, id: &str) -> Result<Mcp, ErrorBiblioteca> {
+fn mcp_de_json(v: &Value, id: &str, entorno: &dyn Fn(&str) -> Option<String>) -> Result<Mcp, ErrorBiblioteca> {
     let (comando, args) = match v.get("command") {
         Some(Value::String(c)) => (
             Some(c.clone()),
@@ -237,7 +249,23 @@ fn mcp_de_json(v: &Value, id: &str) -> Result<Mcp, ErrorBiblioteca> {
         _ => return mal(format!("{id}: se desconoce el transporte del MCP")),
     };
     let mut headers = mapa_de(v.get("headers").or_else(|| v.get("http_headers")));
-    headers.extend(mapa_de(v.get("env_http_headers")));
+    // Codex: `env_http_headers` es cabecera -> NOMBRE de variable de entorno, y
+    // `bearer_token_env_var` el nombre de la variable del token. Los valores
+    // se leen del entorno del proceso solo aquí (va a un fichero 0600).
+    let variable = |nombre: &str| {
+        entorno(nombre).ok_or_else(|| {
+            ErrorBiblioteca::Sesion(format!(
+                "{id}: usa la variable de entorno {nombre} y no está definida en el entorno de ea; \
+                 defínela antes de abrir la sesión (su valor no se muestra)"
+            ))
+        })
+    };
+    for (cabecera, nombre) in mapa_de(v.get("env_http_headers")) {
+        headers.insert(cabecera, variable(&nombre)?);
+    }
+    if let Some(nombre) = texto_de(v, &["bearer_token_env_var"]) {
+        headers.insert("Authorization".into(), format!("Bearer {}", variable(nombre)?));
+    }
     Ok(Mcp { tr, comando, args, url, env: mapa_de(v.get("env").or_else(|| v.get("environment"))), headers })
 }
 
@@ -246,13 +274,17 @@ fn parece_servidor(v: &Value) -> bool {
 }
 
 /// Relee la definición completa desde la fuente original (solo lectura).
-fn leer_completo(f: &FuenteMcp, r: &Raices) -> Result<Mcp, ErrorBiblioteca> {
+fn leer_completo(f: &FuenteMcp, r: &Raices, entorno: &dyn Fn(&str) -> Option<String>) -> Result<Mcp, ErrorBiblioteca> {
     if f.agente == AGENTE_ECOSISTEMA {
         let Some(d) = &f.publica else { return mal(format!("{}: falta su definición", f.id)) };
         return mcp_de_def(d, true, &f.id);
     }
-    // Solo se lee dentro del HOME o del proyecto: la ruta viene de un plan.
-    let dentro = f.ruta.starts_with(&r.home) || r.proyecto.as_ref().is_some_and(|p| f.ruta.starts_with(p));
+    // Solo se lee dentro del HOME o del proyecto: la ruta viene de un plan. Se
+    // compara la ruta CANÓNICA (un enlace dentro del HOME no puede sacar la
+    // lectura de él).
+    let canonica = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let real = std::fs::canonicalize(&f.ruta);
+    let dentro = real.as_ref().is_ok_and(|c| c.starts_with(canonica(&r.home)) || r.proyecto.as_ref().is_some_and(|p| c.starts_with(canonica(p))));
     if !dentro || f.ruta.components().any(|c| c.as_os_str() == "..") {
         return mal(format!("{}: la fuente {} está fuera del HOME y del proyecto", f.id, f.ruta.display()));
     }
@@ -290,7 +322,7 @@ fn leer_completo(f: &FuenteMcp, r: &Raices) -> Result<Mcp, ErrorBiblioteca> {
         }
         otro => return mal(format!("{}: agente de origen sin lector ({otro})", f.id)),
     };
-    mcp_de_json(&def, &f.id)
+    mcp_de_json(&def, &f.id, entorno)
 }
 
 // ------------------------------------------- Formato de cada agente
@@ -468,6 +500,13 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
         admite(agente, e)?;
         elegidos.push(e);
     }
+    // Un nombre o una ruta que empieza por «-» se leería como una opción del
+    // agente al ir en su argv.
+    for e in &elegidos {
+        if e.nombre.starts_with('-') || e.ruta.to_string_lossy().starts_with('-') {
+            return mal(format!("{}: su nombre o ruta empieza por «-» y se leería como una opción del agente", e.id));
+        }
+    }
     let herramientas: Vec<String> = ids.into_iter().collect();
     let cwd = raices.proyecto.clone();
     let id = format!(
@@ -598,14 +637,27 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
                     continue;
                 }
                 let m = mcp_redactado(e)?;
-                let publico = e.agente == AGENTE_ECOSISTEMA;
-                let redactado = m.comando.iter().chain(m.args.iter()).any(|t| t.contains("***"));
-                if !m.env.is_empty() || !m.headers.is_empty() || redactado || (m.tr != Tr::Stdio && !publico) {
-                    return mal(format!(
+                let rechazo = || {
+                    mal(format!(
                         "{}: Codex recibe los MCP por argumentos y este lleva (o puede llevar) secretos, argumentos o una URL redactados; \
                          usa uno de los MCP propios de Codex",
                         e.id
-                    ));
+                    ))
+                };
+                // Si el MCP no es del ecosistema se relee entero de su fuente: solo
+                // pasa si es idéntico a lo redactado (nada se ocultó ni se
+                // alteró) y no lleva `env` ni cabeceras.
+                let m = if e.agente == AGENTE_ECOSISTEMA {
+                    m
+                } else {
+                    let completo = leer_completo(&fuente(e, true), raices, &|_| Some(String::new()))?;
+                    if completo.tr != m.tr || completo.comando != m.comando || completo.args != m.args || completo.url != m.url {
+                        return rechazo();
+                    }
+                    completo
+                };
+                if !m.env.is_empty() || !m.headers.is_empty() {
+                    return rechazo();
                 }
                 match m.tr {
                     Tr::Stdio => {
@@ -654,18 +706,27 @@ fn crear_directorios(ruta: &Path) -> Result<(), ErrorBiblioteca> {
     std::fs::DirBuilder::new().recursive(true).mode(MODO_DIRECTORIO).create(ruta).map_err(|e| io(ruta, e))
 }
 
-/// Borra las sesiones de `<runtime>/ea-biblioteca/sesiones` sin tocar desde
-/// hace más de `edad` (salvo `conservar`). Devuelve cuántas.
+/// Segundos Unix de la creación de una sesión: la marca `.creada` y, si no
+/// está, la fecha de modificación del directorio.
+fn creada_en(dir: &Path) -> Option<u64> {
+    if let Some(t) = std::fs::read_to_string(dir.join(MARCA_CREACION)).ok().and_then(|t| t.trim().parse().ok()) {
+        return Some(t);
+    }
+    std::fs::metadata(dir).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok()).map(|d| d.as_secs())
+}
+
+/// Borra las sesiones de `<runtime>/ea-biblioteca/sesiones` creadas hace más
+/// de `edad` (salvo `conservar`, el nombre de un directorio). Devuelve cuántas.
 pub fn limpiar_sesiones(runtime: &Path, edad: Duration, conservar: Option<&str>) -> usize {
     let base = runtime.join("ea-biblioteca").join("sesiones");
-    let ahora = SystemTime::now();
+    let ahora = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let mut n = 0;
     for entrada in std::fs::read_dir(&base).into_iter().flatten().flatten() {
         let ruta = entrada.path();
         if conservar.is_some_and(|c| entrada.file_name() == c) || !ruta.is_dir() {
             continue;
         }
-        let vieja = entrada.metadata().and_then(|m| m.modified()).ok().and_then(|t| ahora.duration_since(t).ok()).is_some_and(|d| d > edad);
+        let vieja = creada_en(&ruta).is_some_and(|c| ahora.saturating_sub(c) > edad.as_secs());
         if vieja && std::fs::remove_dir_all(&ruta).is_ok() {
             n += 1;
         }
@@ -673,12 +734,44 @@ pub fn limpiar_sesiones(runtime: &Path, edad: Duration, conservar: Option<&str>)
     n
 }
 
-/// Escribe la sesión: el directorio (0700), los ficheros (0600) con las
-/// definiciones completas de los MCP releídas de su fuente, y los enlaces.
-/// Antes limpia las sesiones de más de 24 h.
-pub fn materializar(plan: &PlanSesion, raices: &Raices) -> Result<(), ErrorBiblioteca> {
+/// Un nonce corto (hex) distinto en cada llamada, sin dependencias.
+fn nonce() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    huella(&format!("{nanos}\0{}\0{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)))[..10].to_string()
+}
+
+/// El mismo plan con las rutas bajo otro directorio.
+fn reubicar(plan: &PlanSesion, nuevo: &Path) -> PlanSesion {
+    let (viejo_s, nuevo_s) = (plan.directorio.display().to_string(), nuevo.display().to_string());
+    let texto = |t: &str| t.replace(&viejo_s, &nuevo_s);
+    let ruta = |p: &Path| p.strip_prefix(&plan.directorio).map_or_else(|_| p.to_path_buf(), |r| nuevo.join(r));
+    PlanSesion {
+        argv: plan.argv.iter().map(|a| texto(a)).collect(),
+        entorno: plan.entorno.iter().map(|(k, v)| (k.clone(), texto(v))).collect(),
+        ficheros: plan.ficheros.iter().map(|f| FicheroEfimero { ruta: ruta(&f.ruta), ..f.clone() }).collect(),
+        enlaces: plan.enlaces.iter().map(|l| EnlaceEfimero { ruta: ruta(&l.ruta), destino: l.destino.clone() }).collect(),
+        directorio: nuevo.to_path_buf(),
+        ..plan.clone()
+    }
+}
+
+/// Escribe la sesión: un directorio NUEVO (0700) `<id>-<nonce>`, los ficheros
+/// (0600) con las definiciones completas de los MCP releídas de su fuente, y
+/// los enlaces. Devuelve el plan con las rutas reales. Antes limpia las
+/// sesiones de más de 7 días; nunca borra un directorio existente.
+pub fn materializar(plan: &PlanSesion, raices: &Raices) -> Result<PlanSesion, ErrorBiblioteca> {
+    materializar_con_entorno(plan, raices, &|k| std::env::var(k).ok())
+}
+
+/// Como [`materializar`], con el entorno desde el que se resuelven las
+/// variables que un MCP de Codex nombra (`env_http_headers`,
+/// `bearer_token_env_var`).
+pub fn materializar_con_entorno(plan: &PlanSesion, raices: &Raices, entorno: &dyn Fn(&str) -> Option<String>) -> Result<PlanSesion, ErrorBiblioteca> {
     let Some(runtime) = &raices.runtime else { return mal("no hay $XDG_RUNTIME_DIR") };
-    let esperado = runtime.join("ea-biblioteca").join("sesiones").join(&plan.id);
+    let base = runtime.join("ea-biblioteca").join("sesiones");
+    let esperado = base.join(&plan.id);
     let id_ok = plan.id.len() == 13 && plan.id.starts_with('s') && plan.id[1..].bytes().all(|b| b.is_ascii_hexdigit());
     if !id_ok || plan.directorio != esperado {
         return mal(format!("el directorio {} no es el de una sesión de este runtime", plan.directorio.display()));
@@ -691,25 +784,51 @@ pub fn materializar(plan: &PlanSesion, raices: &Raices) -> Result<(), ErrorBibli
     // Primero las definiciones: si falta una fuente, no se escribe nada.
     let mut completas = Vec::new();
     for f in &plan.mcp {
-        completas.push((f.nombre.clone(), leer_completo(f, raices)?, f.activo));
+        completas.push((f.nombre.clone(), leer_completo(f, raices, entorno)?, f.activo));
     }
     for l in &plan.enlaces {
         if !l.destino.exists() {
             return mal(format!("{} ya no existe", l.destino.display()));
         }
     }
-    limpiar_sesiones(runtime, EDAD_MAXIMA, Some(&plan.id));
-    match std::fs::remove_dir_all(&plan.directorio) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(io(&plan.directorio, e)),
+    limpiar_sesiones(runtime, EDAD_MAXIMA, None);
+    crear_directorios(&base)?;
+    // Un directorio nuevo: si ya existe (otro lanzamiento del mismo plan, aún
+    // vivo), se prueba con otro nonce; jamás se borra.
+    let mut real = None;
+    for _ in 0..16 {
+        let dir = base.join(format!("{}-{}", plan.id, nonce()));
+        match std::fs::DirBuilder::new().mode(MODO_DIRECTORIO).create(&dir) {
+            Ok(()) => {
+                real = Some(dir);
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(io(&dir, e)),
+        }
     }
-    crear_directorios(&plan.directorio)?;
+    let Some(dir) = real else { return mal("no se pudo crear un directorio de sesión nuevo") };
+    let hecho = escribir_sesion(&reubicar(plan, &dir), &completas);
+    match hecho {
+        Ok(p) => Ok(p),
+        Err(e) => {
+            // El directorio es nuestro (acabamos de crearlo): se retira.
+            let _ = std::fs::remove_dir_all(&dir);
+            Err(e)
+        }
+    }
+}
+
+fn escribir_sesion(plan: &PlanSesion, completas: &[(String, Mcp, bool)]) -> Result<PlanSesion, ErrorBiblioteca> {
+    let marca = plan.directorio.join(MARCA_CREACION);
+    let ahora = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let mut h = std::fs::OpenOptions::new().write(true).create_new(true).mode(MODO_FICHERO).open(&marca).map_err(|e| io(&marca, e))?;
+    h.write_all(format!("{ahora}\n").as_bytes()).map_err(|e| io(&marca, e))?;
     for f in &plan.ficheros {
         if let Some(padre) = f.ruta.parent() {
             crear_directorios(padre)?;
         }
-        let contenido = if f.con_secretos { texto_mcp(&plan.agente, &completas) } else { f.contenido.clone() };
+        let contenido = if f.con_secretos { texto_mcp(&plan.agente, completas) } else { f.contenido.clone() };
         let mut h = std::fs::OpenOptions::new().write(true).create_new(true).mode(f.modo).open(&f.ruta).map_err(|e| io(&f.ruta, e))?;
         h.write_all(contenido.as_bytes()).map_err(|e| io(&f.ruta, e))?;
     }
@@ -719,5 +838,5 @@ pub fn materializar(plan: &PlanSesion, raices: &Raices) -> Result<(), ErrorBibli
         }
         std::os::unix::fs::symlink(&l.destino, &l.ruta).map_err(|e| io(&l.ruta, e))?;
     }
-    Ok(())
+    Ok(plan.clone())
 }

@@ -151,7 +151,7 @@ pub const CATALOGO: &[Herramienta] = &[
     },
     // Spec 018, F5: abre en una terminal un agente con SOLO las herramientas
     // elegidas de la biblioteca. Reversible: se cierra la ventana y los
-    // ficheros efímeros (0600, en el runtime) caducan solos a las 24 h; no
+    // ficheros efímeros (0600, en el runtime) caducan solos a los 7 días; no
     // cambia la configuración de ningún agente. Nunca para el ejecutor
     // (`local: false`): abrir una ventana del escritorio es del usuario.
     Herramienta {
