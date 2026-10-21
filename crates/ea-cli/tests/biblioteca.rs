@@ -26,7 +26,7 @@ fn escribe(ruta: &Path, texto: &str) {
 fn mundo() -> Mundo {
     let d = tempfile::tempdir().unwrap();
     let home = d.path().join("home");
-    fs::create_dir_all(d.path().join("proyecto")).unwrap();
+    fs::create_dir_all(home.join("proyecto")).unwrap();
     fs::create_dir_all(d.path().join("rt")).unwrap();
     escribe(&home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
     escribe(
@@ -54,7 +54,7 @@ impl Mundo {
         let d = self.d.path();
         Command::new(env!("CARGO_BIN_EXE_ea"))
             .args(args)
-            .current_dir(d.join("proyecto"))
+            .current_dir(d.join("home/proyecto"))
             .env("HOME", d.join("home"))
             .env("XDG_RUNTIME_DIR", d.join("rt"))
             .env("EA_CONFIG_DIR", d.join("config"))

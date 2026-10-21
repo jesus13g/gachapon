@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::modelo::{Activado, Ambito, DefMcp, Elemento, Mecanismo, Tipo};
-use crate::redactar::{nombres_de, redactar_args, redactar_texto, redactar_url};
+use crate::redactar::{nombres_de, redactar_args, redactar_texto, redactar_url, sin_control};
 
 pub fn leer_texto(ruta: &Path) -> Option<String> {
     std::fs::read_to_string(ruta).ok()
@@ -161,7 +161,9 @@ pub fn frontmatter(texto: &str) -> BTreeMap<String, String> {
 
 /// Descripción corta (una línea, hasta 300 caracteres).
 pub fn recortar(texto: &str) -> String {
-    let uno: String = texto.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Un fichero ajeno no cuela secuencias de escape: fuera los caracteres de control.
+    let limpio = sin_control(texto);
+    let uno: String = limpio.split_whitespace().collect::<Vec<_>>().join(" ");
     if uno.chars().count() > 300 { uno.chars().take(299).collect::<String>() + "…" } else { uno }
 }
 
@@ -295,7 +297,8 @@ pub fn def_mcp(v: &Value) -> DefMcp {
     headers.extend(nombres_de(v.get("env_http_headers")));
     headers.sort();
     env.dedup();
-    DefMcp { transporte: transporte.into(), comando, args: redactar_args(&args), url, env, headers }
+    let args = redactar_args(&args).iter().map(|a| sin_control(a)).collect();
+    DefMcp { transporte: transporte.into(), comando: comando.map(|c| sin_control(&c)), args, url, env, headers }
 }
 
 /// Un MCP con su definición ya redactada.

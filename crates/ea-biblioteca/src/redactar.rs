@@ -91,6 +91,13 @@ fn enmascarar_pares(texto: &str) -> String {
     sal
 }
 
+/// El texto sin caracteres de control (secuencias de escape de un terminal,
+/// `BEL`, `NUL`…), salvo `\n` y `\t`. Lo que sale de ficheros ajenos (frontmatter,
+/// `plugin.json`, configuraciones) pasa por aquí antes de mostrarse.
+pub fn sin_control(texto: &str) -> String {
+    texto.chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t')).collect()
+}
+
 /// `esquema://host[:puerto]` de una URL: sin credenciales, ruta, consulta ni
 /// fragmento. Si no se reconoce como URL con esquema, `***`.
 pub fn redactar_url(url: &str) -> String {
@@ -287,6 +294,12 @@ mod pruebas {
         assert_eq!(a, ["-p", "***", "-k", "***", "-t", "***", "-y", "paquete"]);
         let a = args(&["--session-id", "abc", "--x-credential", "d", "--cookie=e"]);
         assert_eq!(a, ["--session-id", "***", "--x-credential", "***", "--cookie=***"]);
+    }
+
+    #[test]
+    fn sin_control_quita_escapes_y_deja_saltos_y_tabuladores() {
+        assert_eq!(sin_control("a\x1b[2Jb\x07c\td\ne\0"), "a[2Jbc\td\ne");
+        assert_eq!(sin_control("normal ñ ✓"), "normal ñ ✓");
     }
 
     #[test]

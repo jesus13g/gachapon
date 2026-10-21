@@ -402,3 +402,21 @@ fn ids_ida_y_vuelta_y_validacion() {
     assert!(j.contains("\"ambito\":\"plugin:a@b\"") && j.contains("\"activado\":\"desconocido\"") && j.contains("\"mecanismo\":\"no\""));
     assert_eq!(serde_json::from_str::<Elemento>(&j).unwrap(), e);
 }
+
+#[test]
+fn lo_que_viene_de_ficheros_ajenos_no_lleva_secuencias_de_escape() {
+    let m = mundo();
+    // Frontmatter, nota (JSONC), aviso (nombre raro de directorio) y argumentos de un MCP.
+    escribe(m.home.join(".claude/skills/rara/SKILL.md"), "---\ndescription: \"hola\x1b]0;pwn\x07 \x1b[2Jmundo\"\n---\n");
+    escribe(m.home.join(".claude/skills/mal\x1bnombre/SKILL.md"), "---\ndescription: x\n---\n");
+    escribe(m.home.join(".config/opencode/opencode.jsonc"), "{\n // comentario\n \"mcp\": { \"j\": { \"type\": \"local\", \"command\": [\"x\x1b[31m\", \"a\x07b\"] } }\n}\n");
+    let inv = Biblioteca::cargar(&raices(&m), &m.ajustes);
+    let rara = get(&inv, "claude-code/skill/usuario/rara");
+    assert_eq!(rara.descripcion, "hola]0;pwn [2Jmundo");
+    let json = serde_json::to_string(&inv).unwrap();
+    for c in ['\u{1b}', '\u{7}'] {
+        assert!(!json.contains(&format!("\\u{:04x}", c as u32)), "quedó un carácter de control: {json}");
+    }
+    assert!(inv.avisos.iter().any(|a| a.contains("mal")), "{:?}", inv.avisos);
+    assert!(inv.avisos.iter().all(|a| !a.contains('\x1b')));
+}
