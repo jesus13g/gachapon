@@ -270,12 +270,12 @@ fn la_entrega_llega_al_revisor_ademas_de_al_planificador() {
     let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
     let id = entregar(&e, &eq.id, Some("antigravity"), "codex");
     assert_eq!(e.bus.listar_cola(Rol::Planificador).unwrap()[0].trabajo, id);
-    let cola = e.bus.listar_cola_agente("antigravity").unwrap();
+    let cola = e.bus.listar_cola_revision("antigravity").unwrap();
     assert_eq!((cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (id.as_str(), "terminado"));
     // cerrar limpia las dos
     e.bus.aplicar(&id, Evento::Cerrar).unwrap();
     assert!(e.bus.listar_cola(Rol::Planificador).unwrap().is_empty());
-    assert!(e.bus.listar_cola_agente("antigravity").unwrap().is_empty());
+    assert!(e.bus.listar_cola_revision("antigravity").unwrap().is_empty());
 }
 
 #[test]
@@ -285,12 +285,15 @@ fn si_el_revisor_es_quien_ejecuto_la_entrega_solo_va_a_la_cola_del_rol() {
     // claude-code (planificador del equipo) revisa un trabajo que consta ejecutado por él
     let id = entregar(&e, &eq.id, Some("claude-code"), "claude-code");
     assert_eq!(e.bus.listar_cola(Rol::Planificador).unwrap().len(), 1);
-    assert!(e.bus.listar_cola_agente("claude-code").unwrap().is_empty());
+    assert!(e.bus.listar_cola_revision("claude-code").unwrap().is_empty());
+    let aviso = e.bus.leer_informe(&id).unwrap().unwrap().aviso.unwrap();
+    assert!(aviso.contains("claude-code") && aviso.contains("sin revisión independiente"), "{aviso}");
     e.bus.aplicar(&id, Evento::Cancelar).unwrap();
     // sin revisor, como siempre
     let sin = entregar(&e, &eq.id, None, "codex");
+    assert_eq!(e.bus.leer_informe(&sin).unwrap().unwrap().aviso, None);
     assert_eq!(e.bus.listar_cola(Rol::Planificador).unwrap()[0].trabajo, sin);
-    assert!(e.bus.listar_cola_agente("antigravity").unwrap().is_empty());
+    assert!(e.bus.listar_cola_revision("antigravity").unwrap().is_empty());
 }
 
 #[test]
@@ -304,7 +307,7 @@ fn reformular_un_trabajo_asignado_vuelve_a_la_cola_de_ese_agente() {
     assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
     // y la entrega vieja del revisor y del planificador se retiró
     assert!(e.bus.listar_cola(Rol::Planificador).unwrap().is_empty());
-    assert!(e.bus.listar_cola_agente("antigravity").unwrap().is_empty());
+    assert!(e.bus.listar_cola_revision("antigravity").unwrap().is_empty());
 }
 
 #[test]
@@ -353,4 +356,24 @@ fn una_obra_con_fases_sigue_funcionando_con_equipo() {
     let o = Orden { modo: Modo::Obra, criterio_exito: None, fases: vec![f(1), f(2)], equipo: Some(eq.id.clone()), ..orden(e.d.path()) };
     let id = e.bus.crear_trabajo(o).unwrap();
     assert_eq!(e.bus.tomar_para("qwen-code").unwrap(), Some(id));
+}
+
+#[test]
+fn la_revision_dirigida_no_la_toma_un_ejecutor_con_tomar_para() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    let id = entregar(&e, &eq.id, Some("antigravity"), "codex");
+    assert_eq!(e.bus.listar_cola_revision("antigravity").unwrap()[0].trabajo, id);
+    assert!(e.bus.listar_cola_agente("antigravity").unwrap().is_empty());
+    // ni siquiera quien tiene la entrega en su cola de revisión la toma como trabajo
+    assert_eq!(e.bus.tomar_para("antigravity").unwrap(), None);
+    assert_eq!(e.bus.listar_cola_revision("antigravity").unwrap().len(), 1);
+    assert!(e.bus.listar_cola_revision("no-existe").is_err());
+    // un reclamo huérfano de la cola de revisión vuelve a ella
+    let cola = e.d.path().join("estado/colas/revision/antigravity");
+    let f = std::fs::read_dir(&cola).unwrap().flatten().next().unwrap().path();
+    let nombre = f.file_name().unwrap().to_string_lossy().into_owned();
+    std::fs::rename(&f, cola.join(format!(".{nombre}.tomada-1"))).unwrap();
+    assert_eq!(e.bus.recuperar().unwrap(), vec![id.clone()]);
+    assert_eq!(e.bus.listar_cola_revision("antigravity").unwrap()[0].trabajo, id);
 }

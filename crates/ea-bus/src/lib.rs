@@ -11,12 +11,15 @@ mod error;
 mod fs_atomico;
 mod instantanea;
 mod papelera;
+mod presencia;
 mod rutina;
 pub mod skills;
 mod tipos;
+mod worktree;
 
 pub use bus::{comprobar_registro, Bus, EntradaCola, ENV_ESTADO, raiz_estado};
 pub use equipo::NuevoEquipo;
+pub use presencia::{Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};
 pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
 pub use config::{ConfigOrquestador, PerfilEjecutor, TipoAgente};
 pub use skills::{bloque_prompt, ConfigSkills, Skill};

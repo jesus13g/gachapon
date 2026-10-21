@@ -260,6 +260,9 @@ pub struct Informe {
     /// Con qué agente y modelo se hizo esta iteración.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ejecutado_por: Option<EjecutadoPor>,
+    /// Aviso del sistema al revisar (p. ej. el revisor es quien ejecutó).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aviso: Option<String>,
 }
 
 // Un evento vive lo que dura una transición: no compensa meter el informe en
@@ -327,6 +330,7 @@ impl Informe {
             fases: vec![],
             diff: None,
             ejecutado_por: None,
+            aviso: None,
         }
     }
 }
