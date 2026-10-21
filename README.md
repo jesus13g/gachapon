@@ -458,6 +458,7 @@ ea propuestas listar|ver|decidir <id> --aceptar|--rechazar
 ea acciones listar|simular|ejecutar          # catálogo de herramientas
 ea boveda estado|listar|buscar|leer|promover|reindexar
 ea ajustes ver|obtener|establecer|ruta       # ajustes.toml (establecer: solo con TTY)
+ea biblioteca listar|ver|uso|activar|desactivar|sesion|categoria  # herramientas de los agentes (ver «Biblioteca»)
 ea tui                                       # interfaz interactiva
 ```
 
@@ -523,6 +524,7 @@ riesgo (§7.3):
 | Herramienta | Riesgo | Desde un agente |
 |---|---|---|
 | `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
+| `ea_biblioteca` (sin `id`: lista con filtros `agente`, `tipo`, `categoria`, `activado` y `limite`, por defecto 50 y hasta 200, y 15 y 40 para el agente local; con `id`: la ficha con la definición MCP sin secretos y el uso por actor) | lectura | se ejecuta |
 | `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta |
 | `ea_escribir_nota` | mutación reversible | se ejecuta, solo en la región propia del agente |
 | `ea_promover_nota` | mutación reversible | solo simula o propone |
@@ -594,6 +596,40 @@ Registro en los demás agentes (misma URL, `http://127.0.0.1:8765/mcp`):
 
 El nombre de cliente sale de lo que cada agente manda en `initialize`
 (`clientInfo.name`); es lo que decide sus permisos, junto con el rol que ocupa.
+
+### Biblioteca
+
+Inventario de solo lectura de lo que tienen los agentes: skills, plugins,
+subagentes, servidores MCP, comandos y extensiones de Claude Code, Qwen Code,
+Codex, OpenCode y Antigravity, más lo del ecosistema (spec 018). Cada elemento
+tiene un id estable `agente/tipo/ámbito/nombre` (p. ej.
+`claude-code/skill/usuario/revisar`) y se agrupa por categoría, que por defecto
+es su origen (`usuario`, `proyecto`, `ecosistema`, `plugin:<id>`, `integrada`).
+Lo que la propia biblioteca desactiva moviéndolo a su almacén sigue en el
+inventario con `activado: no`. Nada de lo que sale lleva secretos: de un MCP
+solo se ven los nombres de las variables y las cabeceras, y de la URL el
+esquema, el host y el puerto.
+
+```bash
+ea biblioteca listar [--agente A] [--tipo T] [--categoria C] [--activados|--desactivados] [--ids] [--json]
+                                             # tabla por categoría y tipo: agente, ámbito, estado, cómo se cambia y usos; avisos al final
+ea biblioteca ver <id> [--json]              # ficha: origen, descripción, estado, mecanismo, nota, MCP redactado y uso por actor
+ea biblioteca uso [<id>] [--json]            # usos por elemento y actor, lo usado sin elemento en el inventario y la actividad por agente
+ea biblioteca activar|desactivar <id> [--esperar]
+                                             # crea la propuesta (como «usuario») y muestra la simulación
+ea biblioteca sesion <agente> <id>… [--directorio D] [--esperar]
+                                             # propone abrir el agente solo con esas herramientas; muestra el comando y los ficheros, sin secretos
+ea biblioteca categoria <id> <categoria>|--quitar
+                                             # atajo de `biblioteca.categorias` (solo con TTY)
+```
+
+`activar`, `desactivar` y `sesion` solo proponen: se aceptan con `ea propuestas
+decidir <n> --aceptar` o en ◇ Propuestas. Con `--esperar` y una terminal
+interactiva real piden confirmación y aplican en el acto (y esperan a Intro al
+terminar); sin terminal, `--esperar` deja la propuesta pendiente. El uso sale
+de los contadores y transcripciones de cada agente, el diario y los trabajos del
+ejecutor, con una caché incremental en `~/.local/state/ecosistema-asistente/biblioteca/`;
+los agentes llegan a él por `ea_biblioteca` (MCP).
 
 ### Mutaciones supervisadas (fase 6)
 

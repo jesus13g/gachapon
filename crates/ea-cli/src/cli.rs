@@ -71,8 +71,91 @@ pub enum Command {
         #[command(subcommand)]
         accion: AjustesAccion,
     },
+    /// Biblioteca de herramientas de los agentes: skills, plugins, subagentes, MCP, comandos y extensiones
+    Biblioteca {
+        #[command(subcommand)]
+        accion: BibliotecaAccion,
+    },
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum BibliotecaAccion {
+    /// Inventario agrupado por categoría y tipo, con su estado y su uso
+    Listar {
+        /// Solo este agente (claude-code, qwen-code, codex, opencode, antigravity o ecosistema)
+        #[arg(long)]
+        agente: Option<String>,
+        /// skill, plugin, subagente, mcp, comando o extension
+        #[arg(long)]
+        tipo: Option<String>,
+        #[arg(long)]
+        categoria: Option<String>,
+        /// Solo los activados
+        #[arg(long, conflicts_with = "desactivados")]
+        activados: bool,
+        /// Solo los desactivados
+        #[arg(long)]
+        desactivados: bool,
+        /// Muestra el id completo en vez del nombre (el id es lo que piden `ver`, `activar`…)
+        #[arg(long)]
+        ids: bool,
+        /// Salida en JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Ficha de un elemento: origen, estado, cómo se cambia, definición MCP (sin secretos) y uso
+    Ver {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Informe de uso: por elemento y actor, lo usado que no está en el inventario y la actividad por agente
+    Uso {
+        /// Solo este elemento
+        id: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Propone activar un elemento (se acepta con `ea propuestas decidir`)
+    Activar {
+        id: String,
+        /// Con una terminal interactiva, pide confirmación y lo aplica en el acto; espera a Intro al terminar
+        #[arg(long)]
+        esperar: bool,
+    },
+    /// Propone desactivar un elemento (se acepta con `ea propuestas decidir`)
+    Desactivar {
+        id: String,
+        /// Con una terminal interactiva, pide confirmación y lo aplica en el acto; espera a Intro al terminar
+        #[arg(long)]
+        esperar: bool,
+    },
+    /// Propone abrir un agente con solo las herramientas elegidas (sin cambiar su configuración)
+    Sesion {
+        /// claude-code, qwen-code, codex u opencode
+        agente: String,
+        /// Ids de la biblioteca
+        #[arg(required = true)]
+        ids: Vec<String>,
+        /// Carpeta del proyecto en que se abre (por defecto, la actual)
+        #[arg(long)]
+        directorio: Option<String>,
+        /// Con una terminal interactiva, pide confirmación y abre la sesión en el acto; espera a Intro al terminar
+        #[arg(long)]
+        esperar: bool,
+    },
+    /// Pone o quita la categoría de un elemento (atajo de `biblioteca.categorias`); exige una terminal interactiva real
+    Categoria {
+        id: String,
+        /// Nombre de la categoría
+        #[arg(required_unless_present = "quitar", conflicts_with = "quitar")]
+        categoria: Option<String>,
+        /// Vuelve a la categoría por defecto (el origen)
+        #[arg(long)]
+        quitar: bool,
+    },
 }
 
 #[derive(Subcommand)]

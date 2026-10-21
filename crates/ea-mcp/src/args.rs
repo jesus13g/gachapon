@@ -197,3 +197,24 @@ pub fn parse_flexible_date(s: &str) -> Result<OffsetDateTime, String> {
         .map_err(|_| format!("fecha inválida: '{s}' (usa RFC3339 o AAAA-MM-DD)"))?;
     Ok(date.midnight().assume_utc())
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BibliotecaArgs {
+    /// Id de un elemento (`agente/tipo/ámbito/nombre`, p. ej.
+    /// "claude-code/skill/usuario/revisar"): devuelve su ficha completa
+    /// (origen, estado, cómo se cambia, definición MCP sin secretos) y su uso
+    /// por actor. Sin id, lista el inventario y los demás argumentos filtran.
+    pub id: Option<String>,
+    /// Filtra por agente: claude-code, qwen-code, codex, opencode,
+    /// antigravity o ecosistema.
+    pub agente: Option<String>,
+    /// Filtra por tipo: skill, plugin, subagente, mcp, comando o extension.
+    pub tipo: Option<String>,
+    /// Filtra por categoría (por defecto, el origen: usuario, proyecto,
+    /// ecosistema, plugin:<id> o integrada).
+    pub categoria: Option<String>,
+    /// true: solo los activados; false: solo los desactivados.
+    pub activado: Option<bool>,
+    /// Número máximo de elementos a devolver (por defecto 50, como mucho 200).
+    pub limite: Option<i64>,
+}

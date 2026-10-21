@@ -380,3 +380,23 @@ fn escribe_el_fichero_real_si_la_configuracion_es_un_enlace() {
     cambiar(&m, "codex/mcp/usuario/docs", true, &o).unwrap();
     assert_eq!(lee(&real), CODEX);
 }
+
+#[test]
+fn lo_movido_por_la_biblioteca_sigue_en_el_inventario_como_desactivado() {
+    let m = mundo();
+    let o = OrdenesDoble::default();
+    let id = "claude-code/skill/usuario/propia";
+    cambiar(&m, id, false, &o).unwrap();
+    let inv = inventario(&m);
+    let e = inv.buscar(id).expect("la desactivada aparece en el inventario");
+    assert_eq!((e.activado, e.mecanismo), (Activado::No, Mecanismo::Mover));
+    assert_eq!(inv.elementos.iter().filter(|x| x.id == id).count(), 1);
+    assert_eq!(inv.filtrar(&Filtro { activado: Some(Activado::No), ..Default::default() }).iter().filter(|x| x.id == id).count(), 1);
+    // Si alguien recrea otra con el mismo id en su sitio, manda la visible y no se duplica.
+    escribe(m.home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Otra\n---\n");
+    let inv = inventario(&m);
+    let v: Vec<_> = inv.elementos.iter().filter(|x| x.id == id).collect();
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].activado, Activado::Si);
+    assert!(inv.avisos.iter().all(|a| !a.contains("id repetido")), "{:?}", inv.avisos);
+}
