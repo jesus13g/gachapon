@@ -1,9 +1,11 @@
 # CLAUDE.md
 
 Orquestador en Rust (repo público `jesus13g/gachapon`) que reparte el trabajo
-entre Claude Code (formaliza y revisa) y un agente local, Qwen Code sobre
-`llama-server` (ejecuta). Se comunican por un bus de ficheros con colas y
-semáforos. Visión general en `README.md`; diseño original en
+entre dos roles: el **planificador** (formaliza y revisa; por defecto Claude
+Code) y el **ejecutor** (ejecuta; por defecto Qwen Code sobre `llama-server`).
+Desde la constitución 1.3.0 el agente de cada rol es intercambiable (Claude
+Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017, en curso). Se comunican
+por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
 `orquestador-claude-qwen.md`.
 
 ## Fuente de verdad: la documentación SDD
@@ -67,13 +69,16 @@ en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
   y el orquestador solo reciben la capa `SoloConsulta`. No añadas atajos.
 - **El criterio de éxito lo ejecuta el sistema**, nunca el agente; un criterio
   vacío no es éxito.
-- **El modelo se nombra solo en `ajustes.toml`** (o el heredado
-  `orquestador.toml`); en el código, solo en los valores por defecto de
-  `ea-ajustes`. El endpoint tiene que ser local.
+- **Los modelos se configuran como perfiles en `ajustes.toml`** (o los
+  heredados `modelo.*` y `orquestador.toml`); en el código, solo en los valores
+  por defecto de `ea-ajustes`. El modelo del ejecutor tiene que ser local; uno
+  remoto solo vale para el planificador.
+- **Un agente no ocupa los dos roles**: planificador ≠ ejecutor.
 - **El diario es append-only a nivel de motor** (triggers): un error se corrige
   con otro evento. El estado del bus se escribe con `fs_atomico`.
 - **Solo local**: todo escucha en `127.0.0.1`; `ea-web` filtra el `Host`.
-- **El agente local**: `bwrap`, topes duros, sin herramientas web y semáforo
+- **El ejecutor**, sea cual sea el agente: `bwrap`, topes duros, sin
+  herramientas web, aprobación automática solo dentro del sandbox y semáforo
   exclusivo del worktree.
 - Si un cambio choca con un artículo de la constitución, se enmienda la
   constitución primero; no se hace una excepción callada.
