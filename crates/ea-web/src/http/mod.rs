@@ -80,6 +80,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/boveda/renombrar", post(boveda_renombrar))
         .route("/api/boveda/eliminar", post(boveda_eliminar))
         .route("/api/boveda/carpeta", post(boveda_carpeta))
+        .route("/api/boveda/carpeta/renombrar", post(boveda_carpeta_renombrar))
+        .route("/api/boveda/carpeta/eliminar", post(boveda_carpeta_eliminar))
         .route("/api/boveda/mostrar", post(boveda_mostrar))
         .route("/api/boveda/papelera", get(boveda_papelera))
         .route("/api/boveda/papelera/restaurar", post(boveda_restaurar))

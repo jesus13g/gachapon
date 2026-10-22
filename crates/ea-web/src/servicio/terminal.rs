@@ -66,6 +66,9 @@ enum Orden {
     /// sistema se cambia en la TTY, con su confirmación escrita.
     Servicios(&'static str),
     Herramienta { nombre: &'static str, argumentos: Value },
+    /// `ea boveda vaciar-papelera`: borrar para siempre la papelera de la
+    /// bóveda (spec 015, RF-012). No es una herramienta del catálogo.
+    VaciarPapeleraBoveda,
 }
 
 impl Orden {
@@ -77,6 +80,7 @@ impl Orden {
                 vec!["propuestas".into(), "decidir".into(), id.to_string(), "--aceptar".into(), "--esperar".into()]
             }
             Orden::Servicios(accion) => vec!["servicios".into(), (*accion).into(), "--esperar".into()],
+            Orden::VaciarPapeleraBoveda => vec!["boveda".into(), "vaciar-papelera".into(), "--esperar".into()],
             Orden::Herramienta { nombre, argumentos } => vec![
                 "acciones".into(),
                 "ejecutar".into(),
@@ -103,6 +107,7 @@ impl Orden {
         match self {
             Orden::Propuesta(id) => json!({ "propuesta": id }),
             Orden::Servicios(accion) => json!({ "servicios": accion }),
+            Orden::VaciarPapeleraBoveda => json!({ "boveda": "vaciar-papelera" }),
             Orden::Herramienta { nombre, argumentos } => json!({ "herramienta": nombre, "argumentos": argumentos }),
         }
     }
@@ -112,22 +117,26 @@ fn invalido(m: impl Into<String>) -> ErrorWeb {
     ErrorWeb::Invalido(m.into())
 }
 
-/// Lo que pide el cuerpo, sin validar contra el sistema todavía.
+/// Lo que pide el cuerpo, sin validar todavía contra el estado.
 #[derive(Debug, PartialEq)]
 enum Pedido {
     Propuesta(i64),
     Servicios(&'static str),
     Herramienta(String, Value),
+    VaciarPapeleraBoveda,
 }
 
-/// El cuerpo es `{propuesta: <id>}`, `{servicios: "instalar"|"desinstalar"}`
-/// o `{herramienta, argumentos}`, nada más: ni comandos ni texto libre.
+/// El cuerpo es `{propuesta: <id>}`, `{servicios: "instalar"|"desinstalar"}`,
+/// `{herramienta, argumentos}` o `{boveda: "vaciar-papelera"}`, nada más: ni
+/// comandos ni texto libre.
 fn leer_cuerpo(cuerpo: &Value) -> Resultado<Pedido> {
     let obj = cuerpo
         .as_object()
-        .ok_or_else(|| invalido("se espera {propuesta}, {servicios} o {herramienta, argumentos}"))?;
+        .ok_or_else(|| invalido("se espera {propuesta}, {servicios}, {herramienta, argumentos} o {boveda}"))?;
     let claves: Vec<&str> = obj.keys().map(String::as_str).collect();
     match claves.as_slice() {
+        ["boveda"] if obj["boveda"] == "vaciar-papelera" => Ok(Pedido::VaciarPapeleraBoveda),
+        ["boveda"] => Err(invalido("de la bóveda solo se abre en la terminal {\"boveda\": \"vaciar-papelera\"}")),
         ["propuesta"] => obj["propuesta"]
             .as_i64()
             .filter(|&id| id > 0)
@@ -142,7 +151,7 @@ fn leer_cuerpo(cuerpo: &Value) -> Resultado<Pedido> {
             let h = obj["herramienta"].as_str().ok_or_else(|| invalido("'herramienta' debe ser un nombre del catálogo"))?;
             Ok(Pedido::Herramienta(h.to_string(), obj["argumentos"].clone()))
         }
-        _ => Err(invalido("solo se abre en la terminal {propuesta}, {servicios} o {herramienta, argumentos}")),
+        _ => Err(invalido("solo se abre en la terminal {propuesta}, {servicios}, {herramienta, argumentos} o {boveda}")),
     }
 }
 
@@ -212,6 +221,7 @@ pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
         Pedido::Propuesta(id) => validar_propuesta(s, id).await?,
         Pedido::Servicios(accion) => Orden::Servicios(accion),
         Pedido::Herramienta(h, args) => validar_herramienta(&h, args)?,
+        Pedido::VaciarPapeleraBoveda => Orden::VaciarPapeleraBoveda,
     };
     lanzar_argv(s, &orden.argv())?;
     let evento = NewEvent {
@@ -254,6 +264,12 @@ mod tests {
         for malo in [json!({ "servicios": "reiniciar" }), json!({ "servicios": 1 }), json!({ "servicios": "instalar", "x": 1 }), json!({ "servicios": "instalar; rm" })] {
             assert!(leer_cuerpo(&malo).is_err(), "{malo}");
         }
+        assert_eq!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera" })).unwrap(), Pedido::VaciarPapeleraBoveda);
+        assert!(leer_cuerpo(&json!({ "boveda": "rm -rf" })).is_err());
+        assert!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera", "confirmo": "x" })).is_err());
+        let v = Orden::VaciarPapeleraBoveda;
+        assert_eq!(v.argv(), ["boveda", "vaciar-papelera", "--esperar"]);
+        assert_eq!(v.texto(), "ea boveda vaciar-papelera");
         assert!(validar_herramienta("ea_eliminar_rutina", json!({ "slug": "a b" })).is_err());
         assert!(validar_herramienta("ea_eliminar_rutina", json!({ "slug": "x", "extra": 1 })).is_err());
         assert!(validar_herramienta("ea_encolar_rutina", json!({ "slug": "x" })).is_err(), "reversible: desde la web");

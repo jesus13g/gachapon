@@ -1327,6 +1327,7 @@ const ed = (sec = st.sec) => (st.ed[sec] ??= {
   renombrando: null,   // clave de la nota que se está renombrando
   creando: null,       // 'nota' | 'carpeta': el campo de crear, abierto
   papelera: false,     // la papelera, abierta en lugar de la nota
+  menuCarpeta: null,   // la carpeta cuyo menú ⋯ está abierto (bóveda)
 });
 
 // Descarta el borrador de la nota abierta; con cambios, antes pregunta.
@@ -1393,7 +1394,7 @@ function arbolNotas(A, E, nodos, prof = 0) {
     if (n.hijos) {
       const pl = plegada(E, n);
       return `<div class="ad" data-ad="${esc(n.d)}" role="treeitem" tabindex="0" aria-expanded="${!pl}" title="${esc(n.titulo)}" style="--n:${prof}">` +
-        `<i>${pl ? '▸' : '▾'}</i><span class="n">${esc(n.etiqueta)}</span><span class="m">${n.cuenta ?? ''}</span></div>` +
+        `<i>${pl ? '▸' : '▾'}</i><span class="n">${esc(n.etiqueta)}</span><span class="m">${n.cuenta ?? ''}</span>${A.menuCarpeta?.(E, n) ?? ''}</div>` +
         (pl ? '' : `<div role="group">${arbolNotas(A, E, n.hijos, prof + 1)}</div>`);
     }
     const sel = n.k === E.sel;
@@ -1858,15 +1859,78 @@ EDITOR.boveda = {
     const l = d.papelera;
     let h = '<header class="nota-cab"><div class="miga"><b>Papelera</b></div><span class="grow"></span>' +
       '<button class="ico" data-a="papelera-nota" title="Cerrar la papelera" aria-label="Cerrar la papelera">✕</button></header>' +
-      '<p class="m">Las notas borradas desde aquí. Restaurar una la devuelve a su sitio, si no hay otra con la misma ruta.</p>';
+      '<p class="m">Lo borrado desde aquí (notas y carpetas). Restaurar devuelve todo lo de esa entrada a su sitio, si no hay otra nota con la misma ruta.</p>';
     if (!l) return h + '<p class="vacio">Cargando…</p>';
     if (!l.length) return h + '<p class="vacio">La papelera está vacía.</p>';
-    return h + '<div class="pap">' + l.map(p =>
-      `<div class="pap-f"><span class="n" title="${esc(p.ruta)}">${esc(p.ruta)}</span><span class="m">${p.bytes} bytes · hace ${reloj(p.borrada)}</span>` +
-      btn('restaurar-nota', '↺ restaurar', 'devolver ' + p.ruta + ' a su sitio', { id: p.id }) + '</div>').join('') + '</div>';
+    const grupos = new Map();
+    l.forEach(p => { if (!grupos.has(p.id)) grupos.set(p.id, []); grupos.get(p.id).push(p); });
+    return h + '<div class="pap">' + [...grupos.values()].map(g => {
+      const p = g[0], bytes = g.reduce((s, x) => s + x.bytes, 0);
+      const nombre = g.length > 1 ? `${p.ruta} y ${g.length - 1} más` : p.ruta;
+      return `<div class="pap-f"><span class="n" title="${esc(g.map(x => x.ruta).join('\n'))}">${esc(nombre)}</span><span class="m">${bytes} bytes · hace ${reloj(p.borrada)}</span>` +
+        btn('restaurar-nota', '↺ restaurar', 'devolver ' + nombre + ' a su sitio', { id: p.id }) + '</div>';
+    }).join('') + '</div>' +
+      '<p class="m">Vaciar la papelera borra todo para siempre y no se puede deshacer: se confirma en una terminal, no aquí.</p>' +
+      '<p>' + btn('vaciar-papelera', '⌨ vaciar en la terminal', 'abre una terminal con ea boveda vaciar-papelera, que pide confirmación', {}, 'hot') + '</p>';
+  },
+  // El menú ⋯ de una carpeta (no de una región): renombrar o mover, y la papelera.
+  menuCarpeta(E, n) {
+    if (!n.d.includes('/')) return '';
+    const abierto = E.menuCarpeta === n.d;
+    return '<span class="menu-anc">' +
+      `<button class="ico" data-a="carpeta-menu" data-d="${esc(n.d)}" title="Más acciones de la carpeta" aria-label="Más acciones de ${esc(n.d)}" aria-haspopup="menu" aria-expanded="${abierto}">⋯</button>` +
+      (abierto ? '<div class="menu" role="menu">' +
+        `<button role="menuitem" data-a="carpeta-renombrar" data-d="${esc(n.d)}">✎ Renombrar o mover</button>` +
+        `<button role="menuitem" class="hot" data-a="carpeta-eliminar" data-d="${esc(n.d)}">✕ Mover a la papelera</button></div>` : '') +
+      '</span>';
   },
   // Acciones propias; null = no es suya, false = ya repintó, true = sondear.
   async accion(a, E, datos) {
+    if (a === 'carpeta-menu') {
+      E.menuCarpeta = E.menuCarpeta === datos.d ? null : datos.d;
+      pintar();
+      return false;
+    }
+    if (a === 'carpeta-renombrar' || a === 'carpeta-eliminar') {
+      const d = datos.d, bajo = k => k.startsWith('b' + d + '/');
+      const region = regionDe(d);
+      if (!cierraBorrador('boveda')) { pintar(); return false; }
+      let nueva = null;
+      if (a === 'carpeta-renombrar') {
+        let v = prompt('Ruta nueva de la carpeta (dentro de la misma región; las notas y sus enlaces se actualizan):', d);
+        if (v === null) { pintar(); return false; }
+        v = v.trim().replace(/^\/+|\/+$/g, '');
+        if (!v || v === d) { pintar(); return false; }
+        if (!v.startsWith(region + '/')) {
+          if (['modelo-local', 'claude-code', 'compartida'].includes(v.split('/')[0]))
+            throw new Error('solo se mueve dentro de la misma región (a la compartida se llega promoviendo)');
+          v = region + '/' + v;
+        }
+        const r = await ea.renombrarCarpeta(d, v);
+        nueva = r.carpeta;
+        const m = r.actualizadas.length, amb = r.ambiguas.length;
+        avisa(`✓ carpeta movida a ${nueva}` + (m ? ` · enlaces al día en ${m} ${m === 1 ? 'nota' : 'notas'}` : '') +
+          (amb ? ` · enlaces ambiguos sin tocar en: ${r.ambiguas.join(', ')}` : ''), true);
+      } else {
+        if (!confirm(`¿Mover la carpeta ${d} y todo lo que contiene a la papelera? Se puede restaurar.`)) { pintar(); return false; }
+        const r = await ea.eliminarCarpeta(d);
+        avisa(r.vacia ? `✓ carpeta ${d} quitada (estaba vacía)` : `✓ ${d} en la papelera (${r.notas.length} ${r.notas.length === 1 ? 'nota' : 'notas'})`, true);
+      }
+      if (E.sel && bajo(E.sel)) E.sel = nueva ? 'b' + nueva + E.sel.slice(1 + d.length) : null;
+      Object.keys(st.detalle).filter(bajo).forEach(k => delete st.detalle[k]);
+      E.borrador = null;
+      E.plegados.delete(d);
+      if (nueva) E.plegados.delete(nueva);
+      guardaEditor('boveda');
+      return true;
+    }
+    if (a === 'vaciar-papelera') {
+      // Irreversible (art. IV.2): la web solo abre la terminal; la frase de
+      // confirmación se escribe allí.
+      const r = await ea.abrirTerminal({ boveda: 'vaciar-papelera' });
+      avisa(`⌨ terminal abierta: confírmalo allí (${r.comando})`, true);
+      return false;
+    }
     if (a === 'crear-nota' || a === 'carpeta-nota') {
       const tipo = a === 'crear-nota' ? 'nota' : 'carpeta';
       E.creando = E.creando === tipo ? null : tipo;
@@ -3663,6 +3727,7 @@ async function accionNota(a, datos = {}) {
   const E = ed();
   const local = () => { pintar(); return false; };
   if (a !== 'menu-nota') E.menu = false;
+  if (a !== 'carpeta-menu') E.menuCarpeta = null;
   // Las acciones propias del adaptador: null = no es suya, false = ya
   // repintó, true = hecho (se sondea).
   const propia = await A.accion?.(a, E, datos) ?? null;
@@ -3789,6 +3854,7 @@ document.addEventListener('click', ev => {
   const t = ev.target;
   const E = EDITOR[st.sec] && ed();
   if (E?.menu && !t.closest('.menu, [data-a="menu-nota"]')) { E.menu = false; pintar(); }
+  if (E?.menuCarpeta && !t.closest('.menu, [data-a="carpeta-menu"]')) { E.menuCarpeta = null; pintar(); }
   const rail = t.closest('#rail button[data-s]');
   if (rail) return ir(rail.dataset.s);
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);

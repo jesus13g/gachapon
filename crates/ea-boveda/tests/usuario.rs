@@ -277,3 +277,128 @@ fn el_arbol_incluye_carpetas_vacias_y_se_crean_carpetas() {
     assert_eq!(a.notas.len(), 1);
     assert_eq!(e.eventos("boveda_carpeta").len(), 1);
 }
+
+// --- fase 2: carpetas y vaciar la papelera ---
+
+#[test]
+fn renombrar_una_carpeta_mueve_sus_notas_y_pone_los_enlaces_al_dia() {
+    let mut e = entorno();
+    e.usuario("compartida/a/x", "Soy x. [[y]]");
+    e.usuario("compartida/a/sub/y", "Soy y. [x](../x.md)");
+    e.boveda.crear_carpeta(&mut e.store, "compartida/a/vacia", "usuario").unwrap();
+    e.usuario("compartida/fuera", "[[x]] [v](a/sub/y.md)");
+    let r = e.boveda.renombrar_carpeta(&mut e.store, "compartida/a/", "compartida/b/c", "usuario").unwrap();
+    assert_eq!(r.carpeta, "compartida/b/c");
+    assert_eq!(r.movidas.len(), 2);
+    assert_eq!(r.actualizadas, vec!["compartida/fuera.md".to_string()]);
+    assert!(!e.boveda.raiz().join("compartida/a").exists());
+    assert!(e.boveda.raiz().join("compartida/b/c/vacia").is_dir());
+    assert!(e.texto("compartida/b/c/sub/y.md").contains("[x](../x.md)"));
+    let fuera = e.texto("compartida/fuera.md");
+    assert!(fuera.contains("[[x]]") && fuera.contains("[v](b/c/sub/y.md)"), "{fuera}");
+    let mut rutas = e.rutas();
+    rutas.sort();
+    assert_eq!(rutas, vec!["compartida/b/c/sub/y.md", "compartida/b/c/x.md", "compartida/fuera.md"]);
+    assert_eq!(e.eventos("boveda_carpeta_renombrada").len(), 1);
+    assert_eq!(e.eventos("boveda_renombrado").len(), 2);
+}
+
+#[test]
+fn renombrar_una_carpeta_rechaza_lo_dudoso() {
+    let mut e = entorno();
+    e.usuario("compartida/a/x", "x");
+    e.usuario("compartida/b/x", "otra");
+    let ren = |e: &mut Entorno, de: &str, a: &str| e.boveda.renombrar_carpeta(&mut e.store, de, a, "usuario");
+    assert!(matches!(ren(&mut e, "compartida", "compartida/z"), Err(ErrorBoveda::Argumentos(_))));
+    assert!(matches!(ren(&mut e, "compartida/a", "claude-code/a"), Err(ErrorBoveda::Prohibida(_))));
+    assert!(matches!(ren(&mut e, "compartida/a", "compartida/b"), Err(ErrorBoveda::YaExiste(_))));
+    assert!(matches!(ren(&mut e, "compartida/a", "compartida/a/dentro"), Err(ErrorBoveda::Argumentos(_))));
+    assert!(matches!(ren(&mut e, "compartida/a", "compartida/a"), Err(ErrorBoveda::Argumentos(_))));
+    assert!(matches!(ren(&mut e, "compartida/no", "compartida/z"), Err(ErrorBoveda::NoExiste(_))));
+    assert!(ren(&mut e, "compartida/a", "compartida/.oculta").is_err());
+    // Un fichero que no es nota: no se mueve nada.
+    std::fs::write(e.boveda.raiz().join("compartida/a/foto.png"), b"x").unwrap();
+    assert!(matches!(ren(&mut e, "compartida/a", "compartida/z"), Err(ErrorBoveda::Argumentos(_))));
+    assert!(e.boveda.raiz().join("compartida/a/x.md").exists());
+    for quien in ["modelo-local", "claude-code", "orquestador", ""] {
+        assert!(e.boveda.renombrar_carpeta(&mut e.store, "compartida/b", "compartida/z", quien).is_err(), "{quien}");
+    }
+    assert!(e.boveda.raiz().join("compartida/b/x.md").exists());
+}
+
+#[test]
+fn borrar_una_carpeta_la_manda_a_la_papelera_y_se_restaura_entera() {
+    let mut e = entorno();
+    e.usuario("compartida/d/x", "uno");
+    e.usuario("compartida/d/sub/y", "dos");
+    e.usuario("compartida/otra", "fuera");
+    let p = e.boveda.carpeta_a_papelera(&mut e.store, "compartida/d", "usuario").unwrap();
+    let id = p.id.clone().unwrap();
+    assert_eq!(p.notas, vec!["compartida/d/sub/y.md".to_string(), "compartida/d/x.md".to_string()]);
+    assert!(!e.boveda.raiz().join("compartida/d").exists());
+    assert_eq!(e.rutas(), vec!["compartida/otra.md".to_string()]);
+    assert_eq!(e.boveda.papelera().unwrap().len(), 2);
+    assert_eq!(e.eventos("boveda_papelera_carpeta").len(), 1);
+
+    // Si una de las rutas está ocupada, no se mueve ninguna.
+    e.usuario("compartida/d/x", "otra nota");
+    assert!(matches!(e.boveda.restaurar(&mut e.store, &id, "usuario"), Err(ErrorBoveda::YaExiste(_))));
+    assert!(!e.boveda.raiz().join("compartida/d/sub/y.md").exists());
+    let v = e.version("compartida/d/x.md");
+    e.boveda.a_papelera(&mut e.store, "compartida/d/x.md", &v, "usuario").unwrap();
+
+    e.boveda.restaurar(&mut e.store, &id, "usuario").unwrap();
+    assert!(e.texto("compartida/d/x.md").contains("uno") && e.texto("compartida/d/sub/y.md").contains("dos"));
+    let mut rutas = e.rutas();
+    rutas.sort();
+    assert_eq!(rutas, vec!["compartida/d/sub/y.md", "compartida/d/x.md", "compartida/otra.md"]);
+    assert_eq!(e.eventos("boveda_restauracion").len(), 2);
+    assert!(!e.boveda.raiz().join(".papelera").join(&id).exists());
+}
+
+#[test]
+fn borrar_una_carpeta_vacia_o_una_region_o_con_ficheros_ajenos() {
+    let mut e = entorno();
+    e.boveda.crear_carpeta(&mut e.store, "compartida/v/w", "usuario").unwrap();
+    let p = e.boveda.carpeta_a_papelera(&mut e.store, "compartida/v", "usuario").unwrap();
+    assert_eq!(p.id, None);
+    assert!(!e.boveda.raiz().join("compartida/v").exists());
+    assert_eq!(e.eventos("boveda_carpeta_eliminada").len(), 1);
+    assert!(e.boveda.papelera().unwrap().is_empty());
+    assert!(matches!(e.boveda.carpeta_a_papelera(&mut e.store, "compartida", "usuario"), Err(ErrorBoveda::Argumentos(_))));
+    assert!(matches!(e.boveda.carpeta_a_papelera(&mut e.store, "compartida/no", "usuario"), Err(ErrorBoveda::NoExiste(_))));
+    e.usuario("compartida/f/x", "x");
+    std::fs::write(e.boveda.raiz().join("compartida/f/foto.png"), b"x").unwrap();
+    assert!(matches!(e.boveda.carpeta_a_papelera(&mut e.store, "compartida/f", "usuario"), Err(ErrorBoveda::Argumentos(_))));
+    assert!(e.boveda.raiz().join("compartida/f/x.md").exists());
+    for quien in ["modelo-local", "claude-code", "orquestador", ""] {
+        assert!(e.boveda.carpeta_a_papelera(&mut e.store, "compartida/f", quien).is_err(), "{quien}");
+    }
+}
+
+#[test]
+fn vaciar_la_papelera_borra_para_siempre_solo_ella_y_solo_el_usuario() {
+    let mut e = entorno();
+    let r = e.usuario("compartida/a/x", "uno");
+    e.usuario("compartida/a/y", "dos");
+    e.usuario("compartida/queda", "queda");
+    assert_eq!(e.boveda.simular_vaciar_papelera().unwrap().entradas, 0);
+    let v = e.version(&r);
+    e.boveda.a_papelera(&mut e.store, &r, &v, "usuario").unwrap();
+    e.boveda.carpeta_a_papelera(&mut e.store, "compartida/a", "usuario").unwrap();
+    let sim = e.boveda.simular_vaciar_papelera().unwrap();
+    assert_eq!((sim.entradas, sim.notas), (2, 2));
+    assert!(sim.bytes > 0);
+    for quien in ["modelo-local", "claude-code", "orquestador", ""] {
+        assert!(e.boveda.vaciar_papelera(&mut e.store, quien).is_err(), "{quien}");
+    }
+    assert_eq!(e.boveda.papelera().unwrap().len(), 2);
+    let hecho = e.boveda.vaciar_papelera(&mut e.store, "usuario").unwrap();
+    assert_eq!(hecho, sim);
+    assert!(e.boveda.papelera().unwrap().is_empty());
+    assert_eq!(e.eventos("boveda_papelera_vaciada").len(), 1);
+    assert!(e.texto("compartida/queda.md").contains("queda"));
+    // Vacía otra vez: no hace nada y no deja otro evento.
+    assert_eq!(e.boveda.vaciar_papelera(&mut e.store, "usuario").unwrap().entradas, 0);
+    assert_eq!(e.eventos("boveda_papelera_vaciada").len(), 1);
+}

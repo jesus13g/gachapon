@@ -31,6 +31,8 @@ pub use boveda::{
     consulta_fts, huella, Boveda, NotaEscrita, NotaLeida, NuevaNota, PlanPromocion, ResumenSincronizacion,
 };
 pub use cabecera::Cabecera;
-pub use usuario::{Arbol, EnPapelera, NotaCompleta, Renombrada};
+pub use usuario::{
+    Arbol, CarpetaEnPapelera, CarpetaRenombrada, EnPapelera, NotaCompleta, Renombrada, ResumenPapelera,
+};
 pub use error::{ErrorBoveda, Resultado};
 pub use limites::Limites;

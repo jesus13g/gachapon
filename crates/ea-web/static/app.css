@@ -541,6 +541,10 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .arbol .af.sel { background: var(--sel); color: var(--fg-hi); }
 .arbol .ad:focus, .arbol .af:focus { outline: 0; }
 .arbol .ad:focus-visible, .arbol .af:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.arbol .ad .menu-anc { flex: none; }
+.arbol .ad button.ico { width: 24px; height: 24px; padding: 0; opacity: 0; }
+.arbol .ad:hover button.ico, .arbol .ad button.ico:focus-visible, .arbol .ad button.ico[aria-expanded=true] { opacity: 1; }
+.arbol .ad .menu { min-width: 200px; font-weight: 400; }
 .arbol .ren { flex: 1; min-width: 0; height: 22px; padding: 0 4px; }
 .arbol .vacio { padding: 12px 8px; }
 .arbol-acc { display: flex; flex-direction: column; gap: 4px; padding: 0 8px 6px 0; }

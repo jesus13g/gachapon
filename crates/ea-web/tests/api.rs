@@ -3805,3 +3805,86 @@ async fn los_worktrees_propios_se_listan_y_se_limpian_con_simulacion() {
         .unwrap();
     assert!(rama.success(), "la rama se conserva");
 }
+
+// --- fase 2 del editor de la bóveda: carpetas y vaciar la papelera (spec 015) ---
+
+#[tokio::test]
+async fn renombrar_y_borrar_carpetas_de_la_boveda() {
+    let f = montar();
+    post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/a/x", "contenido": "soy x" })).await;
+    post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/a/sub/y", "contenido": "soy y" })).await;
+    post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/otra", "contenido": "[[x]] [y](a/sub/y.md)" })).await;
+    let (s, r) = post(&f, "/api/boveda/carpeta/renombrar", json!({ "ruta": "compartida/a", "nuevo": "compartida/b" })).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["carpeta"], "compartida/b");
+    assert_eq!(r["movidas"].as_array().unwrap().len(), 2);
+    assert_eq!(r["actualizadas"], json!(["compartida/otra.md"]));
+    let otra = std::fs::read_to_string(f.state.boveda.raiz().join("compartida/otra.md")).unwrap();
+    assert!(otra.contains("[y](b/sub/y.md)"), "{otra}");
+    assert!(f.state.boveda.raiz().join("compartida/b/x.md").exists() && !f.state.boveda.raiz().join("compartida/a").exists());
+    // Una región no se renombra; otra región o un destino ocupado, tampoco.
+    let (s, _) = post(&f, "/api/boveda/carpeta/renombrar", json!({ "ruta": "compartida", "nuevo": "compartida/z" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = post(&f, "/api/boveda/carpeta/renombrar", json!({ "ruta": "compartida/b", "nuevo": "claude-code/b" })).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    post(&f, "/api/boveda/carpeta", json!({ "ruta": "compartida/libre" })).await;
+    let (s, _) = post(&f, "/api/boveda/carpeta/renombrar", json!({ "ruta": "compartida/b", "nuevo": "compartida/libre" })).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+
+    // Borrar es mandar a la papelera, y restaurar devuelve todo.
+    let (s, p) = post(&f, "/api/boveda/carpeta/eliminar", json!({ "ruta": "compartida/b" })).await;
+    assert_eq!(s, StatusCode::OK, "{p}");
+    assert_eq!(p["vacia"], false);
+    assert_eq!(p["notas"].as_array().unwrap().len(), 2);
+    assert!(!f.state.boveda.raiz().join("compartida/b").exists());
+    let (_, l) = get(&f, "/api/boveda/papelera").await;
+    assert_eq!(l.as_array().unwrap().len(), 2);
+    let (s, r) = post(&f, "/api/boveda/papelera/restaurar", json!({ "id": p["id"] })).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(f.state.boveda.raiz().join("compartida/b/sub/y.md").exists());
+    let (_, a) = get(&f, "/api/boveda/arbol").await;
+    assert_eq!(a["en_papelera"], 0);
+    // Una carpeta vacía se quita sin papelera; una región, no.
+    let (s, p) = post(&f, "/api/boveda/carpeta/eliminar", json!({ "ruta": "compartida/libre" })).await;
+    assert_eq!((s, p["vacia"].clone()), (StatusCode::OK, json!(true)));
+    let (s, _) = post(&f, "/api/boveda/carpeta/eliminar", json!({ "ruta": "compartida" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = post(&f, "/api/boveda/carpeta/eliminar", json!({ "ruta": "compartida/no-esta" })).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (_, d) = get(&f, "/api/diario?limite=100").await;
+    let acc = acciones_del_diario(&d);
+    for e in ["boveda_carpeta_renombrada", "boveda_papelera_carpeta", "boveda_carpeta_eliminada", "boveda_restauracion"] {
+        assert!(acc.contains(&e.to_string()), "{e}: {acc:?}");
+    }
+}
+
+#[tokio::test]
+async fn vaciar_la_papelera_de_la_boveda_no_se_hace_desde_la_web() {
+    let f = montar();
+    let ruta = nota(&f, "claude-code", "Borrable", "contenido");
+    let (_, n) = get(&f, &format!("/api/boveda/fichero?ruta={ruta}")).await;
+    post(&f, "/api/boveda/eliminar", json!({ "ruta": ruta, "version": n["version"] })).await;
+    // No hay ruta que borre la papelera.
+    for ruta in ["/api/boveda/papelera/vaciar", "/api/boveda/vaciar-papelera", "/api/boveda/papelera/eliminar"] {
+        let (s, _) = post(&f, ruta, json!({})).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{ruta}");
+    }
+    let (s, _) = enviar(&f, Method::DELETE, "/api/boveda/papelera", "localhost:8092", None, true).await;
+    assert!(s == StatusCode::METHOD_NOT_ALLOWED || s == StatusCode::NOT_FOUND, "{s}");
+    let (_, l) = get(&f, "/api/boveda/papelera").await;
+    assert_eq!(l.as_array().unwrap().len(), 1, "la papelera sigue como estaba");
+    // Lo único que hace la web es abrir la terminal con el comando de `ea`.
+    for malo in [json!({ "boveda": "vaciar" }), json!({ "boveda": "vaciar-papelera", "confirmo": "vaciar-papelera" })] {
+        let (s, _) = post(&f, "/api/terminal/abrir", malo.clone()).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{malo}");
+    }
+    assert!(lanzadas(&f).is_empty());
+    let (s, r) = post(&f, "/api/terminal/abrir", json!({ "boveda": "vaciar-papelera" })).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["comando"], "ea boveda vaciar-papelera");
+    let l = lanzadas(&f);
+    assert_eq!(l.len(), 1);
+    assert_eq!(l[0][l[0].len() - 3..], ["boveda", "vaciar-papelera", "--esperar"]);
+    let (_, l) = get(&f, "/api/boveda/papelera").await;
+    assert_eq!(l.as_array().unwrap().len(), 1, "abrir la terminal no borra nada");
+}
