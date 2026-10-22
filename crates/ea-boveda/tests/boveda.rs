@@ -88,6 +88,7 @@ fn rechaza_rutas_que_salen_de_la_boveda() {
     assert!(!e.dir.path().join("compartida").exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn rechaza_enlaces_simbolicos_que_apuntan_fuera() {
     let e = entorno();

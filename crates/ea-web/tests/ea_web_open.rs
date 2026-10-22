@@ -2,6 +2,8 @@
 //! mentira en el PATH: qué URL abre según el fragmento, la clave y si ya hay
 //! ventana. Todo en un directorio temporal; no toca el escritorio real.
 
+#![cfg(unix)] // el lanzador es un script de shell para Linux/Hyprland
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
