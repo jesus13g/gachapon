@@ -3,6 +3,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
+const GL_AJUSTES = '<svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 5.4L10.9 3.1L13.1 3.1L13.5 5.4L15.7 6.3L17.5 4.9L19.1 6.5L17.7 8.3L18.6 10.5L20.9 10.9L20.9 13.1L18.6 13.5L17.7 15.7L19.1 17.5L17.5 19.1L15.7 17.7L13.5 18.6L13.1 20.9L10.9 20.9L10.5 18.6L8.3 17.7L6.5 19.1L4.9 17.5L6.3 15.7L5.4 13.5L3.1 13.1L3.1 10.9L5.4 10.5L6.3 8.3L4.9 6.5L6.5 4.9L8.3 6.3Z"/><circle cx="12" cy="12" r="3"/></svg>';
 const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'biblioteca', 'equipos', 'ajustes'];
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
 const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm', equipos: 'q' };
@@ -2040,7 +2041,7 @@ function filasSistema(e, plano = false, ag = null) {
 function filaServicios(p) {
   if (!p) return fila('ssvc', 's', '<i class="n">◌</i><span class="x">servicios residentes</span><span class="m">consultando el gestor…</span><span></span><span></span>', 'servicios residentes gestor instalar');
   const puestos = p.servicios.filter(x => x.instalado).length;
-  const row = `<i class="${puestos === p.servicios.length ? 'ok' : 'n'}">⚙</i><span class="x">servicios residentes</span>` +
+  const row = `<i class="${puestos === p.servicios.length ? 'ok' : 'n'}">${GL_AJUSTES}</i><span class="x">servicios residentes</span>` +
     `<span class="m" title="${esc(p.gestor)}">${esc(p.sistema)} · ${esc(p.backend)}</span>` +
     `<span class="m">${puestos}/${p.servicios.length} instalados</span><span></span>`;
   let det = `<p class="m ayuda">${esc(p.gestor)}. Binarios en <code>${esc(p.binarios)}</code>` +
@@ -2672,7 +2673,7 @@ function filasAjustes(d) {
   out.push(columnas('aj', '', 'ajuste', 'valor', 'origen', 'aplica'));
   d.secciones.forEach(s => {
     if (!s.claves.length) return;
-    out.push(grupo('⚙', esc(s.titulo), 0), ...s.claves.map(filaAjuste));
+    out.push(grupo(GL_AJUSTES, esc(s.titulo), 0), ...s.claves.map(filaAjuste));
   });
   return out;
 }

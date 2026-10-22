@@ -47,6 +47,9 @@ i { font-style: normal; text-align: center; }
 }
 #rail i { font-size: 18px; line-height: 1; }
 #rail span { font-size: 11px; }
+/* glifo SVG (Ajustes): mide como un glifo de texto, hereda el color */
+.gl { width: 1em; height: 1em; vertical-align: -.125em; }
+#rail i { display: flex; align-items: center; justify-content: center; }
 #rail button:hover { color: var(--fg-hi); background: none; }
 #rail button.on { color: var(--fg-hi); }
 #rail button.on::before {
@@ -90,6 +93,7 @@ header { display: flex; align-items: center; gap: 12px; height: 52px; flex: none
 #orq.hot { fill: var(--hot); }
 #orq.hot .engranaje { animation-play-state: paused; }
 #salud { color: var(--fg-lo); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#off, #lectura { flex: none; white-space: nowrap; font-style: normal; }
 #salud.hot { color: var(--hot); }
 
 button {
