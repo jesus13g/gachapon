@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "predeterminada",
+  "description": "Sin permisos para ninguna ventana: la página no recibe comandos de Tauri (spec 021, RF-003).",
+  "windows": [],
+  "permissions": []
+}

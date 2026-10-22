@@ -1,0 +1,175 @@
+//! Vigilancia periódica (spec 021, decisiones 5, 7 y 9). Sin `notify`: cada
+//! 2 s se compara el contenido del fichero de la clave y se sondea la API. La
+//! lógica de decisión es pura y se prueba sin ventana; el hilo que la mueve
+//! está en `main`.
+
+use std::collections::HashMap;
+use std::path::Path;
+use std::time::Duration;
+
+use serde_json::Value;
+
+use crate::clave;
+
+/// Cada cuánto mira el vigía.
+pub const PERIODO: Duration = Duration::from_secs(2);
+
+/// El semáforo de la cabecera y del icono de la bandeja.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Estado {
+    Bien,
+    Aviso,
+    Caido,
+}
+
+impl Estado {
+    pub fn texto(self) -> &'static str {
+        match self {
+            Estado::Bien => "todo en orden",
+            Estado::Aviso => "con avisos",
+            Estado::Caido => "ea-web no responde",
+        }
+    }
+}
+
+/// Estado a partir de `GET /api/estado`: el orquestador tiene que estar vivo y
+/// todos los servicios activos; si no, aviso.
+pub fn estado_de(estado_general: &Value) -> Estado {
+    let vivo = estado_general["orquestador"]["vivo"].as_bool().unwrap_or(false);
+    let servicios_activos = estado_general["servicios"]
+        .as_array()
+        .is_none_or(|s| s.iter().all(|sv| sv["activo"].as_str() == Some("active")));
+    if vivo && servicios_activos { Estado::Bien } else { Estado::Aviso }
+}
+
+/// Detecta cambios en la clave del fichero.
+pub struct VigiaClave {
+    ultima: Option<String>,
+}
+
+impl VigiaClave {
+    /// `inicial` es la clave que ya se entregó a la página.
+    pub fn nuevo(inicial: Option<String>) -> Self {
+        Self { ultima: inicial }
+    }
+
+    /// `Some(nueva)` si la clave del fichero cambió desde la última vez
+    /// (`nueva` es `None` si ya no hay clave válida); `None` si sigue igual.
+    pub fn comprobar(&mut self, fichero: &Path) -> Option<Option<String>> {
+        let actual = clave::leer(fichero);
+        if actual == self.ultima {
+            return None;
+        }
+        self.ultima = actual.clone();
+        Some(actual)
+    }
+}
+
+/// Un trabajo que acaba de llegar a un estado final.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AvisoTrabajo {
+    pub id: String,
+    pub titulo: String,
+    pub estado: String,
+}
+
+fn es_final(estado: &str) -> bool {
+    matches!(estado, "en_revision" | "en_espera" | "cerrado")
+}
+
+/// Detecta los trabajos que pasan a un estado final entre dos sondeos de
+/// `GET /api/trabajos`. La primera observación solo toma nota: no avisa de lo
+/// antiguo.
+#[derive(Default)]
+pub struct VigiaTrabajos {
+    vistos: Option<HashMap<String, String>>,
+}
+
+impl VigiaTrabajos {
+    pub fn observar(&mut self, lista: &Value) -> Vec<AvisoTrabajo> {
+        let Some(filas) = lista.as_array() else { return Vec::new() };
+        let ahora: HashMap<String, String> = filas
+            .iter()
+            .filter_map(|t| Some((t["id"].as_str()?.to_string(), t["estado"].as_str()?.to_string())))
+            .collect();
+        let mut avisos = Vec::new();
+        if let Some(antes) = &self.vistos {
+            for t in filas {
+                let (Some(id), Some(estado)) = (t["id"].as_str(), t["estado"].as_str()) else { continue };
+                let antes_final = antes.get(id).is_some_and(|e| es_final(e));
+                if es_final(estado) && !antes_final {
+                    let titulo = t["titulo"].as_str().filter(|s| !s.is_empty()).unwrap_or(id);
+                    avisos.push(AvisoTrabajo { id: id.to_string(), titulo: titulo.to_string(), estado: estado.to_string() });
+                }
+            }
+        }
+        self.vistos = Some(ahora);
+        avisos
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    #[test]
+    fn el_vigia_ve_la_clave_nueva_y_su_desaparicion() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("clave");
+        std::fs::write(&f, A).unwrap();
+        let mut v = VigiaClave::nuevo(Some(A.into()));
+        assert_eq!(v.comprobar(&f), None, "sin cambios");
+        std::fs::write(&f, format!("{B}\n")).unwrap();
+        assert_eq!(v.comprobar(&f), Some(Some(B.into())));
+        assert_eq!(v.comprobar(&f), None, "ya entregada");
+        std::fs::write(&f, "corrupta").unwrap();
+        assert_eq!(v.comprobar(&f), Some(None), "clave inválida = sin clave");
+        std::fs::remove_file(&f).unwrap();
+        assert_eq!(v.comprobar(&f), None, "sigue sin clave");
+        std::fs::write(&f, A).unwrap();
+        assert_eq!(v.comprobar(&f), Some(Some(A.into())));
+    }
+
+    #[test]
+    fn la_clave_que_aparece_despues_se_entrega() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("clave");
+        let mut v = VigiaClave::nuevo(None);
+        assert_eq!(v.comprobar(&f), None);
+        std::fs::write(&f, A).unwrap();
+        assert_eq!(v.comprobar(&f), Some(Some(A.into())));
+    }
+
+    #[test]
+    fn el_semaforo_sale_de_la_api() {
+        let bien = json!({"orquestador": {"vivo": true}, "servicios": [{"activo": "active"}, {"activo": "active"}]});
+        assert_eq!(estado_de(&bien), Estado::Bien);
+        let parado = json!({"orquestador": {"vivo": false}, "servicios": [{"activo": "active"}]});
+        assert_eq!(estado_de(&parado), Estado::Aviso);
+        let servicio = json!({"orquestador": {"vivo": true}, "servicios": [{"activo": "inactive"}]});
+        assert_eq!(estado_de(&servicio), Estado::Aviso);
+        assert_eq!(estado_de(&json!({})), Estado::Aviso);
+    }
+
+    #[test]
+    fn los_trabajos_avisan_al_llegar_a_un_estado_final() {
+        let mut v = VigiaTrabajos::default();
+        let t = |id: &str, estado: &str| json!({"id": id, "titulo": format!("t {id}"), "estado": estado});
+        // La primera vez solo toma nota, aunque haya trabajos terminados.
+        assert!(v.observar(&json!([t("a", "cerrado"), t("b", "ejecutando")])).is_empty());
+        // b termina: aviso. a sigue cerrado: nada.
+        let av = v.observar(&json!([t("a", "cerrado"), t("b", "en_revision")]));
+        assert_eq!(av, vec![AvisoTrabajo { id: "b".into(), titulo: "t b".into(), estado: "en_revision".into() }]);
+        // b pasa de en_revision a cerrado: ya se avisó.
+        assert!(v.observar(&json!([t("a", "cerrado"), t("b", "cerrado")])).is_empty());
+        // Un trabajo nuevo que ya llega terminado entre dos sondeos avisa.
+        assert_eq!(v.observar(&json!([t("a", "cerrado"), t("b", "cerrado"), t("c", "en_espera")])).len(), 1);
+        // Cancelado no avisa; un valor que no es lista, tampoco.
+        assert!(v.observar(&json!([t("d", "cancelado")])).is_empty());
+        assert!(v.observar(&json!({"error": "x"})).is_empty());
+    }
+}
