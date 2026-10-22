@@ -294,6 +294,7 @@ volver a arrancar los servicios.
 - `crates/ea-cli`: binario `ea`, CLI y TUI.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
+- `escritorio/`: la app de escritorio `ea-escritorio` (spec 021); fuera del workspace.
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
   rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
 - `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).
@@ -413,6 +414,44 @@ Los adaptadores nombran la ruta `~/Proyectos/ecosistema-asistente/agentes/flujo/
 instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
 Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
+
+## App de escritorio
+
+`ea-escritorio` (spec 021) es una ventana nativa que muestra el mismo panel de
+`ea-web` (misma interfaz, raíl, cabecera y escena de Inicio) con icono en la
+bandeja del sistema y avisos nativos. Vive en `escritorio/`, fuera del
+workspace, y es un proceso del usuario, no un servicio: no corre en el sandbox
+y no lo toca `ea servicios instalar`. Necesita `ea-web` en marcha.
+
+```bash
+cargo build --release --manifest-path escritorio/Cargo.toml
+./escritorio/target/release/ea-escritorio
+```
+
+Dependencias por sistema: WebKitGTK 4.1 en Linux (`libwebkit2gtk-4.1`,
+`libayatana-appindicator3`), WebView2 en Windows (viene con Windows 11 y
+Edge) y nada que instalar en macOS.
+
+- **Bandeja**: cerrar la ventana la oculta; el icono la vuelve a mostrar y
+  permite salir.
+- **Clave de sesión**: el shell lee el fichero de la clave de `ea-web` y la
+  entrega a la página sin pasarla por la URL ni por argumentos de proceso.
+- **Un solo aviso**: con el shell vivo, los avisos de fin de trabajo los da
+  solo él (notificación nativa; al pulsarla abre el trabajo) y el orquestador
+  calla. Sin shell, avisa el orquestador como siempre. El ajuste
+  `agente.avisos_escritorio` (⚙ Ajustes o `ea ajustes`) apaga los avisos de
+  ambos y se relee en cada aviso, sin reiniciar.
+- **Arranque con la sesión**: el ajuste `escritorio.al_iniciar` (por defecto
+  `false`) crea o quita la entrada de autoarranque del sistema
+  (`~/.config/autostart/ea-escritorio.desktop`, un LaunchAgent o la clave `Run`
+  del usuario) y arranca oculto en la bandeja.
+- **Enlaces profundos**: `ea-escritorio '#trabajos/<id>'` abre la ventana en
+  esa vista, o la enfoca si ya está abierta.
+- **Hyprland**: para colocarla en su espacio de trabajo, regla con la clase
+  `ea-escritorio` y `workspace 4`.
+- `ea-web-open` sigue siendo una alternativa en Linux/Hyprland (panel como
+  web app de Chromium). Si existe `ea-escritorio`, la acción «abrir» del aviso
+  del orquestador lo usa en su lugar.
 
 ## La escena de Inicio
 
