@@ -162,7 +162,7 @@ fn plan_de_claude_code_con_mcp_plugins_skills_y_subagentes() {
         ],
     );
     let plan = plan_sesion("claude-code", &sel, &m.inv, &m.r).unwrap();
-    let dir = m.runtime.join("ea-biblioteca/sesiones").join(&plan.id);
+    let dir = m.runtime.join("ea-biblioteca").join("sesiones").join(&plan.id);
     assert_eq!(plan.directorio, dir);
     let d = |n: &str| dir.join(n).display().to_string();
     assert_eq!(
@@ -176,7 +176,7 @@ fn plan_de_claude_code_con_mcp_plugins_skills_y_subagentes() {
 
     let ajustes: serde_json::Value = serde_json::from_str(&plan.ficheros.iter().find(|f| f.ruta.ends_with("ajustes.json")).unwrap().contenido).unwrap();
     assert_eq!(ajustes["enabledPlugins"], serde_json::json!({ "foo@mkt": true, "apagado@mkt": false }));
-    let enlaces: Vec<String> = plan.enlaces.iter().map(|e| e.ruta.strip_prefix(&dir).unwrap().display().to_string()).collect();
+    let enlaces: Vec<String> = plan.enlaces.iter().map(|e| e.ruta.strip_prefix(&dir).unwrap().display().to_string().replace('\\', "/")).collect();
     assert_eq!(enlaces, ["complemento/skills/propia", "complemento/skills/mision", "complemento/agents/revisor.md", "complemento/commands/saludo.md"]);
 
     // El plan es determinista (la simulación y la ejecución coinciden).
