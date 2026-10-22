@@ -1670,6 +1670,69 @@ async fn no_se_crean_memorias_desde_la_web() {
 }
 
 #[tokio::test]
+async fn crear_una_memoria_escribe_cabecera_e_indice_y_deja_rastro() {
+    let f = montar();
+    let mem = montar_memoria(&f);
+    let cuerpo = json!({ "fichero": "mi-nota", "titulo": "Mi nota", "descripcion": "Para recordar", "tipo": "user", "cuerpo": "Texto." });
+    let (s, m) = post(&f, "/api/memoria/-home-u-proy/crear", cuerpo.clone()).await;
+    assert_eq!(s, StatusCode::CREATED, "{m}");
+    assert_eq!(m["nombre"], "mi-nota.md");
+    let en_disco = std::fs::read_to_string(mem.join("mi-nota.md")).unwrap();
+    assert_eq!(en_disco, "---\nname: Mi nota\ndescription: Para recordar\nmetadata:\n  type: user\n---\n\nTexto.\n");
+    assert_eq!(
+        std::fs::read_to_string(mem.join("MEMORY.md")).unwrap(),
+        "- [Refactor](refactor.md) — gancho\n- [Mi nota](mi-nota.md) — Para recordar\n"
+    );
+    // Aparece en el listado con su título y tipo.
+    let (_, l) = get(&f, "/api/memoria").await;
+    let fichero = l["proyectos"][0]["ficheros"].as_array().unwrap().iter().find(|x| x["nombre"] == "mi-nota.md").unwrap().clone();
+    assert_eq!((fichero["titulo"].as_str(), fichero["tipo"].as_str()), (Some("Mi nota"), Some("user")));
+    let (_, d) = get(&f, "/api/diario").await;
+    assert!(d.as_array().unwrap().iter().any(|e| e["accion"] == "memoria_creada" && e["actor"] == "usuario"), "{d}");
+    // No pisa: 409 y nada cambia.
+    let antes = std::fs::read_to_string(mem.join("MEMORY.md")).unwrap();
+    let otra = json!({ "fichero": "mi-nota.md", "titulo": "Otra", "descripcion": "x", "tipo": "project" });
+    let (s, _) = post(&f, "/api/memoria/-home-u-proy/crear", otra).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    assert_eq!(std::fs::read_to_string(mem.join("mi-nota.md")).unwrap(), en_disco);
+    assert_eq!(std::fs::read_to_string(mem.join("MEMORY.md")).unwrap(), antes);
+}
+
+#[tokio::test]
+async fn crear_una_memoria_rechaza_lo_invalido() {
+    let f = montar();
+    let mem = montar_memoria(&f);
+    let base = json!({ "fichero": "ok", "titulo": "T", "descripcion": "D", "tipo": "project" });
+    let con = |k: &str, v: Value| {
+        let mut b = base.clone();
+        b[k] = v;
+        b
+    };
+    for malo in [
+        con("fichero", json!("../fuera")),
+        con("fichero", json!("a/b")),
+        con("fichero", json!("Mayus")),
+        con("fichero", json!("MEMORY.md")),
+        con("fichero", json!("")),
+        con("tipo", json!("otro")),
+        con("titulo", json!("")),
+        con("descripcion", json!("dos\nlíneas")),
+    ] {
+        let (s, _) = post(&f, "/api/memoria/-home-u-proy/crear", malo.clone()).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{malo}");
+    }
+    let (s, _) = post(&f, "/api/memoria/%2E%2E/crear", base.clone()).await;
+    assert!(s == StatusCode::BAD_REQUEST || s == StatusCode::NOT_FOUND, "{s}");
+    let (s, _) = post(&f, "/api/memoria/-no-existe/crear", base.clone()).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = enviar(&f, Method::POST, "/api/memoria/-home-u-proy/crear", "localhost:8092", Some(base), false).await;
+    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(std::fs::read_to_string(mem.join("MEMORY.md")).unwrap(), "- [Refactor](refactor.md) — gancho\n");
+    assert!(!mem.join("ok.md").exists());
+    assert!(!f._dir.path().join("proyectos/fuera.md").exists());
+}
+
+#[tokio::test]
 async fn guardar_la_memoria_exige_json_y_un_tamano_razonable() {
     let f = montar();
     let mem = montar_memoria(&f);

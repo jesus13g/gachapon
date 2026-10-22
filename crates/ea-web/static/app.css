@@ -544,6 +544,11 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 .arbol-bar { display: flex; flex-wrap: wrap; gap: 4px; }
 .arbol-bar button.on { color: var(--accent); background: var(--sel); }
 .arbol-acc .nueva { height: 28px; padding: 0 6px; font-size: 13px; }
+.mem-nueva { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.mem-nueva input, .mem-nueva select, .mem-nueva textarea { height: 28px; padding: 0 6px; font-size: 13px; width: 100%; }
+.mem-nueva textarea { height: auto; padding: 6px; font: inherit; font-size: 13px; color: var(--fg-hi); background: var(--bg2); border: 0; border-radius: 4px; resize: vertical; outline: 0; }
+.mem-nueva textarea:focus { background: var(--sel); }
+.mem-nueva .err { color: var(--hot); }
 .pap { display: flex; flex-direction: column; margin-top: 8px; }
 .pap-f { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 4px; border-radius: 4px; }
 .pap-f:hover { background: var(--bg2); }

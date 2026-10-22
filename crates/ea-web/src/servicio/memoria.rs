@@ -66,6 +66,15 @@ pub async fn guardar(
     Ok(m)
 }
 
+/// Crea una memoria nueva (spec 014, H5): fichero con cabecera y línea en
+/// `MEMORY.md`. Nunca pisa una existente.
+pub async fn crear(s: &AppState, proyecto: &str, n: &memoria::NuevaMemoria<'_>) -> Resultado<memoria::Memoria> {
+    let m = memoria::crear(raiz(s)?, proyecto, n)?;
+    let detalle = json!({ "proyecto": proyecto, "fichero": m.nombre, "tipo": n.tipo, "bytes": m.contenido.len() });
+    apunta(s, "memoria_creada", detalle).await;
+    Ok(m)
+}
+
 /// Borrado definitivo (constitución IV.2, excepción 1.1.0): el contenido queda
 /// en el diario, que es append-only.
 pub async fn eliminar(s: &AppState, proyecto: &str, fichero: &str, version: &str) -> Resultado<Hecho> {
