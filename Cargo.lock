@@ -482,11 +482,13 @@ dependencies = [
  "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+ "time",
  "tokio",
 ]
 
@@ -508,6 +510,7 @@ name = "ea-biblioteca"
 version = "0.1.0"
 dependencies = [
  "ea-ajustes",
+ "ea-plataforma",
  "libc",
  "rusqlite",
  "serde",
@@ -558,6 +561,7 @@ dependencies = [
  "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
  "ea-web",
  "libc",
@@ -648,9 +652,9 @@ dependencies = [
  "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
  "http-body-util",
- "libc",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

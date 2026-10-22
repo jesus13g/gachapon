@@ -12,11 +12,14 @@
 //! la propuesta desde una interfaz del usuario ([`flujo::aceptar_propuesta`]),
 //! con el nivel de riesgo limitando qué canal puede confirmar.
 
+pub mod calendario;
 pub mod catalogo;
 mod diff;
 pub mod error;
 pub mod flujo;
 pub mod herramientas;
+mod plist;
+pub mod servicios;
 pub mod sesion;
 pub mod sistema;
 pub mod temporizador;
@@ -30,5 +33,6 @@ pub use flujo::{aceptar_propuesta, aceptar_propuesta_con_resultado, ejecutar, ej
 pub use herramientas::{campos, observar, simular_con, validar_argumentos, Campo, Hechos, Simulacion};
 pub use sistema::{canal_de_ajustes, Consulta, EstadoServicio, Sistema, SistemaReal, SistemaSimulado, SoloConsulta};
 pub use temporizador::{Calendario, EstadoTimer, Temporizadores};
-pub use terminal::{lanzar_en_terminal, Terminal, TerminalSimulada, TerminalSistema, LANZADORES};
+pub use servicios::{Backend, GestorServicios, InfoServicio, SERVICIOS_INSTALABLES};
+pub use terminal::{lanzar_en_terminal, OrdenTerminal, Terminal, TerminalSimulada, TerminalSistema};
 pub use sesion::lanzar_sesion;

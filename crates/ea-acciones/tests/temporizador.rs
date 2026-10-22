@@ -107,6 +107,7 @@ async fn programar_se_propone_se_revalida_y_al_aceptar_se_programa() {
 
 /// Un `systemctl` y un `systemd-analyze` falsos: apuntan sus argumentos (uno
 /// por línea) y responden como los de verdad lo justo para las pruebas.
+#[cfg(unix)]
 fn temporizadores(dir: &std::path::Path) -> (Temporizadores, std::path::PathBuf) {
     let log = dir.join("ordenes.log");
     let sc = dir.join("systemctl.sh");
@@ -137,9 +138,10 @@ fn temporizadores(dir: &std::path::Path) -> (Temporizadores, std::path::PathBuf)
     )
     .unwrap();
     let sh = |p: &std::path::Path| vec!["sh".to_string(), p.display().to_string()];
-    (Temporizadores { unidades_dir: dir.join("unidades"), systemctl: sh(&sc), systemd_analyze: sh(&sa) }, log)
+    (Temporizadores::systemd(dir.join("unidades"), sh(&sc), sh(&sa)), log)
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn el_timer_real_se_escribe_con_argumentos_y_se_quita() {
     let d = tempfile::tempdir().unwrap();
@@ -177,6 +179,7 @@ async fn el_timer_real_se_escribe_con_argumentos_y_se_quita() {
     assert!(!ordenes.contains("ExecStart"));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn si_systemctl_falla_el_fichero_del_timer_queda_como_estaba() {
     let d = tempfile::tempdir().unwrap();

@@ -20,13 +20,12 @@ use serde_json::{json, Map, Value};
 use super::{ErrorWeb, Resultado, ACTOR};
 use crate::AppState;
 
-use ea_acciones::LANZADORES;
-
 /// Cómo se abre la terminal. `WebConfig::load` usa `Sistema`; las pruebas,
 /// `Simulada` (nunca se abre una ventana de verdad desde una prueba).
 #[derive(Clone)]
 pub enum Terminal {
-    /// Uno de `LANZADORES`, con el binario `ea` que hay junto a `ea-web`.
+    /// Un lanzador del sistema (`ea_plataforma::escritorio::lanzadores_terminal`),
+    /// con el binario `ea` que hay junto a `ea-web`.
     Sistema { ea: PathBuf },
     /// No se lanza nada: cada argv que se habría lanzado se apunta aquí.
     Simulada { ea: PathBuf, lanzadas: Arc<Mutex<Vec<Vec<String>>>> },
@@ -38,7 +37,7 @@ impl Terminal {
     /// La del sistema, con el `ea` de la misma carpeta que este binario
     /// (`target/release/`, donde los ejecutan los servicios), nunca del PATH.
     pub fn del_sistema() -> Self {
-        match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("ea"))) {
+        match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(ea_plataforma::rutas::nombre_exe("ea")))) {
             Some(ea) => Self::Sistema { ea },
             None => Self::Ninguna,
         }
@@ -178,7 +177,7 @@ pub fn lanzar_argv(s: &AppState, args: &[String]) -> Resultado<()> {
             ea_acciones::lanzar_en_terminal(&argv).map_err(ErrorWeb::NoDisponible)?;
         }
         Terminal::Simulada { ea, lanzadas } => {
-            let mut argv = vec![LANZADORES[0].to_string(), ea.display().to_string()];
+            let mut argv = vec![ea_plataforma::escritorio::lanzadores_terminal()[0].to_string(), ea.display().to_string()];
             argv.extend(args.iter().cloned());
             lanzadas.lock().map_err(|_| ErrorWeb::Interno("registro envenenado".into()))?.push(argv);
         }

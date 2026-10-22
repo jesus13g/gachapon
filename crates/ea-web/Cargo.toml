@@ -15,6 +15,7 @@ ea-acciones = { path = "../ea-acciones" }
 ea-boveda = { path = "../ea-boveda" }
 ea-ajustes = { path = "../ea-ajustes" }
 ea-biblioteca = { path = "../ea-biblioteca" }
+ea-plataforma = { path = "../ea-plataforma" }
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "process", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -24,7 +25,6 @@ toml = "0.8"
 directories = "5.0"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 anyhow = "1.0"
-libc = "0.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 

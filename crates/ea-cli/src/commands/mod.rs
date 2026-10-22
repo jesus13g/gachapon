@@ -8,6 +8,7 @@ pub mod equipo;
 pub mod propuestas;
 pub mod qwen_skills;
 pub mod rutinas;
+pub mod servicios;
 pub mod status;
 pub mod trabajo;
 

@@ -34,7 +34,7 @@ pub struct WebConfig {
     /// Antigüedad máxima del último heartbeat para considerar vivo al
     /// orquestador (el doble del intervalo, igual que `ea status`).
     pub umbral_heartbeat_s: i64,
-    /// `colors.toml` del tema activo de Omarchy.
+    /// `colors.toml` del tema activo de Omarchy (vacía si no hay Omarchy).
     pub tema_path: PathBuf,
     pub rutinas_dir: PathBuf,
     /// La bóveda que se muestra y en la que se promueve.
@@ -76,10 +76,12 @@ impl WebConfig {
             tracing::warn!(%aviso, "ajustes");
         }
         let a = efectivos.ajustes;
+        // Omarchy solo existe en Linux (`state_dir`); sin él, una ruta vacía
+        // (que no se puede leer) y la web usa sus colores por defecto, en vez
+        // de una ruta relativa al directorio de trabajo.
         let tema_path = directories::BaseDirs::new()
-            .and_then(|d| d.state_dir().map(|s| s.to_path_buf()))
-            .unwrap_or_default()
-            .join("omarchy/current/theme/colors.toml");
+            .and_then(|d| d.state_dir().map(|s| s.join("omarchy/current/theme/colors.toml")))
+            .unwrap_or_default();
         Self {
             // `red.puerto_web` (`EA_WEB_PORT` le gana); el host, siempre 127.0.0.1.
             puerto: a.red.puerto_web,
