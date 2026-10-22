@@ -19,6 +19,17 @@ pub fn dir_ejecucion(entorno: &Entorno) -> Option<PathBuf> {
     ea_plataforma::rutas::dir_ejecucion(|n| entorno.var(n))
 }
 
+/// Subdirectorio de `ea-escritorio` dentro del directorio de ejecución.
+pub const DIR_ESCRITORIO: &str = "ea-escritorio";
+/// Fichero de presencia del shell de escritorio (su pid; 0600).
+pub const FICHERO_PRESENCIA: &str = "presencia";
+
+/// Ruta del fichero de presencia de `ea-escritorio` dentro de un directorio
+/// de ejecución: `<ejecucion>/ea-escritorio/presencia`.
+pub fn fichero_presencia_escritorio(ejecucion: &Path) -> PathBuf {
+    ejecucion.join(DIR_ESCRITORIO).join(FICHERO_PRESENCIA)
+}
+
 /// Ruta del fichero de la clave dentro de un directorio de ejecución.
 pub fn fichero_clave_web(ejecucion: &Path) -> PathBuf {
     ejecucion.join(DIR_WEB).join(FICHERO_CLAVE)
@@ -35,6 +46,7 @@ mod tests {
         let e = Entorno::Fijo(BTreeMap::from([("XDG_RUNTIME_DIR".into(), "/run/user/42".into())]));
         assert_eq!(dir_ejecucion(&e), Some(PathBuf::from("/run/user/42")));
         assert_eq!(fichero_clave_web(Path::new("/run/user/42")), PathBuf::from("/run/user/42/ea-web/clave"));
+        assert_eq!(fichero_presencia_escritorio(Path::new("/run/user/42")), PathBuf::from("/run/user/42/ea-escritorio/presencia"));
         // Una ruta relativa no vale: se cae al de /run/user/<uid> (si existe).
         let rel = Entorno::Fijo(BTreeMap::from([("XDG_RUNTIME_DIR".into(), "relativa".into())]));
         assert_ne!(dir_ejecucion(&rel), Some(PathBuf::from("relativa")));

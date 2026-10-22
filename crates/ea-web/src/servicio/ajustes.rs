@@ -40,6 +40,17 @@ pub async fn cambiar(s: &AppState, version: &str, cambios: BTreeMap<String, Opti
     let lote: Vec<(String, Option<Value>)> = cambios.into_iter().collect();
     let aplicados = establecer(&s.config.ajustes, Canal::Web, Some(version), &lote)?;
 
+    // El efecto de `escritorio.al_iniciar` (autoarranque); si falla, el ajuste
+    // ya está guardado y queda en el log.
+    // E/S bloqueante (ficheros, `reg` en Windows): fuera del ejecutor async.
+    let copia = aplicados.clone();
+    let avisos = tokio::task::spawn_blocking(move || ea_ajustes::aplicar_efectos(&copia))
+        .await
+        .unwrap_or_else(|e| vec![format!("no se pudo aplicar el efecto del ajuste: {e}")]);
+    for aviso in &avisos {
+        tracing::warn!("{aviso}");
+    }
+
     let detalle = json!({
         "canal": "web",
         "fichero": s.config.ajustes.fichero().display().to_string(),
@@ -70,5 +81,6 @@ pub async fn cambiar(s: &AppState, version: &str, cambios: BTreeMap<String, Opti
             })
             .collect(),
         ajustes: ver(s),
+        avisos,
     })
 }

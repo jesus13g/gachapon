@@ -8,7 +8,8 @@ Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017). El usuario puede
 despertar **equipos** de varios agentes que trabajan a la vez, con colas por
 agente, worktree propio y presencia (spec 019, constitución 1.4.0). Corre en
 Linux, macOS y Windows con el sandbox de cada sistema (spec 020, constitución
-1.5.0). Se comunican
+1.5.0). Una app de escritorio nativa (`escritorio/`, spec 021,
+constitución 1.5.1) envuelve el panel con bandeja y avisos. Se comunican
 por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
 `orquestador-claude-qwen.md`.
 
@@ -57,7 +58,9 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 | `ea-mcp` | Servidor MCP HTTP en `127.0.0.1:8765` |
 | `ea-web` | API JSON y panel en `127.0.0.1:8092`; `static/` va embebido con `include_str!` (recompilar para ver cambios) |
 
-Fuera de `crates/`: `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
+Fuera de `crates/`: `escritorio/` (app de escritorio `ea-escritorio`, spec 021;
+crate propio **fuera del workspace**, con su `Cargo.toml` y su CI; se compila con
+`cargo build --release --manifest-path escritorio/Cargo.toml`), `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
 `/revisar`, `/equipo`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
 vivas), `claude/hooks/` (envoltorio del hook de subagentes; el trabajo lo hace `ea hook subagentes`), `qwen/skills/`
 (skills cortas de Qwen) y `bench/` (banco de pruebas en Python, ajeno a los

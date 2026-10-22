@@ -141,10 +141,10 @@ async fn guardia(State(s): State<Arc<AppState>>, req: Request, next: Next) -> Re
     if !matches!(*req.method(), Method::GET | Method::HEAD) {
         let mensaje = match req.headers().get(clave::CABECERA) {
             None => Some(
-                "falta la clave de sesión del panel (cabecera X-EA-Clave): ábrelo con ea-web-open para poder cambiar nada",
+                "falta la clave de sesión del panel (cabecera X-EA-Clave): ábrelo con ea-escritorio o ea-web-open para poder cambiar nada",
             ),
             Some(v) if !s.clave.coincide(v.as_bytes()) => Some(
-                "la clave de sesión del panel no es válida (¿se reinició ea-web?): cierra la ventana y vuelve a abrirla con ea-web-open",
+                "la clave de sesión del panel no es válida (¿se reinició ea-web?): cierra la ventana y vuelve a abrirla con ea-escritorio o ea-web-open",
             ),
             Some(_) => None,
         };

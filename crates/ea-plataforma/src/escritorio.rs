@@ -266,6 +266,147 @@ pub fn lanzar_en_terminal(orden: &OrdenTerminal) -> io::Result<()> {
     }
 }
 
+/// Argumento con que el autoarranque abre la app: oculta, en la bandeja.
+pub const ARG_OCULTO: &str = "--oculto";
+/// Nombre de la entrada de autoarranque en Linux (`.desktop`) y en la clave
+/// `Run` de Windows.
+pub const NOMBRE_AUTOARRANQUE: &str = "ea-escritorio";
+/// Etiqueta del LaunchAgent de macOS.
+pub const ETIQUETA_LAUNCHAGENT: &str = "com.ecosistema-asistente.escritorio";
+
+/// Cita para el campo `Exec` de un `.desktop` según la Desktop Entry Spec:
+/// primero el citado de Exec (entre comillas dobles, `"`, `` ` ``, `$` y `\`
+/// con barra; `%` duplicado por los códigos de campo) y después el escape de
+/// cadena del valor, que duplica cada `\`.
+fn citar_desktop(t: &str) -> String {
+    let mut s = String::from("\"");
+    for ch in t.chars() {
+        match ch {
+            '\\' | '"' | '`' | '$' => {
+                s.push('\\');
+                s.push(ch);
+            }
+            '%' => s.push_str("%%"),
+            c => s.push(c),
+        }
+    }
+    s.push('"');
+    s.replace('\\', "\\\\")
+}
+
+/// Contenido del `.desktop` de autoarranque (Linux). Puro.
+pub fn contenido_desktop(binario: &Path) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName=Ecosistema\nComment=App de escritorio del ecosistema (en la bandeja)\nExec={} {ARG_OCULTO}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        citar_desktop(&binario.display().to_string())
+    )
+}
+
+fn escapar_xml(t: &str) -> String {
+    t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+}
+
+/// Contenido del LaunchAgent de autoarranque (macOS). Puro.
+pub fn contenido_launchagent(binario: &Path) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n  <key>Label</key>\n  <string>{ETIQUETA_LAUNCHAGENT}</string>\n  <key>ProgramArguments</key>\n  <array>\n    <string>{}</string>\n    <string>{ARG_OCULTO}</string>\n  </array>\n  <key>RunAtLoad</key>\n  <true/>\n</dict>\n</plist>\n",
+        escapar_xml(&binario.display().to_string())
+    )
+}
+
+/// Valor de la clave `Run` de Windows. Puro.
+pub fn valor_run(binario: &Path) -> String {
+    format!("\"{}\" {ARG_OCULTO}", binario.display())
+}
+
+/// Dónde queda el fichero de autoarranque en Linux y macOS (en Windows no hay
+/// fichero: es una clave del registro). `config` es `$XDG_CONFIG_HOME` si
+/// existe. Puro.
+pub fn ruta_autoarranque(home: &Path, config: Option<&Path>) -> Option<PathBuf> {
+    if cfg!(windows) {
+        None
+    } else if cfg!(target_os = "macos") {
+        Some(home.join("Library/LaunchAgents").join(format!("{ETIQUETA_LAUNCHAGENT}.plist")))
+    } else {
+        let base = config.map_or_else(|| home.join(".config"), Path::to_path_buf);
+        Some(base.join("autostart").join(format!("{NOMBRE_AUTOARRANQUE}.desktop")))
+    }
+}
+
+const CLAVE_RUN: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+
+/// Activa o quita el arranque de `ea-escritorio` con la sesión del usuario,
+/// oculto en la bandeja: `~/.config/autostart/ea-escritorio.desktop` (Linux),
+/// un LaunchAgent (macOS) o la clave `Run` del usuario (Windows). Idempotente:
+/// activar reescribe la entrada y quitar sin entrada no es un error.
+/// `binario` solo hace falta al activar.
+pub fn autoarranque(activar: bool, binario: &Path) -> io::Result<()> {
+    let home = super::usuario::home();
+    let config = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).filter(|p| p.is_absolute());
+    autoarranque_en(home.as_deref(), config.as_deref(), activar, binario)
+}
+
+/// Como [`autoarranque`], con el home y `$XDG_CONFIG_HOME` explícitos (las
+/// pruebas usan un home temporal). En Windows el home no se usa.
+pub fn autoarranque_en(home: Option<&Path>, config: Option<&Path>, activar: bool, binario: &Path) -> io::Result<()> {
+    if cfg!(windows) {
+        let mut c = Command::new("reg");
+        if activar {
+            c.args(["add", CLAVE_RUN, "/v", NOMBRE_AUTOARRANQUE, "/t", "REG_SZ", "/d"]).arg(valor_run(binario)).arg("/f");
+        } else {
+            c.args(["delete", CLAVE_RUN, "/v", NOMBRE_AUTOARRANQUE, "/f"]);
+        }
+        let st = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status()?;
+        // Quitar una clave que no existe no es un error.
+        return if st.success() || !activar { Ok(()) } else { Err(io::Error::other(format!("reg terminó con {st}"))) };
+    }
+    let home = home.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no se conoce el directorio personal"))?;
+    let ruta = ruta_autoarranque(home, config).ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "sin autoarranque en este sistema"))?;
+    if !activar {
+        if cfg!(target_os = "macos") {
+            launchctl(false, &ruta);
+        }
+        return match std::fs::remove_file(&ruta) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    let contenido = if cfg!(target_os = "macos") { contenido_launchagent(binario) } else { contenido_desktop(binario) };
+    if let Some(dir) = ruta.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    if cfg!(target_os = "macos") {
+        // Si ya estaba cargado, se descarga antes para que tome el plist nuevo.
+        launchctl(false, &ruta);
+    }
+    std::fs::write(&ruta, &contenido)?;
+    if cfg!(target_os = "macos") {
+        launchctl(true, &ruta);
+    }
+    Ok(())
+}
+
+/// Carga o descarga el LaunchAgent en la sesión gráfica del usuario
+/// (`launchctl bootstrap|bootout gui/<uid>`). Mejor esfuerzo: si falla, el
+/// plist ya está escrito o borrado y el cambio vale desde el siguiente inicio
+/// de sesión. En pruebas no se ejecuta.
+#[allow(unused_variables)]
+fn launchctl(cargar: bool, plist: &Path) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        let uid = Command::new("id").arg("-u").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
+        let Some(uid) = uid else { return };
+        let dominio = format!("gui/{uid}");
+        let mut c = Command::new("launchctl");
+        if cargar {
+            c.args(["bootstrap", &dominio]).arg(plist);
+        } else {
+            c.args(["bootout", &format!("{dominio}/{ETIQUETA_LAUNCHAGENT}")]);
+        }
+        let _ = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,6 +476,49 @@ mod tests {
     #[test]
     fn uri_codifica() {
         assert_eq!(uri_fichero("/a b/c'd"), "file:///a%20b/c%27d");
+    }
+
+    #[test]
+    fn contenidos_de_autoarranque() {
+        let d = contenido_desktop(Path::new("/opt/mi app/ea-escritorio"));
+        assert!(d.contains("Exec=\"/opt/mi app/ea-escritorio\" --oculto\n"), "{d}");
+        // Citado de Exec y luego escape de cadena (cada `\` se duplica).
+        assert!(contenido_desktop(Path::new("/a\"$b")).contains("Exec=\"/a\\\\\"\\\\$b\" --oculto"));
+        assert_eq!(citar_desktop("/a b/c"), "\"/a b/c\"");
+        assert_eq!(citar_desktop("/a\\b"), "\"/a\\\\\\\\b\"");
+        assert_eq!(citar_desktop("/x`y%z"), "\"/x\\\\`y%%z\"");
+        let p = contenido_launchagent(Path::new("/x/a&b"));
+        assert!(p.contains("<string>/x/a&amp;b</string>") && p.contains("<string>--oculto</string>") && p.contains("RunAtLoad"));
+        assert_eq!(valor_run(Path::new(r"C:\ea\ea-escritorio.exe")), "\"C:\\ea\\ea-escritorio.exe\" --oculto");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn autoarranque_escribe_y_quita_con_home_temporal() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = Path::new("/opt/ea/ea-escritorio");
+        let ruta = ruta_autoarranque(home.path(), None).unwrap();
+        assert!(ruta.starts_with(home.path()));
+        // Quitar sin entrada no falla.
+        autoarranque_en(Some(home.path()), None, false, bin).unwrap();
+        autoarranque_en(Some(home.path()), None, true, bin).unwrap();
+        let t = std::fs::read_to_string(&ruta).unwrap();
+        assert!(t.contains("/opt/ea/ea-escritorio") && t.contains("--oculto"));
+        // Idempotente.
+        autoarranque_en(Some(home.path()), None, true, bin).unwrap();
+        autoarranque_en(Some(home.path()), None, false, bin).unwrap();
+        assert!(!ruta.exists());
+        assert!(autoarranque_en(None, None, true, bin).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn autoarranque_respeta_xdg_config_home() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg = tempfile::tempdir().unwrap();
+        autoarranque_en(Some(home.path()), Some(cfg.path()), true, Path::new("/b/ea-escritorio")).unwrap();
+        assert!(cfg.path().join("autostart/ea-escritorio.desktop").is_file());
+        assert!(!home.path().join(".config").exists());
     }
 
     #[test]

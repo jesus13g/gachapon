@@ -42,6 +42,39 @@ pub fn vive(pid: u32) -> bool {
     }
 }
 
+/// Nombre del ejecutable del proceso `pid` (sin ruta), si se puede saber.
+/// Linux: `/proc/<pid>/exe` y, si no, `/proc/<pid>/comm`. macOS: `ps -o comm=`.
+/// Windows: `tasklist`. `None` si el proceso no existe o no se pudo leer.
+pub fn nombre(pid: u32) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(n) = std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())) {
+            return Some(n.trim_end_matches(" (deleted)").to_string());
+        }
+        let n = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+        Some(n.trim().to_string()).filter(|n| !n.is_empty())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let sal = Command::new("ps").args(["-p", &pid.to_string(), "-o", "comm="]).output().ok()?;
+        let t = String::from_utf8_lossy(&sal.stdout).trim().to_string();
+        let base = t.rsplit('/').next().unwrap_or("").to_string();
+        Some(base).filter(|n| !n.is_empty())
+    }
+    #[cfg(windows)]
+    {
+        let sal = Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]).output().ok()?;
+        let t = String::from_utf8_lossy(&sal.stdout);
+        let n = t.lines().next()?.trim().strip_prefix('"')?.split('"').next()?.to_string();
+        Some(n).filter(|n| !n.is_empty())
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
 /// Prepara la orden para que el hijo sea cabeza de un grupo propio (Unix
 /// `process_group(0)`) o de un grupo de procesos nuevo (Windows
 /// `CREATE_NEW_PROCESS_GROUP`). Llamar antes de `spawn`.

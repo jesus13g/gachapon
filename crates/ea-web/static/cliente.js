@@ -3,7 +3,7 @@
 // Error con el mensaje del servidor.
 
 //
-// Clave de sesión: `ea-web-open` abre la página con `#clave=<clave>`. El hash
+// Clave de sesión: `ea-escritorio` o `ea-web-open` abren la página con `#clave=<clave>`. El hash
 // son partes separadas por `&` (`clave=…` y el enlace profundo: sección,
 // fila y filtros, ver enlaces.js): aquí se saca la clave, se guarda en sessionStorage y se
 // deja el resto del hash tal cual con history.replaceState, antes de que
@@ -12,7 +12,7 @@
 // escrituras fallan con el aviso, sin llegar al servidor.
 
 const ea = (() => {
-  const AVISO_LECTURA = 'Panel en solo lectura: ábrelo con ea-web-open para poder cambiar nada.';
+  const AVISO_LECTURA = 'Panel en solo lectura: ábrelo con ea-escritorio o ea-web-open para poder cambiar nada.';
   let clave = null;
   try { clave = sessionStorage.getItem('ea-clave'); } catch { /* sin almacenamiento */ }
   const oyentes = [];
