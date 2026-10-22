@@ -6,7 +6,9 @@ Code) y el **ejecutor** (ejecuta; por defecto Qwen Code sobre `llama-server`).
 Desde la constitución 1.3.0 (1.3.1 con las sesiones interactivas de la biblioteca) el agente de cada rol es intercambiable (Claude
 Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017). El usuario puede
 despertar **equipos** de varios agentes que trabajan a la vez, con colas por
-agente, worktree propio y presencia (spec 019, constitución 1.4.0). Se comunican
+agente, worktree propio y presencia (spec 019, constitución 1.4.0). Corre en
+Linux, macOS y Windows con el sandbox de cada sistema (spec 020, constitución
+1.5.0). Se comunican
 por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
 `orquestador-claude-qwen.md`.
 
@@ -83,8 +85,8 @@ en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
   con otro evento. El estado del bus se escribe con `fs_atomico`.
 - **Solo local**: todo escucha en `127.0.0.1`; `ea-web` filtra el `Host`.
 - **El ejecutor**, sea cual sea el agente: el sandbox del sistema (`bwrap` en Linux, Seatbelt en
-  macOS; Windows nativo se niega con `sandbox = true`; esto depende de la
-  enmienda 1.5.0, propuesta y aún sin aprobar), topes duros, sin
+  macOS; Windows nativo se niega con `sandbox = true`; constitución 1.5.0),
+  topes duros y muerte del árbol del agente, sin
   herramientas web, aprobación automática solo dentro del sandbox y semáforo
   exclusivo del worktree.
 - Si un cambio choca con un artículo de la constitución, se enmienda la

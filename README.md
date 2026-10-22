@@ -482,10 +482,9 @@ ea trabajo crear --modo mision … --skills rust,tests --por claude-code
 ## Instalación por sistema
 
 Linux, macOS y Windows (spec 020, issue #2). El comportamiento en Linux no
-cambia. Parte de la decisión sobre el aislamiento depende de la
-[enmienda 1.5.0 de la constitución](#limitaciones-y-garantías-por-sistema), que
-está **propuesta y pendiente de aprobación del usuario**: hasta entonces, los
-artículos V y VIII siguen nombrando `bwrap`.
+cambia. El aislamiento por sistema lo fija la
+[enmienda 1.5.0 de la constitución](#limitaciones-y-garantías-por-sistema),
+aprobada el 2026-10-22.
 
 ### Requisitos
 
@@ -608,10 +607,10 @@ aquí y el ecosistema no las relaja en silencio.
 | Enlaces de la biblioteca | enlaces simbólicos | enlaces simbólicos | copia, sin exigir el modo desarrollador |
 | `ea-web-open` (Hyprland/Omarchy) | sí | no (solo Linux) | no (solo Linux); el panel se abre con el navegador en `http://localhost:8092` |
 
-La **enmienda 1.5.0** (propuesta, pendiente de aprobación del usuario)
-reescribe los artículos V y VIII para que pidan «el aislamiento del sistema» en
-vez de nombrar `bubblewrap`. Mientras no se apruebe, el soporte de macOS y
-Windows es una propuesta, y las referencias a `bwrap` de este README valen para
+La **enmienda 1.5.0** de la constitución (aprobada el 2026-10-22) reescribe
+los artículos V y VIII para que pidan «el sandbox del sistema» en vez de
+nombrar `bubblewrap`: donde no lo hay (Windows nativo), el ejecutor con
+`sandbox = true` se niega. Las referencias a `bwrap` de este README valen para
 Linux.
 
 ## Uso
