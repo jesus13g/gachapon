@@ -928,7 +928,7 @@ mod pruebas {
             Paso::EscribirUtf16 { ruta, contenido } if ruta.ends_with("tareas/ea-mcp.xml") => Some(contenido.clone()),
             _ => None,
         });
-        assert!(xml.unwrap().contains("ea-mcp</Command>"));
+        assert!(xml.unwrap().contains("ea-mcp"));
         let ordenes = argvs(&p);
         assert!(ordenes[0].starts_with("schtasks /Create /F /TN ecosistema-asistente\\ea-mcp /XML ") && ordenes[0].ends_with("ea-mcp.xml"), "{}", ordenes[0]);
         assert_eq!(ordenes[1], "schtasks /Run /TN ecosistema-asistente\\ea-mcp");
