@@ -76,6 +76,8 @@ const ea = (() => {
     // Catálogo de agentes: rol, binario, modelo y si responde (spec 017).
     agentes: () => api('/api/agentes'),
     sesiones: () => api('/api/sesiones'),
+    // Los agentes vivos y dónde está cada trabajo activo (la escena de Inicio).
+    ecosistema: () => api('/api/ecosistema'),
 
     trabajos: () => api('/api/trabajos'),
     trabajo: id => api('/api/trabajos/' + c(id)),

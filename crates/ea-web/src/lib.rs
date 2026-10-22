@@ -17,6 +17,7 @@ use tokio::sync::Mutex;
 
 pub mod agentes;
 pub mod clave;
+pub mod ecosistema;
 pub mod estado;
 mod git;
 pub mod http;

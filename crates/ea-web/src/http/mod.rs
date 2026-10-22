@@ -57,6 +57,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/colas", get(colas))
         .route("/api/semaforos", get(semaforos))
         .route("/api/sesiones", get(sesiones))
+        .route("/api/ecosistema", get(ecosistema))
         .route("/api/propuestas", get(propuestas_listar))
         .route("/api/propuestas/{id}/decidir", post(propuesta_decidir))
         .route("/api/equipos", get(equipos_listar).post(equipo_despertar))

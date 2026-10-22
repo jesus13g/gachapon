@@ -3193,9 +3193,9 @@ async function cargaSeccion() {
   const sec = st.sec;
   let datos = null;
   if (sec === 'inicio') {
-    const [propuestas, colas, semaforos, diario] = await Promise.all([
-      ea.propuestas({ pendientes: true }), ea.colas(), ea.semaforos(), ea.diario({ limite: 30 })]);
-    datos = { propuestas, colas, semaforos, diario, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
+    const [propuestas, colas, semaforos, diario, ecosistema] = await Promise.all([
+      ea.propuestas({ pendientes: true }), ea.colas(), ea.semaforos(), ea.diario({ limite: 30 }), ea.ecosistema()]);
+    datos = { propuestas, colas, semaforos, diario, ecosistema, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await ea.acciones();
   else if (sec === 'sistema') {

@@ -1,10 +1,15 @@
-/* La escena de la portada (gashapon.js): máquinas de gashapon de caja
-   blanca. Los colores del juguete son fijos (--g-*); el fondo, los textos y
-   los avisos siguen al tema de /tema.css. */
+/* La escena de la portada (gashapon.js): un salón de máquinas de gashapon de
+   caja blanca, una por agente activo. Los colores del juguete son fijos
+   (--g-*); cada variante pone su tapa y su placa (--ag, --ag2, desde
+   VARIANTES). El fondo, los textos y los avisos siguen al tema de /tema.css.
+   Las luces dicen el estado: apagadas (terminado), encendidas y quietas
+   (esperando) o en marcha (trabajando). Sin movimiento, el estado se sigue
+   leyendo en las luces, el contorno y los rótulos. */
 
 #escena {
   --g-blanco: #f5f5f2; --g-lado: #d6d6cf; --g-borde: #c4c4bc; --g-interior: #ece6dc;
   --g-azul: #1d5fb4; --g-amarillo: #f2c94c; --g-naranja: #f08a24; --g-ranura: #3a3d42;
+  --g-apagado: #b9b9b3;
   margin: 4px 0 8px; background: var(--bg0); border-radius: 6px; overflow: hidden;
 }
 .esc-barra { display: flex; align-items: center; gap: 2px; padding: 6px 8px 0 14px; font-size: 12px; }
@@ -12,20 +17,28 @@
 .esc-ley { display: flex; gap: 12px; color: var(--fg-lo); }
 .esc-ley i { margin-right: 4px; }
 .esc-barra button { height: 26px; font-size: 12px; }
-.esc-barra button:disabled { opacity: .45; cursor: default; background: none; }
 #escena.plegada .esc-barra { padding-bottom: 6px; }
 #escena.plegada svg, #escena.plegada .esc-ley { display: none; }
 
-.esc { display: block; width: 100%; height: auto; max-height: 340px; }
+.esc { display: block; width: 100%; height: auto; }
 .esc .rot { fill: var(--fg-dim); font-size: 10px; text-anchor: middle; }
-.esc .ses { font-size: 9px; }
-.esc .suelo { stroke: var(--bg2); stroke-width: 2; }
+
+/* ---- rótulos de cada máquina: nombre, modelo · rol, actividad ---- */
+.rot-m text { text-anchor: middle; }
+.rot-m .r1 { fill: var(--fg-hi); font-size: 11px; font-weight: 600; }
+.rot-m .r2 { fill: var(--fg-lo); font-size: 9.5px; }
+.rot-m .r3 { fill: var(--fg-dim); font-size: 9.5px; font-style: italic; }
+.rot-m.sub .r1 { font-size: 9px; }
+.rot-m.sub .r2 { fill: var(--fg-dim); font-size: 8px; }
+.rot-m.apagada text { fill: var(--fg-dim); }
 
 /* ---- la máquina ---- */
+.maq, .maq-f, .rot-m { transition: transform .5s ease; }
 .maq .sombra { fill: #000; opacity: .3; }
 .maq .lado, .maq-f .lado { fill: var(--g-lado); }
 .maq .cuerpo { fill: var(--g-blanco); stroke: var(--g-borde); stroke-width: 1; }
 .maq .interior { fill: var(--g-interior); }
+.maq .luz { fill: var(--ag); opacity: 0; }
 .maq .bandeja-v { fill: #fbfbf8; stroke: var(--g-borde); }
 .maq .tabique { stroke: var(--g-borde); stroke-width: 2; }
 .maq .adh-azul, .maq .coin-in { fill: var(--g-azul); }
@@ -35,65 +48,93 @@
 .maq .aro { fill: #fff; stroke: var(--ag); stroke-width: 4; }
 .maq .aro2 { fill: none; stroke: var(--g-amarillo); stroke-width: 2; }
 .maq .asa { fill: #fafafa; stroke: var(--g-borde); }
-.maq .boton { fill: #c8c8c4; stroke: #a9a9a3; }
+.maq .piloto { fill: var(--g-apagado); stroke: #a9a9a3; }
 .maq .logo { fill: var(--g-naranja); font-size: 9px; font-weight: 700; }
 .maq .boca { fill: #dcdcd7; }
 .maq .boca-in { fill: #9a9a94; }
 .maq .devol { fill: #cfcfca; }
-.maq .adh rect { fill: var(--g-amarillo); }
-.maq .adh path { stroke: #8a6d1a; stroke-width: 1.2; opacity: .6; }
+.maq .emb rect { fill: var(--ag2); }
+.maq .emb text { fill: #fff; font-size: 12px; font-weight: 700; text-anchor: middle; }
 
-.maq-f .tapa { fill: var(--g-blanco); stroke: var(--g-borde); stroke-width: 1; }
-.maq-f .placa { fill: var(--ag); }
+.maq-f .tapa { fill: var(--ag); stroke: var(--g-borde); stroke-width: 1; }
+.maq-f .placa { fill: var(--ag2); }
 .maq-f .placa-t { fill: #fff; font-size: 9px; font-weight: 700; }
+.maq-f .led { fill: rgba(0, 0, 0, .28); }
 .maq-f .vidrio { fill: rgba(200, 225, 245, .12); stroke: var(--g-borde); stroke-width: 2; }
 .maq-f .reflejo { fill: #fff; opacity: .35; }
 .maq-f .labio { fill: #fbfbf8; stroke: var(--g-borde); }
 .maq-f .trampilla { fill: rgba(255, 255, 255, .55); stroke: #b9b9b3; }
 .maq-f .mas { fill: #6a707a; font-size: 9px; text-anchor: end; }
 
+/* encendida y esperando: LED fijos, luz interior tenue, piloto del color */
+.maq.esperando .luz { opacity: .1; }
+.maq.esperando .piloto, .maq.trabajando .piloto { fill: var(--ag); filter: drop-shadow(0 0 3px var(--ag)); }
+.maq-f.esperando .led, .maq-f.trabajando .led { fill: #fff6d8; filter: drop-shadow(0 0 2px #ffd36b); }
+.maq-f.esperando .led { opacity: .4; filter: none; }
+/* trabajando: luz interior más viva, la manivela gira y los LED recorren la tapa */
+.maq.trabajando .luz { opacity: .2; animation: respira 2.8s ease-in-out infinite; }
+.maq.trabajando .manivela { animation: gira 6s linear infinite; }
+.maq-f.trabajando .led { animation: recorre 1.8s linear infinite; animation-delay: calc(var(--i) * .3s); }
+/* terminado (un subagente que acaba): todo apagado y sin color */
+.maq.apagada, .maq-f.apagada { filter: saturate(.15) brightness(.92); }
+.maq.apagada .luz { opacity: 0; }
+
+/* algo bloqueado en ella: piloto rojo y contorno */
+.maq.alerta .piloto { fill: var(--hot); filter: drop-shadow(0 0 4px var(--hot)); animation: pulso 1.1s ease-in-out infinite; }
+.maq.alerta .cuerpo, .maq-f.alerta .tapa { stroke: var(--hot); stroke-width: 3; }
+
+/* entrar y salir de la escena */
+.maq.entra, .maq-f.entra, .rot-m.entra { animation: entra .6s ease-out both; }
+.maq-f.entra .led { animation: prende .6s steps(2) 2; }
+.maq.sale, .maq-f.sale, .rot-m.sale { animation: sale .9s ease-in forwards; pointer-events: none; }
+
 /* piezas que se mueven sobre sí mismas */
-.manivela, .engranaje, .led, .l-ambar { transform-box: fill-box; transform-origin: center; }
+.manivela, .engranaje, .led-hub, .piloto { transform-box: fill-box; transform-origin: center; }
 .trampilla { transform-box: fill-box; transform-origin: 50% 0; }
 
-/* aviso: la caja brilla y el adhesivo amarillo parpadea en rojo */
-.maq.alerta .cuerpo, .maq-f.alerta .tapa { stroke: var(--hot); stroke-width: 3; filter: drop-shadow(0 0 6px var(--hot)); }
-.maq.alerta .adh rect { fill: var(--hot); animation: pulso 1.1s ease-in-out infinite; }
-.maq.suave .cuerpo, .maq-f.suave .tapa { stroke: var(--accent); stroke-width: 2.5; }
+@keyframes gira { to { transform: rotate(360deg); } }
+@keyframes respira { 50% { opacity: .32; } }
+@keyframes recorre { 0%, 70%, 100% { opacity: .7; } 15% { opacity: 1; } }
+@keyframes prende { 50% { opacity: .2; } }
+@keyframes entra { from { opacity: 0; translate: 0 10px; } }
+@keyframes sale { to { opacity: 0; translate: 0 8px; filter: saturate(0); } }
 
-/* ---- orquestador: raíl y caja de engranajes ---- */
-.riel { fill: none; stroke: var(--fg-dim); stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; opacity: .25; }
-.riel-in { fill: none; stroke: var(--bg0); stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+/* ---- conductos: raíl del bus, cables de los subagentes y flujo de trabajo ---- */
+.riel { fill: none; stroke: var(--fg-dim); stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; opacity: .22; }
+.riel-in { fill: none; stroke: var(--bg0); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+.cable { fill: none; stroke: var(--ag); stroke-width: 1.6; opacity: .55; }
+.cable.off { stroke-dasharray: 3 3; opacity: .3; }
+.peana { fill: var(--fg-dim); opacity: .35; }
+.flujo { fill: none; stroke: var(--ag); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 2 9; opacity: .9; animation: fluye 1.2s linear infinite; }
+@keyframes fluye { to { stroke-dashoffset: -11; } }
+
+/* ---- orquestador: caja de engranajes en el raíl ---- */
 .hub rect { fill: var(--bg2); stroke: var(--line); }
 .hub.alerta rect { stroke: var(--hot); stroke-width: 2; filter: drop-shadow(0 0 6px var(--hot)); }
 .engranaje { fill: var(--fg-lo); animation: gira 4s linear infinite; }
 .hub .eje { fill: var(--bg2); }
-.led { fill: var(--accent); }
+.led-hub { fill: var(--accent); }
 .esc.sin-latido .engranaje { animation-play-state: paused; fill: var(--fg-dim); }
-.esc.sin-latido .led { fill: var(--fg-dim); }
+.esc.sin-latido .led-hub { fill: var(--fg-dim); }
 .esc.sin-latido .riel { opacity: .08; }
-/* Claude Code con sesiones trabajando: botón encendido y manivela girando suave. */
-.maq.trabajando .boton { fill: var(--ag); }
-.maq.trabajando .manivela { animation: gira 6s linear infinite; }
 
-@keyframes gira { to { transform: rotate(360deg); } }
-
-/* ---- worktree: mesa y semáforo ---- */
-.mesa { fill: #8a6a4a; }
-.pata { fill: #6b5139; }
-.sem-caja { fill: #222; stroke: #444; }
-.sem-palo { fill: #3a3a3a; }
-.sem circle { opacity: .18; }
-.sem .l-rojo { fill: #ff4d4d; }
-.sem .l-ambar { fill: #ffb020; }
-.sem .l-verde { fill: #3ddc84; }
-.sem.rojo .l-rojo { opacity: 1; filter: drop-shadow(0 0 6px #ff4d4d); }
-.sem.verde .l-verde { opacity: 1; filter: drop-shadow(0 0 6px #3ddc84); }
+/* ---- el mostrador del usuario ---- */
+.vent-caja { fill: var(--bg2); stroke: var(--line); }
+.esc .vent-n { text-anchor: end; }
+.vent-t { fill: var(--fg-lo); font-size: 10px; font-weight: 700; text-anchor: middle; letter-spacing: 1px; }
+.vent.suave .vent-caja { stroke: var(--accent); }
+.vent.alerta .vent-caja { stroke: var(--hot); stroke-width: 2; }
+.vent.alerta .vent-t, .vent.alerta .vent-n { fill: var(--hot); }
 
 /* ---- bandeja de salida y papelera ---- */
 .bandeja-s { fill: var(--bg2); stroke: var(--fg-dim); stroke-width: 1.5; }
-.bandeja-l { fill: var(--bg2); stroke: var(--fg-dim); stroke-width: 1; }
 .papelera, .papelera-b { fill: var(--bg2); stroke: var(--fg-dim); stroke-width: 1.2; }
+
+/* ---- sin agentes ---- */
+.esc-vacio text { text-anchor: middle; }
+.vacio-t { fill: var(--fg-lo); font-size: 13px; letter-spacing: 1px; }
+.vacio-s { fill: var(--fg-dim); font-size: 10px; }
 
 /* ---- cápsulas ---- */
 .cap.real { cursor: pointer; }
@@ -110,22 +151,28 @@
 .chispa { filter: drop-shadow(0 0 3px #fff); }
 .puf { fill: var(--fg-lo); }
 
-/* ---- bocadillos, ticker y demo ---- */
+/* ---- bocadillo del orquestador y ticker ---- */
 .boc rect, .boc path { fill: var(--bg2); }
 .boc rect { stroke: var(--line); }
 .boc text { fill: var(--fg-hi); font-size: 11px; text-anchor: middle; }
 .boc.hot rect { stroke: var(--hot); stroke-width: 1.5; }
 .boc.hot path { fill: var(--hot); }
 .boc.hot text { fill: var(--hot); }
-.boc.suave rect { stroke: var(--accent); }
 .ticker { fill: var(--fg-lo); font-size: 11px; }
 .ticker.hot { fill: var(--hot); }
-.demo-et { fill: var(--accent); font-size: 11px; letter-spacing: 3px; text-anchor: end; }
 
+/* Sin movimiento: nada se desplaza ni late; el estado queda en luces fijas
+   (más brillantes al trabajar), el flujo en un trazo continuo y la alerta en
+   el contorno rojo. */
 @media (prefers-reduced-motion: reduce) {
-  .engranaje, .maq.trabajando .manivela, .cap.run .giro, .cap.hot .halo, .maq.alerta .adh rect { animation: none; }
+  .maq, .maq-f, .rot-m { transition: none; }
+  .engranaje, .maq.trabajando .manivela, .maq.trabajando .luz, .maq-f.trabajando .led, .cap.run .giro,
+  .cap.hot .halo, .maq.alerta .piloto, .flujo, .maq.entra, .maq-f.entra, .rot-m.entra, .maq-f.entra .led { animation: none; }
+  .maq.sale, .maq-f.sale, .rot-m.sale { animation: none; opacity: 0; }
+  .maq.trabajando .luz { opacity: .28; }
+  .maq-f.trabajando .led { opacity: 1; }
+  .flujo { stroke-dasharray: none; opacity: .5; }
 }
 @media (max-width: 760px) {
-  .esc { max-height: 220px; }
   .esc-ley { display: none; }
 }

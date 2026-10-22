@@ -3888,3 +3888,57 @@ async fn vaciar_la_papelera_de_la_boveda_no_se_hace_desde_la_web() {
     let (_, l) = get(&f, "/api/boveda/papelera").await;
     assert_eq!(l.as_array().unwrap().len(), 1, "abrir la terminal no borra nada");
 }
+
+// -------------------------------------------------------------- ecosistema
+
+#[tokio::test]
+async fn el_ecosistema_junta_sesiones_subagentes_presencias_y_trabajos() {
+    let f = montar();
+    let raiz = f._dir.path();
+    let (s, v) = get(&f, "/api/ecosistema").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!((v["agentes"].as_array().unwrap().len(), v["tareas"].as_array().unwrap().len()), (0, 0), "sin nada vivo, nada: {v}");
+
+    // Una sesión viva de Claude Code con su transcripción (el modelo sale de ahí).
+    let propio = std::process::id();
+    let cwd = tmp!();
+    escribir(
+        raiz.join("sesiones").join(format!("{propio}.json")),
+        &json!({"pid": propio, "sessionId": "s-uno", "cwd": cwd, "name": "f5", "status": "busy", "startedAt": 1000, "updatedAt": 2000}).to_string(),
+    );
+    let dir_proy: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    let transcript = raiz.join("proyectos").join(&dir_proy).join("s-uno.jsonl");
+    escribir(&transcript, "{\"message\":{\"model\":\"claude-opus-5-5\"}}\n{\"message\":{\"model\":\"<synthetic>\"}}\n");
+    // Dos subagentes: uno en marcha y otro que Claude Code dio por acabado sin SubagentStop.
+    let subs = raiz.join("proyectos").join(&dir_proy).join("s-uno/subagents");
+    escribir(subs.join("agent-a1.meta.json"), &json!({"agentType": "Explore", "description": "Buscar", "model": "haiku"}).to_string());
+    escribir(subs.join("agent-a2.meta.json"), &json!({"agentType": "Plan", "description": "Planear", "finished": true}).to_string());
+    let ahora = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    for (id, tipo) in [("a1", "Explore"), ("a2", "Plan")] {
+        escribir(
+            raiz.join("subagentes/s-uno").join(format!("{id}.json")),
+            &json!({"agente": id, "tipo": tipo, "transcript": transcript, "desde": ahora}).to_string(),
+        );
+    }
+
+    // El ejecutor despierto (presencia viva) y una misión en su cola.
+    let bus = ea_bus::Bus::abrir_en(&f.state.config.estado_dir).unwrap();
+    bus.anotar_presencia(&ea_bus::Presencia::nueva("qwen-code", ea_bus::RolEquipo::Ejecutor, None, propio)).unwrap();
+    let id = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "Primera", tmp!())).unwrap();
+
+    let (_, v) = get(&f, "/api/ecosistema").await;
+    let ag = |id: &str| v["agentes"].as_array().unwrap().iter().find(|a| a["id"] == id).cloned().unwrap_or_else(|| panic!("falta {id}: {v}"));
+    let claude = ag("claude:s-uno");
+    assert_eq!((claude["familia"].as_str(), claude["modelo"].as_str(), claude["estado"].as_str()), (Some("claude"), Some("claude-opus-5-5"), Some("trabajando")));
+    assert_eq!(claude["rol"], "planificador");
+    assert!(claude.get("pistas").is_none(), "las pistas no salen de la API");
+    let a1 = ag("claude:s-uno/a1");
+    assert_eq!((a1["padre"].as_str(), a1["modelo"].as_str(), a1["estado"].as_str()), (Some("claude:s-uno"), Some("haiku"), Some("trabajando")));
+    assert_eq!(ag("claude:s-uno/a2")["estado"], "terminado", "finished en el meta.json");
+    let q = ag("agente:qwen-code");
+    assert_eq!((q["familia"].as_str(), q["local"].as_bool(), q["estado"].as_str()), (Some("qwen"), Some(true), Some("esperando")));
+
+    let t = &v["tareas"][0];
+    assert_eq!(t["trabajo"], id.as_str());
+    assert_eq!((t["lugar"].as_str(), t["planificador"].as_str()), (Some("agente:qwen-code"), Some("claude:s-uno")));
+}

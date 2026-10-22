@@ -107,7 +107,9 @@ en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
   esquema anterior se rechaza. Pregunta antes de añadir migraciones.
 - **`ea-web`**: app minimalista (raíl lateral, cabecera, filas con detalle en
   línea) con el estilo de la escena gashapon. Los cambios visuales parten de
-  `app.css`/`gashapon.css`. **La escena de Inicio (`gashapon.js`) no se toca.**
+  `app.css`/`gashapon.css`. La escena de Inicio (`gashapon.js`) solo pinta
+  estado real de `GET /api/ecosistema` (detectores en `ea-web/src/ecosistema/`):
+  nada de animaciones decorativas ni actividad inventada.
 - Al cambiar comandos, API o comportamiento visible, actualiza el `README.md`.
 
 ## Git
