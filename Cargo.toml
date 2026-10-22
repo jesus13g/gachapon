@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/ea-plataforma", "crates/ea-ajustes", "crates/ea-biblioteca", "crates/ea-boveda", "crates/ea-acciones", "crates/ea-store", "crates/ea-bus", "crates/ea-cli", "crates/ea-mcp", "crates/ea-orchestrator", "crates/ea-web"]
+exclude = ["escritorio"]
 
 [workspace.package]
 edition = "2024"
