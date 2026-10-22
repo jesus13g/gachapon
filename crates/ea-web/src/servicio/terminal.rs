@@ -4,8 +4,8 @@
 //! simulación y la frase `confirmo <referencia>` las pide `ea` en esa TTY,
 //! igual que si el usuario lo hubiera tecleado. Nunca se pasa la frase.
 //!
-//! El comando sale de una lista cerrada (decidir una propuesta pendiente o
-//! ejecutar una herramienta supervisada del catálogo con argumentos que
+//! El comando sale de una lista cerrada (decidir una propuesta pendiente,
+//! instalar o desinstalar los servicios, o ejecutar una herramienta supervisada del catálogo con argumentos que
 //! validan contra sus campos) y va como argv, sin shell, como hace
 //! `explorador` con el gestor de ficheros.
 
@@ -58,10 +58,13 @@ pub struct TerminalAbierta {
     pub comando: String,
 }
 
-/// Uno de los dos comandos permitidos, ya validado.
+/// Uno de los tres comandos permitidos, ya validado.
 #[derive(Debug, PartialEq)]
 enum Orden {
     Propuesta(i64),
+    /// `ea servicios instalar|desinstalar` (spec 020, H4): el gestor del
+    /// sistema se cambia en la TTY, con su confirmación escrita.
+    Servicios(&'static str),
     Herramienta { nombre: &'static str, argumentos: Value },
 }
 
@@ -73,6 +76,7 @@ impl Orden {
             Orden::Propuesta(id) => {
                 vec!["propuestas".into(), "decidir".into(), id.to_string(), "--aceptar".into(), "--esperar".into()]
             }
+            Orden::Servicios(accion) => vec!["servicios".into(), (*accion).into(), "--esperar".into()],
             Orden::Herramienta { nombre, argumentos } => vec![
                 "acciones".into(),
                 "ejecutar".into(),
@@ -98,6 +102,7 @@ impl Orden {
     fn detalle(&self) -> Value {
         match self {
             Orden::Propuesta(id) => json!({ "propuesta": id }),
+            Orden::Servicios(accion) => json!({ "servicios": accion }),
             Orden::Herramienta { nombre, argumentos } => json!({ "herramienta": nombre, "argumentos": argumentos }),
         }
     }
@@ -107,22 +112,37 @@ fn invalido(m: impl Into<String>) -> ErrorWeb {
     ErrorWeb::Invalido(m.into())
 }
 
-/// El cuerpo es `{propuesta: <id>}` o `{herramienta, argumentos}`, nada más:
-/// ni comandos ni texto libre.
-fn leer_cuerpo(cuerpo: &Value) -> Resultado<Result<i64, (String, Value)>> {
-    let obj = cuerpo.as_object().ok_or_else(|| invalido("se espera {propuesta} o {herramienta, argumentos}"))?;
+/// Lo que pide el cuerpo, sin validar contra el sistema todavía.
+#[derive(Debug, PartialEq)]
+enum Pedido {
+    Propuesta(i64),
+    Servicios(&'static str),
+    Herramienta(String, Value),
+}
+
+/// El cuerpo es `{propuesta: <id>}`, `{servicios: "instalar"|"desinstalar"}`
+/// o `{herramienta, argumentos}`, nada más: ni comandos ni texto libre.
+fn leer_cuerpo(cuerpo: &Value) -> Resultado<Pedido> {
+    let obj = cuerpo
+        .as_object()
+        .ok_or_else(|| invalido("se espera {propuesta}, {servicios} o {herramienta, argumentos}"))?;
     let claves: Vec<&str> = obj.keys().map(String::as_str).collect();
     match claves.as_slice() {
         ["propuesta"] => obj["propuesta"]
             .as_i64()
             .filter(|&id| id > 0)
-            .map(Ok)
+            .map(Pedido::Propuesta)
             .ok_or_else(|| invalido("'propuesta' debe ser el número de una propuesta")),
+        ["servicios"] => match obj["servicios"].as_str() {
+            Some("instalar") => Ok(Pedido::Servicios("instalar")),
+            Some("desinstalar") => Ok(Pedido::Servicios("desinstalar")),
+            _ => Err(invalido("'servicios' debe ser «instalar» o «desinstalar»")),
+        },
         ["argumentos", "herramienta"] | ["herramienta", "argumentos"] => {
             let h = obj["herramienta"].as_str().ok_or_else(|| invalido("'herramienta' debe ser un nombre del catálogo"))?;
-            Ok(Err((h.to_string(), obj["argumentos"].clone())))
+            Ok(Pedido::Herramienta(h.to_string(), obj["argumentos"].clone()))
         }
-        _ => Err(invalido("solo se abre en la terminal {propuesta} o {herramienta, argumentos}")),
+        _ => Err(invalido("solo se abre en la terminal {propuesta}, {servicios} o {herramienta, argumentos}")),
     }
 }
 
@@ -189,8 +209,9 @@ pub fn lanzar_argv(s: &AppState, args: &[String]) -> Resultado<()> {
 /// diario como `accion_terminal_abierta` (abrir no decide nada).
 pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
     let orden = match leer_cuerpo(cuerpo)? {
-        Ok(id) => validar_propuesta(s, id).await?,
-        Err((h, args)) => validar_herramienta(&h, args)?,
+        Pedido::Propuesta(id) => validar_propuesta(s, id).await?,
+        Pedido::Servicios(accion) => Orden::Servicios(accion),
+        Pedido::Herramienta(h, args) => validar_herramienta(&h, args)?,
     };
     lanzar_argv(s, &orden.argv())?;
     let evento = NewEvent {
@@ -217,6 +238,8 @@ mod tests {
         assert_eq!(o.argv(), ["acciones", "ejecutar", "ea_eliminar_rutina", "--args", r#"{"slug":"x"}"#, "--esperar"]);
         assert_eq!(o.texto(), r#"ea acciones ejecutar ea_eliminar_rutina --args '{"slug":"x"}'"#);
         assert_eq!(Orden::Propuesta(7).argv(), ["propuestas", "decidir", "7", "--aceptar", "--esperar"]);
+        assert_eq!(Orden::Servicios("desinstalar").argv(), ["servicios", "desinstalar", "--esperar"]);
+        assert_eq!(Orden::Servicios("instalar").texto(), "ea servicios instalar");
         assert!(!Orden::Propuesta(7).argv().iter().any(|a| a.contains("confirmo")));
     }
 
@@ -226,7 +249,11 @@ mod tests {
         assert!(leer_cuerpo(&json!("ea propuestas decidir 1")).is_err());
         assert!(leer_cuerpo(&json!({ "propuesta": "1; rm" })).is_err());
         assert!(leer_cuerpo(&json!({ "propuesta": 1, "confirmo": "1" })).is_err());
-        assert_eq!(leer_cuerpo(&json!({ "propuesta": 3 })).unwrap(), Ok(3));
+        assert_eq!(leer_cuerpo(&json!({ "propuesta": 3 })).unwrap(), Pedido::Propuesta(3));
+        assert_eq!(leer_cuerpo(&json!({ "servicios": "instalar" })).unwrap(), Pedido::Servicios("instalar"));
+        for malo in [json!({ "servicios": "reiniciar" }), json!({ "servicios": 1 }), json!({ "servicios": "instalar", "x": 1 }), json!({ "servicios": "instalar; rm" })] {
+            assert!(leer_cuerpo(&malo).is_err(), "{malo}");
+        }
         assert!(validar_herramienta("ea_eliminar_rutina", json!({ "slug": "a b" })).is_err());
         assert!(validar_herramienta("ea_eliminar_rutina", json!({ "slug": "x", "extra": 1 })).is_err());
         assert!(validar_herramienta("ea_encolar_rutina", json!({ "slug": "x" })).is_err(), "reversible: desde la web");

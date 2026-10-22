@@ -563,6 +563,16 @@ impl Entorno {
         self.logs_dir.join("tareas").join(format!("{nombre}.xml"))
     }
 
+    /// El nombre de la unidad de un servicio en este gestor (`ea-web.service`,
+    /// `es.gachapon.ea-web.plist` o la tarea `ecosistema-asistente\ea-web`).
+    pub fn unidad(&self, nombre: &str) -> String {
+        match self.backend {
+            Backend::Systemd => format!("{nombre}.service"),
+            Backend::Launchd => format!("{}.plist", etiqueta_launchd(nombre)),
+            Backend::Schtasks => tarea_windows(nombre),
+        }
+    }
+
     fn ruta_unidad(&self, nombre: &str) -> PathBuf {
         match self.backend {
             Backend::Launchd => self.unidades_dir.join(format!("{}.plist", etiqueta_launchd(nombre))),

@@ -36,8 +36,8 @@ fn main() -> Result<()> {
         Command::Servicios { accion } => {
             return match accion {
                 ServiciosAccion::Ver => commands::servicios::ver(),
-                ServiciosAccion::Instalar => commands::servicios::instalar(),
-                ServiciosAccion::Desinstalar => commands::servicios::desinstalar(),
+                ServiciosAccion::Instalar { esperar } => commands::al_final(esperar, commands::servicios::instalar()),
+                ServiciosAccion::Desinstalar { esperar } => commands::al_final(esperar, commands::servicios::desinstalar()),
             };
         }
         Command::Equipo { accion } => {

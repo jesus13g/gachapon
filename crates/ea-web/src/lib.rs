@@ -39,8 +39,9 @@ pub struct WebConfig {
     pub rutinas_dir: PathBuf,
     /// La bóveda que se muestra y en la que se promueve.
     pub boveda: ea_boveda::Boveda,
-    /// Si es falso no se lanza ningún `systemctl` (tests, o una máquina sin
-    /// `systemd --user`): los servicios se reportan como desconocidos.
+    /// Si es falso no se consulta ni se reinicia con el gestor de servicios del
+    /// sistema (systemd, launchd o schtasks: tests, o una máquina sin
+    /// gestor): los servicios se reportan como desconocidos.
     pub systemctl: bool,
     /// Dónde Claude Code deja un fichero por sesión abierta. `None` = no se
     /// leen sesiones (tests).

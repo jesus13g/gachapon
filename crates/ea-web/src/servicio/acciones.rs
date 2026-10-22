@@ -105,7 +105,7 @@ async fn guia(s: &AppState) -> Guia {
 /// Sin `systemctl` no hay ni estado que simular ni forma de reiniciar.
 fn comprobar(s: &AppState, herramienta: &str) -> Resultado<()> {
     if herramienta == "ea_reiniciar_servicio" && !s.config.systemctl {
-        return Err(ErrorWeb::NoDisponible("systemctl desactivado".into()));
+        return Err(ErrorWeb::NoDisponible("la consulta al gestor de servicios está desactivada".into()));
     }
     Ok(())
 }

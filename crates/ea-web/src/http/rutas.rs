@@ -360,11 +360,11 @@ pub async fn accion_historial(State(s): Estado, Path(nombre): Path<String>) -> A
 
 // ---------------------------------------------------------------- terminal
 
-/// `{propuesta}` o `{herramienta, argumentos}`; cualquier otra cosa (texto
+/// `{propuesta}`, `{servicios}` o `{herramienta, argumentos}`; cualquier otra cosa (texto
 /// libre incluido) es un 400.
 pub async fn terminal_abrir(State(s): Estado, cuerpo: Bytes) -> Api<servicio::terminal::TerminalAbierta> {
     let v: Value = serde_json::from_slice(&cuerpo)
-        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "se espera {propuesta} o {herramienta, argumentos}"))?;
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "se espera {propuesta}, {servicios} o {herramienta, argumentos}"))?;
     ok(servicio::terminal::abrir(&s, &v).await)
 }
 
@@ -578,6 +578,10 @@ pub async fn memoria_mostrar(
 }
 
 // --------------------------------------------------------------- servicios
+
+pub async fn servicios_plan(State(s): Estado) -> Api<servicio::servicios::PlanServicios> {
+    ok(servicio::servicios::plan(&s).await)
+}
 
 pub async fn servicio_reiniciar(State(s): Estado, Path(nombre): Path<String>) -> Api<Hecho> {
     ok(servicio::servicios::reiniciar(&s, &nombre).await)

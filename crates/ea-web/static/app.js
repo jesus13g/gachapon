@@ -1903,6 +1903,7 @@ function filasSistema(e, plano = false, ag = null) {
       : 'no disponible: ' + (b.motivo ?? 'sin motivo');
     out.push(fila('ssbx', 's', `<i class="${b.disponible ? 'm' : 'hot'}">▣</i><span class="x">sandbox del ejecutor</span><span class="${b.disponible ? 'm' : 'hot'}">${esc(dice)}</span><span class="m">${esc(b.sistema)}</span><span></span>`, 'sandbox aislamiento ' + b.sistema + ' ' + b.sandbox, '', plano ? '' : ' g'));
   }
+  if (!plano) out.push(filaServicios(ag?.plan));
   e.agentes.forEach((a, i) => {
     const modelo = a.modelo ?? 'su modelo propio';
     const hizo = a.ultimo ? esc(a.ultimo.accion) + (a.ultimo_agente && a.ultimo_agente !== a.agente ? ` (${esc(a.ultimo_agente)})` : '') : 'sin actividad';
@@ -1913,6 +1914,34 @@ function filasSistema(e, plano = false, ag = null) {
       plano ? '' : detalleRol(a, ag), i === 0 && !plano ? ' g' : ''));
   });
   return out;
+}
+
+// El bloque «servicios residentes» de ▦ Sistema (spec 020, H4): lo que
+// `ea servicios ver` cuenta, por gestor. Instalar y desinstalar no se hacen
+// aquí: «⌨» abre una terminal real y se confirman allí.
+function filaServicios(p) {
+  if (!p) return fila('ssvc', 's', '<i class="n">◌</i><span class="x">servicios residentes</span><span class="m">consultando el gestor…</span><span></span><span></span>', 'servicios residentes gestor instalar');
+  const puestos = p.servicios.filter(x => x.instalado).length;
+  const row = `<i class="${puestos === p.servicios.length ? 'ok' : 'n'}">⚙</i><span class="x">servicios residentes</span>` +
+    `<span class="m" title="${esc(p.gestor)}">${esc(p.sistema)} · ${esc(p.backend)}</span>` +
+    `<span class="m">${puestos}/${p.servicios.length} instalados</span><span></span>`;
+  let det = `<p class="m ayuda">${esc(p.gestor)}. Binarios en <code>${esc(p.binarios)}</code>` +
+    (p.unidades ? `; unidades en <code>${esc(p.unidades)}</code>` : '') + '.' +
+    (p.path_fijo ? ' launchd arranca con un PATH mínimo: se fija el de quien instala.' : '') + '</p>';
+  if (p.faltan.length) det += `<p class="hot ayuda">Faltan binarios (compílalos con <code>cargo build --release</code>): ${p.faltan.map(esc).join(', ')}</p>`;
+  det += '<div class="agentes">' + p.servicios.map(x => {
+    const estado = x.instalado === true ? (x.activo === 'active' ? '<span class="ok">en marcha</span>' : esc(x.activo))
+      : x.instalado === false ? 'no instalado' : 'desconocido';
+    return `<p><span class="x">${esc(x.nombre)}</span><span class="m">${estado}</span>` +
+      `<span class="md" title="${esc(x.unidad)} · ${esc(x.binario)}">${esc(x.unidad)} · ${esc(x.binario)}</span>` +
+      (x.existe ? '<span class="ok">● binario</span>' : '<span class="hot">✕ falta</span>') + '</p>';
+  }).join('') + '</div>';
+  det += '<details><summary class="m">▸ pasos de instalar</summary><ul class="m">' + p.pasos.map(x => `<li>${esc(x)}</li>`).join('') + '</ul></details>';
+  det += '<p class="m ayuda">ea-web no se reinicia a sí mismo, y instalar o desinstalar lo para también a él: se confirma en la terminal.</p>';
+  det += '<div class="acc">' +
+    btn('terminal', '⌨ instalar', 'abre una terminal con «ea servicios instalar»; allí se enseñan los pasos y se confirma', { sv: 'instalar' }, 'hot') +
+    btn('terminal', '⌨ desinstalar', 'abre una terminal con «ea servicios desinstalar»; allí se enseñan los pasos y se confirma', { sv: 'desinstalar' }, 'hot') + '</div>';
+  return fila('ssvc', 's', row, 'servicios residentes gestor instalar desinstalar ' + p.backend + ' ' + p.sistema, det);
 }
 
 // El detalle de un rol en ▦ Sistema: los agentes del catálogo que pueden
@@ -3032,7 +3061,10 @@ async function cargaSeccion() {
     datos = { propuestas, colas, semaforos, diario, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await ea.acciones();
-  else if (sec === 'sistema') datos = await ea.agentes();
+  else if (sec === 'sistema') {
+    const [ag, plan] = await Promise.all([ea.agentes(), ea.serviciosPlan().catch(() => null)]);
+    datos = { ...ag, plan };
+  }
   else if (sec === 'diario') {
     const filtros = filtrosDiario();
     datos = fundeDiario(await ea.diario(filtros), filtros.limite);
@@ -3491,9 +3523,10 @@ async function accion(b) {
     } else if (a === 'terminal') {
       // Solo abre la ventana con el comando de la CLI; la confirmación
       // (la frase «confirmo …») se escribe en esa terminal, nunca aquí.
+      const sv = b.dataset.sv;
       const sim = h && st.consola[h]?.sim;
       if (h && !sim) throw new Error('simula primero');
-      const r = await ea.abrirTerminal(h ? { herramienta: h, argumentos: sim.argumentos } : { propuesta: Number(id) });
+      const r = await ea.abrirTerminal(sv ? { servicios: sv } : h ? { herramienta: h, argumentos: sim.argumentos } : { propuesta: Number(id) });
       avisa(`⌨ terminal abierta: confírmalo allí (${r.comando})`, true);
       return;
     } else if (a === 'ir-a') {

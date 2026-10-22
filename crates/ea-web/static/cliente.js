@@ -127,8 +127,13 @@ const ea = (() => {
     historialAccion: nombre => api(`/api/acciones/${c(nombre)}/historial`),
 
     // Abre una terminal real con el comando que confirma lo irreversible
-    // ({ propuesta } o { herramienta, argumentos }); la web no confirma nada.
+    // ({ propuesta }, { servicios: 'instalar'|'desinstalar' } o { herramienta,
+    // argumentos }); la web no confirma nada.
     abrirTerminal: cuerpo => post('/api/terminal/abrir', cuerpo),
+
+    // Lo que `ea servicios ver` cuenta (solo lectura). Instalar y desinstalar
+    // solo se abren en la terminal: abrirTerminal({ servicios }).
+    serviciosPlan: () => api('/api/servicios/plan'),
 
     boveda: q => api('/api/boveda?q=' + c(q)),
     nota: ruta => api('/api/boveda/nota?ruta=' + c(ruta)),

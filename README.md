@@ -504,7 +504,7 @@ cargo build --release
 # (en Windows, con extensión: ea.exe, ea-web.exe…)
 
 target/release/ea servicios ver          # qué instalaría y cómo está cada servicio; no cambia nada
-target/release/ea servicios instalar     # exige una terminal real y la confirmación escrita
+target/release/ea servicios instalar     # exige una terminal real y la confirmación escrita (`--esperar`: espera a Intro al final)
 target/release/ea servicios desinstalar  # para y quita lo que instaló `instalar`
 ```
 
@@ -539,6 +539,13 @@ Las plantillas `crates/*/systemd/*.service` siguen ahí como referencia (y para
 quien prefiera enlazarlas a mano en Linux, como en las secciones de `ea-mcp` y
 `ea-web`). El estado y el reinicio de los servicios (`ea servicios ver`, el
 panel y `ea_reiniciar_servicio`) pasan por el mismo gestor de cada sistema.
+En el panel, ▦ Sistema trae el bloque «servicios residentes» con lo mismo que
+`ea servicios ver` (sistema y gestor, unidad y ruta del binario de cada
+servicio, si está instalado y cómo está; `GET /api/servicios/plan`, solo
+lectura y sin el `PATH`); «⌨ instalar» y «⌨ desinstalar» abren una terminal real
+con `ea servicios instalar|desinstalar --esperar` (`POST /api/terminal/abrir`
+con `{"servicios": "instalar"|"desinstalar"}`), y los pasos y la confirmación
+se hacen allí: la web nunca instala por sí misma.
 
 ### Dónde queda cada cosa
 
@@ -1093,7 +1100,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada. «▸ versiones» lista las registradas (número, fecha y quién) con «ver» (su TOML) y «diff» (qué cambió frente a la anterior), solo lectura. «horario» enseña el `OnCalendar` del timer y si está activo; «◷ guardar» simula el horario escrito (próximas 3 ejecuciones) y el segundo clic lo programa; «✕ desprogramar» quita el timer. «▣ retirar» (segundo clic) manda la rutina a la papelera y quita su timer; «▣ retiradas», en la barra, las lista, y su ficha tiene «↺ restaurar» | `4` |
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas. Los formularios guían: la ruta de `ea_promover_nota` sugiere las notas de `claude-code` y `modelo-local` aún sin promover (se puede escribir otra), el servicio de `ea_reiniciar_servicio` dice el estado de cada uno y el slug elige entre las rutinas registradas (`GET /api/acciones` trae por campo `opciones`, `sugerencias` y `estados`). La simulación dice en un renglón qué se revalidará al ejecutar («se comprobará: huella …») y avisa cuando tiene más de 60 s. En la ficha de cada herramienta (también de las directas), sus últimos 10 eventos del diario | `6` |
-| ▦ | Sistema: servicios (reiniciar ↻, pide confirmar), orquestador, el sandbox del ejecutor (sistema, aislamiento en uso y, si no puede arrancar, el motivo; lo declara el latido del orquestador) y una fila por rol (planificador y ejecutor) con su agente, modelo y última actividad. La ficha de un rol lista los agentes que lo admiten (binario ●/✕, modelo, si responde, topes) y cambia el agente con «⇄ poner de …» (segundo clic) | `7` |
+| ▦ | Sistema: servicios (reiniciar ↻, pide confirmar), el bloque «servicios residentes» (gestor, unidad, binario e instalado como `ea servicios ver`, con ⌨ instalar y ⌨ desinstalar en terminal), orquestador, el sandbox del ejecutor (sistema, aislamiento en uso y, si no puede arrancar, el motivo; lo declara el latido del orquestador) y una fila por rol (planificador y ejecutor) con su agente, modelo y última actividad. La ficha de un rol lista los agentes que lo admiten (binario ●/✕, modelo, si responde, topes) y cambia el agente con «⇄ poner de …» (segundo clic) | `7` |
 | ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista y ↺ restaurar). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera | `8` |
 | ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. ＋ memoria, encima del árbol, abre un formulario en línea (proyecto, nombre de fichero en kebab-case, título, descripción, tipo y cuerpo opcional): crea la memoria con su cabecera, añade su línea a `MEMORY.md`, nunca pisa una existente y la deja abierta en edición. Apunta `memoria_creada`, `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
 | ◫ | Biblioteca (spec 018): las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo (●/○ activado, usos), con filtros de agente, tipo, categoría y estado y el cuadro de buscar. La ficha da origen, descripción, cómo se cambia, la definición de un MCP sin secretos (solo los nombres de sus variables y cabeceras) y el uso por actor. ⏻ desactivar/activar simula (antes/después) y pide aceptar, ▶ sesión con… abre una terminal con solo las herramientas elegidas (la simulación lleva el comando sin secretos) y ✎ categoría escribe `biblioteca.categorias` por los ajustes. Enlace `#biblioteca/<id>` | `b` |
@@ -1247,7 +1254,8 @@ Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 
 Para ellas está **⌨ terminal** (en ◇ Propuestas, y en ▶ Acciones tras
-simular): `POST /api/terminal/abrir` con `{"propuesta": <id>}` o
+simular): `POST /api/terminal/abrir` con `{"propuesta": <id>}`,
+`{"servicios": "instalar"|"desinstalar"}` (el bloque de servicios de ▦ Sistema) o
 `{"herramienta": …, "argumentos": {…}}` abre una terminal real
 (`xdg-terminal-exec` u `omarchy-launch-terminal`) con
 `ea propuestas decidir <id> --aceptar` o `ea acciones ejecutar <h> --args '<json>'`
