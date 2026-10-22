@@ -353,6 +353,35 @@ pub struct FormularioTrabajo {
     pub worktrees: Vec<String>,
 }
 
+/// Una skill del catálogo del ejecutor (sin su cuerpo).
+#[derive(Serialize)]
+pub struct SkillVista {
+    pub nombre: String,
+    pub descripcion: String,
+    pub caracteres: usize,
+    pub habilitada: bool,
+}
+
+/// El catálogo de skills del ejecutor con sus topes y la llave (spec 006,
+/// H6): de solo lectura. `usuario_tiene_llave`: si el actor de la web puede
+/// elegir skills (hoy no, salvo que la llave lo incluya).
+#[derive(Serialize)]
+pub struct CatalogoSkills {
+    pub skills: Vec<SkillVista>,
+    pub max_por_trabajo: usize,
+    pub max_caracteres: usize,
+    pub pueden_elegir: Vec<String>,
+    pub usuario_tiene_llave: bool,
+}
+
+/// Resultado de probar una selección de skills (como `ea qwen-skills probar`).
+#[derive(Serialize)]
+pub struct PruebaSkills {
+    pub por: String,
+    pub skills: Vec<String>,
+    pub caracteres: usize,
+}
+
 /// Por agente (`modelo-local`, `claude-code`).
 pub type Colas = BTreeMap<&'static str, Vec<ColaEntrada>>;
 

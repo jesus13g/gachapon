@@ -1166,7 +1166,7 @@ si el trabajo no tiene formato de id o si sobra algún campo), `POST /api/trabaj
 de rango o en una misión, 400 sin escribir nada—, `confirmar` `{"contexto": "..."}`),
 `POST /api/trabajos` (crea una misión o una obra; misión: `{"modo"?: "mision", "titulo", "worktree",
 "objetivo", "criterio", "topes"?: {"iteraciones"?, "tiempo_s"?}}` → 201 `{id, estado}`;
-`creada_por` es `usuario` y no admite skills ni otros campos; 400 si falta el
+`creada_por` es `usuario` y no admite skills (la llave `pueden_elegir` es del rol planificador; 400 con ese motivo) ni otros campos; 400 si falta el
 criterio o el worktree no es una ruta absoluta existente dentro de un repo git
 con al menos un commit; los topes se recortan al techo; una obra es `{"modo":
 "obra", "titulo", "worktree", "objetivo", "fases": [{"titulo", "instrucciones",
@@ -1174,7 +1174,7 @@ con al menos un commit; los topes se recortan al techo; una obra es `{"modo":
 general, con 1-20 fases numeradas por su orden y `revisar_cada` obligatorio
 —`null` es «solo al final», si no entre 1 y el número de fases—; 400 si falta
 o una fase no tiene criterio), `GET /api/trabajos/nuevo` (modos, techo, topes por
-defecto y worktrees sugeridos para el formulario) y
+defecto y worktrees sugeridos para el formulario), `GET /api/skills` (catálogo de skills del ejecutor sin cuerpos, topes, `pueden_elegir` y `usuario_tiene_llave`) y `POST /api/skills/probar` (`{"skills": [...], "por"?: "claude-code"}`; la misma validación que `ea qwen-skills probar`: llave de `por` —por defecto `usuario`—, existencia, habilitada y topes; 200 `{por, skills, caracteres}` o 400 con el motivo; no escribe nada) y
 equipos de agentes (spec 019): `GET /api/equipos` (una fila por equipo con sus miembros y si están vivos), `GET /api/equipos/<id>` (miembros con presencia y cola, y los últimos trabajos con su informe; 404 si no existe), `POST /api/equipos` (despertar; exige la clave; `{"titulo", "objetivo", "worktree", "miembros": [{"agente", "rol"}] | "todos": true, "terminal"?: bool}` → 201 `{equipo, omitidos, sesiones}`; mismas reglas que `ea equipo despertar` —roles que admite cada agente, sin repetir, ejecutor con modelo local, tope `orquestador.paralelo`, un agente en un solo equipo despierto, binarios presentes—, 400 con el motivo y nada escrito; `creado_por` es `usuario`; con `terminal` abre una terminal por cada planificador y revisor con `ea equipo sesion <id> <agente>` y lo apunta como `equipo_sesion_abierta`) y `POST /api/equipos/<id>/dormir` (exige la clave; lo pendiente de sus ejecutores vuelve a la cola de `modelo-local`); `POST /api/trabajos` admite además `equipo`, `asignado_a`, `revisor` y `worktree_propio` (400 con las validaciones del bus); `POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale o la versión no sube; deja `rutina_registrada` en el diario); la memoria de Claude Code va por
 `GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
 `POST /api/memoria/<proyecto>/<fichero>` (`{"contenido": "...", "version": "..."}`;
