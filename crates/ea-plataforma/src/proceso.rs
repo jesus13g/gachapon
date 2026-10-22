@@ -171,6 +171,12 @@ impl Arbol {
         }
     }
 
+    /// ¿Existe una forma suave de pedir terminar ([`Arbol::terminar_suave`])?
+    /// Solo en Unix; en Windows quien llama puede saltarse el margen de espera.
+    pub const fn admite_terminar_suave() -> bool {
+        cfg!(unix)
+    }
+
     /// Pide terminar con educación: SIGTERM al grupo en Unix. En Windows no
     /// hay equivalente y no hace nada (usar [`Arbol::matar`] tras el margen).
     pub fn terminar_suave(&self) {
@@ -269,6 +275,11 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         assert!(muerto(nieto), "el nieto sigue vivo");
+    }
+
+    #[test]
+    fn terminar_suave_solo_en_unix() {
+        assert_eq!(Arbol::admite_terminar_suave(), cfg!(unix));
     }
 
     #[cfg(unix)]

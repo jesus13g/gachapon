@@ -6,4 +6,5 @@
 pub mod agentes;
 pub mod config;
 pub mod ejecutor;
+pub mod sandbox;
 pub mod trabajadores;
