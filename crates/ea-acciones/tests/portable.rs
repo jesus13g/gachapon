@@ -130,8 +130,11 @@ async fn schtasks_programa_consulta_y_desprograma() {
     assert!(!t.desprogramar("diaria").await.unwrap());
 
     let ordenes = std::fs::read_to_string(&log).unwrap();
-    let crear = "/Create\n/F\n/SC\nWEEKLY\n/D\nMON,TUE,WED,THU,FRI\n/ST\n09:00\n/RL\nLIMITED\n/TN\necosistema-asistente\\rutina-diaria\n/TR\n\"/Apps/ea con espacio/ea\" rutina lanzar diaria\n--\n";
-    assert!(ordenes.contains(crear), "{ordenes}");
+    // La tarea sale de un XML temporal (con /SC nacería con tope de 72 h y sin batería).
+    let xml = d.path().join("programadas/diaria.tarea.xml");
+    let crear = format!("/Create\n/F\n/TN\necosistema-asistente\\rutina-diaria\n/XML\n{}\n--\n", xml.display());
+    assert!(ordenes.contains(&crear), "{ordenes}");
+    assert!(!xml.exists(), "el XML temporal se borra");
     assert!(ordenes.contains("/Delete\n/TN\necosistema-asistente\\rutina-diaria\n/F\n--\n"), "{ordenes}");
 }
 
@@ -203,4 +206,30 @@ async fn linux_escribe_el_servicio_de_la_rutina_con_la_ruta_real_si_falta() {
     std::fs::write(d.path().join("unidades/ea-rutina@.service"), "mio\n").unwrap();
     t.programar("diaria", "hourly").await.unwrap();
     assert_eq!(std::fs::read_to_string(d.path().join("unidades/ea-rutina@.service")).unwrap(), "mio\n");
+}
+
+#[test]
+fn el_xml_de_una_rutina_de_windows() {
+    use ea_acciones::calendario::parsear;
+    use ea_acciones::temporizador::{disparadores_xml_rutina, tarea_xml_rutina};
+    let x = tarea_xml_rutina("diaria", Path::new("C:\\Apps\\ea.exe"), &parsear("Mon..Fri 09:00").unwrap(), Some("PC\\ana"));
+    assert!(x.contains("<StartBoundary>2000-01-01T09:00:00</StartBoundary>") && x.contains("<ScheduleByWeek>"));
+    assert!(x.contains("<Monday/>") && x.contains("<Friday/>") && !x.contains("<Saturday/>"));
+    assert!(x.contains("<Arguments>rutina lanzar diaria</Arguments>"));
+    assert!(x.contains("<ExecutionTimeLimit>PT1H</ExecutionTimeLimit>") && x.contains("<DisallowStartIfOnBatteries>false"));
+    assert!(disparadores_xml_rutina(&parsear("minutely").unwrap()).contains("<Interval>PT1M</Interval>"));
+    assert!(disparadores_xml_rutina(&parsear("hourly").unwrap()).contains("<Interval>PT1H</Interval>"));
+    assert!(disparadores_xml_rutina(&parsear("monthly").unwrap()).contains("<Day>1</Day>"));
+    assert!(disparadores_xml_rutina(&parsear("07:05").unwrap()).contains("<ScheduleByDay>"));
+}
+
+#[tokio::test]
+async fn launchd_reintenta_bootstrap_antes_de_rendirse() {
+    let d = tempfile::tempdir().unwrap();
+    let (mut t, log) = temporizadores(d.path(), Backend::Launchd);
+    t.espera_reintento = std::time::Duration::ZERO;
+    std::fs::write(d.path().join("fallo"), "").unwrap();
+    assert!(t.programar("diaria", "daily").await.is_err());
+    let ordenes = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(ordenes.matches("bootstrap\n").count(), 6, "{ordenes}");
 }

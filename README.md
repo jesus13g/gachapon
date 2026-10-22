@@ -429,9 +429,13 @@ con código 0, para no estorbar nunca a Claude Code.
 
 En Windows usa barras normales o `\\` dobles en el JSON
 (`C:/ruta/target/release/ea.exe hook subagentes start`). Las instalaciones
-anteriores siguen valiendo: `claude/hooks/ea-subagentes.sh` es ahora un
-envoltorio de una línea que ejecuta `${EA_BIN:-ea}` (define `EA_BIN` o deja
-`ea` en el `PATH`).
+anteriores con `claude/hooks/ea-subagentes.sh` siguen funcionando: ahora es un
+envoltorio que busca el binario en este orden (`$EA_BIN`; si no, el
+`target/release/ea` del repo donde vive el script, siguiendo el enlace de
+`~/.claude/hooks`; si no, el `ea` del `PATH`) y **siempre sale con 0**, sin
+estorbar a Claude Code. Para que el hook haga algo hay que **recompilar en
+release** (`cargo build --release`): un `ea` anterior no tiene el subcomando
+`hook`.
 
 ## Skills de Qwen
 
@@ -513,7 +517,24 @@ binarios (junto al `ea` que lo ejecuta; ya no hace falta que el repo esté en
 |---|---|
 | Linux | unidades `ea-mcp.service`, `ea-orchestrator.service` y `ea-web.service` en `~/.config/systemd/user/`, con `daemon-reload` y `enable --now` |
 | macOS | LaunchAgents `es.gachapon.<servicio>.plist` en `~/Library/LaunchAgents/`, cargados con `launchctl` (arrancan al iniciar sesión) |
-| Windows | tareas `ecosistema-asistente\<servicio>` en el Programador de tareas, al iniciar sesión, sin privilegios de administrador |
+| Windows | tareas `ecosistema-asistente\<servicio>` en el Programador de tareas, al iniciar sesión, creadas desde un XML (`schtasks /Create /XML`) como tareas **del usuario y de privilegio mínimo** (`LeastPrivilege`, sin tope de 72 h, sin parar ni negarse a arrancar con batería, reinicio automático si fallan) |
+
+Notas por sistema:
+
+- **macOS: `PATH`.** launchd arranca los agentes con `PATH=/usr/bin:/bin:/usr/sbin:/sbin`,
+  y el ejecutor no encontraría `qwen`, `claude` o `codex` instalados con
+  Homebrew, nvm o mise. Por eso `ea servicios instalar` guarda en cada plist
+  (`EnvironmentVariables`) el `PATH` que tienes en ese momento; `ea servicios ver`
+  lo muestra. Si cambias el `PATH` (o instalas un agente en otra carpeta),
+  vuelve a ejecutar `ea servicios instalar`.
+- **macOS: carga.** `launchctl bootout` es asíncrono; si `bootstrap` falla justo
+  después con «Input/output error», se reintenta unas veces (5 × 200 ms).
+- **Windows: administrador.** En algunas configuraciones de Windows crear tareas
+  programadas puede exigir una terminal de administrador (no verificado en una
+  máquina real); si `schtasks` responde «acceso denegado», `ea` lo dice así.
+  Las rutinas se crean igual, con un XML propio: tope de una hora (solo ejecutan
+  `ea rutina lanzar`, que es corto), sin condición de batería y recuperando el
+  disparo perdido si el equipo estaba apagado.
 
 Las plantillas `crates/*/systemd/*.service` siguen ahí como referencia (y para
 quien prefiera enlazarlas a mano en Linux, como en las secciones de `ea-mcp` y
@@ -576,7 +597,7 @@ aquí y el ecosistema no las relaja en silencio.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree, un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
+| Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree, un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
 | Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`) | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
 | Solo local | `127.0.0.1`; `ea-web` filtra el `Host` | ídem | ídem |
 | Terminal real (TTY) para lo irreversible | sí | sí | sí |

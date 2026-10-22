@@ -22,10 +22,18 @@ fn gestor(b: Backend) -> &'static str {
 fn mostrar(env: &Entorno, pasos: &[Paso]) {
     println!("Gestor:    {}", gestor(env.backend));
     println!("Binarios:  {}", env.exes_dir.display());
+    if env.backend == Backend::Launchd {
+        // launchd arranca los agentes con un PATH mínimo: se fija el de ahora.
+        println!("PATH:      {}", env.path.as_deref().unwrap_or("(sin PATH: los agentes usarán el de launchd)"));
+        println!("           (si lo cambias, vuelve a ejecutar `ea servicios instalar`)");
+    }
+    if env.backend == Backend::Schtasks {
+        println!("Usuario:   {}", env.usuario.as_deref().unwrap_or("(desconocido: la tarea valdrá para cualquier usuario)"));
+    }
     println!("Pasos:");
     for p in pasos {
         let nota = match p {
-            Paso::Escribir { ruta, .. } if ruta.exists() => " (sustituye el que hay)",
+            Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } if ruta.exists() => " (sustituye el que hay)",
             _ => "",
         };
         println!("  - {}{nota}", p.describir());

@@ -180,13 +180,15 @@ pub struct GestorServicios {
     pub orden: Vec<String>,
     /// El uid de launchd (`gui/<uid>`).
     pub uid: Option<u32>,
+    /// Espera entre reintentos (`/Run` justo después de `/End`).
+    pub espera_reintento: Duration,
 }
 
 impl GestorServicios {
     /// El gestor de un sistema dado (parametrizable para las pruebas).
     pub fn para(sistema: Sistema) -> Self {
         let backend = Backend::de(sistema);
-        Self { backend, orden: vec![backend.programa().into()], uid: ea_plataforma::usuario::uid() }
+        Self { backend, orden: vec![backend.programa().into()], uid: ea_plataforma::usuario::uid(), espera_reintento: ESPERA_REINTENTO }
     }
 
     /// El del sistema en el que corre este binario.
@@ -260,7 +262,16 @@ impl GestorServicios {
             Backend::Schtasks => {
                 // Parar una tarea que no corre falla: no importa.
                 let _ = self.correr(&schtasks_con_tarea("/End", nombre), LIMITE_REINICIO).await;
-                self.correr(&schtasks_con_tarea("/Run", nombre), LIMITE_REINICIO).await?
+                // `/End` no es instantáneo: si `/Run` falla justo después, se reintenta.
+                let mut salida = self.correr(&schtasks_con_tarea("/Run", nombre), LIMITE_REINICIO).await?;
+                for _ in 0..REINTENTOS_BOOTSTRAP {
+                    if salida.status.success() {
+                        break;
+                    }
+                    tokio::time::sleep(self.espera_reintento).await;
+                    salida = self.correr(&schtasks_con_tarea("/Run", nombre), LIMITE_REINICIO).await?;
+                }
+                salida
             }
         };
         if salida.status.success() {
@@ -381,7 +392,12 @@ pub fn unidad_systemd(nombre: &str, exe: &Path) -> Option<String> {
 
 /// El LaunchAgent de un servicio: arranca al iniciar sesión y se reinicia si
 /// termina con error. Los registros van a `<logs>/<nombre>.log`.
-pub fn plist_servicio(nombre: &str, exe: &Path, logs: &Path) -> String {
+///
+/// launchd arranca los agentes con `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, así
+/// que, si se da `path`, se fija como `EnvironmentVariables` (el del usuario
+/// al instalar) para que el ejecutor encuentre `qwen`, `claude` o `codex`
+/// instalados con Homebrew, nvm o mise.
+pub fn plist_servicio(nombre: &str, exe: &Path, logs: &Path, path: Option<&str>) -> String {
     let log = logs.join(format!("{nombre}.log")).display().to_string();
     let mut c = String::new();
     c.push_str(&plist::cadena("  ", "Label", &etiqueta_launchd(nombre)));
@@ -389,19 +405,61 @@ pub fn plist_servicio(nombre: &str, exe: &Path, logs: &Path) -> String {
     c.push_str(&plist::booleano("  ", "RunAtLoad", true));
     c.push_str("  <key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n");
     c.push_str(&plist::entero("  ", "ThrottleInterval", 2));
+    if let Some(p) = path.filter(|p| !p.is_empty()) {
+        c.push_str("  <key>EnvironmentVariables</key>\n  <dict>\n");
+        c.push_str(&plist::cadena("    ", "PATH", p));
+        c.push_str("  </dict>\n");
+    }
     c.push_str(&plist::cadena("  ", "StandardOutPath", &log));
     c.push_str(&plist::cadena("  ", "StandardErrorPath", &log));
     plist::documento(&c)
 }
 
-/// `schtasks /Create` de un servicio: al iniciar sesión, sin privilegios
-/// elevados. `/F` reemplaza la tarea si ya existía.
-pub fn schtasks_crear_args(nombre: &str, exe: &Path) -> Vec<String> {
-    let mut v = cadenas(&["/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN"]);
+/// `schtasks /Create` de un servicio a partir de su XML (`/XML`): la tarea
+/// se define allí (al iniciar sesión, privilegio mínimo, sin tope de tiempo ni
+/// parada por batería, reinicio si falla). `/F` reemplaza la que hubiera.
+pub fn schtasks_crear_args(nombre: &str, fichero_xml: &Path) -> Vec<String> {
+    let mut v = cadenas(&["/Create", "/F", "/TN"]);
     v.push(tarea_windows(nombre));
-    v.push("/TR".into());
-    v.push(format!("\"{}\"", exe.display()));
+    v.push("/XML".into());
+    v.push(fichero_xml.display().to_string());
     v
+}
+
+/// El XML de la tarea de un servicio (se escribe en UTF-16 LE con BOM).
+pub fn tarea_xml_servicio(nombre: &str, exe: &Path, usuario: Option<&str>) -> String {
+    let comando = exe.display().to_string();
+    let directorio = exe.parent().map(|d| d.display().to_string());
+    plist::tarea_windows(&plist::TareaXml {
+        descripcion: &format!("ecosistema-asistente: {nombre}"),
+        usuario,
+        disparadores: &plist::disparador_inicio_sesion(usuario),
+        comando: &comando,
+        argumentos: None,
+        directorio: directorio.as_deref().filter(|d| !d.is_empty()),
+        servicio: true,
+    })
+}
+
+/// `DOMINIO\usuario` del usuario de Windows, de `USERDOMAIN` y `USERNAME`
+/// (sin dominio, solo el nombre); `None` si no hay `USERNAME`.
+pub fn usuario_windows() -> Option<String> {
+    let nombre = std::env::var("USERNAME").ok().filter(|u| !u.is_empty())?;
+    Some(match std::env::var("USERDOMAIN").ok().filter(|d| !d.is_empty()) {
+        Some(d) => format!("{d}\\{nombre}"),
+        None => nombre,
+    })
+}
+
+/// Si `schtasks` dice «acceso denegado» (en inglés o español), añade la pista
+/// de que puede hacer falta una terminal de administrador.
+pub fn pista_acceso_denegado(error: &str) -> String {
+    let m = error.to_lowercase();
+    if m.contains("access is denied") || m.contains("denegado") || m.contains("acceso") && m.contains("denied") {
+        format!("{error} (Windows ha denegado el acceso: crear tareas puede requerir una terminal de administrador)")
+    } else {
+        error.to_string()
+    }
 }
 
 // ------------------------------------------------------------- planes
@@ -411,10 +469,15 @@ pub fn schtasks_crear_args(nombre: &str, exe: &Path) -> Vec<String> {
 pub enum Paso {
     CrearDir(PathBuf),
     Escribir { ruta: PathBuf, contenido: String },
+    /// Como `Escribir`, pero en UTF-16 LE con BOM (el XML de las tareas de
+    /// Windows).
+    EscribirUtf16 { ruta: PathBuf, contenido: String },
     Borrar(PathBuf),
     /// Una orden externa; con `tolerar`, si falla se sigue (p. ej. parar lo
-    /// que ya estaba parado).
-    Ejecutar { argv: Vec<String>, tolerar: bool },
+    /// que ya estaba parado). Con `reintentos`, si falla se vuelve a probar
+    /// (hasta ese número de veces más) con una espera corta entre intentos
+    /// (`bootstrap` justo después de `bootout`).
+    Ejecutar { argv: Vec<String>, tolerar: bool, reintentos: u32 },
 }
 
 impl Paso {
@@ -422,9 +485,9 @@ impl Paso {
     pub fn describir(&self) -> String {
         match self {
             Paso::CrearDir(d) => format!("crear la carpeta {}", d.display()),
-            Paso::Escribir { ruta, .. } => format!("escribir {}", ruta.display()),
+            Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } => format!("escribir {}", ruta.display()),
             Paso::Borrar(r) => format!("borrar {}", r.display()),
-            Paso::Ejecutar { argv, tolerar } => format!("ejecutar {}{}", argv.join(" "), if *tolerar { " (si falla, se sigue)" } else { "" }),
+            Paso::Ejecutar { argv, tolerar, .. } => format!("ejecutar {}{}", argv.join(" "), if *tolerar { " (si falla, se sigue)" } else { "" }),
         }
     }
 }
@@ -442,6 +505,10 @@ pub struct Entorno {
     /// Registros de los LaunchAgents.
     pub logs_dir: PathBuf,
     pub uid: Option<u32>,
+    /// `PATH` del usuario al instalar: se fija en los LaunchAgents.
+    pub path: Option<String>,
+    /// `DOMINIO\usuario` de Windows (disparador y principal de las tareas).
+    pub usuario: Option<String>,
 }
 
 /// La carpeta de unidades de usuario de un sistema, sin crearla: Linux
@@ -449,7 +516,7 @@ pub struct Entorno {
 /// `~/Library/LaunchAgents`. Windows no usa ficheros: devuelve una carpeta
 /// vacía.
 pub fn dir_unidades(backend: Backend) -> PathBuf {
-    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let home = ea_plataforma::usuario::home();
     match backend {
         Backend::Systemd => std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
@@ -474,6 +541,8 @@ impl Entorno {
             unidades_dir: dir_unidades(backend),
             logs_dir: ea_ajustes::cargar().rutas.estado.join("logs"),
             uid: ea_plataforma::usuario::uid(),
+            path: std::env::var("PATH").ok().filter(|p| !p.is_empty()),
+            usuario: usuario_windows(),
         })
     }
 
@@ -489,6 +558,11 @@ impl Entorno {
         SERVICIOS_INSTALABLES.iter().copied().chain(["ea"]).map(|b| self.exe(b)).filter(|p| !p.is_file()).collect()
     }
 
+    /// Dónde se deja el XML de la tarea de Windows de un servicio.
+    fn ruta_xml(&self, nombre: &str) -> PathBuf {
+        self.logs_dir.join("tareas").join(format!("{nombre}.xml"))
+    }
+
     fn ruta_unidad(&self, nombre: &str) -> PathBuf {
         match self.backend {
             Backend::Launchd => self.unidades_dir.join(format!("{}.plist", etiqueta_launchd(nombre))),
@@ -498,8 +572,13 @@ impl Entorno {
 }
 
 fn ejecutar(argv: Vec<String>, tolerar: bool) -> Paso {
-    Paso::Ejecutar { argv, tolerar }
+    Paso::Ejecutar { argv, tolerar, reintentos: 0 }
 }
+
+/// Cuántas veces más se prueba `launchctl bootstrap` (y con qué espera) si
+/// falla justo después de un `bootout`, que es asíncrono.
+pub const REINTENTOS_BOOTSTRAP: u32 = 5;
+pub const ESPERA_REINTENTO: Duration = Duration::from_millis(200);
 
 /// Los pasos para instalar y arrancar `ea-mcp`, `ea-orchestrator` y
 /// `ea-web`. En Linux también la plantilla `ea-rutina@.service` de las
@@ -526,16 +605,23 @@ pub fn plan_instalar(env: &Entorno) -> Result<Vec<Paso>, String> {
             p.push(Paso::CrearDir(env.logs_dir.clone()));
             for n in SERVICIOS_INSTALABLES {
                 let ruta = env.ruta_unidad(n);
-                p.push(Paso::Escribir { ruta: ruta.clone(), contenido: plist_servicio(n, &env.exe(n), &env.logs_dir) });
+                p.push(Paso::Escribir { ruta: ruta.clone(), contenido: plist_servicio(n, &env.exe(n), &env.logs_dir, env.path.as_deref()) });
                 // Si ya estaba cargado, `bootstrap` falla: se descarga antes.
                 p.push(ejecutar(vec!["launchctl".into(), "bootout".into(), format!("gui/{uid}/{}", etiqueta_launchd(n))], true));
-                p.push(ejecutar(vec!["launchctl".into(), "bootstrap".into(), format!("gui/{uid}"), ruta.display().to_string()], false));
+                p.push(Paso::Ejecutar {
+                    argv: vec!["launchctl".into(), "bootstrap".into(), format!("gui/{uid}"), ruta.display().to_string()],
+                    tolerar: false,
+                    reintentos: REINTENTOS_BOOTSTRAP,
+                });
             }
         }
         Backend::Schtasks => {
             for n in SERVICIOS_INSTALABLES {
+                let xml = env.ruta_xml(n);
+                p.push(Paso::CrearDir(env.logs_dir.join("tareas")));
+                p.push(Paso::EscribirUtf16 { ruta: xml.clone(), contenido: tarea_xml_servicio(n, &env.exe(n), env.usuario.as_deref()) });
                 let mut crear = vec!["schtasks".to_string()];
-                crear.extend(schtasks_crear_args(n, &env.exe(n)));
+                crear.extend(schtasks_crear_args(n, &xml));
                 p.push(ejecutar(crear, false));
                 let mut run = vec!["schtasks".to_string()];
                 run.extend(schtasks_con_tarea("/Run", n));
@@ -584,6 +670,16 @@ pub fn plan_desinstalar(env: &Entorno) -> Result<Vec<Paso>, String> {
 /// producción [`correr_orden`]; en las pruebas, un registro). Devuelve una
 /// línea por paso hecho; se detiene en el primer error no tolerado.
 pub fn aplicar(pasos: &[Paso], correr: &mut dyn FnMut(&[String]) -> Result<(), String>) -> Result<Vec<String>, String> {
+    aplicar_con_espera(pasos, correr, ESPERA_REINTENTO)
+}
+
+/// Como [`aplicar`], con la espera entre reintentos a elegir (las pruebas la
+/// ponen a cero).
+pub fn aplicar_con_espera(
+    pasos: &[Paso],
+    correr: &mut dyn FnMut(&[String]) -> Result<(), String>,
+    espera: Duration,
+) -> Result<Vec<String>, String> {
     let mut hecho = Vec::new();
     for paso in pasos {
         match paso {
@@ -591,13 +687,24 @@ pub fn aplicar(pasos: &[Paso], correr: &mut dyn FnMut(&[String]) -> Result<(), S
             Paso::Escribir { ruta, contenido } => {
                 ea_bus::escribir_atomico(ruta, contenido.as_bytes()).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
             }
+            Paso::EscribirUtf16 { ruta, contenido } => {
+                ea_bus::escribir_atomico(ruta, &plist::utf16_le_con_bom(contenido)).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
+            }
             Paso::Borrar(r) => match std::fs::remove_file(r) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(format!("no se pudo borrar {}: {e}", r.display())),
             },
-            Paso::Ejecutar { argv, tolerar } => {
-                if let Err(e) = correr(argv) {
+            Paso::Ejecutar { argv, tolerar, reintentos } => {
+                let mut resultado = correr(argv);
+                for _ in 0..*reintentos {
+                    if resultado.is_ok() {
+                        break;
+                    }
+                    std::thread::sleep(espera);
+                    resultado = correr(argv);
+                }
+                if let Err(e) = resultado {
                     if !tolerar {
                         return Err(format!("{}: {e}", argv.join(" ")));
                     }
@@ -621,7 +728,8 @@ pub fn correr_orden(argv: &[String]) -> Result<(), String> {
         Ok(())
     } else {
         let e = String::from_utf8_lossy(&salida.stderr).trim().to_string();
-        Err(if e.is_empty() { format!("terminó con {}", salida.status) } else { e })
+        let e = if e.is_empty() { format!("terminó con {}", salida.status) } else { e };
+        Err(if prog.to_lowercase().contains("schtasks") { pista_acceso_denegado(&e) } else { e })
     }
 }
 
@@ -636,6 +744,8 @@ mod pruebas {
             unidades_dir: dir.join("unidades"),
             logs_dir: dir.join("logs"),
             uid: Some(501),
+            path: Some("/opt/homebrew/bin:/usr/bin".into()),
+            usuario: Some("PC\\ana".into()),
         }
     }
 
@@ -719,7 +829,7 @@ mod pruebas {
 
     #[test]
     fn el_plist_de_un_servicio() {
-        let p = plist_servicio("ea-web", Path::new("/Users/a b/ea-web"), Path::new("/Users/a b/logs"));
+        let p = plist_servicio("ea-web", Path::new("/Users/a b/ea-web"), Path::new("/Users/a b/logs"), Some("/opt/homebrew/bin:/usr/bin"));
         assert!(p.starts_with("<?xml"));
         assert!(p.contains("<key>Label</key>\n  <string>es.gachapon.ea-web</string>"));
         assert!(p.contains("<array>\n    <string>/Users/a b/ea-web</string>\n  </array>"));
@@ -727,16 +837,26 @@ mod pruebas {
         assert!(p.contains("<key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>"));
         let log = Path::new("/Users/a b/logs").join("ea-web.log");
         assert!(p.contains(&format!("<key>StandardOutPath</key>\n  <string>{}</string>", log.display())));
+        assert!(p.contains("<key>EnvironmentVariables</key>\n  <dict>\n    <key>PATH</key>\n    <string>/opt/homebrew/bin:/usr/bin</string>\n  </dict>"), "{p}");
+        let sin = plist_servicio("ea-web", Path::new("/x"), Path::new("/l"), None);
+        assert!(!sin.contains("EnvironmentVariables"));
         assert!(p.trim_end().ends_with("</plist>"));
     }
 
     #[test]
-    fn la_tarea_de_windows_sin_privilegios_elevados() {
-        let a = schtasks_crear_args("ea-web", Path::new("C:\\ea dir\\ea-web.exe"));
-        assert_eq!(
-            a,
-            ["/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", "ecosistema-asistente\\ea-web", "/TR", "\"C:\\ea dir\\ea-web.exe\""]
-        );
+    fn la_tarea_de_windows_se_crea_desde_un_xml() {
+        let a = schtasks_crear_args("ea-web", Path::new("C:\\ea dir\\ea-web.xml"));
+        assert_eq!(a, ["/Create", "/F", "/TN", "ecosistema-asistente\\ea-web", "/XML", "C:\\ea dir\\ea-web.xml"]);
+        assert!(!a.contains(&"/SC".to_string()), "con /SC la tarea moriría a las 72 h");
+        let x = tarea_xml_servicio("ea-web", Path::new("C:\\ea dir\\ea-web.exe"), Some("PC\\ana"));
+        assert!(x.contains("<UserId>PC\\ana</UserId>") && x.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
+    }
+
+    #[test]
+    fn el_acceso_denegado_de_schtasks_se_explica() {
+        assert!(pista_acceso_denegado("ERROR: Access is denied.").contains("terminal de administrador"));
+        assert!(pista_acceso_denegado("ERROR: Acceso denegado.").contains("terminal de administrador"));
+        assert_eq!(pista_acceso_denegado("otra cosa"), "otra cosa");
     }
 
     fn argvs(pasos: &[Paso]) -> Vec<String> {
@@ -789,6 +909,12 @@ mod pruebas {
         assert!(ordenes[1].starts_with("launchctl bootstrap gui/501 ") && ordenes[1].ends_with("es.gachapon.ea-mcp.plist"));
         let q = plan_desinstalar(&env).unwrap();
         assert_eq!(argvs(&q)[0], "launchctl bootout gui/501/es.gachapon.ea-mcp");
+        let boot = p.iter().find_map(|x| match x {
+            Paso::Ejecutar { argv, reintentos, .. } if argv[1] == "bootstrap" => Some(*reintentos),
+            _ => None,
+        });
+        assert_eq!(boot, Some(REINTENTOS_BOOTSTRAP));
+        assert!(p.iter().any(|x| matches!(x, Paso::Escribir { contenido, .. } if contenido.contains("/opt/homebrew/bin:/usr/bin"))));
         assert!(plan_instalar(&Entorno { uid: None, ..env }).is_err());
     }
 
@@ -798,8 +924,13 @@ mod pruebas {
         let env = Entorno { exes_dir: PathBuf::from("C:\\ea"), ..entorno(Backend::Schtasks, d.path()) };
         let p = plan_instalar(&env).unwrap();
         assert!(!p.iter().any(|x| matches!(x, Paso::Escribir { .. })), "Windows no escribe unidades");
+        let xml = p.iter().find_map(|x| match x {
+            Paso::EscribirUtf16 { ruta, contenido } if ruta.ends_with("tareas/ea-mcp.xml") => Some(contenido.clone()),
+            _ => None,
+        });
+        assert!(xml.unwrap().contains("ea-mcp</Command>"));
         let ordenes = argvs(&p);
-        assert!(ordenes[0].starts_with("schtasks /Create /F /SC ONLOGON /RL LIMITED /TN ecosistema-asistente\\ea-mcp /TR \"C:\\ea"), "{}", ordenes[0]);
+        assert!(ordenes[0].starts_with("schtasks /Create /F /TN ecosistema-asistente\\ea-mcp /XML ") && ordenes[0].ends_with("ea-mcp.xml"), "{}", ordenes[0]);
         assert_eq!(ordenes[1], "schtasks /Run /TN ecosistema-asistente\\ea-mcp");
         let q = plan_desinstalar(&env).unwrap();
         assert_eq!(argvs(&q)[1], "schtasks /Delete /TN ecosistema-asistente\\ea-mcp /F");
@@ -822,9 +953,26 @@ mod pruebas {
         assert_eq!(vistas.len(), 4);
         aplicar(&plan_desinstalar(&env).unwrap(), &mut |_| Err("no estaba cargado".into())).unwrap_err();
         // Con las órdenes toleradas fallando, sigue; la última (daemon-reload) no se tolera.
-        let tolera = vec![Paso::Ejecutar { argv: vec!["x".into()], tolerar: true }, Paso::Borrar(web.clone())];
+        let tolera = vec![Paso::Ejecutar { argv: vec!["x".into()], tolerar: true, reintentos: 0 }, Paso::Borrar(web.clone())];
         aplicar(&tolera, &mut |_| Err("falla".into())).unwrap();
         assert!(!web.exists());
         assert!(entorno(Backend::Systemd, d.path()).faltan().len() == 4, "no hay binarios en /opt/ea con espacio");
+    }
+
+    #[test]
+    fn bootstrap_se_reintenta_si_bootout_aun_no_termino() {
+        let paso = Paso::Ejecutar { argv: vec!["launchctl".into(), "bootstrap".into()], tolerar: false, reintentos: 5 };
+        let mut intentos = 0;
+        let r = aplicar_con_espera(&[paso.clone()], &mut |_| {
+            intentos += 1;
+            if intentos < 4 { Err("Input/output error".into()) } else { Ok(()) }
+        }, Duration::ZERO);
+        assert!(r.is_ok() && intentos == 4);
+        let mut total = 0;
+        let r = aplicar_con_espera(&[paso], &mut |_| {
+            total += 1;
+            Err("Input/output error".into())
+        }, Duration::ZERO);
+        assert!(r.is_err() && total == 6, "el intento inicial y 5 reintentos");
     }
 }

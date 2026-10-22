@@ -21,7 +21,7 @@ use time::{OffsetDateTime, PrimitiveDateTime};
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use crate::calendario::{self, Horario, IntervaloLaunchd};
+use crate::calendario::{self, Cuando, Horario, IntervaloLaunchd};
 use crate::plist;
 use crate::servicios::{bloques_show, cita_systemd, dir_unidades, Backend};
 use crate::sistema::slug_valido;
@@ -185,14 +185,55 @@ pub fn plist_rutina(slug: &str, ea: &Path, horario: &Horario) -> String {
     plist::documento(&c)
 }
 
-/// Los argumentos de `schtasks /Create` de una rutina (sin privilegios
-/// elevados; `/F` reemplaza la tarea si ya existía).
-pub fn schtasks_crear_rutina_args(slug: &str, ea: &Path, horario: &Horario) -> Vec<String> {
-    let mut v: Vec<String> = vec!["/Create".into(), "/F".into()];
-    v.extend(horario.schtasks());
-    v.extend(["/RL".into(), "LIMITED".into(), "/TN".into(), tarea_rutina(slug), "/TR".into()]);
-    v.push(format!("\"{}\" rutina lanzar {slug}", ea.display()));
-    v
+/// Los argumentos de `schtasks /Create` de una rutina desde su XML (`/XML`).
+/// Con `/SC` la tarea nacería con «no arrancar con batería» y «detener a las
+/// 72 h»; el XML fija un tope de una hora (la rutina solo ejecuta
+/// `ea rutina lanzar`, que es corto) y quita lo de la batería. `/F` reemplaza
+/// la tarea si ya existía.
+pub fn schtasks_crear_rutina_args(slug: &str, fichero_xml: &Path) -> Vec<String> {
+    vec!["/Create".into(), "/F".into(), "/TN".into(), tarea_rutina(slug), "/XML".into(), fichero_xml.display().to_string()]
+}
+
+/// Los disparadores del XML de una tarea para un horario del subconjunto
+/// portable. Las horas de inicio usan una fecha pasada fija: lo que importa
+/// es la hora y el patrón.
+pub fn disparadores_xml_rutina(horario: &Horario) -> String {
+    let inicio = |h: u8, m: u8| format!("2000-01-01T{h:02}:{m:02}:00");
+    let (hora_ini, patron) = match horario.cuando {
+        Cuando::CadaMinuto => (inicio(0, 0), "      <Repetition>\n        <Interval>PT1M</Interval>\n      </Repetition>\n".to_string()),
+        Cuando::CadaHora => (inicio(0, 0), "      <Repetition>\n        <Interval>PT1H</Interval>\n      </Repetition>\n".to_string()),
+        Cuando::Mensual => (inicio(0, 0), String::new()),
+        Cuando::Diario { hora, minuto } => (inicio(hora, minuto), String::new()),
+    };
+    let cuando = match horario.cuando {
+        Cuando::Mensual => "      <ScheduleByMonth>\n        <DaysOfMonth>\n          <Day>1</Day>\n        </DaysOfMonth>\n        <Months>\n".to_string()
+            + &["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                .iter()
+                .map(|m| format!("          <{m}/>\n"))
+                .collect::<String>()
+            + "        </Months>\n      </ScheduleByMonth>\n",
+        _ if !horario.dias.is_empty() => {
+            let dias = horario.dias.iter().map(|d| format!("          <{d:?}/>\n")).collect::<String>();
+            format!("      <ScheduleByWeek>\n        <WeeksInterval>1</WeeksInterval>\n        <DaysOfWeek>\n{dias}        </DaysOfWeek>\n      </ScheduleByWeek>\n")
+        }
+        _ => "      <ScheduleByDay>\n        <DaysInterval>1</DaysInterval>\n      </ScheduleByDay>\n".to_string(),
+    };
+    format!("    <CalendarTrigger>\n{patron}      <StartBoundary>{hora_ini}</StartBoundary>\n      <Enabled>true</Enabled>\n{cuando}    </CalendarTrigger>\n")
+}
+
+/// El XML de la tarea de una rutina en Windows (UTF-16 al escribirlo).
+pub fn tarea_xml_rutina(slug: &str, ea: &Path, horario: &Horario, usuario: Option<&str>) -> String {
+    let comando = ea.display().to_string();
+    let directorio = ea.parent().map(|d| d.display().to_string());
+    plist::tarea_windows(&plist::TareaXml {
+        descripcion: &format!("ecosistema-asistente: rutina {slug}"),
+        usuario,
+        disparadores: &disparadores_xml_rutina(horario),
+        comando: &comando,
+        argumentos: Some(&format!("rutina lanzar {slug}")),
+        directorio: directorio.as_deref().filter(|d| !d.is_empty()),
+        servicio: false,
+    })
 }
 
 /// Dónde y con qué se programan los timers de las rutinas, según el sistema:
@@ -223,6 +264,8 @@ pub struct Temporizadores {
     /// «Ahora» (hora local sin zona y desfase respecto de UTC en segundos)
     /// para las pruebas; `None` = el reloj del sistema.
     pub reloj: Option<(PrimitiveDateTime, i32)>,
+    /// Espera entre reintentos de `launchctl bootstrap`.
+    pub espera_reintento: Duration,
 }
 
 impl Temporizadores {
@@ -246,6 +289,7 @@ impl Temporizadores {
             ea,
             uid: ea_plataforma::usuario::uid(),
             reloj: None,
+            espera_reintento: crate::servicios::ESPERA_REINTENTO,
         }
     }
 
@@ -261,6 +305,7 @@ impl Temporizadores {
             ea: None,
             uid: None,
             reloj: None,
+            espera_reintento: crate::servicios::ESPERA_REINTENTO,
         }
     }
 
@@ -276,6 +321,7 @@ impl Temporizadores {
             ea: Some(ea),
             uid,
             reloj: None,
+            espera_reintento: crate::servicios::ESPERA_REINTENTO,
         }
     }
 
@@ -351,7 +397,14 @@ impl Temporizadores {
             return Ok(());
         }
         let e = String::from_utf8_lossy(&salida.stderr).trim().to_string();
-        Err(format!("{} {}: {}", self.gestor.join(" "), args.join(" "), if e.is_empty() { salida.status.to_string() } else { e }))
+        let e = if e.is_empty() { salida.status.to_string() } else { e };
+        let e = if self.backend == Backend::Schtasks { crate::servicios::pista_acceso_denegado(&e) } else { e };
+        Err(format!("{} {}: {}", self.gestor.join(" "), args.join(" "), e))
+    }
+
+    /// El XML temporal de la tarea de una rutina (Windows).
+    fn ruta_xml(&self, slug: &str) -> PathBuf {
+        self.datos_dir.join(format!("{slug}.tarea.xml"))
     }
 
     fn uid_launchd(&self) -> Result<u32, String> {
@@ -502,7 +555,17 @@ impl Temporizadores {
         escribir(&plist_rutina(slug, &ea, &horario))?;
         // Si ya estaba cargado, `bootstrap` falla: se descarga antes.
         let _ = self.lanzar_gestor(&["bootout".into(), dominio]).await;
-        let cargar = self.lanzar_gestor(&["bootstrap".into(), format!("gui/{}", self.uid_launchd()?), ruta.display().to_string()]).await;
+        // `bootout` es asíncrono: `bootstrap` puede fallar con «Input/output
+        // error» si va justo detrás, así que se reintenta unas veces.
+        let args = ["bootstrap".to_string(), format!("gui/{}", self.uid_launchd()?), ruta.display().to_string()];
+        let mut cargar = self.lanzar_gestor(&args).await;
+        for _ in 0..crate::servicios::REINTENTOS_BOOTSTRAP {
+            if cargar.is_ok() {
+                break;
+            }
+            tokio::time::sleep(self.espera_reintento).await;
+            cargar = self.lanzar_gestor(&args).await;
+        }
         if let Err(e) = cargar {
             let _ = match &anterior {
                 Some(t) => escribir(t),
@@ -517,7 +580,12 @@ impl Temporizadores {
         let horario = calendario::parsear(c)?;
         let ea = self.ea()?.to_path_buf();
         self.ruta(slug)?;
-        self.lanzar_gestor(&schtasks_crear_rutina_args(slug, &ea, &horario)).await?;
+        let xml = self.ruta_xml(slug);
+        let contenido = tarea_xml_rutina(slug, &ea, &horario, crate::servicios::usuario_windows().as_deref());
+        ea_bus::escribir_atomico(&xml, &plist::utf16_le_con_bom(&contenido)).map_err(|e| e.to_string())?;
+        let creada = self.lanzar_gestor(&schtasks_crear_rutina_args(slug, &xml)).await;
+        let _ = std::fs::remove_file(&xml);
+        creada?;
         ea_bus::escribir_atomico(&self.ruta_calendario(slug), c.as_bytes()).map_err(|e| e.to_string())
     }
 
