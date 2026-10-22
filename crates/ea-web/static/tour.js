@@ -54,7 +54,7 @@ const tour = (() => {
     { sec: 'sistema', ancla: ['#lista'], titulo: 'Sistema',
       texto: 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él. <b>↻</b> reinicia un servicio; pide un segundo clic.' },
     { sec: 'boveda', ancla: ['#filas .arbol-col', '#lista'], titulo: 'La bóveda, como en Obsidian',
-      texto: 'Las tres regiones son las carpetas raíz: <b>modelo-local</b> y <b>claude-code</b> (de cada agente) y <b>compartida</b> (la tuya). <b>＋ nota</b> crea una nota en la compartida, <b>＋ carpeta</b> una carpeta en cualquier región y la <b>papelera</b> guarda lo borrado para restaurarlo. El cuadro de arriba filtra por nombre y busca también dentro del contenido.' },
+      texto: 'Las tres regiones son las carpetas raíz: <b>modelo-local</b> y <b>claude-code</b> (de cada agente) y <b>compartida</b> (la tuya). <b>＋ nota</b> crea una nota en la compartida, <b>＋ carpeta</b> una carpeta en cualquier región (su <b>⋯</b> la renombra o la manda a la papelera) y la <b>papelera</b> guarda lo borrado para restaurarlo; vaciarla es irreversible y se confirma en una terminal. El cuadro de arriba filtra por nombre y busca también dentro del contenido.' },
     { sec: 'boveda', ancla: ['#filas .nota-cab', '#filas .nota', '#lista'], titulo: 'Leer, editar, mover y promover',
       texto: '<b>✎</b> (o <b>Ctrl+E</b>) edita cualquier nota y <b>Ctrl+S</b> guarda; la firma de la cabecera (autor, región, fechas, promoción) no se cambia. <b>⋯</b> renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera.' },
     { sec: 'memoria', ancla: ['#filas .arbol', '#lista'], titulo: 'La memoria de Claude Code',

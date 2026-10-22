@@ -127,7 +127,8 @@ const ea = (() => {
     historialAccion: nombre => api(`/api/acciones/${c(nombre)}/historial`),
 
     // Abre una terminal real con el comando que confirma lo irreversible
-    // ({ propuesta } o { herramienta, argumentos }); la web no confirma nada.
+    // ({ propuesta }, { herramienta, argumentos } o { boveda: 'vaciar-papelera' });
+    // la web no confirma nada.
     abrirTerminal: cuerpo => post('/api/terminal/abrir', cuerpo),
 
     boveda: q => api('/api/boveda?q=' + c(q)),
@@ -141,6 +142,8 @@ const ea = (() => {
     renombrarNota: (ruta, nuevo, version) => post('/api/boveda/renombrar', { ruta, nuevo, version }),
     eliminarNota: (ruta, version) => post('/api/boveda/eliminar', { ruta, version }),
     crearCarpeta: ruta => post('/api/boveda/carpeta', { ruta }),
+    renombrarCarpeta: (ruta, nuevo) => post('/api/boveda/carpeta/renombrar', { ruta, nuevo }),
+    eliminarCarpeta: ruta => post('/api/boveda/carpeta/eliminar', { ruta }),
     mostrarNota: ruta => post('/api/boveda/mostrar', { ruta }),
     papelera: () => api('/api/boveda/papelera'),
     restaurarNota: id => post('/api/boveda/papelera/restaurar', { id }),

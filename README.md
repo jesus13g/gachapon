@@ -665,7 +665,7 @@ ea diario anotar --texto "…" [--corrige <id>] [--trabajo <id>]
                                              # nota del usuario (usuario_nota): constancia o corrección
 ea propuestas listar|ver|decidir <id> --aceptar|--rechazar
 ea acciones listar|simular|ejecutar          # catálogo de herramientas
-ea boveda estado|listar|buscar|leer|promover|reindexar
+ea boveda estado|listar|buscar|leer|promover|reindexar|vaciar-papelera
 ea ajustes ver|obtener|establecer|ruta       # ajustes.toml (establecer: solo con TTY)
 ea biblioteca listar|ver|uso|activar|desactivar|sesion|categoria  # herramientas de los agentes (ver «Biblioteca»)
 ea servicios ver|instalar|desinstalar        # servicios residentes en el gestor del sistema (instalar/desinstalar: solo con TTY)
@@ -1053,11 +1053,29 @@ ellas) y rechazan como `quien` a un agente o al orquestador. Reglas:
   carpeta); si sigue siendo ambiguo no se toca y se avisa.
 - **Borrar** es mandar a la **papelera**: `<raíz>/.papelera/<marca>-<n>/<ruta>`
   (fuera de las regiones: no se indexa). Se restaura a su ruta original si allí
-  no hay otra nota (409). Vaciar la papelera no está en la web.
+  no hay otra nota (409).
+- **Carpetas** (spec 015, fase 2): el ⋯ de una carpeta del árbol la **renombra o
+  mueve** dentro de su región (sus notas se mueven con ella, con los enlaces de
+  todas las notas al día como al renombrar una nota) o la manda a la
+  **papelera** (`.papelera/<marca>-<n>/<ruta>`; una carpeta sin notas se quita
+  sin más). Restaurar una entrada devuelve todas sus notas, o ninguna si alguna
+  ruta está ocupada. Una carpeta con ficheros que no son notas (`.md`) no se
+  mueve ni se borra (400), y una región tampoco.
+- **Vaciar la papelera** borra para siempre y no se puede deshacer, así que no
+  se hace desde la web (art. IV.2): `ea boveda vaciar-papelera` exige una
+  terminal real, enseña cuántas entradas, notas y bytes borraría y pide escribir
+  `confirmo vaciar-papelera`. «⌨ vaciar en la terminal», en la papelera de la
+  vista ▥ Bóveda, solo abre esa terminal (`POST /api/terminal/abrir` con
+  `{"boveda": "vaciar-papelera"}`); no hay ninguna ruta HTTP que borre la
+  papelera ni herramienta de `ea-mcp` que lo haga.
+- **Zona raíz** (`Inicio.md`): sigue fuera del editor. Editarla exige enmendar
+  008/RF-002; la spec 015 deja las opciones como decisión pendiente del usuario.
 
 Eventos nuevos en el diario (actor `usuario`): `boveda_edicion`,
 `boveda_creacion`, `boveda_renombrado` (con las notas actualizadas y las
-ambiguas), `boveda_papelera`, `boveda_restauracion` y `boveda_carpeta`.
+ambiguas), `boveda_papelera`, `boveda_restauracion` y `boveda_carpeta`; de las
+carpetas, `boveda_carpeta_renombrada`, `boveda_papelera_carpeta` y
+`boveda_carpeta_eliminada`, y de vaciar la papelera, `boveda_papelera_vaciada`.
 
 **Limitaciones conocidas.** El orden entre escritores que esperan no es FIFO.
 Las ediciones externas (fuera de `ea-web`) no dejan evento en el diario (solo se
@@ -1092,7 +1110,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 | ◇ | Propuestas: aceptar ✓ (ejecuta; ⌨ = solo terminal) o rechazar ✕ | `5` |
 | ▶ | Acciones: simular y ejecutar las herramientas supervisadas. Los formularios guían: la ruta de `ea_promover_nota` sugiere las notas de `claude-code` y `modelo-local` aún sin promover (se puede escribir otra), el servicio de `ea_reiniciar_servicio` dice el estado de cada uno y el slug elige entre las rutinas registradas (`GET /api/acciones` trae por campo `opciones`, `sugerencias` y `estados`). La simulación dice en un renglón qué se revalidará al ejecutar («se comprobará: huella …») y avisa cuando tiene más de 60 s. En la ficha de cada herramienta (también de las directas), sus últimos 10 eventos del diario | `6` |
 | ▦ | Sistema: servicios (reiniciar ↻, pide confirmar), orquestador y una fila por rol (planificador y ejecutor) con su agente, modelo y última actividad. La ficha de un rol lista los agentes que lo admiten (binario ●/✕, modelo, si responde, topes) y cambia el agente con «⇄ poner de …» (segundo clic) | `7` |
-| ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista y ↺ restaurar). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera | `8` |
+| ▥ | Bóveda: editor tipo Obsidian de la bóveda, con el mismo componente que Memoria. A la izquierda, el árbol con las tres regiones como raíces, sus carpetas (también vacías) y notas (`j`/`k`); encima, ＋ nota (en `compartida/`), ＋ carpeta y la papelera (lista, ↺ restaurar y ⌨ vaciar en la terminal, que es irreversible y se confirma allí). El cuadro filtra por nombre y busca también en el contenido (FTS). A la derecha, la nota renderizada con autor, región, origen, promoción y etiquetas; los `[[enlaces]]` y `(x.md)` abren la nota destino. ✎ o `Ctrl+E` edita (la firma de la cabecera no cambia), `Ctrl+S` guarda. ⋯ renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera; el ⋯ de una carpeta la renombra o la manda a la papelera con sus notas | `8` |
 | ✎ | Memoria: editor tipo Obsidian de la memoria de Claude Code (`~/.claude/projects/*/memory/*.md`). A la izquierda, un árbol con una carpeta por proyecto y sus notas (`j`/`k`); a la derecha, la nota renderizada. ✎ o `Ctrl+E` alterna lectura y edición sin perder el borrador (`Ctrl+S` guarda; avisa si cambió en disco). ⋯ renombra (y reescribe los `[[enlaces]]` y `(x.md)` de las demás memorias del proyecto), copia la ruta absoluta, la muestra en el explorador de archivos o la elimina para siempre tras confirmar (el contenido queda en el diario). `MEMORY.md` no se renombra ni se borra. Apunta `memoria_editada`, `memoria_renombrada` y `memoria_eliminada` en el diario | `9` |
 | ◫ | Biblioteca (spec 018): las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo (●/○ activado, usos), con filtros de agente, tipo, categoría y estado y el cuadro de buscar. La ficha da origen, descripción, cómo se cambia, la definición de un MCP sin secretos (solo los nombres de sus variables y cabeceras) y el uso por actor. ⏻ desactivar/activar simula (antes/después) y pide aceptar, ▶ sesión con… abre una terminal con solo las herramientas elegidas (la simulación lleva el comando sin secretos) y ✎ categoría escribe `biblioteca.categorias` por los ajustes. Enlace `#biblioteca/<id>` | `b` |
 | ◎ | Equipos (spec 019): una fila por equipo con su estado, los miembros (● despierto, ○ dormido) y el nº de trabajos. La ficha da el objetivo, cada miembro con su rol, presencia, trabajo actual y cola pendiente, y los trabajos del equipo (estado, asignado, revisor, quién los ejecutó y la última línea del informe, con «→ trabajo» a `#trabajos/<id>`). «＋ despertar» abre el formulario (título, objetivo, worktree, miembros agente:rol según lo que admite cada agente o «todos», y «abrir terminales» para planificadores y revisores) y «◌ dormir» apaga el equipo; los dos piden la clave de sesión y dormir, un segundo clic. En ＋ misión, «◎ equipo…» elige equipo, ejecutor asignado, revisor y worktree propio. Sin clave el panel solo lee. Enlace `#equipos/<id>` | `e` |
@@ -1191,7 +1209,10 @@ cambió en disco, 400 si cambia la firma), `POST /api/boveda/crear` (`{"ruta",
 "contenido"?}`; 201; solo `compartida/`), `POST /api/boveda/renombrar` (`{"ruta",
 "nuevo", "version"}`; devuelve `{nota, actualizadas, ambiguas}`),
 `POST /api/boveda/eliminar` (`{"ruta", "version"}`: a la papelera),
-`POST /api/boveda/carpeta` (`{"ruta"}`; 201), `POST /api/boveda/mostrar`
+`POST /api/boveda/carpeta` (`{"ruta"}`; 201), `POST /api/boveda/carpeta/renombrar`
+(`{"ruta", "nuevo"}`; `{carpeta, movidas, actualizadas, ambiguas}`),
+`POST /api/boveda/carpeta/eliminar` (`{"ruta"}`: a la papelera; `{id, notas, vacia}`),
+`POST /api/boveda/mostrar`
 (`{"ruta"}`), `GET /api/boveda/papelera` y `POST /api/boveda/papelera/restaurar`
 (`{"id"}`); los ajustes, por `GET /api/ajustes` (secciones con cada clave: valor,
 defecto, rango, origen, edición, quién la fija y si pide reinicio; `version` y
