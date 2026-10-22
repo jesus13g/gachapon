@@ -168,6 +168,8 @@ mod tests {
     fn seatbelt_impide_escribir_fuera_del_worktree() {
         use std::process::Command;
         if !Path::new(SANDBOX_EXEC).is_file() {
+            // En la CI (macos-latest) tiene que estar: no se omite en silencio.
+            assert!(std::env::var_os("CI").is_none(), "falta {SANDBOX_EXEC} en la CI de macOS");
             eprintln!("sin sandbox-exec: prueba omitida");
             return;
         }
@@ -175,19 +177,30 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let fuera = tempfile::tempdir().unwrap();
         let (wt_c, tmp_c, fuera_c) = (canonica(wt.path()), canonica(tmp.path()), canonica(fuera.path()));
-        let perfil = perfil_seatbelt(&wt_c, &tmp_c, &[], None);
-        let correr = |destino: &Path| {
-            Command::new(SANDBOX_EXEC)
-                .args(["-p", &perfil, "sh", "-c"])
-                .arg(format!("touch '{}'", destino.display()))
-                .current_dir(&wt_c)
-                .output()
-                .unwrap()
+        let run = tempfile::tempdir().unwrap();
+        let run_c = canonica(run.path());
+        std::fs::write(run_c.join("clave"), "secreto").unwrap();
+        let perfil = perfil_seatbelt(&wt_c, &tmp_c, &[], Some(&run_c));
+        let sh = |orden: String| {
+            Command::new(SANDBOX_EXEC).args(["-p", &perfil, "sh", "-c"]).arg(orden).current_dir(&wt_c).output().unwrap()
         };
+        let correr = |destino: &Path| sh(format!("touch '{}'", destino.display()));
         let dentro = correr(&wt_c.join("dentro"));
         assert!(dentro.status.success() && wt_c.join("dentro").exists(), "{}", String::from_utf8_lossy(&dentro.stderr));
         assert!(correr(&tmp_c.join("tmp")).status.success(), "el temporal propio debe ser escribible");
         let f = correr(&fuera_c.join("fuera"));
         assert!(!f.status.success() && !fuera_c.join("fuera").exists(), "escribió fuera del worktree");
+
+        // El directorio de ejecución (clave del panel) no se puede leer.
+        let l = sh(format!("cat '{}'", run_c.join("clave").display()));
+        assert!(!l.status.success() && l.stdout.is_empty(), "leyó el directorio de ejecución");
+
+        // Red: solo localhost.
+        let oyente = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let puerto = oyente.local_addr().unwrap().port();
+        let local = sh(format!("/usr/bin/nc -z -w 3 127.0.0.1 {puerto}"));
+        assert!(local.status.success(), "localhost debe poder: {}", String::from_utf8_lossy(&local.stderr));
+        let fuera_red = sh("/usr/bin/nc -z -w 3 1.1.1.1 80".into());
+        assert!(!fuera_red.status.success(), "salió a la red");
     }
 }

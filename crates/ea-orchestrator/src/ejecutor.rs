@@ -1000,7 +1000,11 @@ mod tests {
         let r = correr_cancelable(c, tope_s, &|| false);
         assert!(t.elapsed() < Duration::from_secs(tope_s + 11), "tardó {:?}", t.elapsed());
         assert_eq!((r.codigo, r.cancelado), (None, false));
-        let pid = |f: &str| -> u32 { std::fs::read_to_string(d.join(f)).unwrap().trim().parse().unwrap() };
+        let pid = |f: &str| -> u32 {
+            let t = std::fs::read_to_string(d.join(f))
+                .unwrap_or_else(|e| panic!("{f}: {e}; salida {:?}, errores {:?}, tardó {:?}", r.salida, r.errores, t.elapsed()));
+            t.trim().parse().unwrap_or_else(|e| panic!("{f}: {t:?}: {e}"))
+        };
         for f in ["pid-hijo", "pid-nieto"] {
             let p = pid(f);
             let limite = Instant::now() + Duration::from_secs(5);
@@ -1028,8 +1032,9 @@ mod tests {
     #[test]
     fn el_tope_de_tiempo_mata_al_hijo_y_al_nieto() {
         let d = tempfile::tempdir().unwrap();
-        let guion = "$p = Start-Process -PassThru -WindowStyle Hidden ping -ArgumentList '-n','600','127.0.0.1'; \
-                     $p.Id | Out-File -Encoding ascii pid-nieto; $PID | Out-File -Encoding ascii pid-hijo; Wait-Process -Id $p.Id";
+        let guion = "$PID | Out-File -Encoding ascii pid-hijo; \
+                     $p = Start-Process -PassThru -WindowStyle Hidden ping -ArgumentList '-n','600','127.0.0.1'; \
+                     $p.Id | Out-File -Encoding ascii pid-nieto; Wait-Process -Id $p.Id";
         let mut c = Command::new("powershell");
         c.args(["-NoProfile", "-NonInteractive", "-Command", guion]).current_dir(d.path());
         comprobar_que_muere_el_arbol(d.path(), c, 10);
