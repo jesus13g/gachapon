@@ -86,8 +86,22 @@ pub enum Command {
         #[command(subcommand)]
         accion: ServiciosAccion,
     },
+    /// Hooks de Claude Code (leen el JSON del hook por stdin; nunca fallan)
+    Hook {
+        #[command(subcommand)]
+        accion: HookAccion,
+    },
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum HookAccion {
+    /// SubagentStart / SubagentStop: apunta los subagentes en marcha para ea-web
+    Subagentes {
+        /// `start` o `stop`
+        accion: String,
+    },
 }
 
 #[derive(Subcommand)]
