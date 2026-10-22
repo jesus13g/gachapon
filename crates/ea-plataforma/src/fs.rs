@@ -13,13 +13,17 @@ pub fn crear_dir_privado(ruta: &Path) -> io::Result<()> {
 /// `OpenOptions` que, al crear un fichero, lo hace con 0600 en Unix. En
 /// Windows son las opciones normales (el perfil del usuario ya protege).
 pub fn opciones_privadas() -> OpenOptions {
-    let mut o = OpenOptions::new();
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
+        let mut o = OpenOptions::new();
         o.mode(0o600);
+        o
     }
-    o
+    #[cfg(not(unix))]
+    {
+        OpenOptions::new()
+    }
 }
 
 /// Deja el fichero (0600) o directorio (0700) solo para el usuario en Unix.
@@ -242,7 +246,7 @@ pub fn es_ejecutable(ruta: &Path) -> bool {
         let exts = crate::rutas::extensiones_ejecutables(pathext.as_deref());
         ruta.extension().is_some_and(|e| {
             let e = format!(".{}", e.to_string_lossy().to_ascii_lowercase());
-            exts.iter().any(|x| *x == e)
+            exts.contains(&e)
         })
     }
 }
