@@ -34,6 +34,8 @@ pub struct ServicioVista {
 pub struct Orquestador {
     pub vivo: bool,
     pub ultimo_latido: Option<String>,
+    /// Aislamiento del ejecutor según el último latido (`null` si no lo declara).
+    pub sandbox: Option<ea_store::SandboxInfo>,
 }
 
 #[derive(Serialize)]

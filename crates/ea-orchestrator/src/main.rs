@@ -39,6 +39,14 @@ async fn main() -> anyhow::Result<()> {
     let config: config::Config = efectivos.ajustes.orquestador.into();
 
     let intervalo_heartbeat = config.intervalo_heartbeat_s;
+    // Se relee en cada latido: `agente.sandbox` es en caliente. El motivo, si
+    // el aislamiento no puede arrancar, viaja en el latido para que el panel lo
+    // muestre (spec 020, «sandbox visible»).
+    let sandbox_detalle = || {
+        let activado = ea_ajustes::cargar_de(&ea_ajustes::Fuentes::sistema()).ajustes.agente.sandbox;
+        let info = ea_orchestrator::sandbox::Sandbox::actual(activado).info(ea_plataforma::Sistema::actual());
+        serde_json::to_string(&info).ok()
+    };
     tokio::spawn(async move {
         loop {
             match Store::open() {
@@ -49,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
                         trabajo: None,
                         outcome: Some(EventOutcome::Ok),
                         duration_ms: None,
-                        detail: None,
+                        detail: sandbox_detalle(),
                     }) {
                         tracing::warn!(error = %e, "no se pudo registrar el heartbeat");
                     }

@@ -358,6 +358,33 @@ async fn valida_las_entradas() {
 }
 
 #[tokio::test]
+async fn el_estado_dice_el_sandbox_del_ultimo_latido() {
+    let f = montar();
+    let (_, e) = get(&f, "/api/estado").await;
+    assert!(e["orquestador"]["sandbox"].is_null());
+    {
+        let store = f.state.store.lock().await;
+        store
+            .append_event(NewEvent {
+                actor: "orquestador".into(),
+                action: "heartbeat".into(),
+                trabajo: None,
+                outcome: Some(EventOutcome::Ok),
+                duration_ms: None,
+                detail: Some(
+                    r#"{"sistema":"Windows","sandbox":"no disponible","disponible":false,"motivo":"sin sandbox nativo"}"#.into(),
+                ),
+            })
+            .unwrap();
+    }
+    let (_, e) = get(&f, "/api/estado").await;
+    assert_eq!(e["orquestador"]["vivo"], true);
+    assert_eq!(e["orquestador"]["sandbox"]["sistema"], "Windows");
+    assert_eq!(e["orquestador"]["sandbox"]["disponible"], false);
+    assert_eq!(e["orquestador"]["sandbox"]["motivo"], "sin sandbox nativo");
+}
+
+#[tokio::test]
 async fn el_diario_oculta_los_latidos_salvo_que_se_pidan() {
     let f = montar();
     {

@@ -54,6 +54,22 @@ impl Sandbox {
         Sandbox::elegir(Sistema::actual(), activado, Path::new(SANDBOX_EXEC).is_file())
     }
 
+    /// Lo que el latido declara al panel: sistema, aislamiento y motivo.
+    pub fn info(&self, sistema: Sistema) -> ea_store::SandboxInfo {
+        let (nombre, motivo) = match self {
+            Sandbox::Ninguno => ("ninguno", None),
+            Sandbox::Bwrap => ("bwrap", None),
+            Sandbox::Seatbelt => ("seatbelt", None),
+            Sandbox::NoDisponible(m) => ("no disponible", Some(m.clone())),
+        };
+        ea_store::SandboxInfo {
+            sistema: sistema.nombre().into(),
+            sandbox: nombre.into(),
+            disponible: motivo.is_none(),
+            motivo,
+        }
+    }
+
     /// `Err(motivo)` si el ejecutor no puede arrancar con este aislamiento.
     pub fn comprobar(&self) -> Result<(), String> {
         match self {
@@ -233,5 +249,15 @@ mod tests {
         assert!(local.status.success(), "localhost debe poder: {}", String::from_utf8_lossy(&local.stderr));
         let fuera_red = sh("/usr/bin/nc -z -w 3 1.1.1.1 80".into());
         assert!(!fuera_red.status.success(), "salió a la red");
+    }
+
+    #[test]
+    fn la_info_del_latido_lleva_el_motivo_si_no_hay_sandbox() {
+        use Sistema::*;
+        let ok = Sandbox::elegir(Linux, true, false).info(Linux);
+        assert!(ok.disponible && ok.sandbox == "bwrap" && ok.motivo.is_none());
+        let no = Sandbox::elegir(Windows, true, false).info(Windows);
+        assert!(!no.disponible && no.sistema == "Windows" && no.motivo.is_some());
+        assert_eq!(Sandbox::elegir(Windows, false, false).info(Windows).sandbox, "ninguno");
     }
 }
