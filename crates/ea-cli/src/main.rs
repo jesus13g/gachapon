@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion};
+use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, HookAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     salir_en_silencio_si_se_cierra_la_tuberia();
@@ -26,6 +26,11 @@ fn main() -> Result<()> {
             return match accion {
                 None => commands::agentes::listar(json),
                 Some(AgentesAccion::Rol { rol, agente }) => commands::agentes::rol(&rol, &agente),
+            };
+        }
+        Command::Hook { accion } => {
+            return match accion {
+                HookAccion::Subagentes { accion } => commands::hook::subagentes(&accion),
             };
         }
         Command::Servicios { accion } => {
@@ -152,7 +157,7 @@ fn main() -> Result<()> {
             _ => unreachable!("se atiende antes de abrir la base"),
         },
         Command::Tui => tui::run(&mut store)?,
-        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Servicios { .. } | Command::Equipo { .. } => unreachable!("se atiende antes de abrir la base"),
+        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Servicios { .. } | Command::Hook { .. } | Command::Equipo { .. } => unreachable!("se atiende antes de abrir la base"),
     }
 
     Ok(())

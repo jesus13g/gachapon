@@ -63,7 +63,7 @@ pocos ficheros.
 }
 ```
 
-4. **Encola:** `ea trabajo crear --orden /tmp/…json` imprime el **id**.
+4. **Encola:** `ea trabajo crear --orden <fichero temporal>.json` (en el directorio temporal del sistema) imprime el **id**.
 5. **Informa** del id y de que llegará a la cola del planificador al terminar o
    bloquearse (`ea cola planificador`). La revisión sigue
    `agentes/flujo/revisar.md`. No esperes en bucle ni hagas el trabajo mientras

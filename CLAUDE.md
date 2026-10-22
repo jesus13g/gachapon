@@ -31,7 +31,8 @@ código. Esas notas son de la bóveda: se escriben con `ea_escribir_nota` (escri
 cargo build --release      # binarios en target/release/{ea,ea-mcp,ea-orchestrator,ea-web}
 cargo test --workspace     # toda la suite (unas 380 pruebas)
 cargo test -p ea-bus       # un solo crate
-systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en release
+systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en release (Linux)
+./target/release/ea servicios ver|instalar|desinstalar   # unidades con la ruta real: systemd --user, launchd (macOS) o schtasks (Windows)
 ```
 
 `ea` no está en el `PATH`: usa `./target/release/ea`. Los servicios `systemd
@@ -44,9 +45,10 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 |---|---|
 | `ea-ajustes` | Ajustes: `ajustes.toml` (más los TOML heredados), registro de claves con quién las cambia, validación y escritura atómica; base del grafo, no depende de ningún `ea-*` |
 | `ea-biblioteca` | Biblioteca de herramientas (spec 018): inventario de solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de los cinco agentes y del ecosistema, uso por actor, planes de activar/desactivar y de sesión efímera; solo depende de `ea-ajustes` |
+| `ea-plataforma` | Todas las diferencias entre Linux, macOS y Windows (rutas, procesos, ficheros privados, terminal, servicios); sin dependencias `ea-*`; ningún otro crate usa `libc`, `std::os::unix` ni `cfg(target_os)` |
 | `ea-store` | SQLite: diario, propuestas, índice de la bóveda, trabajos, fases, rutinas. Una sola migración (`0001_inicial.sql`) |
 | `ea-bus` | Bus de ficheros: colas, estado de trabajos (máquina de estados pura), semáforo `flock`, rutinas TOML, `ConfigOrquestador` (la parte de los ajustes que usa el ejecutor) |
-| `ea-orchestrator` | Ejecutor: toma de la cola `modelo-local`, lanza Qwen en `bwrap`, corre el criterio y entrega el informe |
+| `ea-orchestrator` | Ejecutor: toma de la cola `modelo-local`, lanza Qwen en el sandbox del sistema, corre el criterio y entrega el informe |
 | `ea-acciones` | Catálogo único de herramientas con riesgo, simulación, revalidación y flujo propuesta → aceptación → ejecución |
 | `ea-boveda` | La bóveda de notas; **único código que escribe en ella** |
 | `ea-cli` | Binario `ea`: CLI y TUI (`ratatui`) |
@@ -55,7 +57,7 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 
 Fuera de `crates/`: `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
 `/revisar`, `/equipo`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
-vivas), `claude/hooks/` (hook de subagentes para `ea-web`), `qwen/skills/`
+vivas), `claude/hooks/` (envoltorio del hook de subagentes; el trabajo lo hace `ea hook subagentes`), `qwen/skills/`
 (skills cortas de Qwen) y `bench/` (banco de pruebas en Python, ajeno a los
 binarios).
 
@@ -80,7 +82,9 @@ en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
 - **El diario es append-only a nivel de motor** (triggers): un error se corrige
   con otro evento. El estado del bus se escribe con `fs_atomico`.
 - **Solo local**: todo escucha en `127.0.0.1`; `ea-web` filtra el `Host`.
-- **El ejecutor**, sea cual sea el agente: `bwrap`, topes duros, sin
+- **El ejecutor**, sea cual sea el agente: el sandbox del sistema (`bwrap` en Linux, Seatbelt en
+  macOS; Windows nativo se niega con `sandbox = true`; esto depende de la
+  enmienda 1.5.0, propuesta y aún sin aprobar), topes duros, sin
   herramientas web, aprobación automática solo dentro del sandbox y semáforo
   exclusivo del worktree.
 - Si un cambio choca con un artículo de la constitución, se enmienda la
