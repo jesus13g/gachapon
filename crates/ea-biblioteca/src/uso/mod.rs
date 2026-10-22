@@ -134,13 +134,13 @@ pub struct FuentesUso {
 }
 
 impl FuentesUso {
-    /// Las rutas estándar bajo `r.home` y `r.estado`. El diario es la base de
-    /// datos del ecosistema (`$EA_DB_PATH` o `rutas.db` de los ajustes). La de
+    /// Las rutas estándar bajo `r.home` y `r.estado`. El diario es `r.db` (en
+    /// el entorno real, `$EA_DB_PATH` o `rutas.db` de los ajustes). La de
     /// OpenCode sigue su convención XDG en los tres sistemas (relativa al home:
     /// `~/.local/share/opencode/opencode.db`, también en macOS y Windows).
     pub fn desde_raices(r: &Raices) -> Self {
         let h = &r.home;
-        let diario = std::env::var_os("EA_DB_PATH").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| ea_ajustes::cargar().rutas.db);
+        let diario = r.db.clone();
         FuentesUso {
             claude_json: h.join(".claude.json"),
             claude_proyectos: h.join(".claude/projects"),

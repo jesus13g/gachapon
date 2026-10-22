@@ -14,6 +14,8 @@ pub struct Raices {
     pub runtime: Option<PathBuf>,
     /// Repo del ecosistema (`claude/skills`, `qwen/skills`), si se conoce.
     pub repo: Option<PathBuf>,
+    /// Base de datos del ecosistema (el diario, para el uso por actor).
+    pub db: PathBuf,
 }
 
 /// ¿`dir` es el repo del ecosistema?
@@ -27,7 +29,8 @@ impl Raices {
     pub fn nuevo(home: PathBuf, proyecto: Option<PathBuf>, estado: PathBuf, runtime: Option<PathBuf>) -> Self {
         let proyecto = proyecto.filter(|p| *p != home);
         let repo = proyecto.clone().filter(|p| es_repo(p));
-        Self { home, proyecto, estado, runtime, repo }
+        let db = home.join(".local/share/ecosistema-asistente/ecosistema.db");
+        Self { home, proyecto, estado, runtime, repo, db }
     }
 
     /// Las del entorno real: el home del usuario (`directories::BaseDirs`),
@@ -41,6 +44,7 @@ impl Raices {
         let estado = var("EA_ESTADO_DIR").unwrap_or_else(|| ea_ajustes::cargar().rutas.estado);
         let runtime = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso);
         let mut r = Self::nuevo(home, std::env::current_dir().ok(), estado, runtime);
+        r.db = var("EA_DB_PATH").unwrap_or_else(|| ea_ajustes::cargar().rutas.db);
         if r.repo.is_none() {
             r.repo = var("EA_REPO_DIR").filter(|p| es_repo(p));
         }
