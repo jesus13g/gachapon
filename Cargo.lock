@@ -613,6 +613,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ea-plataforma"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tempfile",
+ "tokio",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "ea-store"
 version = "0.1.0"
 dependencies = [
