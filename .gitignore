@@ -3,3 +3,5 @@
 *.db-wal
 *.db-shm
 *.db-journal
+
+FUNCIONALIDADES.md
