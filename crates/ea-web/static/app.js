@@ -1610,6 +1610,8 @@ EDITOR.boveda = {
   aria: 'Notas de la bóveda por región',
   async datos() {
     const q = st.q.trim(), E = ed('boveda');
+    // Antes del árbol (que pone el índice al día): así el aviso ve el desfase.
+    const indice = await ea.bovedaIndice().catch(() => null);
     const [d, busca, papelera] = await Promise.all([
       ea.bovedaArbol(),
       q ? ea.boveda(q).catch(() => null) : null,
@@ -1619,6 +1621,7 @@ EDITOR.boveda = {
     d.rutasSet = new Set(d.rutas);
     d.fts = busca ? new Set(busca.notas.map(n => n.ruta)) : null;
     d.papelera = papelera;
+    d.indice = indice;
     return d;
   },
   carga: k => ea.bovedaFichero(rutaB(k)),
@@ -1709,7 +1712,12 @@ EDITOR.boveda = {
       btn('crear-nota', '＋ nota', 'nota nueva (solo en la región compartida)', {}, E.creando === 'nota' ? 'on' : '') +
       btn('carpeta-nota', '＋ carpeta', 'carpeta nueva, en cualquier región', {}, E.creando === 'carpeta' ? 'on' : '') +
       btn('papelera-nota', 'papelera' + (n ? ` (${n})` : ''), 'las notas borradas: se pueden restaurar', {}, E.papelera ? 'on' : '') +
+      btn('reindexar-boveda', '↻ reindexar', 'reconstruye el índice de búsqueda desde los ficheros (no toca las notas)') +
       '</div>';
+    const i = d.indice;
+    if (i && i.desfasado) {
+      h += `<p class="m aviso-indice" title="El índice se pone al día solo al buscar; ↻ reindexar lo reconstruye entero">índice desfasado: ${i.nuevas} nuevas, ${i.cambiadas} cambiadas, ${i.eliminadas} borradas en disco</p>`;
+    }
     if (E.creando) {
       const que = E.creando === 'nota' ? 'Ruta de la nota nueva (compartida/…)' : 'Ruta de la carpeta nueva (región/…)';
       h += `<input class="ren nueva" data-crear="${E.creando}" value="${esc(baseCreacion(E, E.creando))}" spellcheck="false" aria-label="${que}" title="${que}: Enter crea, Esc cancela">`;
@@ -1738,6 +1746,12 @@ EDITOR.boveda = {
       const i = $('input[data-crear]');
       if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
       return false;
+    }
+    if (a === 'reindexar-boveda') {
+      const r = await ea.reindexarBoveda();
+      avisa(`✓ índice reconstruido: ${r.nuevas} nuevas, ${r.cambiadas} actualizadas, ${r.eliminadas} eliminadas` +
+        (r.omitidas ? `, ${r.omitidas} omitidas por tamaño` : ''), true);
+      return true;
     }
     if (a === 'papelera-nota') {
       E.papelera = !E.papelera;

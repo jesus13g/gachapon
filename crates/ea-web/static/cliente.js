@@ -135,6 +135,9 @@ const ea = (() => {
     promover: ruta => post('/api/boveda/promover', { ruta }),
     // El editor de la bóveda (gestos del usuario; ningún agente llega aquí).
     bovedaArbol: () => api('/api/boveda/arbol'),
+    // El índice de búsqueda frente al disco, y su reconstrucción entera.
+    bovedaIndice: () => api('/api/boveda/indice'),
+    reindexarBoveda: () => post('/api/boveda/reindexar'),
     bovedaFichero: ruta => api('/api/boveda/fichero?ruta=' + c(ruta)),
     guardarNota: (ruta, contenido, version) => post('/api/boveda/guardar', { ruta, contenido, version }),
     crearNota: (ruta, contenido = '') => post('/api/boveda/crear', { ruta, contenido }),

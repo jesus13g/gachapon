@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::{sistema, Resultado, ACTOR};
 use crate::vistas::{
-    ArbolBoveda, CabeceraVista, EnPapelera, Hecho, ListadoBoveda, NotaFichero, NotaResumen, NotaVista, Promocion,
+    ArbolBoveda, CabeceraVista, EnPapelera, Hecho, IndiceBoveda, ListadoBoveda, NotaFichero, NotaResumen, NotaVista, Promocion,
     RenombradoBoveda,
 };
 use crate::AppState;
@@ -49,6 +49,27 @@ pub async fn listar(
             })
             .collect(),
     })
+}
+
+/// Compara el índice con el disco sin tocar nada.
+pub async fn indice(s: &AppState) -> Resultado<IndiceBoveda> {
+    let mut store = s.store.lock().await;
+    let d = s.boveda.diferencia_indice(&mut store)?;
+    Ok(IndiceBoveda {
+        nuevas: d.indexadas,
+        cambiadas: d.actualizadas,
+        eliminadas: d.eliminadas,
+        omitidas: d.omitidas,
+        desfasado: d.indexadas + d.actualizadas + d.eliminadas > 0,
+    })
+}
+
+/// Reconstruye el índice entero desde los ficheros (como
+/// `ea boveda reindexar`); deja `boveda_reindexado` en el diario.
+pub async fn reindexar(s: &AppState) -> Resultado<IndiceBoveda> {
+    let mut store = s.store.lock().await;
+    let r = s.boveda.reindexar(&mut store, ACTOR)?;
+    Ok(IndiceBoveda { nuevas: r.indexadas, cambiadas: r.actualizadas, eliminadas: r.eliminadas, omitidas: r.omitidas, desfasado: false })
 }
 
 pub fn leer(s: &AppState, ruta: &str, desde: usize) -> Resultado<NotaVista> {

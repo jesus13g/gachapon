@@ -661,6 +661,38 @@ impl Boveda {
     /// en la bóveda, solo en la caché de la base de datos. Ignora ficheros y
     /// carpetas ocultos, enlaces simbólicos y lo que no sea `.md`.
     pub fn sincronizar(&self, store: &mut Store, forzar: bool) -> Resultado<ResumenSincronizacion> {
+        self.recorrer(store, forzar, true)
+    }
+
+    /// Lo que `sincronizar` cambiaría ahora mismo, sin tocar el índice: notas
+    /// nuevas (`indexadas`), cambiadas por fecha o tamaño (`actualizadas`) y
+    /// borradas del disco (`eliminadas`). Todo a cero = el índice coincide.
+    pub fn diferencia_indice(&self, store: &mut Store) -> Resultado<ResumenSincronizacion> {
+        self.recorrer(store, false, false)
+    }
+
+    /// Reconstruye el índice entero desde los ficheros (`ea boveda reindexar`)
+    /// y deja el evento `boveda_reindexado` en el diario. No escribe en la
+    /// bóveda: el índice es una caché.
+    pub fn reindexar(&self, store: &mut Store, quien: &str) -> Resultado<ResumenSincronizacion> {
+        let inicio = Instant::now();
+        let r = self.recorrer(store, true, true)?;
+        let _ = evento(
+            store,
+            quien,
+            "boveda_reindexado",
+            None,
+            true,
+            serde_json::json!({
+                "indexadas": r.indexadas, "actualizadas": r.actualizadas,
+                "eliminadas": r.eliminadas, "omitidas": r.omitidas,
+            }),
+            inicio,
+        );
+        Ok(r)
+    }
+
+    fn recorrer(&self, store: &mut Store, forzar: bool, aplicar: bool) -> Resultado<ResumenSincronizacion> {
         let mut resumen = ResumenSincronizacion::default();
         let Ok(raiz) = fs::canonicalize(&self.raiz) else {
             return Ok(resumen);
@@ -708,6 +740,14 @@ impl Boveda {
                     if igual && !forzar {
                         continue;
                     }
+                    if !aplicar {
+                        if conocidas.contains_key(&ruta_rel) {
+                            resumen.actualizadas += 1;
+                        } else {
+                            resumen.indexadas += 1;
+                        }
+                        continue;
+                    }
                     let Ok(bytes) = fs::read(e.path()) else { continue };
                     let Ok(texto) = String::from_utf8(bytes) else { continue };
                     let (entrada, cuerpo) = entrada_de(&ruta_rel, &texto, &meta);
@@ -721,7 +761,9 @@ impl Boveda {
             }
         }
         for ruta_vieja in conocidas.keys().filter(|r| !vistas.contains(*r)) {
-            store.boveda_olvidar(ruta_vieja)?;
+            if aplicar {
+                store.boveda_olvidar(ruta_vieja)?;
+            }
             resumen.eliminadas += 1;
         }
         Ok(resumen)
