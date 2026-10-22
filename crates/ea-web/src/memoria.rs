@@ -334,3 +334,210 @@ pub fn renombrar(
     }
     Ok((memoria(proyecto, nuevo, &destino)?, actualizadas))
 }
+
+/// Los tipos de memoria que reconoce Claude Code.
+pub const TIPOS: [&str; 4] = ["user", "feedback", "project", "reference"];
+
+/// Lo que se pide para crear una memoria nueva.
+pub struct NuevaMemoria<'a> {
+    /// kebab-case, con o sin `.md`.
+    pub fichero: &'a str,
+    /// El `name` del frontmatter y el texto del enlace en `MEMORY.md`.
+    pub titulo: &'a str,
+    /// El `description` del frontmatter y el gancho de la línea del índice.
+    pub descripcion: &'a str,
+    pub tipo: &'a str,
+    pub cuerpo: &'a str,
+}
+
+/// El nombre de fichero de una memoria nueva: kebab-case (`a-z`, `0-9` y `-`
+/// entre grupos), sin rutas, con `.md` puesto si faltaba y nunca el índice.
+fn fichero_nuevo(fichero: &str) -> Result<String, ErrorMemoria> {
+    let f = fichero.trim();
+    let base = f.strip_suffix(".md").unwrap_or(f);
+    let kebab = !base.is_empty()
+        && base.split('-').all(|g| !g.is_empty() && g.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
+    if !kebab || base.len() > 100 {
+        return Err(ErrorMemoria::Invalido(
+            "nombre de memoria inválido: kebab-case (minúsculas, cifras y guiones, p. ej. `mi-memoria`)".into(),
+        ));
+    }
+    Ok(format!("{base}.md"))
+}
+
+/// Un texto de una sola línea y no vacío.
+fn una_linea<'a>(valor: &'a str, que: &str) -> Result<&'a str, ErrorMemoria> {
+    let v = valor.trim();
+    if v.is_empty() || v.contains(['\n', '\r']) || v.len() > 500 {
+        return Err(ErrorMemoria::Invalido(format!("{que}: una línea, no vacía y de hasta 500 caracteres")));
+    }
+    Ok(v)
+}
+
+/// Un valor de YAML: tal cual si es seguro como texto plano; si no, entre comillas.
+fn yaml(v: &str) -> String {
+    let plano = v.starts_with(|c: char| c.is_alphanumeric()) && !v.contains([':', '#', '"', '\'', '\\']);
+    if plano { v.to_string() } else { serde_json::to_string(v).unwrap_or_else(|_| format!("\"{v}\"")) }
+}
+
+/// El texto completo de una memoria: cabecera, línea en blanco y cuerpo.
+fn texto_memoria(titulo: &str, descripcion: &str, tipo: &str, cuerpo: &str) -> String {
+    let mut t = format!(
+        "---\nname: {}\ndescription: {}\nmetadata:\n  type: {tipo}\n---\n\n",
+        yaml(titulo),
+        yaml(descripcion)
+    );
+    let cuerpo = cuerpo.trim();
+    if !cuerpo.is_empty() {
+        t.push_str(cuerpo);
+        t.push('\n');
+    }
+    t
+}
+
+/// La línea de `MEMORY.md`: `- [Título](fichero.md) — gancho`. Los corchetes
+/// del título se escapan para no romper el enlace.
+fn linea_indice(titulo: &str, fichero: &str, gancho: &str) -> String {
+    let t = titulo.replace('[', "\\[").replace(']', "\\]");
+    format!("- [{t}]({fichero}) — {gancho}\n")
+}
+
+/// Crea una memoria nueva en un proyecto que ya existe y la anota en
+/// `MEMORY.md`. Nunca pisa una memoria existente (`Conflicto`). Si el índice
+/// no se puede actualizar, retira la memoria recién creada.
+pub fn crear(raiz: &Path, proyecto: &str, n: &NuevaMemoria) -> Result<Memoria, ErrorMemoria> {
+    let nombre = fichero_nuevo(n.fichero)?;
+    nombre_valido(proyecto, &nombre)?;
+    no_es_indice(&nombre)?;
+    let titulo = una_linea(n.titulo, "título")?;
+    let descripcion = una_linea(n.descripcion, "descripción")?;
+    if !TIPOS.contains(&n.tipo) {
+        return Err(ErrorMemoria::Invalido(format!("tipo inválido: {}", TIPOS.join(", "))));
+    }
+    let texto = texto_memoria(titulo, descripcion, n.tipo, n.cuerpo);
+    if texto.len() > MAX_BYTES {
+        return Err(ErrorMemoria::Invalido(format!("la memoria supera {} KiB", MAX_BYTES / 1024)));
+    }
+    let dir_proyecto = raiz.join(proyecto);
+    if !es_dir_real(&dir_proyecto) {
+        return Err(ErrorMemoria::NoEncontrado(format!("no existe el proyecto {proyecto}")));
+    }
+    let dir = dir_proyecto.join("memory");
+    if std::fs::symlink_metadata(&dir).is_ok() {
+        if !es_dir_real(&dir) {
+            return Err(ErrorMemoria::Invalido("memory/ no es una carpeta".into()));
+        }
+    } else {
+        std::fs::create_dir(&dir).map_err(|e| ErrorMemoria::Interno(format!("no se pudo crear memory/: {e}")))?;
+    }
+    let destino = dir.join(&nombre);
+    // Temporal y `hard_link`: falla si el destino existe, así nunca se pisa nada.
+    let tmp = dir.join(format!(".{nombre}.nueva-{}", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    std::fs::File::create(&tmp)
+        .and_then(|mut f| f.write_all(texto.as_bytes()).and_then(|_| f.sync_all()))
+        .map_err(|e| ErrorMemoria::Interno(format!("no se pudo crear la memoria: {e}")))?;
+    let enlazado = std::fs::hard_link(&tmp, &destino);
+    let _ = std::fs::remove_file(&tmp);
+    enlazado.map_err(|e| match e.kind() {
+        std::io::ErrorKind::AlreadyExists => ErrorMemoria::Conflicto(format!("ya existe la memoria {nombre}")),
+        _ => ErrorMemoria::Interno(format!("no se pudo crear la memoria: {e}")),
+    })?;
+    if let Err(e) = anotar_en_indice(&dir, &linea_indice(titulo, &nombre, descripcion)) {
+        let _ = std::fs::remove_file(&destino);
+        return Err(e);
+    }
+    memoria(proyecto, &nombre, &destino)
+}
+
+/// Añade una línea al final de `MEMORY.md` (que se crea si falta).
+fn anotar_en_indice(dir: &Path, linea: &str) -> Result<(), ErrorMemoria> {
+    let p = dir.join(INDICE);
+    let mut texto = match std::fs::symlink_metadata(&p) {
+        Ok(m) if m.is_file() => {
+            std::fs::read_to_string(&p).map_err(|e| ErrorMemoria::Interno(format!("no se pudo leer {INDICE}: {e}")))?
+        }
+        Ok(_) => return Err(ErrorMemoria::Invalido(format!("{INDICE} no es un fichero normal"))),
+        Err(_) => String::new(),
+    };
+    if !texto.is_empty() && !texto.ends_with('\n') {
+        texto.push('\n');
+    }
+    texto.push_str(linea);
+    escribir_atomico(&p, texto.as_bytes())
+}
+
+#[cfg(test)]
+mod pruebas_crear {
+    use super::*;
+
+    fn nueva(fichero: &str) -> NuevaMemoria<'_> {
+        NuevaMemoria { fichero, titulo: "Mi memoria", descripcion: "Qué recuerda", tipo: "feedback", cuerpo: "Cuerpo." }
+    }
+
+    #[test]
+    fn los_nombres_de_fichero_son_kebab_case() {
+        assert_eq!(fichero_nuevo("mi-memoria").unwrap(), "mi-memoria.md");
+        assert_eq!(fichero_nuevo("mi-memoria.md").unwrap(), "mi-memoria.md");
+        assert_eq!(fichero_nuevo("v2-nota").unwrap(), "v2-nota.md");
+        for malo in ["", ".md", "Mi-Memoria", "mi_memoria", "a/b", "../x", "-a", "a-", "a--b", ".oculta", "MEMORY", "con espacio", "x.txt"] {
+            assert!(fichero_nuevo(malo).is_err(), "{malo}");
+        }
+    }
+
+    #[test]
+    fn crear_escribe_cabecera_y_linea_de_indice_y_no_pisa() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("p")).unwrap();
+        let m = crear(d.path(), "p", &nueva("mi-memoria")).unwrap();
+        assert_eq!(m.nombre, "mi-memoria.md");
+        assert_eq!(
+            m.contenido,
+            "---\nname: Mi memoria\ndescription: Qué recuerda\nmetadata:\n  type: feedback\n---\n\nCuerpo.\n"
+        );
+        assert_eq!(frontmatter(&m.contenido).tipo.as_deref(), Some("feedback"));
+        let indice = std::fs::read_to_string(d.path().join("p/memory/MEMORY.md")).unwrap();
+        assert_eq!(indice, "- [Mi memoria](mi-memoria.md) — Qué recuerda\n");
+        // Un segundo intento no toca nada.
+        let otra = NuevaMemoria { cuerpo: "OTRO", ..nueva("mi-memoria") };
+        assert!(matches!(crear(d.path(), "p", &otra), Err(ErrorMemoria::Conflicto(_))));
+        assert!(std::fs::read_to_string(d.path().join("p/memory/mi-memoria.md")).unwrap().contains("Cuerpo."));
+        assert_eq!(std::fs::read_to_string(d.path().join("p/memory/MEMORY.md")).unwrap(), indice);
+        // Un índice sin salto final se respeta.
+        std::fs::write(d.path().join("p/memory/MEMORY.md"), "- viejo").unwrap();
+        crear(d.path(), "p", &nueva("otra")).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("p/memory/MEMORY.md")).unwrap(),
+            "- viejo\n- [Mi memoria](otra.md) — Qué recuerda\n"
+        );
+    }
+
+    #[test]
+    fn crear_valida_los_campos_y_el_proyecto() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("p")).unwrap();
+        assert!(matches!(crear(d.path(), "no-existe", &nueva("x")), Err(ErrorMemoria::NoEncontrado(_))));
+        assert!(matches!(crear(d.path(), "..", &nueva("x")), Err(ErrorMemoria::Invalido(_))));
+        for n in [
+            NuevaMemoria { tipo: "otro", ..nueva("x") },
+            NuevaMemoria { titulo: "  ", ..nueva("x") },
+            NuevaMemoria { descripcion: "a\nb", ..nueva("x") },
+            NuevaMemoria { fichero: "MEMORY.md", ..nueva("x") },
+        ] {
+            assert!(matches!(crear(d.path(), "p", &n), Err(ErrorMemoria::Invalido(_))));
+        }
+        assert!(!d.path().join("p/memory").exists());
+    }
+
+    #[test]
+    fn los_valores_delicados_se_entrecomillan() {
+        assert_eq!(yaml("Hola mundo"), "Hola mundo");
+        assert_eq!(yaml("a: b"), "\"a: b\"");
+        assert_eq!(yaml("- x"), "\"- x\"");
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("p")).unwrap();
+        let n = NuevaMemoria { descripcion: "Usa: dos puntos", ..nueva("x") };
+        let m = crear(d.path(), "p", &n).unwrap();
+        assert_eq!(frontmatter(&m.contenido).descripcion.as_deref(), Some("Usa: dos puntos"));
+    }
+}

@@ -81,6 +81,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/boveda/papelera", get(boveda_papelera))
         .route("/api/boveda/papelera/restaurar", post(boveda_restaurar))
         .route("/api/memoria", get(memoria_listar))
+        .route("/api/memoria/{proyecto}/crear", post(memoria_crear))
         .route("/api/memoria/{proyecto}/{fichero}", get(memoria_leer).post(memoria_guardar))
         .route("/api/memoria/{proyecto}/{fichero}/eliminar", post(memoria_eliminar))
         .route("/api/memoria/{proyecto}/{fichero}/renombrar", post(memoria_renombrar))

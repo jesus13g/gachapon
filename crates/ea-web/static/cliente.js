@@ -152,6 +152,7 @@ const ea = (() => {
     memoriaFichero: (proyecto, fichero) => api(`/api/memoria/${c(proyecto)}/${c(fichero)}`),
     guardarMemoria: (proyecto, fichero, contenido, version) =>
       post(`/api/memoria/${c(proyecto)}/${c(fichero)}`, { contenido, version }),
+    crearMemoria: (proyecto, datos) => post(`/api/memoria/${c(proyecto)}/crear`, datos),
     eliminarMemoria: (proyecto, fichero, version) => post(`/api/memoria/${c(proyecto)}/${c(fichero)}/eliminar`, { version }),
     renombrarMemoria: (proyecto, fichero, nuevo, version) =>
       post(`/api/memoria/${c(proyecto)}/${c(fichero)}/renombrar`, { nuevo, version }),

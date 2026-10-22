@@ -58,7 +58,7 @@ const tour = (() => {
     { sec: 'boveda', ancla: ['#filas .nota-cab', '#filas .nota', '#lista'], titulo: 'Leer, editar, mover y promover',
       texto: '<b>✎</b> (o <b>Ctrl+E</b>) edita cualquier nota y <b>Ctrl+S</b> guarda; la firma de la cabecera (autor, región, fechas, promoción) no se cambia. <b>⋯</b> renombra o mueve dentro de la región (con los enlaces al día), promueve a la compartida, copia la ruta, la muestra en el explorador o la manda a la papelera.' },
     { sec: 'memoria', ancla: ['#filas .arbol', '#lista'], titulo: 'La memoria de Claude Code',
-      texto: 'Lo que Claude Code recuerda de cada proyecto: una carpeta por proyecto y, dentro, una nota por memoria; <b>≡</b> es el índice. Pulsa una para abrirla (o <b>j / k</b>); pulsa la carpeta para plegarla.' },
+      texto: 'Lo que Claude Code recuerda de cada proyecto: una carpeta por proyecto y, dentro, una nota por memoria; <b>≡</b> es el índice. Pulsa una para abrirla (o <b>j / k</b>); pulsa la carpeta para plegarla. <b>＋ memoria</b>, encima del árbol, crea una nueva (con su cabecera y su línea en el índice).' },
     { sec: 'memoria', ancla: ['#filas .nota-cab', '#lista'], titulo: 'Leer, editar y más',
       texto: '<b>✎</b> (o <b>Ctrl+E</b>) alterna lectura y edición sin perder el borrador; <b>Ctrl+S</b> guarda, y si la memoria cambió en disco avisa antes de pisarla. <b>⋯</b> renombra (y pone al día los enlaces), copia la ruta, la muestra en el explorador o la elimina para siempre.' },
     { sec: 'biblioteca', ancla: ['#lista .f', '#lista'], titulo: 'La biblioteca de herramientas',

@@ -1433,6 +1433,15 @@ function etiquetasMem(ps) {
   return e;
 }
 
+// El proyecto de la memoria nueva: el de la nota abierta, si no el primero.
+function memProyectoPorDefecto(d, E) {
+  const abierto = E.sel && partesMem(E.sel)[0];
+  return d.proyectos.find(p => p.id === abierto)?.id ?? d.proyectos[0]?.id ?? '';
+}
+
+// Lo escrito en el formulario de la memoria nueva.
+const leeFormMem = () => Object.fromEntries($$('[data-mc]').map(el => [el.dataset.mc, el.value]));
+
 EDITOR.memoria = {
   cosa: 'memoria',
   aria: 'Memorias por proyecto',
@@ -1496,6 +1505,71 @@ EDITOR.memoria = {
       md: url => { const m = /^(?:\.\/)?([\w.-]+\.md)(?:#.*)?$/.exec(url); return m ? clave(m[1]) : null; },
       roto: 'no hay esa memoria',
     };
+  },
+  // La barra de la columna del árbol: ＋ memoria y su formulario (spec 014, H5).
+  barraArbol(d, E) {
+    let h = '<div class="arbol-bar">' +
+      btn('nueva-memoria-nota', '＋ memoria', 'memoria nueva en uno de los proyectos', {}, E.creando === 'memoria' ? 'on' : '') +
+      '</div>';
+    if (E.creando !== 'memoria') return h;
+    const f = E.form ?? {}, et = etiquetasMem(d.proyectos);
+    const proyecto = d.proyectos.some(p => p.id === f.proyecto) ? f.proyecto : memProyectoPorDefecto(d, E);
+    const campo = (c, ph, extra = '') =>
+      `<input data-mc="${c}" value="${esc(f[c] ?? '')}" placeholder="${ph}" aria-label="${ph}" title="${ph}" spellcheck="false" autocomplete="off"${extra}>`;
+    h += '<div class="mem-nueva">' +
+      '<select data-mc="proyecto" aria-label="Proyecto" title="Proyecto de la memoria nueva">' +
+      d.proyectos.map(p => `<option value="${esc(p.id)}"${p.id === proyecto ? ' selected' : ''} title="${esc(p.cwd ?? p.id)}">${esc(et.get(p.id))}</option>`).join('') +
+      '</select>' +
+      campo('fichero', 'nombre-del-fichero (kebab-case)') +
+      campo('titulo', 'Título (name)') +
+      campo('descripcion', 'Descripción: una línea, es el gancho del índice') +
+      '<select data-mc="tipo" aria-label="Tipo" title="Tipo de memoria (metadata.type)">' +
+      ['user', 'feedback', 'project', 'reference'].map(t => `<option${t === (f.tipo ?? 'project') ? ' selected' : ''}>${t}</option>`).join('') +
+      '</select>' +
+      `<textarea data-mc="cuerpo" rows="4" placeholder="Cuerpo (opcional)" aria-label="Cuerpo" spellcheck="false">${esc(f.cuerpo ?? '')}</textarea>` +
+      (E.formError ? `<p class="m err" role="alert">${esc(E.formError)}</p>` : '') +
+      '<div class="arbol-bar">' +
+      btn('confirmar-memoria-nota', '✓ crear', 'crear la memoria y apuntarla en MEMORY.md (Enter)', {}, 'coin') +
+      btn('cancelar-memoria-nota', 'cancelar', 'cerrar el formulario (Esc)') +
+      '</div></div>';
+    return h;
+  },
+  // Acciones propias; null = no es suya, false = ya repintó, true = sondear.
+  async accion(a, E) {
+    if (a === 'nueva-memoria-nota') {
+      E.creando = E.creando === 'memoria' ? null : 'memoria';
+      E.formError = null;
+      pintar();
+      $('input[data-mc="fichero"]')?.focus();
+      return false;
+    }
+    if (a === 'cancelar-memoria-nota') {
+      E.creando = null;
+      E.form = null;
+      E.formError = null;
+      pintar();
+      return false;
+    }
+    if (a === 'confirmar-memoria-nota') {
+      const f = E.form = leeFormMem();
+      try {
+        const { proyecto, ...datos } = f;
+        const m = await ea.crearMemoria(proyecto, datos);
+        if (!cierraBorrador('memoria')) { pintar(); return false; }
+        const k = claveMem(proyecto, m.nombre);
+        st.detalle[k] = m;
+        Object.assign(E, { creando: null, form: null, formError: null, sel: k, modo: 'edicion', borrador: null });
+        EDITOR.memoria.desplegar(E, k);
+        guardaEditor('memoria');
+        avisa('✓ creada ' + m.nombre, true);
+        return true;
+      } catch (err) {
+        E.formError = err.message;
+        pintar();
+        return false;
+      }
+    }
+    return null;
   },
   rutaAbs: x => x.ruta,
   guardar: (k, texto, version) => ea.guardarMemoria(...partesMem(k), texto, version),
@@ -3770,6 +3844,14 @@ $('#lista').addEventListener('input', ev => {
   $$('.sal', el.closest('.det')).forEach(n => n.remove());
 });
 
+// El formulario de la memoria nueva recuerda lo escrito entre repintados.
+for (const tipo of ['input', 'change']) {
+  $('#lista').addEventListener(tipo, ev => {
+    if (!ev.target.matches?.('[data-mc]') || st.sec !== 'memoria') return;
+    ed().form = leeFormMem();
+  });
+}
+
 $('#lista').addEventListener('focusout', ev => {
   const E = EDITOR[st.sec] && ed();
   if (ev.target.matches('input[data-ren]') && E?.renombrando) { E.renombrando = null; setTimeout(pintar); }
@@ -3823,6 +3905,11 @@ document.addEventListener('keydown', ev => {
     if (t.matches('input[data-ren]')) {
       if (ev.key === 'Enter') { ev.preventDefault(); renombra(t.value); }
       else if (ev.key === 'Escape') { E.renombrando = null; pintar(); }
+      return;
+    }
+    if (t.matches('[data-mc]')) {
+      if (ev.key === 'Enter' && t.tagName === 'INPUT') { ev.preventDefault(); accion({ dataset: { a: 'confirmar-memoria-nota' } }); }
+      else if (ev.key === 'Escape') { t.blur(); accion({ dataset: { a: 'cancelar-memoria-nota' } }); }
       return;
     }
     if (t.matches('input[data-crear]')) {

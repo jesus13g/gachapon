@@ -502,6 +502,31 @@ pub async fn memoria_guardar(
 }
 
 #[derive(Deserialize)]
+pub struct CrearMemoriaBody {
+    fichero: String,
+    titulo: String,
+    descripcion: String,
+    tipo: String,
+    #[serde(default)]
+    cuerpo: String,
+}
+
+pub async fn memoria_crear(
+    State(s): Estado,
+    Path(proyecto): Path<String>,
+    Json(b): Json<CrearMemoriaBody>,
+) -> Result<(StatusCode, Json<Memoria>), ApiError> {
+    let n = crate::memoria::NuevaMemoria {
+        fichero: &b.fichero,
+        titulo: &b.titulo,
+        descripcion: &b.descripcion,
+        tipo: &b.tipo,
+        cuerpo: &b.cuerpo,
+    };
+    Ok((StatusCode::CREATED, Json(servicio::memoria::crear(&s, &proyecto, &n).await?)))
+}
+
+#[derive(Deserialize)]
 pub struct VersionBody {
     version: String,
 }
