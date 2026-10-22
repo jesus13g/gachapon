@@ -22,7 +22,7 @@
   <button data-s="memoria" title="Memoria de Claude Code (tecla 9)"><i>✎</i><span>Memoria</span></button>
   <button data-s="biblioteca" title="Biblioteca de herramientas (tecla b)"><i>◫</i><span>Biblioteca</span></button>
   <button data-s="equipos" title="Equipos de agentes (tecla e)"><i>◎</i><span>Equipos</span></button>
-  <button data-s="ajustes" title="Ajustes (tecla 0)"><i>⚙&#xFE0E;</i><span>Ajustes</span></button>
+  <button data-s="ajustes" title="Ajustes (tecla 0)"><i><svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 5.4L10.9 3.1L13.1 3.1L13.5 5.4L15.7 6.3L17.5 4.9L19.1 6.5L17.7 8.3L18.6 10.5L20.9 10.9L20.9 13.1L18.6 13.5L17.7 15.7L19.1 17.5L17.5 19.1L15.7 17.7L13.5 18.6L13.1 20.9L10.9 20.9L10.5 18.6L8.3 17.7L6.5 19.1L4.9 17.5L6.3 15.7L5.4 13.5L3.1 13.1L3.1 10.9L5.4 10.5L6.3 8.3L4.9 6.5L6.5 4.9L8.3 6.3Z"/><circle cx="12" cy="12" r="3"/></svg></i><span>Ajustes</span></button>
   <button id="bproy" aria-expanded="false" aria-controls="proyectos"><i>◨</i><span>Proyectos</span><b></b></button>
 </nav>
 <main>
@@ -34,8 +34,8 @@
       <div id="servicios" role="status"></div>
       <svg id="orq" width="16" height="16" viewBox="476 14 20 20" role="img" aria-label="orquestador"><title></title><path class="engranaje" d="M495.5,24.9L495.1,26.8L491.7,27.1L491.0,28.1L492.0,31.3L490.5,32.4L487.9,30.2L486.6,30.5L485.1,33.5L483.2,33.1L482.9,29.7L481.9,29.0L478.7,30.0L477.6,28.5L479.8,25.9L479.5,24.6L476.5,23.1L476.9,21.2L480.3,20.9L481.0,19.9L480.0,16.7L481.5,15.6L484.1,17.8L485.4,17.5L486.9,14.5L488.8,14.9L489.1,18.3L490.1,19.0L493.3,18.0L494.4,19.5L492.2,22.1L492.5,23.4Z"/></svg>
       <span id="salud"></span>
-      <i id="off" class="hot" title="sin conexión con el panel" hidden>✕ sin conexión</i>
-      <i id="lectura" class="hot" title="Sin clave de sesión: el panel solo puede leer. Ciérralo y ábrelo con ea-web-open para poder cambiar nada." hidden>⊘ solo lectura</i>
+      <i id="off" class="hot" title="sin conexión con el panel" hidden>✕<span> sin conexión</span></i>
+      <i id="lectura" class="hot" title="Sin clave de sesión: el panel solo puede leer. Ciérralo y ábrelo con ea-web-open para poder cambiar nada." hidden>⊘<span> solo lectura</span></i>
       <button id="fproy" class="c on" hidden><i>◨</i> <span></span> ✕</button>
     </div>
     <h1 id="seccion"></h1>
@@ -109,7 +109,7 @@
       <dt>✎ Memoria</dt><dd>la memoria de Claude Code: árbol de proyectos y notas; se lee, se edita (✎), ＋ memoria crea una nueva (con su cabecera y su línea en MEMORY.md), y ⋯ renombra, copia la ruta, la muestra en el explorador o la elimina</dd>
       <dt>◫ Biblioteca</dt><dd>las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo, con filtros y su uso por actor. En la ficha, <i>⏻ desactivar / activar</i> simula primero y pide aceptar (los MCP de Claude Code solo se acotan en una sesión), <i>▶ sesión con…</i> abre una terminal con solo las herramientas que elijas y <i>✎ categoría</i> le da una propia. Los secretos de un MCP nunca salen: solo los nombres de sus variables y cabeceras</dd>
       <dt>◎ Equipos</dt><dd>los grupos de agentes despertados para una tarea: miembros con su rol, quién está despierto (●), en qué trabaja, su cola y lo que han entregado. <i>＋ despertar</i> crea un equipo (y abre una terminal por cada planificador y revisor si lo pides) y <i>◌ dormir</i> lo apaga devolviendo lo pendiente a la cola del ejecutor; ambos piden confirmar</dd>
-      <dt>⚙&#xFE0E; Ajustes</dt><dd>cómo se comporta el ecosistema (ajustes.toml), con el origen de cada valor. ◐ se cambia aquí (segundo clic para confirmar; los topes solo bajan), ⌨ solo en una terminal con <i>ea ajustes</i>, ⊘ lo fija una variable de entorno</dd>
+      <dt><svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 5.4L10.9 3.1L13.1 3.1L13.5 5.4L15.7 6.3L17.5 4.9L19.1 6.5L17.7 8.3L18.6 10.5L20.9 10.9L20.9 13.1L18.6 13.5L17.7 15.7L19.1 17.5L17.5 19.1L15.7 17.7L13.5 18.6L13.1 20.9L10.9 20.9L10.5 18.6L8.3 17.7L6.5 19.1L4.9 17.5L6.3 15.7L5.4 13.5L3.1 13.1L3.1 10.9L5.4 10.5L6.3 8.3L4.9 6.5L6.5 4.9L8.3 6.3Z"/><circle cx="12" cy="12" r="3"/></svg> Ajustes</dt><dd>cómo se comporta el ecosistema (ajustes.toml), con el origen de cada valor. ◐ se cambia aquí (segundo clic para confirmar; los topes solo bajan), ⌨ solo en una terminal con <i>ea ajustes</i>, ⊘ lo fija una variable de entorno</dd>
     </dl>
 
     <h2>Teclado</h2>
