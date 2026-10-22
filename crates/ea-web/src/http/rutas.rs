@@ -41,6 +41,11 @@ pub async fn sesiones(State(s): Estado) -> Json<Sesiones> {
     Json(servicio::estado::sesiones(&s))
 }
 
+/// Los agentes vivos y dónde está cada trabajo activo, para la escena.
+pub async fn ecosistema(State(s): Estado) -> Json<crate::ecosistema::Ecosistema> {
+    Json(servicio::ecosistema::vista(&s).await)
+}
+
 // ------------------------------------------------------------------ diario
 
 #[derive(Deserialize)]

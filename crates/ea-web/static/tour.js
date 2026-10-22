@@ -22,7 +22,7 @@ const tour = (() => {
     { sec: 'inicio', ancla: ['#btema, #bayuda'], titulo: 'Tema y ayuda',
       texto: '<b>☾/☀</b> cambia entre modo oscuro y claro. <b>?</b> abre la chuleta con la leyenda completa; desde ella, o con la tecla <b>t</b>, vuelves a este recorrido.' },
     { sec: 'inicio', ancla: ['#escena'], titulo: 'La escena',
-      texto: 'Cada agente es una máquina de gashapon y cada trabajo una cápsula: la pila tras el cristal es su cola y el raíl de arriba, el orquestador. Pulsa una cápsula para abrir su ficha; <b>▶ demo</b> enseña un recorrido de ejemplo sin tocar nada.' },
+      texto: 'Cada agente activo es una máquina de gashapon (las pequeñas, sus subagentes) y cada trabajo una cápsula: la pila tras el cristal es su cola y el raíl de arriba, el bus del orquestador. Las luces dicen si trabaja o espera. Todo es real: sin agentes, la escena está vacía. Pulsa una cápsula para abrir su ficha.' },
     { sec: 'inicio', ancla: ['.actores'], titulo: 'Colas y semáforo',
       texto: 'Lo que espera al ejecutor, lo que espera al planificador y quién tiene el worktree. Solo uno escribe a la vez: el semáforo en rojo dice que está ocupado.' },
     { sec: 'inicio', ancla: ['.paq'], si: true, titulo: 'Cápsulas atascadas',

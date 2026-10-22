@@ -414,6 +414,40 @@ instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
 Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
 
+## La escena de Inicio
+
+La escena de la portada de `ea-web` dibuja solo estado real, el que da
+`GET /api/ecosistema` en cada sondeo; no hay demo ni actividad inventada.
+
+- **Detectores** (`crates/ea-web/src/ecosistema/`): `claude.rs` (cada sesión
+  viva de `~/.claude/sessions/` es una máquina, con el modelo que dice la cola
+  de su transcripción, y cada subagente que apunta el hook, una máquina pequeña
+  con `padre`; un subagente terminado sigue 15 s en escena para verlo apagarse)
+  y `bus.rs` (las presencias vivas del bus y los semáforos cogidos). `componer`
+  (en `mod.rs`) los junta: funde la presencia de Claude Code con su sesión si
+  hay una sola y ubica cada trabajo activo (`en_cola` y `ejecutando` en el
+  ejecutor; `en_revision` en el revisor o en la sesión cuyo cwd o id contiene
+  el worktree; `en_espera` en el mostrador TÚ; si no hay una máquina
+  inequívoca, en el raíl del bus). Para un agente nuevo con su propia fuente,
+  un detector más que devuelva `AgenteVivo`.
+- **Variantes**: la familia sale de una tabla en `ecosistema/familia.rs` (por
+  agente del catálogo y, si no, por el nombre del modelo: `claude`, `qwen`,
+  `codex`, `opencode`, `antigravity`, `local` o `desconocida`); el navegador la
+  viste con `VARIANTES` en `static/gashapon.js`. Un proveedor nuevo es una fila
+  en cada sitio.
+- **Qué mueve cada animación**: aparecer o desaparecer de la lista (la máquina
+  se enciende o se apaga), el estado del agente (luces fijas si espera, LED que
+  recorren la tapa y manivela si trabaja, gris si terminó), el cambio de lugar
+  de un trabajo entre dos sondeos (la cápsula viaja por el raíl), los trabajos
+  en curso entre un planificador y un ejecutor (el tramo de raíl se ilumina) y
+  cada evento nuevo del diario atribuible a una máquina (un pulso hasta el
+  orquestador). Con `prefers-reduced-motion` nada se mueve y el estado se lee en
+  las luces, los contornos y los rótulos.
+- **Límites**: Codex, OpenCode y Antigravity solo aparecen cuando escriben
+  presencia en el bus (equipos); el hook no dice el padre de un subagente
+  anidado (todos cuelgan de la sesión); qué sesión creó un trabajo se deduce
+  por el cwd o el id de sesión en el worktree.
+
 ## Hook de subagentes
 
 `ea-web` pinta en la portada cada sesión abierta de Claude Code con sus
@@ -1124,7 +1158,7 @@ en el centro y los iconos de tema (☾/☀) y ayuda (?) a la derecha.
 
 | Símbolo | Sección | Tecla |
 |---|---|---|
-| ⌂ | Orquestador: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
+| ⌂ | Orquestador. Arriba, la escena: una máquina de gashapon por agente activo (sesiones de Claude Code, el ejecutor del orquestador y los miembros de equipos despiertos), sus subagentes como máquinas pequeñas unidas por un cable, la variante de cada familia (tapa, emblema y faja), luces según el estado y los trabajos como cápsulas que viajan por el raíl del bus; sin agentes, la escena queda vacía (ver «La escena de Inicio»). Debajo: cola `modelo-local` → cola `claude-code`, semáforo del worktree, avisos de paquetes de corrección en espera (con contexto y botón de confirmar), propuestas por decidir y tablero en cola → ejecutando → en revisión → en espera → cerrado | `1` |
 | ▤ | Trabajos: lista con filtro por estado y ficha con informe, resumen del agente, metadatos (skills, topes, `creada_por`, rutina vN), el plan de la obra (estado de cada fase, con su plan y su diff plegables), diff plegable e historial; cerrar, reformular (nota amplia con las notas anteriores encima y, en una obra, «rehacer desde la fase N» con la pendiente preseleccionada), continuar, confirmar y cancelar según el estado. **＋ misión** (en la barra) abre en línea un formulario para encargar una misión al modelo local: título, worktree (sugiere los de las sesiones de Claude Code y los de trabajos anteriores), objetivo, criterio (obligatorio) e iteraciones y minutos, acotados al techo de `ajustes.toml`; al encolarla se abre su ficha. En modo **obra**, el mismo formulario lleva un objetivo general y una lista de fases (título, instrucciones, entregable y criterio cada una) que se añaden, quitan y reordenan, y obliga a elegir cada cuántas fases revisa Claude Code (o solo al final). El worktree tiene que ser un repo con al menos un commit. El criterio lo ejecuta el sistema, nunca la página. En la ficha de un trabajo cerrado o cancelado, **⧉ lanzar de nuevo** abre ese formulario relleno con su orden (objetivo, criterio, worktree, topes y, en una obra, fases y revisión) para editarla y encolarla con un id nuevo; no copia las notas, el informe ni las skills, y una rutina vuelve como misión normal | `2` |
 | ≡ | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`, `usuario_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. ✎ anotar abre en línea una nota del usuario (texto y, si quieres, trabajo) que queda como `usuario_nota`; en el detalle de un evento, ✎ corregir abre lo mismo apuntando a ese evento, que no se toca: el corregido muestra «corregido por #n» y la nota «corrige #m», enlazados. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros. Al pie, ↓ más antiguos añade la página siguiente con los mismos filtros (desaparece cuando no queda nada); el sondeo refresca solo la primera sin perder las cargadas, y cambiar un filtro vuelve a la primera | `3` |
 | ↻ | Rutinas registradas, con versión y próxima ejecución. La ficha tiene un campo por entrada (con su valor por defecto) y ◌ vista previa, que enseña el objetivo y el criterio ya sustituidos sin lanzar nada; «echar ficha» lanza con lo escrito en la ficha. «✎ nueva versión» abre el TOML registrado con la versión ya subida; «◌ validar» lo comprueba como al registrar y enseña el diff y la orden resultante sin escribir nada, y «✓ registrar» (segundo clic) lo registra como `ea rutina registrar`. «＋ rutina», en la barra, abre el mismo editor con una plantilla comentada. «▸ versiones» lista las registradas (número, fecha y quién) con «ver» (su TOML) y «diff» (qué cambió frente a la anterior), solo lectura. «horario» enseña el `OnCalendar` del timer y si está activo; «◷ guardar» simula el horario escrito (próximas 3 ejecuciones) y el segundo clic lo programa; «✕ desprogramar» quita el timer. «▣ retirar» (segundo clic) manda la rutina a la papelera y quita su timer; «▣ retiradas», en la barra, las lista, y su ficha tiene «↺ restaurar» | `4` |
@@ -1185,6 +1219,7 @@ API (JSON): `GET /api/estado` (servicios, orquestador —con `sandbox`: `{sistem
 (`{version, fijados, agentes}`: cada agente del catálogo con `id`, `nombre`,
 `admite`, `rol`, `bin`, `ruta` (null si no está en el `PATH`), `perfil`, `modelo`,
 `topes`, `modelo_accesible` y `presencia` (`{viva, rol, equipo, trabajo, desde, latido}` o `null`, como `ea agentes --json`); `fijados`, los roles que fija una variable de entorno),
+`GET /api/ecosistema` (lo que pinta la escena de Inicio, solo lectura: `agentes` —cada agente activo detectado con `id` estable, `agente` del catálogo, `nombre`, `familia` visual, `modelo`, `local`, `rol`, `padre`, `estado` (`trabajando`, `esperando` o `terminado`), `actividad`, `trabajo`, `proyecto`, `desde`, `fuente` y `equipo`—, `tareas` —cada trabajo activo con su `lugar` (id de máquina, `usuario` o `bus`), `planificador`, `ejecutor` y `del_usuario`— y `senales` —los últimos eventos del diario con la máquina de la que salen, `de`, o `null`—),
 `GET /api/trabajos`, `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea),
 `/api/colas`, `/api/semaforos`, `/api/rutinas` (las activas; `?retiradas=1`, las
 retiradas; cada fila y la ficha llevan `ubicacion`: `activa`, `retirada` o `sin_fichero`),
