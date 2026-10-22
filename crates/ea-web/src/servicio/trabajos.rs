@@ -9,7 +9,8 @@ use serde_json::Value;
 
 use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado, ACTOR};
 use crate::vistas::{
-    ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, Semaforo, TrabajoDetalle, TrabajoResumen,
+    CatalogoSkills, ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, PruebaSkills, Semaforo, SkillVista,
+    TrabajoDetalle, TrabajoResumen,
 };
 use crate::AppState;
 
@@ -237,6 +238,51 @@ pub fn formulario(s: &AppState) -> Resultado<FormularioTrabajo> {
     Ok(FormularioTrabajo { modos: MODOS_WEB.to_vec(), techo, defecto: Topes::default().acotar(&techo), worktrees })
 }
 
+/// La configuración de skills de los ajustes efectivos; el catálogo por
+/// defecto cuelga del directorio de configuración de los ajustes del panel.
+fn config_skills(s: &AppState) -> ea_bus::ConfigSkills {
+    let mut c = ea_bus::ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes).skills;
+    if c.dir.is_empty() {
+        c.dir = s.config.ajustes.dir_config.join("qwen-skills").to_string_lossy().into_owned();
+    }
+    c
+}
+
+/// El catálogo de skills del ejecutor, sus topes y la llave (solo lectura).
+pub fn catalogo_skills(s: &AppState) -> Resultado<CatalogoSkills> {
+    let c = config_skills(s);
+    let skills = c
+        .catalogo()?
+        .into_iter()
+        .map(|k| SkillVista {
+            caracteres: k.cuerpo.chars().count(),
+            nombre: k.nombre,
+            descripcion: k.descripcion,
+            habilitada: k.habilitada,
+        })
+        .collect();
+    Ok(CatalogoSkills {
+        skills,
+        max_por_trabajo: c.max_por_trabajo,
+        max_caracteres: c.max_caracteres,
+        usuario_tiene_llave: c.tiene_llave(ACTOR),
+        pueden_elegir: c.pueden_elegir,
+    })
+}
+
+/// Comprueba una selección con la misma validación que `ea qwen-skills
+/// probar` (`ConfigSkills::resolver`): llave de `por` (por defecto, el actor
+/// de la web), existencia, habilitada y topes. No escribe nada.
+pub fn probar_skills(s: &AppState, skills: &[String], por: Option<&str>) -> Resultado<PruebaSkills> {
+    let por = por.map(str::trim).filter(|p| !p.is_empty()).unwrap_or(ACTOR);
+    let elegidas = config_skills(s).resolver(por, skills)?;
+    Ok(PruebaSkills {
+        por: por.into(),
+        caracteres: elegidas.iter().map(|k| k.cuerpo.chars().count()).sum(),
+        skills: elegidas.into_iter().map(|k| k.nombre).collect(),
+    })
+}
+
 /// Ruta absoluta, existente, directorio y dentro de un repo git; devuelve
 /// la forma canónica, que es la que va a la orden (y al semáforo).
 pub(super) async fn validar_worktree(wt: &str) -> Resultado<String> {
@@ -332,7 +378,9 @@ fn fases_de_obra(n: &NuevoTrabajo) -> Resultado<(Vec<ea_bus::Fase>, Option<u32>)
 /// El criterio no se ejecuta aquí: solo el ejecutor lo corre (arts. III y V).
 pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
     if cuerpo.get("skills").is_some() {
-        return Err(ErrorWeb::Invalido("las skills no se eligen desde la web".into()));
+        return Err(ErrorWeb::Invalido(
+            "las skills no se eligen desde la web: las elige quien tiene la llave (`pueden_elegir`, el rol planificador); prueba una selección con POST /api/skills/probar".into(),
+        ));
     }
     let n: NuevoTrabajo =
         serde_json::from_value(cuerpo).map_err(|e| ErrorWeb::Invalido(format!("petición inválida: {e}")))?;

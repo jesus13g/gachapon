@@ -3617,3 +3617,54 @@ async fn reindexar_la_boveda_reconstruye_el_indice_y_deja_evento() {
     let (_, d) = get(&f, "/api/diario?q=boveda_reindexado").await;
     assert!(d.to_string().contains("boveda_reindexado"), "{d}");
 }
+
+// ------------------------------------------------------- skills del ejecutor
+
+fn catalogo_de_prueba(f: &Fixture) {
+    let dir = f._dir.path().join("config/qwen-skills");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("rust.md"), "---\ndescripcion: Cargo\n---\ncargo test -p\n").unwrap();
+    std::fs::write(dir.join("shell.md"), "---\ndescripcion: Shell\n---\nset -euo pipefail\n").unwrap();
+}
+
+#[tokio::test]
+async fn el_catalogo_web_dice_quien_tiene_la_llave() {
+    let f = montar();
+    catalogo_de_prueba(&f);
+    let (s, c) = get(&f, "/api/skills").await;
+    assert_eq!(s, StatusCode::OK, "{c}");
+    let nombres: Vec<_> = c["skills"].as_array().unwrap().iter().map(|k| k["nombre"].as_str().unwrap()).collect();
+    assert_eq!(nombres, ["rust", "shell"]);
+    assert_eq!(c["skills"][0]["descripcion"], "Cargo");
+    assert!(c["skills"][0].get("cuerpo").is_none(), "el cuerpo no sale: {c}");
+    assert_eq!(c["max_por_trabajo"], 3);
+    assert_eq!(c["pueden_elegir"], json!(["claude-code"]));
+    assert_eq!(c["usuario_tiene_llave"], false);
+}
+
+#[tokio::test]
+async fn probar_skills_desde_la_web_reutiliza_la_validacion() {
+    let f = montar();
+    catalogo_de_prueba(&f);
+    // Sin `por`, el actor es `usuario`, que no tiene la llave.
+    let (s, r) = post(&f, "/api/skills/probar", json!({ "skills": ["rust"] })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{r}");
+    assert!(r["error"].as_str().unwrap().contains("llave"), "{r}");
+    // Como lo vería el planificador: bien, y con el recuento.
+    let (s, r) = post(&f, "/api/skills/probar", json!({ "skills": ["rust", "shell", "rust"], "por": "claude-code" })).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["skills"], json!(["rust", "shell"]));
+    assert!(r["caracteres"].as_u64().unwrap() > 0);
+    // Inexistente y por encima del tope.
+    let (s, r) = post(&f, "/api/skills/probar", json!({ "skills": ["nada"], "por": "claude-code" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(r["error"].as_str().unwrap().contains("no existe"), "{r}");
+    let (s, r) = post(&f, "/api/skills/probar", json!({ "skills": ["a", "b", "c", "d"], "por": "claude-code" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(r["error"].as_str().unwrap().contains("máximo"), "{r}");
+    // Una lista vacía no tiene nada que validar; un campo desconocido, 4xx.
+    let (s, _) = post(&f, "/api/skills/probar", json!({ "skills": [] })).await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = post(&f, "/api/skills/probar", json!({ "skills": [], "otro": 1 })).await;
+    assert!(s.is_client_error());
+}

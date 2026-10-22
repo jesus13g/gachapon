@@ -45,6 +45,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/rutinas/{slug}/versiones/{n}", get(rutina_version))
         .route("/api/trabajos", get(trabajos_listar).post(trabajo_crear))
         .route("/api/trabajos/nuevo", get(trabajo_formulario))
+        .route("/api/skills", get(skills_catalogo))
+        .route("/api/skills/probar", post(skills_probar))
         .route("/api/trabajos/{id}", get(trabajo_ver))
         .route("/api/trabajos/{id}/diff", get(trabajo_diff))
         .route("/api/trabajos/{id}/cerrar", post(trabajo_cerrar))

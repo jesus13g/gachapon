@@ -206,6 +206,22 @@ pub async fn trabajo_formulario(State(s): Estado) -> Api<FormularioTrabajo> {
     ok(servicio::trabajos::formulario(&s))
 }
 
+pub async fn skills_catalogo(State(s): Estado) -> Api<CatalogoSkills> {
+    ok(servicio::trabajos::catalogo_skills(&s))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProbarSkills {
+    #[serde(default)]
+    skills: Vec<String>,
+    por: Option<String>,
+}
+
+pub async fn skills_probar(State(s): Estado, Json(b): Json<ProbarSkills>) -> Api<PruebaSkills> {
+    ok(servicio::trabajos::probar_skills(&s, &b.skills, b.por.as_deref()))
+}
+
 pub async fn trabajo_ver(State(s): Estado, Path(id): Path<String>) -> Api<TrabajoDetalle> {
     ok(servicio::trabajos::ver(&s, &id).await)
 }
