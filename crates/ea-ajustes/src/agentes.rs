@@ -107,19 +107,10 @@ pub fn id_perfil_valido(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_'))
 }
 
-/// La ruta del binario: tal cual si lleva `/`, si no, en el `PATH` dado.
+/// La ruta del binario: tal cual si lleva directorio, si no, en el `PATH`
+/// dado (en Windows, con las extensiones de `PATHEXT`).
 pub fn buscar_binario(bin: &str, path: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::{Path, PathBuf};
-    let ejecutable = |p: &Path| p.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-    if bin.is_empty() {
-        return None;
-    }
-    if bin.contains('/') {
-        let p = PathBuf::from(bin);
-        return ejecutable(&p).then_some(p);
-    }
-    std::env::split_paths(path?).map(|d| d.join(bin)).find(|p| ejecutable(p))
+    ea_plataforma::rutas::buscar_binario(bin, path, std::env::var_os("PATHEXT").as_deref())
 }
 
 /// Un agente del catálogo tal como lo enseñan `ea agentes`, la TUI y

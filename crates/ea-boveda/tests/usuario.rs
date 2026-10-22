@@ -240,6 +240,7 @@ fn la_papelera_guarda_y_restaura() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn rutas_malas_y_enlaces_simbolicos_se_rechazan() {
     let mut e = entorno();

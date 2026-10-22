@@ -8,10 +8,11 @@
 //! por la API. Lo que no: un proceso sin sandbox de la misma cuenta (Claude
 //! Code, por ejemplo) lee el fichero igual que `ea-web-open`.
 
-use std::fs::{self, DirBuilder, OpenOptions, Permissions};
-use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+
+use ea_plataforma::fs::{crear_dir_privado, opciones_privadas, sincronizar_dir};
 
 /// Cabecera con la que la página manda la clave.
 pub const CABECERA: &str = "x-ea-clave";
@@ -21,10 +22,11 @@ const BYTES: usize = 32;
 pub struct ClaveSesion(String);
 
 impl ClaveSesion {
-    /// Clave nueva de `/dev/urandom`, en hexadecimal (64 caracteres).
+    /// Clave nueva del generador aleatorio del sistema operativo, en
+    /// hexadecimal (64 caracteres).
     pub fn nueva() -> std::io::Result<Self> {
         let mut b = [0u8; BYTES];
-        fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
+        getrandom::getrandom(&mut b).map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(Self(b.iter().map(|x| format!("{x:02x}")).collect()))
     }
 
@@ -44,17 +46,16 @@ impl ClaveSesion {
 }
 
 /// Escribe la clave en `<ejecucion>/ea-web/clave`: crea el directorio con
-/// 0700 (y lo deja en 0700 si ya existía), escribe un temporal 0600, lo
+/// 0700 en Unix (y lo deja en 0700 si ya existía), escribe un temporal 0600, lo
 /// sincroniza y lo renombra encima. Devuelve la ruta del fichero.
 pub fn guardar(ejecucion: &Path, clave: &ClaveSesion) -> std::io::Result<PathBuf> {
     let dir = ejecucion.join(ea_ajustes::DIR_WEB);
-    DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-    fs::set_permissions(&dir, Permissions::from_mode(0o700))?;
+    crear_dir_privado(&dir)?;
     let destino = ea_ajustes::fichero_clave_web(ejecucion);
     let temporal = dir.join(format!(".{}.{}.tmp", ea_ajustes::FICHERO_CLAVE, std::process::id()));
     let _ = fs::remove_file(&temporal);
     let r = (|| {
-        let mut f = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporal)?;
+        let mut f = opciones_privadas().write(true).create_new(true).open(&temporal)?;
         f.write_all(clave.texto().as_bytes())?;
         f.sync_all()?;
         fs::rename(&temporal, &destino)
@@ -63,9 +64,7 @@ pub fn guardar(ejecucion: &Path, clave: &ClaveSesion) -> std::io::Result<PathBuf
         let _ = fs::remove_file(&temporal);
         return Err(e);
     }
-    if let Ok(d) = fs::File::open(&dir) {
-        let _ = d.sync_all();
-    }
+    sincronizar_dir(&dir);
     Ok(destino)
 }
 
@@ -99,13 +98,18 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         // Un directorio previo con permisos abiertos queda en 0700.
         fs::create_dir(d.path().join("ea-web")).unwrap();
-        fs::set_permissions(d.path().join("ea-web"), Permissions::from_mode(0o755)).unwrap();
+        ea_plataforma::fs::poner_permisos_unix(&d.path().join("ea-web"), 0o755).unwrap();
         let c = ClaveSesion::nueva().unwrap();
         let f = guardar(d.path(), &c).unwrap();
         assert_eq!(f, d.path().join("ea-web/clave"));
         assert_eq!(fs::read_to_string(&f).unwrap(), c.texto());
-        assert_eq!(fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(fs::metadata(d.path().join("ea-web")).unwrap().permissions().mode() & 0o777, 0o700);
+        #[cfg(unix)]
+        {
+            assert!(ea_plataforma::fs::es_privado(&f).unwrap());
+            let modo = |p: &Path| ea_plataforma::fs::permisos_unix(&fs::metadata(p).unwrap()).unwrap() & 0o777;
+            assert_eq!(modo(&f), 0o600);
+            assert_eq!(modo(&d.path().join("ea-web")), 0o700);
+        }
         // Reescribirla la reemplaza sin dejar temporales.
         let c2 = ClaveSesion::nueva().unwrap();
         guardar(d.path(), &c2).unwrap();

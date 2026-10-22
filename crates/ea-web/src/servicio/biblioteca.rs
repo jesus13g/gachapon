@@ -190,7 +190,7 @@ pub async fn uso(s: &AppState) -> Resultado<Arc<InformeUso>> {
         let mut fuentes = FuentesUso::desde_raices(&r);
         if aislado {
             // Con raíces de prueba, ni el diario real ni otro fuera de ellas.
-            fuentes.diario = r.home.join(".local/share/ecosistema-asistente/ecosistema.db");
+            fuentes.diario = r.home.join("ecosistema.db");
         }
         calcular_uso(&r, &inv, &fuentes)
     })

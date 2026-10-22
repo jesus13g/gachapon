@@ -80,7 +80,7 @@ pub fn vivas(dir: &Path, subagentes_dir: Option<&Path>) -> Vec<Sesion> {
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
         .filter_map(|e| serde_json::from_slice::<Fichero>(&std::fs::read(e.path()).ok()?).ok())
-        .filter(|f| Path::new("/proc").join(f.pid.to_string()).exists())
+        .filter(|f| ea_plataforma::proceso::vive(f.pid))
         .map(|f| Sesion {
             pid: f.pid,
             subagentes: subagentes_dir.map(|d| subagentes(d, &f.session_id)).unwrap_or_default(),
@@ -98,7 +98,7 @@ pub fn vivas(dir: &Path, subagentes_dir: Option<&Path>) -> Vec<Sesion> {
 /// Los subagentes de una sesión: primero los que siguen en marcha (del más
 /// antiguo al más nuevo), luego los terminados más recientes.
 fn subagentes(dir: &Path, sesion: &str) -> Vec<Subagente> {
-    if sesion.is_empty() || sesion.contains('/') || sesion.contains("..") {
+    if sesion.is_empty() || sesion.contains(['/', '\\']) || sesion.contains("..") {
         return Vec::new();
     }
     let Ok(entradas) = std::fs::read_dir(dir.join(sesion)) else { return Vec::new() };

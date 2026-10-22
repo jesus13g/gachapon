@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         None => {
-            tracing::error!("sin $XDG_RUNTIME_DIR no hay dónde dejar la clave de sesión: el panel queda en solo lectura");
+            tracing::error!("sin directorio de ejecución no hay dónde dejar la clave de sesión: el panel queda en solo lectura");
             None
         }
     };
@@ -46,13 +46,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(%bind_addr, clave = ?fichero_clave, "ea-web arrancado");
 
     axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {}
-                _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending().await } } => {}
-            }
-        })
+        .with_graceful_shutdown(ea_plataforma::parada::esperar_parada())
         .await?;
 
     if let Some(f) = fichero_clave {

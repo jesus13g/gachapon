@@ -1622,7 +1622,7 @@ async fn la_memoria_rechaza_nombres_maliciosos() {
     let mem = montar_memoria(&f);
     let fuera = f._dir.path().join("secreto.md");
     std::fs::write(&fuera, "fuera").unwrap();
-    std::os::unix::fs::symlink(&fuera, mem.join("enlace.md")).unwrap();
+    ea_plataforma::fs::enlazar(&fuera, &mem.join("enlace.md")).unwrap();
     std::fs::write(mem.join(".oculto.md"), "oculto").unwrap();
     let rutas = [
         "/api/memoria/%2E%2E/refactor.md",
@@ -1707,7 +1707,7 @@ async fn eliminar_exige_la_version_y_no_toca_el_indice_ni_fuera() {
 
     let fuera = f._dir.path().join("secreto.md");
     std::fs::write(&fuera, "fuera").unwrap();
-    std::os::unix::fs::symlink(&fuera, mem.join("enlace.md")).unwrap();
+    ea_plataforma::fs::enlazar(&fuera, &mem.join("enlace.md")).unwrap();
     for r in ["/api/memoria/-home-u-proy/enlace.md/eliminar", "/api/memoria/-home-u-proy/..%2F..%2Fsecreto.md/eliminar"] {
         let (s, _) = post(&f, r, json!({ "version": memoria_version("fuera") })).await;
         assert!(matches!(s, StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND), "{r}: {s}");
@@ -3138,7 +3138,6 @@ async fn proponer_y_aceptar_una_sesion_abre_la_terminal_sin_secretos() {
     assert!(abiertas[0].iter().any(|a| a == "claude"), "{abiertas:?}");
     sin_secretos(&format!("{abiertas:?}"));
     // Los secretos solo están en los ficheros efímeros, con permisos 0600.
-    use std::os::unix::fs::PermissionsExt;
     let mcp = std::fs::read_dir(f._dir.path().join("runtime/ea-biblioteca/sesiones"))
         .unwrap()
         .flatten()
@@ -3146,7 +3145,9 @@ async fn proponer_y_aceptar_una_sesion_abre_la_terminal_sin_secretos() {
         .map(|e| e.path())
         .find(|p| std::fs::read_to_string(p).is_ok_and(|t| t.contains("SECRETO_HEADER_CLAUDE")))
         .expect("el fichero efímero con la definición completa");
-    assert_eq!(std::fs::metadata(mcp).unwrap().permissions().mode() & 0o777, 0o600);
+    if let Some(m) = ea_plataforma::fs::permisos_unix(&std::fs::metadata(mcp).unwrap()) {
+        assert_eq!(m & 0o777, 0o600);
+    }
 }
 
 #[tokio::test]
@@ -3186,14 +3187,13 @@ async fn la_categoria_propia_va_por_ajustes() {
 /// los usan, con `orquestador.paralelo = paralelo`: así la prueba no depende
 /// del PATH real. Devuelve el repo git donde se despiertan los equipos.
 fn preparar_equipos(f: &Fixture, paralelo: u32) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let bins = f._dir.path().join("bins");
     std::fs::create_dir_all(&bins).unwrap();
     let mut toml = format!("[orquestador]\nparalelo = {paralelo}\n");
     for id in ea_ajustes::IDS_AGENTES {
         let p = bins.join(id);
         std::fs::write(&p, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ea_plataforma::fs::poner_permisos_unix(&p, 0o755).unwrap();
         toml += &format!("[agentes.{id}]\nbin = \"{}\"\n", p.display());
     }
     let fichero = f.state.config.ajustes.fichero();

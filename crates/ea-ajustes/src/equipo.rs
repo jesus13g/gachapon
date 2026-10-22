@@ -231,9 +231,9 @@ mod tests {
     #[test]
     fn la_disponibilidad_se_comprueba_aparte() {
         let (d, mut a) = ajustes();
-        let bin = d.path().join("falso");
+        let bin = d.path().join(ea_plataforma::rutas::nombre_exe("falso"));
         std::fs::write(&bin, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(&bin, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        ea_plataforma::fs::poner_permisos_unix(&bin, 0o755).unwrap();
         for id in ["claude-code", "qwen-code", "codex"] {
             a.agentes.get_mut(id).unwrap().bin = bin.to_string_lossy().into_owned();
         }

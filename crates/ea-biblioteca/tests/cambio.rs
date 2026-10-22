@@ -2,7 +2,6 @@
 //! toca el real. Los comandos oficiales se prueban con un doble.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use ea_ajustes::{Canal, Fuentes};
@@ -40,7 +39,7 @@ fn mundo() -> Mundo {
 
     // Codex
     escribe(home.join(".codex/config.toml"), CODEX);
-    fs::set_permissions(home.join(".codex/config.toml"), fs::Permissions::from_mode(0o600)).unwrap();
+    ea_plataforma::fs::poner_permisos_unix(&home.join(".codex/config.toml"), 0o600).unwrap();
     escribe(home.join(".codex/skills/cx/SKILL.md"), "---\ndescription: Skill de Codex\n---\n");
     // OpenCode
     escribe(home.join(".config/opencode/opencode.json"), OPENCODE_USUARIO);
@@ -53,7 +52,7 @@ fn mundo() -> Mundo {
     escribe(repo.join("claude/skills/mision/SKILL.md"), "---\ndescription: Misión\n---\n");
     escribe(repo.join("qwen/skills/depurar.md"), "---\ndescripcion: x\n---\n");
     fs::create_dir_all(home.join(".claude/skills")).unwrap();
-    std::os::unix::fs::symlink(repo.join("claude/skills/mision"), home.join(".claude/skills/mision")).unwrap();
+    ea_plataforma::fs::enlazar(&repo.join("claude/skills/mision"), &home.join(".claude/skills/mision")).unwrap();
     escribe(home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Propia\n---\n");
     escribe(home.join(".claude/skills/propia/extra.txt"), "extra");
     escribe(home.join(".claude/agents/revisor.md"), "---\ndescription: Revisa\n---\n");
@@ -118,7 +117,9 @@ fn codex_ida_y_vuelta_deja_el_fichero_igual_y_conserva_los_comentarios() {
     assert!(copia.starts_with(m.ctx.raices.estado.join("biblioteca/copias")));
     assert!(copia.file_name().unwrap().to_str().unwrap().ends_with("-config.toml"));
     // Permisos conservados.
-    assert_eq!(fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
+    if let Some(m) = ea_plataforma::fs::permisos_unix(&fs::metadata(&f).unwrap()) {
+        assert_eq!(m & 0o777, 0o600);
+    }
     // La biblioteca lo refleja y activar deja los bytes originales.
     assert_eq!(inventario(&m).buscar("codex/mcp/usuario/docs").unwrap().activado, Activado::No);
     cambiar(&m, "codex/mcp/usuario/docs", true, &o).unwrap();
@@ -413,7 +414,7 @@ fn escribe_el_fichero_real_si_la_configuracion_es_un_enlace() {
     let real = m.home.join("dotfiles/codex.toml");
     fs::create_dir_all(real.parent().unwrap()).unwrap();
     fs::rename(&f, &real).unwrap();
-    std::os::unix::fs::symlink(&real, &f).unwrap();
+    ea_plataforma::fs::enlazar(&real, &f).unwrap();
     cambiar(&m, "codex/mcp/usuario/docs", false, &o).unwrap();
     assert!(fs::symlink_metadata(&f).unwrap().file_type().is_symlink(), "el enlace sigue siendo un enlace");
     assert!(lee(&real).contains("enabled = false"));

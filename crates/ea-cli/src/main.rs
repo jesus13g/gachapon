@@ -155,8 +155,5 @@ fn main() -> Result<()> {
 /// en una tubería cerrada. Con la acción por defecto el proceso termina sin
 /// ruido, como cualquier herramienta de Unix.
 fn salir_en_silencio_si_se_cierra_la_tuberia() {
-    // SAFETY: se llama al principio de `main`, antes de crear hilos.
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    }
+    ea_plataforma::proceso::ignorar_sigpipe_por_defecto();
 }
