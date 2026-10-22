@@ -19,17 +19,16 @@ jobs:
             /usr/bin/sandbox-exec -p "$2" /usr/bin/nc -z -w 3 1.1.1.1 80; echo "nc externo -> $?"
             /usr/bin/sandbox-exec -p "$2" /usr/bin/curl -s -o /dev/null --max-time 5 http://1.1.1.1; echo "curl externo -> $?"
           }
-          sonda "sin sandbox (control)" '(version 1)(allow default)'
-          sonda "deny network* solo" "$BASE"
-          sonda "con remote localhost" "$BASE
-          (allow network* (remote ip \"localhost:*\"))"
-          sonda "con remote y local localhost" "$BASE
+          NUEVO="$BASE
           (allow network* (remote ip \"localhost:*\"))
-          (allow network* (local ip \"localhost:*\"))"
+          (allow network-bind network-inbound (local ip \"localhost:*\"))
+          (allow network* (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))"
+          sonda "perfil nuevo" "$NUEVO"
+          /usr/bin/sandbox-exec -p "$NUEVO" /usr/bin/python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(1); print('bind localhost ok')"; echo "bind -> $?"
+          /usr/bin/sandbox-exec -p "$NUEVO" /usr/bin/python3 -c "import socket; print(socket.getaddrinfo('example.com',80)[0][4])"; echo "dns -> $?"
           python3 -m http.server 18765 --bind 127.0.0.1 >/dev/null 2>&1 &
           sleep 2
-          P="$BASE
-          (allow network* (remote ip \"localhost:*\"))"
+          P="$NUEVO"
           /usr/bin/sandbox-exec -p "$P" /usr/bin/nc -z -w 3 127.0.0.1 18765; echo "nc localhost (remote) -> $?"
           /usr/bin/sandbox-exec -p "$P" /usr/bin/curl -s -o /dev/null --max-time 5 http://127.0.0.1:18765; echo "curl localhost (remote) -> $?"
           /usr/bin/sandbox-exec -p "$P" /usr/bin/curl -s -o /dev/null --max-time 5 http://localhost:18765; echo "curl localhost nombre -> $?"
