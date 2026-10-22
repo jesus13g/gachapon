@@ -446,6 +446,17 @@ pub struct EventoHerramienta {
 
 // ------------------------------------------------------------------ bóveda
 
+/// Lo que el índice de búsqueda tiene de más o de menos respecto al disco.
+#[derive(Serialize)]
+pub struct IndiceBoveda {
+    pub nuevas: usize,
+    pub cambiadas: usize,
+    pub eliminadas: usize,
+    pub omitidas: usize,
+    /// `true` si hay alguna diferencia.
+    pub desfasado: bool,
+}
+
 #[derive(Serialize)]
 pub struct ListadoBoveda {
     pub raiz: String,

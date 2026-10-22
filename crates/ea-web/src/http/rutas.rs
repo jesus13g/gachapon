@@ -385,6 +385,14 @@ pub async fn boveda_promover(State(s): Estado, Json(b): Json<PromoverBody>) -> A
     ok(servicio::boveda::promover(&s, &b.ruta, b.destino.as_deref()).await)
 }
 
+pub async fn boveda_indice(State(s): Estado) -> Api<IndiceBoveda> {
+    ok(servicio::boveda::indice(&s).await)
+}
+
+pub async fn boveda_reindexar(State(s): Estado) -> Api<IndiceBoveda> {
+    ok(servicio::boveda::reindexar(&s).await)
+}
+
 pub async fn boveda_arbol(State(s): Estado) -> Api<ArbolBoveda> {
     ok(servicio::boveda::arbol(&s).await)
 }

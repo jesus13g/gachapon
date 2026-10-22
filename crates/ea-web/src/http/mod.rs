@@ -69,6 +69,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/boveda/nota", get(boveda_leer))
         .route("/api/boveda/promover", post(boveda_promover))
         .route("/api/boveda/arbol", get(boveda_arbol))
+        .route("/api/boveda/indice", get(boveda_indice))
+        .route("/api/boveda/reindexar", post(boveda_reindexar))
         .route("/api/boveda/fichero", get(boveda_fichero))
         .route("/api/boveda/guardar", post(boveda_guardar))
         .route("/api/boveda/crear", post(boveda_crear))

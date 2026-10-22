@@ -3527,3 +3527,30 @@ async fn crear_un_trabajo_para_un_equipo_valida_como_el_bus() {
     assert_eq!(s, StatusCode::BAD_REQUEST, "{r}");
     assert!(r["error"].as_str().unwrap().contains("dormido"), "{r}");
 }
+
+#[tokio::test]
+async fn reindexar_la_boveda_reconstruye_el_indice_y_deja_evento() {
+    let f = montar();
+    nota(&f, "claude-code", "Una", "uno");
+    let (_, v) = get(&f, "/api/boveda/arbol").await; // pone el índice al día
+    assert_eq!(v["notas"].as_array().unwrap().len(), 1);
+    let (s, v) = get(&f, "/api/boveda/indice").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["desfasado"], false);
+
+    // Una nota creada a mano en el disco y otra borrada: el índice se desfasa.
+    let raiz = f.state.boveda.raiz().to_path_buf();
+    std::fs::create_dir_all(raiz.join("compartida")).unwrap();
+    std::fs::write(raiz.join("compartida/externa.md"), "# Externa\n\ntexto").unwrap();
+    std::fs::remove_file(raiz.join("claude-code/una.md")).unwrap();
+    let (_, v) = get(&f, "/api/boveda/indice").await;
+    assert_eq!((v["desfasado"].clone(), v["nuevas"].clone(), v["eliminadas"].clone()), (json!(true), json!(1), json!(1)));
+
+    let (s, v) = post(&f, "/api/boveda/reindexar", json!({})).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!((v["nuevas"].clone(), v["eliminadas"].clone()), (json!(1), json!(1)));
+    let (_, v) = get(&f, "/api/boveda/indice").await;
+    assert_eq!(v["desfasado"], false);
+    let (_, d) = get(&f, "/api/diario?q=boveda_reindexado").await;
+    assert!(d.to_string().contains("boveda_reindexado"), "{d}");
+}

@@ -1003,7 +1003,9 @@ interpretado como sintaxis de consulta. Cotas por actor (la `region` `modelo-loc
 
 El índice es una caché derivada de los ficheros: se pone al día solo (compara
 fecha y tamaño) al buscar o listar, de modo que las ediciones hechas en
-Obsidian se ven; `ea boveda reindexar` lo reconstruye entero. Se ignoran
+Obsidian se ven; `ea boveda reindexar` lo reconstruye entero (en la web, ↻ reindexar
+en ▥ Bóveda, con un aviso «índice desfasado» cuando el disco y el índice no
+coinciden; deja `boveda_reindexado` en el diario). Se ignoran
 ficheros y carpetas ocultos, enlaces simbólicos, lo que no sea `.md` y lo que
 pese más de 512 KiB.
 
@@ -1185,6 +1187,9 @@ equipos de agentes (spec 019): `GET /api/equipos` (una fila por equipo con sus m
 `GET /api/boveda` (`?q=`, `region`, `limite`: lista o busca), `GET /api/boveda/nota?ruta=`
 (lectura paginada), `POST /api/boveda/promover` (`{"ruta": "..."}`) y el editor:
 `GET /api/boveda/arbol` (regiones, carpetas, notas y cuántas hay en la papelera),
+`GET /api/boveda/indice` (diferencia entre el índice y el disco: `nuevas`, `cambiadas`,
+`eliminadas`, `omitidas`, `desfasado`) y `POST /api/boveda/reindexar` (reconstrucción
+entera; devuelve los mismos contadores),
 `GET /api/boveda/fichero?ruta=` (la nota entera con `contenido`, `version` y
 `absoluta`), `POST /api/boveda/guardar` (`{"ruta", "contenido", "version"}`; 409 si
 cambió en disco, 400 si cambia la firma), `POST /api/boveda/crear` (`{"ruta",
