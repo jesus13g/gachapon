@@ -11,6 +11,7 @@ pub mod proceso;
 pub mod reloj;
 pub mod rutas;
 pub mod shell;
+pub mod usuario;
 
 #[cfg(feature = "tokio")]
 pub mod parada;

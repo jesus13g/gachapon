@@ -10,6 +10,8 @@ ea-boveda = { path = "../ea-boveda" }
 ea-bus = { path = "../ea-bus" }
 ea-ajustes = { path = "../ea-ajustes" }
 ea-biblioteca = { path = "../ea-biblioteca" }
+ea-plataforma = { path = "../ea-plataforma" }
+time = { version = "0.3", features = ["formatting", "macros"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"

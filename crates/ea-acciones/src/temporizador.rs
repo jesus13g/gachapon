@@ -4,6 +4,10 @@
 //! ya existe y solo ejecuta `ea rutina lanzar <slug>` (art. V: el timer solo
 //! crea el trabajo).
 //!
+//! Fuera de Linux (spec 020, decisión 6) el mismo contrato lo cumplen un
+//! LaunchAgent por rutina (macOS) o una tarea del Programador de tareas
+//! (Windows), con el subconjunto portable de [`crate::calendario`].
+//!
 //! Sin shell: `systemctl` y `systemd-analyze` se lanzan con los argumentos
 //! como vector, y el calendario llega validado ([`comprobar_calendario`]):
 //! sin caracteres de control (un salto de línea inyectaría líneas en el
@@ -12,9 +16,14 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use ea_plataforma::Sistema;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use tokio::process::Command;
 use tokio::time::timeout;
 
+use crate::calendario::{self, Horario, IntervaloLaunchd};
+use crate::plist;
+use crate::servicios::{bloques_show, cita_systemd, dir_unidades, Backend};
 use crate::sistema::slug_valido;
 
 /// Longitud máxima de una expresión `OnCalendar`.
@@ -123,39 +132,168 @@ pub fn parsear_analisis(salida: &str) -> Option<Calendario> {
     Some(Calendario { normalizado: normalizado?, proximas })
 }
 
-/// Dónde y con qué se programan los timers. `systemctl` y `systemd_analyze`
-/// son la orden y sus primeros argumentos (en las pruebas, `sh guion.sh`);
-/// el resto de argumentos se añade como vector.
+/// El servicio de instancia `ea-rutina@.service` con la ruta real de `ea`
+/// (la plantilla de `crates/ea-orchestrator/systemd/` tiene una fija). No
+/// ejecuta la rutina: solo crea el trabajo en el bus (art. V).
+pub fn unidad_servicio_rutina(ea: &Path) -> String {
+    format!(
+        "# Generado por el ecosistema; apunta al `ea` real de este equipo.\n\
+         [Unit]\n\
+         Description=Dispara la rutina '%i' del ecosistema de asistente\n\
+         \n\
+         [Service]\n\
+         Type=oneshot\n\
+         # No ejecuta la rutina: solo crea el trabajo en el bus (§10.1 de la especificación).\n\
+         # El orquestador residente (ea-orchestrator.service) la recoge cuando puede.\n\
+         ExecStart={} rutina lanzar %i\n",
+        cita_systemd(&ea.display().to_string())
+    )
+}
+
+/// `es.gachapon.ea-rutina.<slug>`: la etiqueta del LaunchAgent de una rutina.
+pub fn etiqueta_rutina(slug: &str) -> String {
+    format!("es.gachapon.ea-rutina.{slug}")
+}
+
+/// `ecosistema-asistente\rutina-<slug>`: la tarea de una rutina en Windows.
+pub fn tarea_rutina(slug: &str) -> String {
+    format!("ecosistema-asistente\\rutina-{slug}")
+}
+
+/// El LaunchAgent de una rutina: ejecuta `<ea> rutina lanzar <slug>` según el
+/// horario. No arranca al cargarse (`RunAtLoad` falso).
+pub fn plist_rutina(slug: &str, ea: &Path, horario: &Horario) -> String {
+    let mut c = String::new();
+    c.push_str(&plist::cadena("  ", "Label", &etiqueta_rutina(slug)));
+    let args = [ea.display().to_string(), "rutina".into(), "lanzar".into(), slug.to_string()];
+    c.push_str(&plist::lista_de_cadenas("  ", "ProgramArguments", &args));
+    c.push_str(&plist::booleano("  ", "RunAtLoad", false));
+    match horario.launchd() {
+        IntervaloLaunchd::Cada(s) => c.push_str(&plist::entero("  ", "StartInterval", i64::from(s))),
+        IntervaloLaunchd::Calendario(disparos) => {
+            c.push_str("  <key>StartCalendarInterval</key>\n  <array>\n");
+            for d in disparos {
+                c.push_str("    <dict>\n");
+                for (clave, valor) in d {
+                    c.push_str(&plist::entero("      ", clave, i64::from(valor)));
+                }
+                c.push_str("    </dict>\n");
+            }
+            c.push_str("  </array>\n");
+        }
+    }
+    plist::documento(&c)
+}
+
+/// Los argumentos de `schtasks /Create` de una rutina (sin privilegios
+/// elevados; `/F` reemplaza la tarea si ya existía).
+pub fn schtasks_crear_rutina_args(slug: &str, ea: &Path, horario: &Horario) -> Vec<String> {
+    let mut v: Vec<String> = vec!["/Create".into(), "/F".into()];
+    v.extend(horario.schtasks());
+    v.extend(["/RL".into(), "LIMITED".into(), "/TN".into(), tarea_rutina(slug), "/TR".into()]);
+    v.push(format!("\"{}\" rutina lanzar {slug}", ea.display()));
+    v
+}
+
+/// Dónde y con qué se programan los timers de las rutinas, según el sistema:
+/// timers de systemd (Linux, con toda la sintaxis `OnCalendar`), LaunchAgents
+/// (macOS) o tareas del Programador de tareas (Windows), estos dos con el
+/// subconjunto portable de [`crate::calendario`].
+///
+/// `systemctl` y `systemd_analyze` son la orden y sus primeros argumentos (en
+/// las pruebas, `sh guion.sh`); el resto de argumentos se añade como vector.
 #[derive(Debug, Clone)]
 pub struct Temporizadores {
-    /// `~/.config/systemd/user`.
+    pub backend: Backend,
+    /// `~/.config/systemd/user` (systemd) o `~/Library/LaunchAgents` (launchd).
     pub unidades_dir: PathBuf,
     pub systemctl: Vec<String>,
     pub systemd_analyze: Vec<String>,
+    /// `launchctl` o `schtasks` (fuera de Linux).
+    pub gestor: Vec<String>,
+    /// Donde launchd y el Programador de tareas guardan el calendario tal
+    /// como se pidió (ninguno de los dos lo devuelve): `<slug>.calendario`.
+    pub datos_dir: PathBuf,
+    /// El `ea` real (junto al binario que corre): lo que ejecutan las
+    /// tareas. Sin él no se programa fuera de Linux ni se escribe
+    /// `ea-rutina@.service`.
+    pub ea: Option<PathBuf>,
+    /// El uid de launchd (`gui/<uid>`).
+    pub uid: Option<u32>,
+    /// «Ahora» (hora local sin zona y desfase respecto de UTC en segundos)
+    /// para las pruebas; `None` = el reloj del sistema.
+    pub reloj: Option<(PrimitiveDateTime, i32)>,
 }
 
 impl Temporizadores {
-    /// Los de `systemd --user` de esta sesión: `$XDG_CONFIG_HOME/systemd/user`
-    /// (o `~/.config/systemd/user`).
+    /// Los del sistema en el que corre este binario.
     pub fn usuario() -> Self {
-        let config = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|| PathBuf::from(".config"));
+        Self::para(Sistema::actual())
+    }
+
+    /// Los de un sistema dado (parametrizable para las pruebas).
+    pub fn para(sistema: Sistema) -> Self {
+        let backend = Backend::de(sistema);
+        let ea = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(ea_plataforma::rutas::nombre_exe("ea"))));
+        let datos_dir = if backend == Backend::Systemd { PathBuf::new() } else { ea_ajustes::cargar().rutas.estado.join("programadas") };
         Self {
-            unidades_dir: config.join("systemd/user"),
+            backend,
+            unidades_dir: dir_unidades(backend),
             systemctl: vec!["systemctl".into()],
             systemd_analyze: vec!["systemd-analyze".into()],
+            gestor: vec![backend.programa().into()],
+            datos_dir,
+            ea,
+            uid: ea_plataforma::usuario::uid(),
+            reloj: None,
         }
     }
 
-    /// Ruta del fichero de instancia del timer de `slug`.
+    /// Un backend de systemd con esas carpeta y órdenes (las pruebas).
+    pub fn systemd(unidades_dir: PathBuf, systemctl: Vec<String>, systemd_analyze: Vec<String>) -> Self {
+        Self {
+            backend: Backend::Systemd,
+            unidades_dir,
+            systemctl,
+            systemd_analyze,
+            gestor: Vec::new(),
+            datos_dir: PathBuf::new(),
+            ea: None,
+            uid: None,
+            reloj: None,
+        }
+    }
+
+    /// Un backend de launchd o del Programador de tareas (las pruebas).
+    pub fn portable(backend: Backend, unidades_dir: PathBuf, gestor: Vec<String>, datos_dir: PathBuf, ea: PathBuf, uid: Option<u32>) -> Self {
+        Self {
+            backend,
+            unidades_dir,
+            systemctl: Vec::new(),
+            systemd_analyze: Vec::new(),
+            gestor,
+            datos_dir,
+            ea: Some(ea),
+            uid,
+            reloj: None,
+        }
+    }
+
+    /// Ruta del fichero del timer de `slug`: la unidad de systemd, el plist
+    /// de launchd o, en Windows (que no tiene fichero), el del calendario.
     pub fn ruta(&self, slug: &str) -> Result<PathBuf, String> {
         if !slug_valido(slug) {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
-        Ok(self.unidades_dir.join(unidad_timer(slug)))
+        Ok(match self.backend {
+            Backend::Systemd => self.unidades_dir.join(unidad_timer(slug)),
+            Backend::Launchd => self.unidades_dir.join(format!("{}.plist", etiqueta_rutina(slug))),
+            Backend::Schtasks => self.ruta_calendario(slug),
+        })
+    }
+
+    fn ruta_calendario(&self, slug: &str) -> PathBuf {
+        self.datos_dir.join(format!("{slug}.calendario"))
     }
 
     fn leer(&self, ruta: &Path) -> Result<Option<String>, String> {
@@ -166,9 +304,14 @@ impl Temporizadores {
         }
     }
 
-    /// El `OnCalendar` del fichero de instancia, sin preguntar a systemd.
+    /// El calendario programado, sin preguntar al sistema: el `OnCalendar`
+    /// del fichero de instancia o el guardado junto al plist/la tarea.
     pub fn calendario_actual(&self, slug: &str) -> Result<Option<String>, String> {
-        Ok(self.leer(&self.ruta(slug)?)?.as_deref().and_then(leer_calendario))
+        if self.backend == Backend::Systemd {
+            return Ok(self.leer(&self.ruta(slug)?)?.as_deref().and_then(leer_calendario));
+        }
+        self.ruta(slug)?;
+        Ok(self.leer(&self.ruta_calendario(slug))?.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()))
     }
 
     async fn orden(&self, base: &[String], args: &[&str]) -> Result<std::process::Output, String> {
@@ -179,6 +322,11 @@ impl Temporizadores {
             .await
             .map_err(|_| format!("{prog} tardó demasiado"))?
             .map_err(|e| format!("no se pudo ejecutar {prog}: {e}"))
+    }
+
+    async fn orden_args(&self, base: &[String], args: &[String]) -> Result<std::process::Output, String> {
+        let a: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.orden(base, &a).await
     }
 
     async fn systemctl(&self, args: &[&str]) -> Result<(), String> {
@@ -196,30 +344,100 @@ impl Temporizadores {
         }
     }
 
+    /// Una orden de `launchctl`/`schtasks`; el error lleva su salida de error.
+    async fn lanzar_gestor(&self, args: &[String]) -> Result<(), String> {
+        let salida = self.orden_args(&self.gestor, args).await?;
+        if salida.status.success() {
+            return Ok(());
+        }
+        let e = String::from_utf8_lossy(&salida.stderr).trim().to_string();
+        Err(format!("{} {}: {}", self.gestor.join(" "), args.join(" "), if e.is_empty() { salida.status.to_string() } else { e }))
+    }
+
+    fn uid_launchd(&self) -> Result<u32, String> {
+        self.uid.ok_or_else(|| "no se pudo saber el uid del usuario para launchd".to_string())
+    }
+
+    fn dominio_launchd(&self, slug: &str) -> Result<String, String> {
+        Ok(format!("gui/{}/{}", self.uid_launchd()?, etiqueta_rutina(slug)))
+    }
+
+    fn ea(&self) -> Result<&Path, String> {
+        self.ea.as_deref().ok_or_else(|| "no se sabe dónde está el binario `ea` que ejecutarán las tareas".to_string())
+    }
+
+    /// «Ahora» en hora local sin zona, y el desfase con UTC en segundos.
+    fn ahora(&self) -> (PrimitiveDateTime, i32) {
+        if let Some(r) = self.reloj {
+            return r;
+        }
+        let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+        let desfase = ea_plataforma::reloj::desfase_local(unix).unwrap_or(0);
+        let dt = OffsetDateTime::from_unix_timestamp(unix + i64::from(desfase)).unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        (PrimitiveDateTime::new(dt.date(), dt.time()), desfase)
+    }
+
     /// Fichero, calendario y si está activo.
     pub async fn estado(&self, slug: &str) -> Result<EstadoTimer, String> {
         let contenido = self.leer(&self.ruta(slug)?)?;
-        let unidad = unidad_timer(slug);
-        let activo = self
-            .orden(&self.systemctl, &["--user", "is-active", &unidad])
-            .await
-            .ok()
-            .map(|s| String::from_utf8_lossy(&s.stdout).trim().to_string())
-            .filter(|s| !s.is_empty());
-        Ok(EstadoTimer {
-            fichero: contenido.is_some(),
-            calendario: contenido.as_deref().and_then(leer_calendario),
-            activo,
-        })
+        match self.backend {
+            Backend::Systemd => {
+                let unidad = unidad_timer(slug);
+                let activo = self
+                    .orden(&self.systemctl, &["--user", "is-active", &unidad])
+                    .await
+                    .ok()
+                    .map(|s| String::from_utf8_lossy(&s.stdout).trim().to_string())
+                    .filter(|s| !s.is_empty());
+                Ok(EstadoTimer {
+                    fichero: contenido.is_some(),
+                    calendario: contenido.as_deref().and_then(leer_calendario),
+                    activo,
+                })
+            }
+            Backend::Launchd => {
+                let cargado = match self.dominio_launchd(slug) {
+                    Ok(d) => self.lanzar_gestor(&["print".into(), d]).await.is_ok(),
+                    Err(_) => false,
+                };
+                Ok(EstadoTimer {
+                    fichero: contenido.is_some(),
+                    calendario: self.calendario_actual(slug)?,
+                    activo: Some(if cargado { "active" } else { "inactive" }.into()),
+                })
+            }
+            Backend::Schtasks => {
+                let existe = self.lanzar_gestor(&["/Query".into(), "/TN".into(), tarea_rutina(slug)]).await.is_ok();
+                Ok(EstadoTimer {
+                    fichero: contenido.is_some(),
+                    calendario: self.calendario_actual(slug)?,
+                    activo: Some(if existe { "active" } else { "inactive" }.into()),
+                })
+            }
+        }
     }
 
-    /// Pregunta a `systemd-analyze calendar` (que no cambia nada). `Ok(Err)`
-    /// es un calendario que systemd no acepta; `Err`, que no se pudo preguntar.
+    /// Valida un calendario. Linux: pregunta a `systemd-analyze calendar` (que
+    /// no cambia nada). Fuera de Linux: el subconjunto portable, con las
+    /// próximas ejecuciones calculadas aquí. `Ok(Err)` es un calendario que
+    /// no se acepta; `Err`, que no se pudo preguntar.
     pub async fn validar_calendario(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
         let c = match comprobar_calendario(calendario) {
             Ok(c) => c,
             Err(e) => return Ok(Err(e)),
         };
+        if self.backend != Backend::Systemd {
+            return Ok(match calendario::parsear(c) {
+                Ok(h) => {
+                    let (ahora, _) = self.ahora();
+                    Ok(Calendario {
+                        normalizado: h.normalizado(),
+                        proximas: h.proximas(ahora, ITERACIONES as usize).into_iter().map(calendario::formatear).collect(),
+                    })
+                }
+                Err(e) => Err(e),
+            });
+        }
         let iter = format!("--iterations={ITERACIONES}");
         let salida = self.orden(&self.systemd_analyze, &["calendar", &iter, "--", c]).await?;
         if !salida.status.success() {
@@ -230,14 +448,31 @@ impl Temporizadores {
             .ok_or_else(|| format!("respuesta inesperada de systemd-analyze para «{c}»")))
     }
 
+    /// Programa la rutina con ese calendario (y reemplaza el horario
+    /// anterior). Si el sistema falla, deja los ficheros como estaban.
+    pub async fn programar(&self, slug: &str, calendario: &str) -> Result<(), String> {
+        let c = comprobar_calendario(calendario)?;
+        match self.backend {
+            Backend::Systemd => self.programar_systemd(slug, c).await,
+            Backend::Launchd => self.programar_launchd(slug, c).await,
+            Backend::Schtasks => self.programar_schtasks(slug, c).await,
+        }
+    }
+
     /// Escribe el fichero de instancia (atómico), `daemon-reload`, `enable`
     /// y `restart` (para que un timer ya activo tome el horario nuevo). Si
     /// systemd falla, deja el fichero como estaba.
-    pub async fn programar(&self, slug: &str, calendario: &str) -> Result<(), String> {
-        let c = comprobar_calendario(calendario)?;
+    async fn programar_systemd(&self, slug: &str, c: &str) -> Result<(), String> {
         let ruta = self.ruta(slug)?;
         let anterior = self.leer(&ruta)?;
         let escribir = |texto: &str| ea_bus::escribir_atomico(&ruta, texto.as_bytes()).map_err(|e| e.to_string());
+        // El servicio que dispara el timer: si no está, con la ruta real de `ea`.
+        if let Some(ea) = &self.ea {
+            let servicio = self.unidades_dir.join("ea-rutina@.service");
+            if std::fs::symlink_metadata(&servicio).is_err() {
+                ea_bus::escribir_atomico(&servicio, unidad_servicio_rutina(ea).as_bytes()).map_err(|e| e.to_string())?;
+            }
+        }
         escribir(&contenido_timer(slug, c))?;
         let unidad = unidad_timer(slug);
         let aplicar = async {
@@ -257,26 +492,105 @@ impl Temporizadores {
         Ok(())
     }
 
-    /// Desprograma el timer de una rutina: `disable --now`, borra el fichero
-    /// de instancia y `daemon-reload`. `Ok(false)` si no había nada que
+    async fn programar_launchd(&self, slug: &str, c: &str) -> Result<(), String> {
+        let horario = calendario::parsear(c)?;
+        let ea = self.ea()?.to_path_buf();
+        let ruta = self.ruta(slug)?;
+        let dominio = self.dominio_launchd(slug)?;
+        let anterior = self.leer(&ruta)?;
+        let escribir = |texto: &str| ea_bus::escribir_atomico(&ruta, texto.as_bytes()).map_err(|e| e.to_string());
+        escribir(&plist_rutina(slug, &ea, &horario))?;
+        // Si ya estaba cargado, `bootstrap` falla: se descarga antes.
+        let _ = self.lanzar_gestor(&["bootout".into(), dominio]).await;
+        let cargar = self.lanzar_gestor(&["bootstrap".into(), format!("gui/{}", self.uid_launchd()?), ruta.display().to_string()]).await;
+        if let Err(e) = cargar {
+            let _ = match &anterior {
+                Some(t) => escribir(t),
+                None => std::fs::remove_file(&ruta).map_err(|e| e.to_string()),
+            };
+            return Err(format!("{e} (el plist se dejó como estaba)"));
+        }
+        ea_bus::escribir_atomico(&self.ruta_calendario(slug), c.as_bytes()).map_err(|e| e.to_string())
+    }
+
+    async fn programar_schtasks(&self, slug: &str, c: &str) -> Result<(), String> {
+        let horario = calendario::parsear(c)?;
+        let ea = self.ea()?.to_path_buf();
+        self.ruta(slug)?;
+        self.lanzar_gestor(&schtasks_crear_rutina_args(slug, &ea, &horario)).await?;
+        ea_bus::escribir_atomico(&self.ruta_calendario(slug), c.as_bytes()).map_err(|e| e.to_string())
+    }
+
+    /// Desprograma el timer de una rutina. `Ok(false)` si no había nada que
     /// quitar. Es lo que reutiliza retirar una rutina.
     pub async fn desprogramar(&self, slug: &str) -> Result<bool, String> {
         let estado = self.estado(slug).await?;
         if !estado.programado() {
             return Ok(false);
         }
-        let unidad = unidad_timer(slug);
-        self.systemctl(&["disable", "--now", &unidad]).await?;
-        let ruta = self.ruta(slug)?;
-        if estado.fichero {
-            match std::fs::remove_file(&ruta) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(format!("no se pudo borrar {}: {e}", ruta.display())),
+        let quitar = |ruta: &Path| match std::fs::remove_file(ruta) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("no se pudo borrar {}: {e}", ruta.display())),
+        };
+        match self.backend {
+            Backend::Systemd => {
+                let unidad = unidad_timer(slug);
+                self.systemctl(&["disable", "--now", &unidad]).await?;
+                if estado.fichero {
+                    quitar(&self.ruta(slug)?)?;
+                }
+                self.systemctl(&["daemon-reload"]).await?;
+            }
+            Backend::Launchd => {
+                // Descargarlo puede fallar si ya no estaba cargado.
+                let _ = self.lanzar_gestor(&["bootout".into(), self.dominio_launchd(slug)?]).await;
+                quitar(&self.ruta(slug)?)?;
+                quitar(&self.ruta_calendario(slug))?;
+            }
+            Backend::Schtasks => {
+                let existe = estado.activo.as_deref() == Some("active");
+                if existe {
+                    self.lanzar_gestor(&["/Delete".into(), "/TN".into(), tarea_rutina(slug), "/F".into()]).await?;
+                }
+                quitar(&self.ruta_calendario(slug))?;
             }
         }
-        self.systemctl(&["daemon-reload"]).await?;
         Ok(true)
+    }
+
+    /// Próxima ejecución (marca unix, hora absoluta) y estado (`active`,
+    /// `inactive`…) del timer de una rutina. Linux: lo dice systemd. Fuera
+    /// de Linux, el calendario guardado y [`crate::calendario`]. `None` si no
+    /// hay dato. `slug` ya debe estar validado.
+    pub async fn proxima(&self, slug: &str) -> Option<(Option<i64>, String)> {
+        if self.backend == Backend::Systemd {
+            let args = ["--user", "--timestamp=unix", "show", &unidad_timer(slug), "-p", "NextElapseUSecRealtime", "-p", "ActiveState"];
+            let salida = self.orden(&self.systemctl, &args).await.ok().filter(|s| s.status.success())?;
+            let b = bloques_show(&String::from_utf8_lossy(&salida.stdout)).into_iter().next()?;
+            let proxima = b.get("NextElapseUSecRealtime").and_then(|v| v.strip_prefix('@')).and_then(|v| v.parse().ok());
+            return Some((proxima, b.get("ActiveState").cloned().unwrap_or_default()));
+        }
+        let c = self.calendario_actual(slug).ok().flatten()?;
+        let (ahora, desfase) = self.ahora();
+        let primera = calendario::parsear(&c).ok()?.proximas(ahora, 1).into_iter().next()?;
+        let activo = self.estado(slug).await.ok()?.activo.unwrap_or_default();
+        Some((Some(primera.assume_utc().unix_timestamp() - i64::from(desfase)), activo))
+    }
+
+    /// Una línea legible con la próxima ejecución, para `ea rutina listar`.
+    /// Linux: la línea de `systemctl list-timers`; fuera, la fecha calculada.
+    pub async fn proxima_legible(&self, slug: &str) -> Option<String> {
+        if self.backend == Backend::Systemd {
+            let unidad = unidad_timer(slug);
+            let salida = self.orden(&self.systemctl, &["--user", "list-timers", &unidad, "--no-legend"]).await.ok().filter(|s| s.status.success())?;
+            let texto = String::from_utf8_lossy(&salida.stdout);
+            let linea = texto.lines().next()?.trim();
+            return (!linea.is_empty()).then(|| linea.to_string());
+        }
+        let c = self.calendario_actual(slug).ok().flatten()?;
+        let (ahora, _) = self.ahora();
+        calendario::parsear(&c).ok()?.proximas(ahora, 1).into_iter().next().map(calendario::formatear)
     }
 }
 

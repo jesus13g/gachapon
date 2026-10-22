@@ -55,6 +55,7 @@ use ea_plataforma::fs::{enlazar, opciones_privadas, poner_permisos_unix, poner_p
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use ea_plataforma::escritorio::{argv_lanzador, OrdenTerminal};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
@@ -141,21 +142,19 @@ pub struct PlanSesion {
 }
 
 impl PlanSesion {
-    /// El argv que se entrega a la terminal, sin shell: `env [-C <cwd>]
-    /// K=V… <argv>`. Así el directorio y las variables no dependen de si el
-    /// lanzador de terminal hereda el entorno.
+    /// Lo que se abre en la terminal: el comando, el directorio del proyecto
+    /// y las variables de la sesión. Cada sistema lo traduce a su lanzador
+    /// (`ea_plataforma::escritorio::lanzar_en_terminal`).
+    pub fn orden_terminal(&self) -> OrdenTerminal {
+        OrdenTerminal { argv: self.argv.clone(), cwd: self.cwd.clone(), entorno: self.entorno.clone() }
+    }
+
+    /// El argv de Linux que se entrega a la terminal, sin shell: `env [-C
+    /// <cwd>] K=V… <argv>`. Así el directorio y las variables no dependen de
+    /// si el lanzador de terminal hereda el entorno. Es también la forma que
+    /// se muestra y se apunta en el diario, en cualquier sistema.
     pub fn argv_terminal(&self) -> Vec<String> {
-        if self.entorno.is_empty() && self.cwd.is_none() {
-            return self.argv.clone();
-        }
-        let mut v = vec!["env".to_string()];
-        if let Some(c) = &self.cwd {
-            v.push("-C".into());
-            v.push(c.display().to_string());
-        }
-        v.extend(self.entorno.iter().map(|(k, x)| format!("{k}={x}")));
-        v.extend(self.argv.iter().cloned());
-        v
+        argv_lanzador(&self.orden_terminal(), "xdg-terminal-exec").into_iter().map(|a| a.to_string_lossy().into_owned()).collect()
     }
 
     /// Texto de una línea del comando, para mostrarlo.

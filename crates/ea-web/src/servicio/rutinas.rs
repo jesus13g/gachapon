@@ -86,7 +86,7 @@ pub async fn listar(s: &AppState, retiradas: bool) -> Resultado<Vec<RutinaFila>>
     for (f, u) in filas.into_iter().zip(filas_u) {
         let r = ea_bus::Rutina::parsear(&f.definicion).ok();
         let (proxima, timer) = if s.config.systemctl && ea_bus::slug_valido(&f.slug) {
-            match crate::estado::timer_rutina(&f.slug).await {
+            match s.config.temporizadores.proxima(&f.slug).await {
                 Some((p, t)) => (p, Some(t).filter(|t| !t.is_empty())),
                 None => (None, None),
             }

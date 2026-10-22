@@ -233,6 +233,15 @@ impl ea_acciones::Terminal for TerminalWeb<'_> {
             Terminal::Ninguna => Err("no hay terminal configurada".into()),
         }
     }
+
+    /// Con directorio y entorno: la del sistema los traduce a su lanzador; la
+    /// simulada apunta el argv de Linux (`env -C …`).
+    fn abrir_orden(&self, orden: &ea_acciones::OrdenTerminal) -> Result<(), String> {
+        match self.0 {
+            Terminal::Sistema { .. } => ea_acciones::TerminalSistema.abrir_orden(orden),
+            _ => self.abrir(&ea_acciones::terminal::argv_linux(orden)),
+        }
+    }
 }
 
 impl Consulta for SistemaBiblioteca {

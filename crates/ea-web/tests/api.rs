@@ -2644,9 +2644,18 @@ async fn las_versiones_de_una_rutina_se_listan_y_se_leen() {
 
 // ------------------------------------------- programar una rutina (R4)
 
+/// Sin `sh` (Windows) no hay fakes de `systemctl`: órdenes que no existen,
+/// y las pruebas que dependen de ellas se compilan solo en Unix.
+#[cfg(not(unix))]
+fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
+    let no = || vec!["orden-inexistente-para-las-pruebas".to_string()];
+    ea_acciones::Temporizadores::systemd(dir.join("systemd-user"), no(), no())
+}
+
 /// `systemctl` y `systemd-analyze` falsos para los timers de las rutinas:
 /// nunca el `~/.config/systemd/user` real ni el `systemctl` de verdad. Las
 /// unidades van a `<dir>/systemd-user`; las órdenes, a `<dir>/ordenes.log`.
+#[cfg(unix)]
 fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
     let log = dir.join("ordenes.log");
     let unidades = dir.join("systemd-user");
@@ -2674,9 +2683,10 @@ fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
     )
     .unwrap();
     let sh = |p: &std::path::Path| vec!["sh".to_string(), p.display().to_string()];
-    ea_acciones::Temporizadores { unidades_dir: unidades, systemctl: sh(&sc), systemd_analyze: sh(&sa) }
+    ea_acciones::Temporizadores::systemd(unidades, sh(&sc), sh(&sa))
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn programar_desde_la_web_pide_simulacion_y_revalida() {
     let f = montar();
@@ -2829,6 +2839,7 @@ async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
 /// (salvo con `?retiradas=1`) ni se lanza, y la web y la simulación de
 /// `ea_encolar_rutina` por la capa de MCP (`SoloConsulta`) dan la misma
 /// respuesta. Restaurar la devuelve, sin volver a programar el timer.
+#[cfg(unix)]
 #[tokio::test]
 async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     let f = montar();
@@ -3282,7 +3293,7 @@ async fn despertar_con_terminal_abre_una_por_planificador_y_revisor() {
     assert!(r["sesiones"].as_array().unwrap().iter().all(|x| x["abierta"] == true && x["error"].is_null()));
     // Solo planificador y revisor; argv cerrado `ea equipo sesion <id> <agente>`.
     let ea = f._dir.path().join("bin/ea").display().to_string();
-    let esperado = |agente: &str| vec![ea_acciones::LANZADORES[0].to_string(), ea.clone(), "equipo".into(), "sesion".into(), id.into(), agente.into()];
+    let esperado = |agente: &str| vec![ea_plataforma::escritorio::lanzadores_terminal()[0].to_string(), ea.clone(), "equipo".into(), "sesion".into(), id.into(), agente.into()];
     assert_eq!(lanzadas(&f), vec![esperado("claude-code"), esperado("antigravity")]);
     let (_, d) = get(&f, "/api/diario?accion=equipo_sesion").await;
     assert_eq!(d.as_array().unwrap().len(), 2, "{d}");

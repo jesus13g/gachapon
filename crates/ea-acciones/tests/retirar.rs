@@ -81,6 +81,7 @@ async fn retirar_desprograma_el_timer_y_restaurar_no_lo_reprograma() {
 /// Con el sistema real sobre `rutinas_dir` temporal: el TOML va a
 /// `.papelera/` y vuelve, y la revalidación para un retiro si el fichero
 /// cambió desde la simulación.
+#[cfg(unix)]
 #[tokio::test]
 async fn la_papelera_real_mueve_el_fichero_y_revalida() {
     let (mut s, d) = store();
@@ -91,7 +92,7 @@ async fn la_papelera_real_mueve_el_fichero_y_revalida() {
     std::fs::create_dir_all(&unidades).unwrap();
     // `true` como systemctl: no hay timer y nada sale del directorio temporal.
     let temporizadores =
-        Temporizadores { unidades_dir: unidades, systemctl: vec!["true".into()], systemd_analyze: vec!["true".into()] };
+        Temporizadores::systemd(unidades, vec!["true".into()], vec!["true".into()]);
     let sis = SistemaReal {
         rutinas_dir: rutinas.clone(),
         boveda: Boveda::en(d.path().join("boveda")),

@@ -66,7 +66,7 @@ pub fn lanzar_real(plan: &PlanSesion, terminal: &dyn Terminal) -> Result<(), Str
 pub fn lanzar_con(plan: &PlanSesion, raices: Raices, terminal: &dyn Terminal) -> Result<(), String> {
     // El plan real es el devuelto: su directorio lleva un nonce propio.
     let real = materializar(plan, &raices).map_err(|e| e.to_string())?;
-    terminal.abrir(&real.argv_terminal())
+    terminal.abrir_orden(&real.orden_terminal())
 }
 
 /// El plan sobre un inventario y unas raíces dados (el doble de las pruebas).
