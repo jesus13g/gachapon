@@ -102,6 +102,33 @@ pub fn buscar_en_path(nombre: &str) -> Option<PathBuf> {
     buscar_binario(nombre, std::env::var_os("PATH").as_deref(), std::env::var_os("PATHEXT").as_deref())
 }
 
+/// `std::fs::canonicalize` sin el prefijo `\\?\` que Windows añade: `cmd.exe`,
+/// muchos programas de Node y las rutas que se guardan en las órdenes o se
+/// enseñan al usuario esperan `C:\...`. En Unix es idéntica a `canonicalize`.
+pub fn canonica(ruta: impl AsRef<Path>) -> std::io::Result<PathBuf> {
+    std::fs::canonicalize(ruta.as_ref()).map(sin_prefijo_verbatim)
+}
+
+/// Quita el `\\?\` de una ruta de disco (`\\?\C:\x` pasa a `C:\x`) o de red
+/// (`\\?\UNC\srv\x` pasa a `\\srv\x`); el resto se devuelve igual.
+pub fn sin_prefijo_verbatim(ruta: PathBuf) -> PathBuf {
+    let Some(texto) = ruta.to_str() else {
+        return ruta;
+    };
+    if let Some(resto) = texto.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{resto}"));
+    }
+    if let Some(resto) = texto.strip_prefix(r"\\?\") {
+        let mut c = resto.chars();
+        if let (Some(l), Some(':')) = (c.next(), c.next())
+            && l.is_ascii_alphabetic()
+        {
+            return PathBuf::from(resto);
+        }
+    }
+    ruta
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +195,23 @@ mod tests {
     fn nombre_exe_y_separador() {
         assert_eq!(nombre_exe("ea"), if cfg!(windows) { "ea.exe" } else { "ea" });
         assert_eq!(SEPARADOR_PATH, if cfg!(windows) { ';' } else { ':' });
+    }
+
+    #[test]
+    fn el_prefijo_verbatim_se_quita_solo_en_rutas_de_disco_y_de_red() {
+        let q = |t: &str| sin_prefijo_verbatim(PathBuf::from(t));
+        assert_eq!(q(r"\\?\C:\Users\a"), PathBuf::from(r"C:\Users\a"));
+        assert_eq!(q(r"\\?\UNC\srv\comp\x"), PathBuf::from(r"\\srv\comp\x"));
+        assert_eq!(q(r"\\?\Volume{1234}\x"), PathBuf::from(r"\\?\Volume{1234}\x"));
+        assert_eq!(q("/tmp/x"), PathBuf::from("/tmp/x"));
+        assert_eq!(q("C:/a"), PathBuf::from("C:/a"));
+    }
+
+    #[test]
+    fn canonica_resuelve_un_directorio_real() {
+        let d = tempfile::tempdir().unwrap();
+        let c = canonica(d.path()).unwrap();
+        assert!(c.is_absolute() && !c.to_string_lossy().starts_with(r"\\?\"));
+        assert!(canonica(&d.path().join("no-existe")).is_err());
     }
 }

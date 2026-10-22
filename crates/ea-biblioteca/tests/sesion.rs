@@ -62,7 +62,7 @@ fn mundo() -> Mundo {
               "foo@mkt":[{{"scope":"user","installPath":"{}","version":"1.0"}}],
               "apagado@mkt":[{{"scope":"user","installPath":"/no/existe","version":"2"}}]
             }}}}"#,
-            plugin_dir.display()
+            plugin_dir.display().to_string().replace('\\', "/")
         ),
     );
     escribe(home.join(".claude/settings.json"), r#"{"enabledPlugins":{"foo@mkt":true,"apagado@mkt":true}}"#);
@@ -75,7 +75,7 @@ fn mundo() -> Mundo {
               }},
               "projects":{{"{}":{{"mcpServers":{{"del-proyecto":{{"command":"servidor","args":["--ok"]}}}}}}}}
             }}"#,
-            proyecto.display()
+            proyecto.display().to_string().replace('\\', "/")
         ),
     );
     escribe(proyecto.join(".mcp.json"), r#"{"mcpServers":{"aprobado":{"command":"c"}}}"#);
@@ -375,6 +375,19 @@ fn sesion_vieja(base: &Path, nombre: &str, horas: u64) {
     escribe(base.join(nombre).join(".creada"), &format!("{}\n", ahora - horas * 3600));
 }
 
+/// Abre un directorio para cambiarle la fecha (en Windows hace falta pedirlo).
+fn abrir_dir(ruta: &Path) -> fs::File {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        fs::OpenOptions::new().write(true).custom_flags(0x0200_0000).open(ruta).unwrap() // FILE_FLAG_BACKUP_SEMANTICS
+    }
+    #[cfg(not(windows))]
+    {
+        fs::File::open(ruta).unwrap()
+    }
+}
+
 #[test]
 fn las_sesiones_se_limpian_por_antiguedad_de_creacion_con_margen_de_7_dias() {
     let m = mundo();
@@ -384,7 +397,7 @@ fn las_sesiones_se_limpian_por_antiguedad_de_creacion_con_margen_de_7_dias() {
     sesion_vieja(&base, "reciente", 2);
     // Un directorio con el mtime de hace años pero creado ahora no es vieja.
     escribe(base.join("mtime-antiguo/x"), "x");
-    let f = fs::File::open(base.join("mtime-antiguo")).unwrap();
+    let f = abrir_dir(&base.join("mtime-antiguo"));
     f.set_modified(SystemTime::now() - Duration::from_secs(40 * 24 * 3600)).unwrap();
     escribe(base.join("mtime-antiguo/.creada"), &format!("{}\n", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()));
     f.set_modified(SystemTime::now() - Duration::from_secs(40 * 24 * 3600)).unwrap();

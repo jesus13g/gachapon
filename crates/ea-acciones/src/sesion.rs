@@ -25,12 +25,12 @@ pub fn raices_de(directorio: Option<&str>) -> Result<Raices, String> {
         if !ruta.is_absolute() {
             return Err(format!("el directorio debe ser una ruta absoluta: {d}"));
         }
-        let ruta: PathBuf = std::fs::canonicalize(ruta).map_err(|e| format!("el directorio {d} no existe: {e}"))?;
+        let ruta: PathBuf = ea_plataforma::rutas::canonica(ruta).map_err(|e| format!("el directorio {d} no existe: {e}"))?;
         if !ruta.is_dir() {
             return Err(format!("{d} no es un directorio"));
         }
         // Solo bajo el HOME: el proyecto decide qué ficheros se leen.
-        let home = std::fs::canonicalize(&r.home).unwrap_or_else(|_| r.home.clone());
+        let home = ea_plataforma::rutas::canonica(&r.home).unwrap_or_else(|_| r.home.clone());
         if !ruta.starts_with(&home) {
             return Err(format!("el directorio {d} está fuera del HOME: no se abre una sesión ahí"));
         }
@@ -105,8 +105,10 @@ mod pruebas {
     #[test]
     fn el_directorio_de_una_sesion_tiene_que_estar_bajo_el_home() {
         // `/` existe y es un directorio, pero no está bajo el HOME.
-        let e = raices_de(Some("/")).unwrap_err();
+        let raiz = std::env::current_dir().unwrap().ancestors().last().unwrap().display().to_string();
+        let e = raices_de(Some(&raiz)).unwrap_err();
         assert!(e.contains("fuera del HOME"), "{e}");
-        assert!(raices_de(Some("/usr")).is_err());
+        let sistema = if cfg!(windows) { "C:\\Windows" } else { "/usr" };
+        assert!(raices_de(Some(sistema)).is_err());
     }
 }

@@ -6,6 +6,20 @@
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
+#[cfg(windows)]
+macro_rules! tmp {
+    () => {
+        "C:/Windows"
+    };
+}
+#[cfg(not(windows))]
+macro_rules! tmp {
+    () => {
+        "/tmp"
+    };
+}
+
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{Bus, Miembro, NuevoEquipo, Presencia, RolEquipo};
 
@@ -52,12 +66,12 @@ fn equipo(dir: &Path) -> String {
 #[test]
 fn despertar_y_dormir_sin_terminal_se_rechazan_sin_tocar_nada() {
     let d = tempfile::tempdir().unwrap();
-    let o = ea(d.path(), &["equipo", "despertar", "--todos", "--titulo", "t", "--objetivo", "o", "--worktree", "/tmp"]);
+    let o = ea(d.path(), &["equipo", "despertar", "--todos", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!()]);
     assert!(!o.status.success());
     assert!(stderr(&o).contains("terminal interactiva"), "{}", stderr(&o));
     let o = ea(
         d.path(),
-        &["equipo", "despertar", "--miembro", "codex:ejecutor", "--titulo", "t", "--objetivo", "o", "--worktree", "/tmp", "--sin-terminal"],
+        &["equipo", "despertar", "--miembro", "codex:ejecutor", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!(), "--sin-terminal"],
     );
     assert!(!o.status.success() && stderr(&o).contains("terminal interactiva"), "{}", stderr(&o));
     assert!(!d.path().join("estado/equipos").exists(), "no se creó ningún equipo");
@@ -73,7 +87,7 @@ fn despertar_y_dormir_sin_terminal_se_rechazan_sin_tocar_nada() {
 #[test]
 fn despertar_pide_todos_o_miembros_pero_no_las_dos_cosas() {
     let d = tempfile::tempdir().unwrap();
-    let base = ["equipo", "despertar", "--titulo", "t", "--objetivo", "o", "--worktree", "/tmp"];
+    let base = ["equipo", "despertar", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!()];
     let o = ea(d.path(), &base);
     assert!(!o.status.success() && stderr(&o).contains("--todos"), "{}", stderr(&o));
     let mut args = base.to_vec();

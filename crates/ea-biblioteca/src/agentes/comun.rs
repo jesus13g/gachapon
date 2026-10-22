@@ -197,7 +197,7 @@ fn entradas(dir: &Path) -> Vec<(String, PathBuf)> {
 /// ¿Esta ruta (quizá un enlace) apunta dentro de `<repo>/claude/skills`?
 fn apunta_al_repo(ruta: &Path, repo: Option<&Path>) -> bool {
     let Some(repo) = repo else { return false };
-    let (Ok(destino), Ok(base)) = (std::fs::canonicalize(ruta), std::fs::canonicalize(repo.join("claude/skills"))) else {
+    let (Ok(destino), Ok(base)) = (ea_plataforma::rutas::canonica(ruta), ea_plataforma::rutas::canonica(repo.join("claude/skills"))) else {
         return false;
     };
     destino.starts_with(base)

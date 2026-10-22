@@ -407,7 +407,7 @@ fn copia_previa(r: &Raices, ruta: &Path) -> Resultado<PathBuf> {
     fs::create_dir_all(&dir)?;
     let nombre = ruta.file_name().and_then(|n| n.to_str()).unwrap_or("fichero");
     let destino = dir.join(format!("{}-{nombre}", marca_tiempo()));
-    let origen = fs::canonicalize(ruta)?;
+    let origen = ea_plataforma::rutas::canonica(ruta)?;
     let mut f = opciones_privadas().write(true).create_new(true).open(&destino)?;
     let mut src = fs::File::open(origen)?;
     std::io::copy(&mut src, &mut f)?;
@@ -445,7 +445,7 @@ fn marca_tiempo() -> String {
 fn escribir_atomico_conservando(ruta: &Path, bytes: &[u8]) -> Resultado<()> {
     use std::io::Write;
     static N: AtomicU64 = AtomicU64::new(0);
-    let destino = fs::canonicalize(ruta)?;
+    let destino = ea_plataforma::rutas::canonica(ruta)?;
     let meta = fs::metadata(&destino)?;
     let modo = permisos_unix(&meta);
     let dir = destino.parent().ok_or_else(|| ErrorBiblioteca::Io("ruta sin directorio".into()))?;

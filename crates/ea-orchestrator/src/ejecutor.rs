@@ -1359,6 +1359,10 @@ mod tests {
         // queda bloqueado con el motivo.
         let id = bus.crear_trabajo(fases3(wt.path(), None)).unwrap();
         otro.ejecutor.bin = "/no/existe/codex".into();
+        // Windows rechaza `sandbox = true` antes de buscar el binario (CE-003).
+        if cfg!(windows) {
+            otro.sandbox = false;
+        }
         ejecutar_uno(&bus, &otro, &crate::agentes::Codex);
         let inf = bus.leer_informe(&id).unwrap().unwrap();
         assert_eq!((inf.resultado, inf.fases_hechas), (ResultadoInforme::Bloqueado, 0));
@@ -1426,7 +1430,7 @@ mod tests {
         let e = tempfile::tempdir().unwrap();
         let bus = con_store(e.path());
         let toml = format!(
-            "[rutina]\nslug = \"prueba\"\nversion = 1\nworktree = \"{}\"\ncriterio_exito = \"test -f ok.txt\"\n[[pasos]]\ntexto = \"crea ok.txt\"\n",
+            "[rutina]\nslug = \"prueba\"\nversion = 1\nworktree = '{}'\ncriterio_exito = \"test -f ok.txt\"\n[[pasos]]\ntexto = \"crea ok.txt\"\n",
             wt.path().display()
         );
         bus.registrar_rutina(&toml, &e.path().join("rutinas")).unwrap();

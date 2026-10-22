@@ -90,10 +90,10 @@ impl WebConfig {
             rutinas_dir: a.orquestador.rutinas_dir.clone(),
             boveda: ea_boveda::Boveda::en(a.rutas.boveda.clone()),
             systemctl: true,
-            sesiones_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/sessions")),
+            sesiones_dir: ea_plataforma::usuario::home().map(|h| h.join(".claude/sessions")),
             // Junto al estado del bus, como el hook (que lee EA_ESTADO_DIR).
             subagentes_dir: Some(a.rutas.estado.join("subagentes")),
-            proyectos_claude_dir: directories::BaseDirs::new().map(|d| d.home_dir().join(".claude/projects")),
+            proyectos_claude_dir: ea_plataforma::usuario::home().map(|h| h.join(".claude/projects")),
             estado_dir: a.rutas.estado,
             ajustes: fuentes,
             temporizadores: ea_acciones::Temporizadores::usuario(),

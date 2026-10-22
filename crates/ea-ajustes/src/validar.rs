@@ -13,7 +13,7 @@ use crate::fuentes::{Ajustes, PerfilModelo};
 /// Expande `~` y `~/…` al directorio personal. Es la ÚNICA función del
 /// ecosistema que lo hace (los TOML y las variables los escribe una persona).
 pub fn expandir_tilde(ruta: &str) -> PathBuf {
-    let casa = || directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf());
+    let casa = || ea_plataforma::usuario::home();
     if ruta == "~"
         && let Some(c) = casa() {
             return c;

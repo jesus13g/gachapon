@@ -2,7 +2,6 @@
 //! Dentro del lock se escribe quién lo tiene, para poder monitorizarlo.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -45,7 +44,7 @@ fn dir_semaforos(raiz: &Path) -> PathBuf {
 
 /// Ruta del `.lock` de un worktree: hash corto de su ruta canónica.
 pub fn ruta_lock(raiz: &Path, worktree: &Path) -> PathBuf {
-    let canonica = fs::canonicalize(worktree).unwrap_or_else(|_| worktree.to_path_buf());
+    let canonica = ea_plataforma::rutas::canonica(worktree).unwrap_or_else(|_| worktree.to_path_buf());
     let h = fnv(&canonica.to_string_lossy()) & 0xffff_ffff;
     dir_semaforos(raiz).join(format!("worktree-{h:08x}.lock"))
 }
@@ -60,7 +59,7 @@ impl CandadoWorktree {
     pub fn adquirir_en(raiz: &Path, ruta_worktree: &Path, mut ocupante: Ocupante, espera: Duration) -> Resultado<Self> {
         let ruta = ruta_lock(raiz, ruta_worktree);
         fs::create_dir_all(ruta.parent().unwrap())?;
-        let mut f = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&ruta)?;
+        let f = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&ruta)?;
         let limite = Instant::now() + espera;
         loop {
             match f.try_lock() {
@@ -75,9 +74,11 @@ impl CandadoWorktree {
             }
         }
         ocupante.pid = std::process::id();
-        f.set_len(0)?;
-        f.write_all(&serde_json::to_vec(&ocupante)?)?;
-        f.sync_all()?;
+        // Quién lo tiene va en un fichero aparte: en Windows el bloqueo es
+        // obligatorio y nadie más podría leer el `.lock` mientras está tomado.
+        let _ = f.set_len(0);
+        let lado = ruta_ocupante(&ruta);
+        std::fs::write(&lado, serde_json::to_vec(&ocupante)?)?;
         Ok(Self { fichero: f, ruta_lock: ruta })
     }
 
@@ -95,6 +96,11 @@ impl CandadoWorktree {
     }
 }
 
+/// Dónde se anota quién tiene un `.lock`.
+fn ruta_ocupante(ruta_lock: &Path) -> PathBuf {
+    ruta_lock.with_extension("ocupante")
+}
+
 /// `None` si el lock no existe o nadie lo tiene (el contenido sería residuo).
 fn leer_ocupante(ruta: &Path) -> Option<Ocupante> {
     let f = File::open(ruta).ok()?;
@@ -104,7 +110,7 @@ fn leer_ocupante(ruta: &Path) -> Option<Ocupante> {
             None
         }
         Err(std::fs::TryLockError::WouldBlock) => {
-            let texto = fs::read_to_string(ruta).ok()?;
+            let texto = fs::read_to_string(ruta_ocupante(ruta)).ok()?;
             serde_json::from_str(&texto).ok()
         }
         Err(_) => None,
@@ -132,7 +138,7 @@ pub fn listar_semaforos_en(raiz: &Path) -> Vec<(PathBuf, Ocupante)> {
 
 impl Drop for CandadoWorktree {
     fn drop(&mut self) {
-        let _ = self.fichero.set_len(0);
+        let _ = fs::remove_file(ruta_ocupante(&self.ruta_lock));
         let _ = self.fichero.unlock();
     }
 }

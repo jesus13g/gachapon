@@ -385,7 +385,7 @@ impl AgenteCli for OpenCode {
 /// El directorio personal del usuario (`directories`; en Windows no hay `HOME`).
 /// Vacío si no se conoce: entonces no se monta ningún directorio de estado.
 fn home_usuario() -> PathBuf {
-    directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()).unwrap_or_default()
+    ea_plataforma::usuario::home().unwrap_or_default()
 }
 
 /// Crea (si faltan) los directorios de estado del agente bajo `home` y

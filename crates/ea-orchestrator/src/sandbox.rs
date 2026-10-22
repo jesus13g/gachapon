@@ -109,7 +109,7 @@ pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucio
 /// Rutas reales (sin enlaces) para el perfil; si no se pueden resolver, la
 /// ruta tal cual.
 pub fn canonica(p: &Path) -> PathBuf {
-    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
+    ea_plataforma::rutas::canonica(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 #[cfg(test)]

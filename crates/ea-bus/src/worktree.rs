@@ -45,7 +45,7 @@ fn git_en(dir: &Path, args: &[&str]) -> Result<String, String> {
 
 fn comun(dir: &Path) -> Result<PathBuf, String> {
     let c = git_en(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
-    Ok(std::fs::canonicalize(&c).unwrap_or_else(|_| PathBuf::from(c)))
+    Ok(ea_plataforma::rutas::canonica(&c).unwrap_or_else(|_| PathBuf::from(c)))
 }
 
 impl Bus {
@@ -77,8 +77,8 @@ impl Bus {
         if ruta.exists() {
             let del_repo = git_en(&ruta, &["rev-parse", "--path-format=absolute", "--show-toplevel"])
                 .ok()
-                .and_then(|t| std::fs::canonicalize(t).ok())
-                .zip(std::fs::canonicalize(&ruta).ok())
+                .and_then(|t| ea_plataforma::rutas::canonica(t).ok())
+                .zip(ea_plataforma::rutas::canonica(&ruta).ok())
                 .is_some_and(|(a, b)| a == b)
                 && comun(&ruta).ok().zip(comun(repo).ok()).is_some_and(|(a, b)| a == b);
             return if del_repo {

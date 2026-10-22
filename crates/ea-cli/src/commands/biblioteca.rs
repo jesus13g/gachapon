@@ -299,7 +299,7 @@ pub fn sesion(store: &mut Store, agente: &str, ids: &[String], directorio: Optio
     // Una ruta relativa se entiende desde donde se lanza `ea`.
     let directorio = match directorio {
         Some(d) => Some(
-            std::fs::canonicalize(&d)
+            ea_plataforma::rutas::canonica(&d)
                 .with_context(|| format!("el directorio {d:?} no existe"))?
                 .display()
                 .to_string(),

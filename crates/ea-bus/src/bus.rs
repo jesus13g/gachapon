@@ -839,7 +839,10 @@ pub(crate) fn tomar_en(dir: &Path, admite: &dyn Fn(&str) -> bool) -> Resultado<O
             continue;
         }
         let nombre = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-        let reclamada = dir.join(format!(".{nombre}.tomada-{}", std::process::id()));
+        // Único por reclamo: dos hilos del mismo proceso no pueden pisarse.
+        static RECLAMOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = RECLAMOS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let reclamada = dir.join(format!(".{nombre}.tomada-{}-{n}", std::process::id()));
         if fs::rename(&p, &reclamada).is_err() {
             continue; // otro proceso se adelantó
         }

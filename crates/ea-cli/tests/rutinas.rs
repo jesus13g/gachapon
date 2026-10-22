@@ -3,6 +3,20 @@
 
 use std::process::{Command, Output, Stdio};
 
+/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
+#[cfg(windows)]
+macro_rules! tmp {
+    () => {
+        "C:/Windows"
+    };
+}
+#[cfg(not(windows))]
+macro_rules! tmp {
+    () => {
+        "/tmp"
+    };
+}
+
 fn ea(dir: &std::path::Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ea"))
         .args(args)
@@ -15,7 +29,7 @@ fn ea(dir: &std::path::Path, args: &[&str]) -> Output {
         .expect("lanzar ea")
 }
 
-const RUTINA: &str = "[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n\n[[pasos]]\ntexto = \"primer texto\"\n";
+const RUTINA: &str = concat!("[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n\n[[pasos]]\ntexto = \"primer texto\"\n");
 
 #[test]
 fn ver_una_version_concreta_de_una_rutina() {

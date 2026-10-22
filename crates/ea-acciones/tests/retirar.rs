@@ -5,6 +5,20 @@ use ea_acciones::*;
 use ea_store::Store;
 use serde_json::{json, Value};
 
+/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
+#[cfg(windows)]
+macro_rules! tmp {
+    () => {
+        "C:/Windows"
+    };
+}
+#[cfg(not(windows))]
+macro_rules! tmp {
+    () => {
+        "/tmp"
+    };
+}
+
 fn store() -> (Store, tempfile::TempDir) {
     static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
     let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
@@ -22,7 +36,7 @@ fn store() -> (Store, tempfile::TempDir) {
     (s, dir)
 }
 
-const RUTINA: &str = "[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n";
+const RUTINA: &str = concat!("[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n");
 
 async fn simular<C: Consulta>(s: &Store, c: &C, nombre: &str, args: &Value) -> Result<Simulacion, ErrorAccion> {
     let h = observar(c, nombre, args).await?;

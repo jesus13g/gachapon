@@ -3,6 +3,20 @@ use std::path::Path;
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
+/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
+#[cfg(windows)]
+macro_rules! tmp {
+    () => {
+        "C:/Windows"
+    };
+}
+#[cfg(not(windows))]
+macro_rules! tmp {
+    () => {
+        "/tmp"
+    };
+}
+
 use ea_bus::{
     transicion, Bus, CandadoWorktree, ConfigOrquestador, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoTrabajo, Evento, Fase,
     Informe, Modo, Ocupante, Orden, ResultadoInforme, Rol, TipoAgente, Topes,
@@ -508,19 +522,19 @@ fn crear_trabajo_rechaza_skills_que_exceden_los_topes() {
     sin_rastro(&bus);
 }
 
-const RUTINA: &str = r#"
+const RUTINA: &str = concat!(r#"
 [rutina]
 slug = "prueba"
 version = 1
 descripcion = "d"
-worktree = "/tmp"
+worktree = ""#, tmp!(), r#""
 criterio_exito = "test -f {fichero}"
 salida_esperada = "nada"
 [entradas]
 fichero = "a.txt"
 [[pasos]]
 texto = "crea {fichero}"
-"#;
+"#);
 
 #[test]
 fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {

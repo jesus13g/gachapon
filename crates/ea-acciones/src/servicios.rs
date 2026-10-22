@@ -725,7 +725,8 @@ mod pruebas {
         assert!(p.contains("<array>\n    <string>/Users/a b/ea-web</string>\n  </array>"));
         assert!(p.contains("<key>RunAtLoad</key>\n  <true/>"));
         assert!(p.contains("<key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>"));
-        assert!(p.contains("<key>StandardOutPath</key>\n  <string>/Users/a b/logs/ea-web.log</string>"));
+        let log = Path::new("/Users/a b/logs").join("ea-web.log");
+        assert!(p.contains(&format!("<key>StandardOutPath</key>\n  <string>{}</string>", log.display())));
         assert!(p.trim_end().ends_with("</plist>"));
     }
 

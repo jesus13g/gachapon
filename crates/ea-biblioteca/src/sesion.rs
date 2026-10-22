@@ -280,8 +280,8 @@ fn leer_completo(f: &FuenteMcp, r: &Raices, entorno: &dyn Fn(&str) -> Option<Str
     // Solo se lee dentro del HOME o del proyecto: la ruta viene de un plan. Se
     // compara la ruta CANÓNICA (un enlace dentro del HOME no puede sacar la
     // lectura de él).
-    let canonica = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let real = std::fs::canonicalize(&f.ruta);
+    let canonica = |p: &Path| ea_plataforma::rutas::canonica(p).unwrap_or_else(|_| p.to_path_buf());
+    let real = ea_plataforma::rutas::canonica(&f.ruta);
     let dentro = real.as_ref().is_ok_and(|c| c.starts_with(canonica(&r.home)) || r.proyecto.as_ref().is_some_and(|p| c.starts_with(canonica(p))));
     if !dentro || f.ruta.components().any(|c| c.as_os_str() == "..") {
         return mal(format!("{}: la fuente {} está fuera del HOME y del proyecto", f.id, f.ruta.display()));

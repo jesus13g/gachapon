@@ -33,14 +33,14 @@ impl Raices {
         Self { home, proyecto, estado, runtime, repo, db }
     }
 
-    /// Las del entorno real: el home del usuario (`directories::BaseDirs`),
+    /// Las del entorno real: el home del usuario (`ea_plataforma::usuario::home`),
     /// el directorio actual, el estado del ecosistema (`$EA_ESTADO_DIR` o
     /// `rutas.estado` de los ajustes: el mismo que usa el bus), el directorio
     /// de ejecución de la plataforma y `$EA_REPO_DIR` para el repo si no es el
     /// directorio actual.
     pub fn desde_entorno() -> Self {
         let var = |n: &str| std::env::var_os(n).filter(|v| !v.is_empty()).map(PathBuf::from);
-        let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()).or_else(|| var("HOME")).unwrap_or_default();
+        let home = ea_plataforma::usuario::home().or_else(|| var("HOME")).unwrap_or_default();
         let estado = var("EA_ESTADO_DIR").unwrap_or_else(|| ea_ajustes::cargar().rutas.estado);
         let runtime = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso);
         let mut r = Self::nuevo(home, std::env::current_dir().ok(), estado, runtime);
@@ -60,7 +60,7 @@ impl Raices {
         let mut entradas: Vec<PathBuf> = std::fs::read_dir(self.home.join(".claude/skills")).ok()?.flatten().map(|e| e.path()).collect();
         entradas.sort();
         entradas.into_iter().find_map(|p| {
-            let destino = std::fs::canonicalize(&p).ok()?;
+            let destino = ea_plataforma::rutas::canonica(&p).ok()?;
             let skills = destino.parent()?;
             let claude = skills.parent()?;
             let repo = claude.parent()?;

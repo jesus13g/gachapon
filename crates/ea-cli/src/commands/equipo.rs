@@ -96,7 +96,7 @@ pub fn despertar_sin_tty(
     if todos == !miembros.is_empty() {
         bail!("indica --todos o uno o más --miembro agente:rol (no las dos cosas)");
     }
-    let worktree = std::fs::canonicalize(worktree).with_context(|| format!("el worktree {worktree:?} no existe"))?;
+    let worktree = ea_plataforma::rutas::canonica(worktree).with_context(|| format!("el worktree {worktree:?} no existe"))?;
     if !worktree.is_dir() {
         bail!("el worktree {} no es una carpeta", worktree.display());
     }

@@ -180,9 +180,11 @@ async fn solo_consulta_simula_y_propone_pero_no_ejecuta() {
     // SAFETY: este es el único test del binario que lee el entorno real.
     unsafe {
         std::env::set_var("HOME", &home);
+        std::env::set_var("USERPROFILE", &home);
         std::env::set_var("EA_ESTADO_DIR", d.path().join("estado"));
         std::env::set_var("EA_CONFIG_DIR", d.path().join("config"));
         std::env::remove_var("XDG_RUNTIME_DIR");
+        std::env::set_var("LOCALAPPDATA", d.path().join("rt"));
     }
     let rutinas = d.path().join("rutinas");
     fs::create_dir_all(&rutinas).unwrap();
@@ -214,7 +216,7 @@ async fn las_skills_del_ejecutor_solo_cambian_si_confirma_la_terminal_y_no_la_we
     fs::create_dir_all(&home).unwrap();
     let fuentes = Fuentes::aislada(d.path());
     fs::create_dir_all(fuentes.fichero().parent().unwrap()).unwrap();
-    fs::write(fuentes.fichero(), format!("[agente.skills]\ndir = \"{}\"\n", skills.display())).unwrap();
+    fs::write(fuentes.fichero(), format!("[agente.skills]\ndir = \"{}\"\n", skills.display().to_string().replace('\\', "/"))).unwrap();
     let original = lee(&fuentes.fichero());
     let raices = Raices::nuevo(home, None, d.path().join("estado"), None);
     // El contexto dice «terminal», como si el proceso tuviera TTY.

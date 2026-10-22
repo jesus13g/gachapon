@@ -7,13 +7,27 @@ use ea_acciones::*;
 use ea_store::{EstadoEjecucion, Store};
 use serde_json::{json, Value};
 
+/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
+#[cfg(windows)]
+macro_rules! tmp {
+    () => {
+        "C:/Windows"
+    };
+}
+#[cfg(not(windows))]
+macro_rules! tmp {
+    () => {
+        "/tmp"
+    };
+}
+
 fn store() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let s = Store::open_at(&dir.path().join("t.db")).unwrap();
     s.guardar_rutina(&ea_store::FilaRutina {
         slug: "diaria".into(),
         version: 2,
-        definicion: "[rutina]\nslug = \"diaria\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n".into(),
+        definicion: concat!("[rutina]\nslug = \"diaria\"\nversion = 2\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n").into(),
         creada_en: "2026-01-01T00:00:00Z".into(),
         creada_por: "test".into(),
     })

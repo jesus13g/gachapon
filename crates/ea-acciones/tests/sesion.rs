@@ -96,9 +96,11 @@ async fn simular_describe_el_plan_sin_secretos_y_no_escribe_nada() {
     assert_eq!(sim.riesgo, Riesgo::Reversible);
     // Normalizados: ordenados y sin repetir.
     assert_eq!(sim.argumentos, json!({ "agente": "claude-code", "herramientas": [MCP, REMOTO, SKILL] }));
-    for trozo in ["--strict-mcp-config", "--mcp-config", "mcp.json", "ajustes.json", "--plugin-dir", "0600", "complemento/skills/propia"] {
+    for trozo in ["--strict-mcp-config", "--mcp-config", "mcp.json", "ajustes.json", "--plugin-dir", "0600"] {
         assert!(sim.texto.contains(trozo), "{trozo}: {}", sim.texto);
     }
+    let sep = std::path::MAIN_SEPARATOR;
+    assert!(sim.texto.contains(&format!("complemento{sep}skills{sep}propia")), "{}", sim.texto);
     sin_secretos(&sim.texto);
     sin_secretos(&sim.precondicion.to_string());
     assert!(!e.runtime.join("ea-biblioteca").exists(), "simular no escribe");

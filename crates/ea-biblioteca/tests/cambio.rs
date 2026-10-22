@@ -72,7 +72,7 @@ fn mundo() -> Mundo {
     escribe(skills.join("rust.md"), "---\ndescripcion: Rust\n---\n");
     escribe(skills.join("tests.md"), "---\ndescripcion: Tests\n---\n");
     let fuentes = Fuentes::aislada(d.path());
-    escribe(fuentes.fichero(), &format!("# mis ajustes\n[agente.skills]\ndir = \"{}\"\n", skills.display()));
+    escribe(fuentes.fichero(), &format!("# mis ajustes\n[agente.skills]\ndir = \"{}\"\n", skills.display().to_string().replace('\\', "/")));
 
     let raices = Raices::nuevo(home.clone(), Some(proyecto.clone()), estado, None);
     let ctx = Contexto::nuevo(raices, fuentes, Canal::Terminal);
@@ -200,7 +200,7 @@ fn mover_skill_enlace_subagente_y_comando_ida_y_vuelta() {
     assert!(!propia.exists());
     assert_eq!(lee(almacen.join("claude-code/skill/propia/extra.txt")), "extra");
     let idx = lee(almacen.join("indice.json"));
-    assert!(idx.contains("claude-code/skill/usuario/propia") && idx.contains(&*propia.to_string_lossy()), "{idx}");
+    assert!(idx.contains("claude-code/skill/usuario/propia") && idx.contains(serde_json::to_string(&*propia.to_string_lossy()).unwrap().trim_matches('"')), "{idx}");
     // Ya no está en el inventario, pero sí entre las desactivadas.
     let d = desactivadas(&m.ctx.raices);
     assert_eq!(d.len(), 1);
