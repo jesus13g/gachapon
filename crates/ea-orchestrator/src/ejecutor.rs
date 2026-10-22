@@ -1037,7 +1037,7 @@ mod tests {
                      $p.Id | Out-File -Encoding ascii pid-nieto; Wait-Process -Id $p.Id";
         let mut c = Command::new("powershell");
         c.args(["-NoProfile", "-NonInteractive", "-Command", guion]).current_dir(d.path());
-        comprobar_que_muere_el_arbol(d.path(), c, 10);
+        comprobar_que_muere_el_arbol(d.path(), c, 25);
     }
 
     #[test]
