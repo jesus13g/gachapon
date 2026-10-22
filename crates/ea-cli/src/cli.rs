@@ -109,9 +109,17 @@ pub enum ServiciosAccion {
     /// Qué instalaría (unidades, rutas reales de los binarios y órdenes) y cómo está cada servicio; no cambia nada
     Ver,
     /// Escribe las unidades con la ruta real de los binarios y arranca los servicios (systemd --user, launchd o el Programador de tareas)
-    Instalar,
+    Instalar {
+        /// Al terminar espera a Intro (para la terminal que abre ea-web)
+        #[arg(long)]
+        esperar: bool,
+    },
     /// Para y quita los servicios instalados con `ea servicios instalar`
-    Desinstalar,
+    Desinstalar {
+        /// Al terminar espera a Intro (para la terminal que abre ea-web)
+        #[arg(long)]
+        esperar: bool,
+    },
 }
 
 #[derive(Subcommand)]

@@ -83,6 +83,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/memoria/{proyecto}/{fichero}/eliminar", post(memoria_eliminar))
         .route("/api/memoria/{proyecto}/{fichero}/renombrar", post(memoria_renombrar))
         .route("/api/memoria/{proyecto}/{fichero}/mostrar", post(memoria_mostrar))
+        .route("/api/servicios/plan", get(servicios_plan))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
         .route("/api/biblioteca", get(biblioteca_listar))
         .route("/api/biblioteca/uso", get(biblioteca_uso))
