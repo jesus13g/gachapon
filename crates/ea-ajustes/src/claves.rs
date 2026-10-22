@@ -247,8 +247,8 @@ pub static CLAVES: &[Clave] = &[
     Clave {
         nombre: "agente.sandbox",
         seccion: "agente",
-        titulo: "Sandbox (bubblewrap)",
-        descripcion: "Ejecuta al agente ejecutor dentro de bwrap: solo el worktree es escribible. Apagarlo solo desde la terminal.",
+        titulo: "Sandbox del sistema",
+        descripcion: "Ejecuta al agente ejecutor dentro del sandbox del sistema (bwrap en Linux, Seatbelt en macOS; en Windows nativo no hay y el ejecutor se niega): solo el worktree es escribible. Qué sandbox usa esta máquina y si está disponible se ve en Sistema. Apagarlo solo desde la terminal.",
         tipo: Tipo::Booleano,
         edicion: Edicion::Terminal,
         endurecible: false,

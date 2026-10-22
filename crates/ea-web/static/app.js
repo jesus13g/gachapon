@@ -1808,6 +1808,13 @@ function filasSistema(e, plano = false, ag = null) {
   });
   const o = e.orquestador;
   out.push(fila('sorq', 's', `<i class="${o.vivo ? 'm' : 'hot'}">♥</i><span class="x">orquestador</span><span class="${o.vivo ? 'm' : 'hot'}">${o.vivo ? 'con latido' : 'sin latido: no se ejecutará nada'}</span><span class="m">${reloj(o.ultimo_latido)}</span><span></span>`, 'orquestador latido', '', plano ? '' : ' g'));
+  if (o.sandbox) {
+    const b = o.sandbox;
+    const dice = b.disponible
+      ? (b.sandbox === 'ninguno' ? 'sin aislamiento (agente.sandbox = false)' : b.sandbox)
+      : 'no disponible: ' + (b.motivo ?? 'sin motivo');
+    out.push(fila('ssbx', 's', `<i class="${b.disponible ? 'm' : 'hot'}">▣</i><span class="x">sandbox del ejecutor</span><span class="${b.disponible ? 'm' : 'hot'}">${esc(dice)}</span><span class="m">${esc(b.sistema)}</span><span></span>`, 'sandbox aislamiento ' + b.sistema + ' ' + b.sandbox, '', plano ? '' : ' g'));
+  }
   e.agentes.forEach((a, i) => {
     const modelo = a.modelo ?? 'su modelo propio';
     const hizo = a.ultimo ? esc(a.ultimo.accion) + (a.ultimo_agente && a.ultimo_agente !== a.agente ? ` (${esc(a.ultimo_agente)})` : '') : 'sin actividad';
@@ -2751,7 +2758,9 @@ function cabecera() {
   salud.className = caidos.length || !e.orquestador.vivo ? 'hot' : '';
   const o = $('#orq');
   o.classList.toggle('hot', !e.orquestador.vivo);
-  const latido = e.orquestador.ultimo_latido ? 'orquestador: latido hace ' + hace(e.orquestador.ultimo_latido) : 'orquestador sin latido';
+  let latido = e.orquestador.ultimo_latido ? 'orquestador: latido hace ' + hace(e.orquestador.ultimo_latido) : 'orquestador sin latido';
+  const sb = e.orquestador.sandbox;
+  if (sb) latido += sb.disponible ? ` · sandbox: ${sb.sandbox} (${sb.sistema})` : ` · sandbox no disponible: ${sb.motivo ?? ''}`;
   $('title', o).textContent = latido;
   o.setAttribute('aria-label', latido);
 

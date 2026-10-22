@@ -19,7 +19,7 @@ pub use error::{StoreError, StoreResult};
 pub use models::{
     AccionPropuesta, EjecucionPropuesta, EntradaIndice, ResultadoBusqueda, RutaIndexada, EstadoEjecucion, EstadoPropuesta, Event, EventOutcome, NewEvent, NuevaPropuesta, Propuesta,
 };
-pub use orquestador::{ultimo_latido, EstadoOrquestador, ResumenAgente, AGENTES};
+pub use orquestador::{ultimo_latido, ultimo_sandbox, EstadoOrquestador, SandboxInfo, ResumenAgente, AGENTES};
 pub use repository::events::EventFilter;
 pub use repository::notas::{NuevaNota, ACCION_NOTA, ACTOR_NOTA, MAX_TEXTO_NOTA};
 pub use repository::propuestas::PropuestaFilter;

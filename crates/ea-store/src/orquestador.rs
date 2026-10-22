@@ -25,6 +25,32 @@ pub fn ultimo_latido(eventos: &[Event], ahora: OffsetDateTime) -> Option<OffsetD
         .max()
 }
 
+/// Aislamiento del ejecutor que el orquestador declara en su latido
+/// (`detail` JSON; spec 020, ampliación «sandbox visible»).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SandboxInfo {
+    /// `Linux`, `macOS`, `Windows` u «otro sistema».
+    pub sistema: String,
+    /// `bwrap`, `seatbelt`, `ninguno` o `no disponible`.
+    pub sandbox: String,
+    pub disponible: bool,
+    /// Por qué no puede arrancar (solo si `disponible` es falso).
+    #[serde(default)]
+    pub motivo: Option<String>,
+}
+
+/// El sandbox declarado por el último latido (el más reciente por `ts`, sin
+/// contar los del futuro). `None` si no hay latido o es de antes de este dato.
+pub fn ultimo_sandbox(eventos: &[Event], ahora: OffsetDateTime) -> Option<SandboxInfo> {
+    const MARGEN: Duration = Duration::seconds(5);
+    eventos
+        .iter()
+        .filter(|e| e.action == "heartbeat" && e.ts <= ahora + MARGEN)
+        .max_by_key(|e| e.ts)
+        .and_then(|e| e.detail.as_deref())
+        .and_then(|d| serde_json::from_str(d).ok())
+}
+
 /// Estado del orquestador según su último latido.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EstadoOrquestador {
@@ -52,6 +78,16 @@ impl Store {
             ..Default::default()
         })?;
         Ok(EstadoOrquestador::calcular(&eventos, OffsetDateTime::now_utc(), umbral_s))
+    }
+
+    /// Sandbox que declara el último latido del orquestador.
+    pub fn sandbox_orquestador(&self) -> StoreResult<Option<SandboxInfo>> {
+        let eventos = self.list_events(&EventFilter {
+            actor: Some("orquestador".into()),
+            limit: Some(VENTANA),
+            ..Default::default()
+        })?;
+        Ok(ultimo_sandbox(&eventos, OffsetDateTime::now_utc()))
     }
 }
 
@@ -157,5 +193,22 @@ mod tests {
         assert!(!caido.vivo);
         assert!(caido.ultimo_latido.is_some());
         assert_eq!(EstadoOrquestador::calcular(&[], ahora, 60).ultimo_latido, None);
+    }
+
+    #[test]
+    fn el_sandbox_sale_del_ultimo_latido_que_lo_trae() {
+        let ahora = OffsetDateTime::now_utc();
+        let mut viejo = latido(ahora - Duration::seconds(60));
+        viejo.detail = Some(r#"{"sistema":"Linux","sandbox":"bwrap","disponible":true}"#.into());
+        let mut nuevo = latido(ahora - Duration::seconds(10));
+        nuevo.detail = Some(
+            r#"{"sistema":"Windows","sandbox":"no disponible","disponible":false,"motivo":"sin sandbox"}"#.into(),
+        );
+        let info = ultimo_sandbox(&[viejo.clone(), nuevo], ahora).unwrap();
+        assert!(!info.disponible);
+        assert_eq!(info.motivo.as_deref(), Some("sin sandbox"));
+        // Un latido anterior a este dato (sin detalle) no inventa nada.
+        assert_eq!(ultimo_sandbox(&[latido(ahora)], ahora), None);
+        assert!(ultimo_sandbox(&[viejo], ahora).unwrap().disponible);
     }
 }

@@ -15,6 +15,8 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
     let store = s.store.lock().await;
     let orquestador = store.estado_orquestador(s.config.umbral_heartbeat_s)?;
 
+    let sandbox = store.sandbox_orquestador()?;
+
     let ajustes = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
     let agentes = store
         .resumen_agentes()?
@@ -44,7 +46,7 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
             .into_iter()
             .map(|sv| ServicioVista { nombre: sv.nombre, activo: sv.activo, activo_s: sv.activo_s })
             .collect(),
-        orquestador: Orquestador { vivo: orquestador.vivo, ultimo_latido: orquestador.ultimo_latido.map(ts) },
+        orquestador: Orquestador { vivo: orquestador.vivo, ultimo_latido: orquestador.ultimo_latido.map(ts), sandbox },
         agentes,
         trabajos: trabajos_por_estado(s),
         propuestas_pendientes,
