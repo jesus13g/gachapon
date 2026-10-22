@@ -4,10 +4,30 @@ use std::fs::{self, Metadata, OpenOptions};
 use std::io;
 use std::path::Path;
 
-/// Crea el directorio (y los padres) y, en Unix, lo deja en 0700.
+/// Crea el directorio (y los padres) y, en Unix, lo deja en 0700. Los
+/// directorios nuevos nacen ya con 0700 (sin ventana con la máscara por
+/// defecto); el `set_permissions` final cubre la hoja si ya existía.
 pub fn crear_dir_privado(ruta: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(ruta)?;
+    }
+    #[cfg(not(unix))]
     fs::create_dir_all(ruta)?;
     poner_privado(ruta)
+}
+
+/// Crea UN directorio nuevo (falla con `AlreadyExists` si ya está, sin crear
+/// padres) que nace con 0700 en Unix.
+pub fn crear_dir_nuevo_privado(ruta: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        fs::DirBuilder::new().mode(0o700).create(ruta)
+    }
+    #[cfg(not(unix))]
+    fs::create_dir(ruta)
 }
 
 /// `OpenOptions` que, al crear un fichero, lo hace con 0600 en Unix. En
@@ -320,6 +340,27 @@ mod tests {
             assert!(es_privado(&f).unwrap());
         }
         sincronizar_dir(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_arbol_nuevo_nace_todo_0700() {
+        let d = tempfile::tempdir().unwrap();
+        let hoja = d.path().join("a/b/c");
+        crear_dir_privado(&hoja).unwrap();
+        for r in ["a", "a/b", "a/b/c"] {
+            assert_eq!(permisos_unix(&fs::metadata(d.path().join(r)).unwrap()), Some(0o700), "{r}");
+        }
+        // Una hoja que ya existía con otro modo también queda 0700.
+        let otra = d.path().join("z");
+        fs::create_dir(&otra).unwrap();
+        poner_permisos_unix(&otra, 0o755).unwrap();
+        crear_dir_privado(&otra).unwrap();
+        assert!(es_privado(&otra).unwrap());
+        let n = d.path().join("n");
+        crear_dir_nuevo_privado(&n).unwrap();
+        assert!(es_privado(&n).unwrap());
+        assert_eq!(crear_dir_nuevo_privado(&n).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
     }
 
     #[test]

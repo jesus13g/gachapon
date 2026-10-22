@@ -178,6 +178,24 @@ pub fn argv_lanzador(orden: &OrdenTerminal, lanzador: &str) -> Vec<OsString> {
     v
 }
 
+/// `cmd.exe` interpreta `& | < > ^ % "` y los saltos de línea aunque Rust cite
+/// los argumentos con espacios, así que lo que los lleve no se pasa a
+/// `cmd /C start`. Pura (se prueba en los tres sistemas); el entorno no se
+/// valida porque en Windows va en el propio `Command`, no por `cmd`.
+pub fn validar_para_cmd(orden: &OrdenTerminal) -> io::Result<()> {
+    const PROHIBIDOS: &[char] = &['&', '|', '<', '>', '^', '%', '"', '\r', '\n'];
+    let cwd = orden.cwd.as_ref().map(|c| c.to_string_lossy().into_owned());
+    for t in orden.argv.iter().cloned().chain(cwd) {
+        if let Some(c) = t.chars().find(|c| PROHIBIDOS.contains(c)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{t:?} contiene {c:?}, que no se puede pasar con seguridad a la terminal de Windows (cmd lo interpretaría)"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Cita para sh con comillas simples.
 fn citar_sh(t: &str) -> String {
     format!("'{}'", t.replace('\'', "'\\''"))
@@ -207,6 +225,8 @@ pub fn lanzar_en_terminal(orden: &OrdenTerminal) -> io::Result<()> {
     if orden.argv.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "orden de terminal vacía"));
     }
+    #[cfg(windows)]
+    validar_para_cmd(orden)?;
     #[cfg(target_os = "macos")]
     {
         use std::io::Write;
@@ -216,6 +236,13 @@ pub fn lanzar_en_terminal(orden: &OrdenTerminal) -> io::Result<()> {
         std::fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&ruta)?.write_all(guion_command(orden).as_bytes())?;
         let mut c = Command::new("open");
         c.args(argv_lanzador(orden, "open")).arg(&ruta);
+        // El guion lleva el entorno (posibles secretos): si no llega a
+        // ejecutarse (y borrarse él mismo), se borra a los 60 s.
+        let a_borrar = ruta.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            let _ = std::fs::remove_file(a_borrar);
+        });
         lanzar_y_soltar(c).inspect_err(|_| {
             let _ = std::fs::remove_file(&ruta);
         })
@@ -279,6 +306,25 @@ mod tests {
         assert!(g.contains("export EA_X='1'\n"));
         assert!(g.contains("export Y='it'\\''s'\n"));
         assert!(g.ends_with("exec 'claude' '--flag' 'a b'\n"));
+    }
+
+    #[test]
+    fn validar_para_cmd_rechaza_metacaracteres() {
+        assert!(validar_para_cmd(&orden()).is_ok());
+        for malo in ["a&b", "a|b", "a<b", "a>b", "a^b", "%PATH%", "a\"b", "a\nb", "a\rb"] {
+            let mut o = orden();
+            o.argv.push(malo.into());
+            let e = validar_para_cmd(&o).unwrap_err();
+            assert_eq!(e.kind(), io::ErrorKind::InvalidInput, "{malo}");
+            assert!(e.to_string().contains("terminal de Windows"), "{e}");
+            let mut o = orden();
+            o.cwd = Some(PathBuf::from(format!("C:\\x{malo}")));
+            assert!(validar_para_cmd(&o).is_err(), "cwd {malo}");
+        }
+        // El entorno no pasa por cmd: no se valida.
+        let mut o = orden();
+        o.entorno.push(("K".into(), "a&b|\"%".into()));
+        assert!(validar_para_cmd(&o).is_ok());
     }
 
     #[test]

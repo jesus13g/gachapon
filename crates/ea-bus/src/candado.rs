@@ -78,6 +78,9 @@ impl CandadoWorktree {
         // obligatorio y nadie más podría leer el `.lock` mientras está tomado.
         let _ = f.set_len(0);
         let lado = ruta_ocupante(&ruta);
+        // Ya tenemos el lock: el ocupante que hubiera es el residuo de un
+        // proceso muerto y un lector no debe verlo en la ventana de abajo.
+        let _ = fs::remove_file(&lado);
         std::fs::write(&lado, serde_json::to_vec(&ocupante)?)?;
         Ok(Self { fichero: f, ruta_lock: ruta })
     }
@@ -111,7 +114,9 @@ fn leer_ocupante(ruta: &Path) -> Option<Ocupante> {
         }
         Err(std::fs::TryLockError::WouldBlock) => {
             let texto = fs::read_to_string(ruta_ocupante(ruta)).ok()?;
-            serde_json::from_str(&texto).ok()
+            let o: Ocupante = serde_json::from_str(&texto).ok()?;
+            // Un ocupante cuyo proceso ya no vive es residuo, no un dueño.
+            ea_plataforma::proceso::vive(o.pid).then_some(o)
         }
         Err(_) => None,
     }
@@ -140,5 +145,39 @@ impl Drop for CandadoWorktree {
     fn drop(&mut self) {
         let _ = fs::remove_file(ruta_ocupante(&self.ruta_lock));
         let _ = self.fichero.unlock();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ocupante(pid: u32) -> Ocupante {
+        Ocupante { agente: "x".into(), trabajo: "t".into(), pid, desde: "ahora".into(), rol: None }
+    }
+
+    #[test]
+    fn un_ocupante_de_un_proceso_muerto_se_descarta_y_se_borra_al_adquirir() {
+        let d = tempfile::tempdir().unwrap();
+        let wt = d.path().join("wt");
+        fs::create_dir_all(&wt).unwrap();
+        let ruta = ruta_lock(d.path(), &wt);
+        fs::create_dir_all(ruta.parent().unwrap()).unwrap();
+        // Residuo de un proceso muerto (pid imposible) con el lock tomado por otro.
+        let f = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&ruta).unwrap();
+        f.lock().unwrap();
+        fs::write(ruta_ocupante(&ruta), serde_json::to_vec(&ocupante(u32::MAX - 1)).unwrap()).unwrap();
+        assert!(leer_ocupante(&ruta).is_none(), "un pid muerto no es un dueño");
+        // Con uno vivo (el nuestro) sí se ve.
+        fs::write(ruta_ocupante(&ruta), serde_json::to_vec(&ocupante(std::process::id())).unwrap()).unwrap();
+        assert_eq!(leer_ocupante(&ruta).unwrap().pid, std::process::id());
+        drop(f);
+
+        // Al adquirir se borra el residuo antes de escribir el nuevo.
+        fs::write(ruta_ocupante(&ruta), serde_json::to_vec(&ocupante(u32::MAX - 1)).unwrap()).unwrap();
+        let c = CandadoWorktree::adquirir_en(d.path(), &wt, ocupante(0), Duration::from_secs(1)).unwrap();
+        assert_eq!(CandadoWorktree::ocupante_en(d.path(), &wt).unwrap().pid, std::process::id());
+        drop(c);
+        assert!(!ruta_ocupante(&ruta).exists());
     }
 }
