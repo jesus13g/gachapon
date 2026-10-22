@@ -168,6 +168,7 @@ const ea = (() => {
     // Equipos de agentes (spec 019). Despertar y dormir son gestos del usuario:
     // despertar ({ titulo, objetivo, worktree, miembros: [{ agente, rol }] | todos,
     // terminal }) abre una terminal por cada planificador y revisor si se pide.
+    worktrees: () => api('/api/worktrees'),
     equipos: () => api('/api/equipos'),
     equipo: id => api('/api/equipos/' + c(id)),
     despertarEquipo: cuerpo => post('/api/equipos', cuerpo),

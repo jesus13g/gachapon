@@ -12,6 +12,7 @@ pub mod rutinas;
 pub mod servicios;
 pub mod status;
 pub mod trabajo;
+pub mod worktree;
 
 use anyhow::{Context, Result};
 use time::format_description::well_known::Rfc3339;

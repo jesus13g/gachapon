@@ -41,6 +41,20 @@ struct PorSlug {
     slug: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PorTrabajo {
+    trabajo: String,
+}
+
+fn comprobar_trabajo(id: &str) -> Result<(), ErrorAccion> {
+    if !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        Ok(())
+    } else {
+        Err(ErrorAccion::Argumentos(format!("id de trabajo inválido: '{id}'")))
+    }
+}
+
 /// `ea_encolar_rutina`: la rutina y, si se quieren cambiar, sus entradas
 /// (`{clave: valor}`, con la política de `ea_bus::validar_entradas`).
 #[derive(Deserialize)]
@@ -293,6 +307,7 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
         "ea_promover_nota" => comprobar_promocion(&parsear::<PromoverNota>(args)?),
         "ea_programar_rutina" => parsear::<ProgramarRutina>(args)?.comprobar().map(|_| ()),
         "ea_desprogramar_rutina" => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
+        "ea_limpiar_worktree" => comprobar_trabajo(&parsear::<PorTrabajo>(args)?.trabajo),
         "ea_activar_herramienta" | "ea_desactivar_herramienta" => parsear::<PorElemento>(args)?.comprobar(),
         "ea_lanzar_sesion" => parsear::<LanzarSesion>(args)?.comprobar(),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
@@ -318,6 +333,7 @@ const fn campo(nombre: &'static str, ayuda: &'static str) -> Campo {
 }
 
 const CAMPOS_SLUG: &[Campo] = &[campo("slug", "rutina")];
+const CAMPOS_TRABAJO: &[Campo] = &[campo("trabajo", "id del trabajo con worktree propio")];
 const CAMPOS_SERVICIO: &[Campo] =
     &[Campo { opciones: &SERVICIOS_REINICIABLES, ..campo("servicio", "servicio") }];
 const CAMPOS_REGISTRAR: &[Campo] =
@@ -345,6 +361,7 @@ pub fn campos(nombre: &str) -> &'static [Campo] {
     match nombre {
         "ea_encolar_rutina" | "ea_eliminar_rutina" | "ea_desprogramar_rutina" => CAMPOS_SLUG,
         "ea_retirar_rutina" | "ea_restaurar_rutina" => CAMPOS_SLUG,
+        "ea_limpiar_worktree" => CAMPOS_TRABAJO,
         "ea_programar_rutina" => CAMPOS_PROGRAMAR,
         "ea_reiniciar_servicio" => CAMPOS_SERVICIO,
         "ea_registrar_rutina" => CAMPOS_REGISTRAR,
@@ -616,6 +633,49 @@ pub fn simular_con<C: Consulta>(
                 json!({ "huella": huella(&contenido) }),
             )
         }
+        "ea_limpiar_worktree" => {
+            let a: PorTrabajo = parsear(args)?;
+            comprobar_trabajo(&a.trabajo)?;
+            let no = |m: String| Err(ErrorAccion::NoAplica(m));
+            let Some(w) = consulta.worktree_info(&a.trabajo).map_err(ErrorAccion::Sistema)? else {
+                return no(format!("el trabajo {} no tiene worktree propio vivo (nada que limpiar)", a.trabajo));
+            };
+            if !w.trabajo_terminado() {
+                return no(format!(
+                    "el trabajo {} no ha terminado (estado: {}): solo se limpia un trabajo cerrado o cancelado",
+                    a.trabajo,
+                    w.estado_trabajo.unwrap_or("desconocido")
+                ));
+            }
+            if w.ocupado {
+                return no(format!("el ejecutor tiene cogido el semáforo del trabajo {}: espera a que suelte", a.trabajo));
+            }
+            match w.limpio {
+                Some(true) => {}
+                Some(false) => {
+                    return no(format!(
+                        "el worktree {} tiene cambios sin guardar o ficheros nuevos: nunca se fuerza. Guárdalos \
+                         (git add -A && git commit en el worktree, y fusiona la rama {} si los quieres) o descártalos \
+                         tú a mano, y vuelve a simular",
+                        w.ruta, w.rama
+                    ))
+                }
+                None => return no(format!("git no pudo decir si {} está limpio; revísalo a mano", w.ruta)),
+            }
+            (
+                json!({ "trabajo": a.trabajo }),
+                format!(
+                    "Quitaría el worktree propio del trabajo {} ({}) con `git worktree remove`, sin --force; está \
+                     limpio y el trabajo está {}. La rama {} se conserva (borrarla o fusionarla es cosa tuya) y el \
+                     directorio se vuelve a sacar de ella si hiciera falta.",
+                    a.trabajo,
+                    w.ruta,
+                    w.estado_trabajo.unwrap_or("terminado"),
+                    w.rama
+                ),
+                json!({ "ruta": w.ruta, "rama": w.rama, "estado_trabajo": w.estado_trabajo }),
+            )
+        }
         "ea_lanzar_sesion" => {
             let a: LanzarSesion = parsear(args)?;
             a.comprobar()?;
@@ -811,7 +871,7 @@ pub fn aplicar_en_store(
         }
         "ea_reiniciar_servicio" | "ea_eliminar_rutina" | "ea_promover_nota" | "ea_registrar_rutina" => Ok(None),
         "ea_programar_rutina" | "ea_desprogramar_rutina" | "ea_lanzar_sesion" => Ok(None),
-        "ea_retirar_rutina" | "ea_restaurar_rutina" => Ok(None),
+        "ea_retirar_rutina" | "ea_restaurar_rutina" | "ea_limpiar_worktree" => Ok(None),
         "ea_activar_herramienta" | "ea_desactivar_herramienta" => Ok(None),
         otro => Err(ErrorAccion::NoSupervisada(otro.to_string())),
     }
@@ -964,6 +1024,20 @@ pub async fn aplicar_en_sistema<S: Sistema>(
                 texto: format!("{} {}: {}.", if activar { "Activado" } else { "Desactivado" }, h.id, h.texto),
                 trabajo: None,
                 datos,
+            })
+        }
+        "ea_limpiar_worktree" => {
+            let a: PorTrabajo = parsear(args)?;
+            let ruta = precondicion["ruta"].as_str().unwrap_or_default().to_string();
+            let habia = sistema.worktree_limpiar(&a.trabajo).map_err(ErrorAccion::Sistema)?;
+            Ok(Aplicada {
+                texto: if habia {
+                    format!("Worktree del trabajo {} quitado; la rama ea/{} sigue en el repo.", a.trabajo, a.trabajo)
+                } else {
+                    format!("El trabajo {} ya no tenía worktree.", a.trabajo)
+                },
+                trabajo: Some(a.trabajo.clone()),
+                datos: json!({ "trabajo": a.trabajo, "ruta": ruta, "rama": format!("ea/{}", a.trabajo), "quitado": habia }),
             })
         }
         "ea_restaurar_rutina" => {

@@ -269,6 +269,12 @@ pub async fn semaforos(State(s): Estado) -> Json<Vec<Semaforo>> {
     Json(servicio::trabajos::semaforos(&s))
 }
 
+// -------------------------------------------------------------- worktrees
+
+pub async fn worktrees_listar(State(s): Estado) -> Api<Vec<ea_bus::InfoWorktree>> {
+    ok(servicio::trabajos::worktrees(&s))
+}
+
 // ----------------------------------------------------------------- equipos
 
 pub async fn equipos_listar(State(s): Estado) -> Api<Vec<ea_bus::ResumenEquipo>> {

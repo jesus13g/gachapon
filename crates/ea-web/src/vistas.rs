@@ -310,6 +310,8 @@ pub struct TrabajoDetalle {
     /// El texto final del agente en su última ejecución (`salida-agente.json`,
     /// o `salida-qwen.json` en los trabajos de antes).
     pub resumen_agente: Option<String>,
+    /// Su worktree propio vivo (spec 019, anexo A): ruta, rama y si está limpio.
+    pub worktree: Option<ea_bus::InfoWorktree>,
 }
 
 /// El estado de una fase en `trabajo_fases`; el plan (instrucciones,

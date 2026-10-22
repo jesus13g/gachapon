@@ -13,6 +13,7 @@ use std::sync::Mutex;
 use ea_biblioteca::{Cambio, Contexto, Hecho, Ordenes, OrdenesDoble, OrdenesReales};
 use ea_biblioteca::{Inventario, PlanSesion, Raices};
 use ea_boveda::{Boveda, ErrorBoveda, PlanPromocion};
+use ea_bus::InfoWorktree;
 use ea_store::Store;
 
 use crate::catalogo::Canal;
@@ -69,6 +70,10 @@ pub trait Consulta: Send + Sync {
     /// después. Solo lee; falla si no se puede cambiar o falta el binario
     /// del comando oficial.
     fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String>;
+
+    /// El worktree propio vivo del trabajo (spec 019, anexo A), o `None` si
+    /// no tiene directorio. Solo mira.
+    fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String>;
 }
 
 pub trait Sistema: Consulta {
@@ -82,6 +87,10 @@ pub trait Sistema: Consulta {
 
     /// Devuelve el TOML de la papelera a su sitio ([`ea_bus::restaurar_rutina`]).
     fn rutina_restaurar(&self, slug: &str) -> Result<(), String>;
+
+    /// Quita el worktree propio del trabajo con `git worktree remove` sin
+    /// `--force` ([`ea_bus::Bus::limpiar_worktree`]); `Ok(false)` si no había.
+    fn worktree_limpiar(&self, trabajo: &str) -> Result<bool, String>;
 
     /// Escribe los ficheros efímeros de la sesión (0600) y abre la terminal
     /// con el agente (argv, sin shell). Las pruebas usan un doble.
@@ -213,6 +222,14 @@ impl Consulta for SoloConsulta {
     fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
         planear_real(elemento, activar)
     }
+    fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String> {
+        worktree_real(trabajo)
+    }
+}
+
+/// El worktree propio de `trabajo` en el bus real (solo lee).
+fn worktree_real(trabajo: &str) -> Result<Option<InfoWorktree>, String> {
+    ea_bus::Bus::abrir().map_err(|e| e.to_string())?.info_worktree(trabajo).map_err(|e| e.to_string())
 }
 
 /// El sistema real, para las interfaces del usuario (`ea`, `ea-web`).
@@ -252,6 +269,9 @@ impl Consulta for SistemaReal {
     fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
         planear_real(elemento, activar)
     }
+    fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String> {
+        worktree_real(trabajo)
+    }
 }
 
 impl Sistema for SistemaReal {
@@ -273,6 +293,9 @@ impl Sistema for SistemaReal {
         std::fs::remove_file(&ruta).map_err(|e| format!("no se pudo borrar {}: {e}", ruta.display()))
     }
 
+    fn worktree_limpiar(&self, trabajo: &str) -> Result<bool, String> {
+        ea_bus::Bus::abrir().map_err(|e| e.to_string())?.limpiar_worktree(trabajo).map_err(|e| e.to_string())
+    }
     fn rutina_retirar(&self, slug: &str) -> Result<(), String> {
         ea_bus::retirar_rutina(&self.rutinas_dir, slug).map_err(|e| e.to_string())
     }
@@ -336,6 +359,8 @@ pub struct SistemaSimulado {
     pub mutaciones: Mutex<Vec<String>>,
     /// Timers programados, por slug: su `OnCalendar` (activos todos).
     pub timers: Mutex<HashMap<String, String>>,
+    /// Worktrees propios vivos, por id de trabajo.
+    pub worktrees: Mutex<HashMap<String, InfoWorktree>>,
     /// Raíces y ajustes de prueba de la biblioteca (spec 018); sin ellos, los
     /// cambios de la biblioteca fallan. Los ficheros son los de esas raíces
     /// (temporales), y los comandos oficiales van al doble de `ordenes`.
@@ -354,6 +379,11 @@ impl SistemaSimulado {
             nombre.to_string(),
             EstadoServicio { cargado: true, activo: activo.to_string() },
         );
+        self
+    }
+
+    pub fn con_worktree(self, info: InfoWorktree) -> Self {
+        self.worktrees.lock().unwrap().insert(info.trabajo.clone(), info);
         self
     }
 
@@ -485,6 +515,9 @@ impl Consulta for SistemaSimulado {
         ea_biblioteca::cambio::comprobar_disponible(&c, &self.ordenes as &dyn Ordenes).map_err(|e| e.to_string())?;
         Ok(c)
     }
+    fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String> {
+        Ok(self.worktrees.lock().unwrap().get(trabajo).cloned())
+    }
 }
 
 impl Sistema for SistemaSimulado {
@@ -505,6 +538,19 @@ impl Sistema for SistemaSimulado {
         self.retiradas.lock().unwrap().insert(slug.to_string(), c);
         self.mutaciones.lock().unwrap().push(format!("retirar:{slug}"));
         Ok(())
+    }
+    /// Como git: se niega si no está limpio.
+    fn worktree_limpiar(&self, trabajo: &str) -> Result<bool, String> {
+        let mut w = self.worktrees.lock().unwrap();
+        match w.get(trabajo) {
+            None => Ok(false),
+            Some(i) if i.limpio != Some(true) => Err("git se negó: el worktree tiene cambios sin guardar".into()),
+            Some(_) => {
+                w.remove(trabajo);
+                self.mutaciones.lock().unwrap().push(format!("limpiar_worktree:{trabajo}"));
+                Ok(true)
+            }
+        }
     }
     fn rutina_restaurar(&self, slug: &str) -> Result<(), String> {
         if self.rutinas.lock().unwrap().contains_key(slug) {

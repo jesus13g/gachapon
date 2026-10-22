@@ -103,6 +103,7 @@ fn ver_bus(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
         .map(|b| ea_bus::resumen_salida_agente(tipo, &b))
         .map(|r| r.trim().chars().take(RESUMEN_MAX).collect::<String>())
         .filter(|r| !r.is_empty());
+    let worktree = if orden.worktree_propio { bus.info_worktree(id).ok().flatten() } else { None };
     Ok(TrabajoDetalle {
         id: id.into(),
         orden: a_valor(orden)?,
@@ -112,7 +113,14 @@ fn ver_bus(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
         paquete,
         fases: vec![],
         resumen_agente,
+        worktree,
     })
+}
+
+/// Los worktrees propios vivos (`ea worktree listar`). Solo lectura; quitarlos
+/// es `ea_limpiar_worktree` por `/api/acciones`, con simulación y clave.
+pub fn worktrees(s: &AppState) -> Resultado<Vec<ea_bus::InfoWorktree>> {
+    Ok(bus_lectura(s)?.listar_worktrees()?)
 }
 
 const DIFF_MAX: usize = 200_000;

@@ -273,6 +273,9 @@ impl Consulta for SistemaBiblioteca {
         ea_biblioteca::cambio::comprobar_disponible(&c, &OrdenesReales).map_err(|e| e.to_string())?;
         Ok(c)
     }
+    fn worktree_info(&self, trabajo: &str) -> Result<Option<ea_bus::InfoWorktree>, String> {
+        self.base.worktree_info(trabajo)
+    }
 }
 
 impl Sistema for SistemaBiblioteca {
@@ -287,6 +290,9 @@ impl Sistema for SistemaBiblioteca {
     }
     fn rutina_restaurar(&self, slug: &str) -> Result<(), String> {
         self.base.rutina_restaurar(slug)
+    }
+    fn worktree_limpiar(&self, trabajo: &str) -> Result<bool, String> {
+        self.base.worktree_limpiar(trabajo)
     }
     fn sesion_lanzar(&self, plan: &PlanSesion) -> Result<(), String> {
         // El proyecto de los ficheros efímeros es el del plan.

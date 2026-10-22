@@ -24,7 +24,7 @@ use ea_boveda::{Boveda, Limites, NuevaNota};
 
 use crate::args::{
     BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs, ListarDiarioArgs, ListarTrabajosArgs,
-    BibliotecaArgs, EncolarRutinaArgs, HerramientaArgs, LanzarSesionArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerEquipoArgs, VerTrabajoArgs,
+    BibliotecaArgs, EncolarRutinaArgs, HerramientaArgs, LanzarSesionArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs, VerEquipoArgs, VerTrabajoArgs, WorktreeArgs,
 };
 
 /// Quién hace una llamada MCP: el actor que se escribe en el diario y del
@@ -1009,6 +1009,27 @@ impl EaTools {
     }
 
     #[tool(
+        description = "[Riesgo: mutación reversible] Quita el worktree propio de un trabajo \
+            terminado (cerrado o cancelado) con `git worktree remove`, sin --force: solo si \
+            está limpio. La rama ea/<id> se conserva; fusionarla o borrarla es del usuario. \
+            NO lo hace: con simular=true lo describe; sin él encola una propuesta que el \
+            usuario debe aceptar (terminal o panel web).",
+        annotations(
+            title = "Limpiar worktree propio",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false
+        )
+    )]
+    async fn ea_limpiar_worktree(
+        &self,
+        context: RequestContext<RoleServer>,
+        Parameters(args): Parameters<WorktreeArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.mutante(context, "ea_limpiar_worktree", json!({ "trabajo": args.trabajo }), args.simular.unwrap_or(false)).await
+    }
+
+    #[tool(
         description = "[Riesgo: mutación reversible] Restaura una rutina retirada: devuelve su \
             TOML de la papelera a rutinas_dir, y vuelve a listarse y a poder lanzarse. No \
             vuelve a programar su timer (eso es ea_programar_rutina). NO lo hace: con \
@@ -1113,7 +1134,7 @@ impl ServerHandler for EaTools {
                  ea_registrar_rutina, ea_programar_rutina, ea_desprogramar_rutina, \
                  ea_retirar_rutina, ea_restaurar_rutina, ea_reiniciar_servicio, \
                  ea_eliminar_rutina, ea_promover_nota, ea_activar_herramienta, \
-                 ea_desactivar_herramienta, ea_lanzar_sesion) nunca se \
+                 ea_desactivar_herramienta, ea_lanzar_sesion, ea_limpiar_worktree) nunca se \
                  ejecutan desde aquí: con simular=true describen lo que harían; sin él \
                  encolan una propuesta que solo el usuario puede aceptar. Las \
                  irreversibles solo se confirman desde una terminal. La bóveda de \

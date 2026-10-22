@@ -102,6 +102,21 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
         println!("ejecutor  {} ({})", e.agente, e.modelo);
     }
     println!("worktree  {}{}", orden.worktree, if orden.worktree_propio { " (propio: se crea un git worktree para el trabajo)" } else { "" });
+    if orden.worktree_propio {
+        match b.info_worktree(id)? {
+            Some(w) => println!(
+                "propio    {} · rama {} · {}",
+                w.ruta,
+                w.rama,
+                match w.limpio {
+                    Some(true) => "limpio",
+                    Some(false) => "con cambios sin guardar",
+                    None => "estado desconocido",
+                }
+            ),
+            None => println!("propio    (sin directorio: aún no se ha creado o ya se limpió; la rama ea/{id} se conserva si existe)"),
+        }
+    }
     if let Some(e) = &orden.equipo {
         println!("equipo    {e}");
     }

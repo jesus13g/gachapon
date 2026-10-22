@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, HookAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion};
+use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, HookAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion, WorktreeAccion};
 
 fn main() -> Result<()> {
     salir_en_silencio_si_se_cierra_la_tuberia();
@@ -51,6 +51,7 @@ fn main() -> Result<()> {
                 EquipoAccion::Sesion { id, agente } => commands::equipo::sesion(&id, &agente),
             };
         }
+        Command::Worktree { accion: WorktreeAccion::Listar { json } } => return commands::worktree::listar(json),
         // La biblioteca lee el disco; solo proponer necesita la base.
         Command::Biblioteca { accion } => match accion {
             BibliotecaAccion::Listar { agente, tipo, categoria, activados, desactivados, ids, json } => {
@@ -156,8 +157,9 @@ fn main() -> Result<()> {
             }
             _ => unreachable!("se atiende antes de abrir la base"),
         },
+        Command::Worktree { accion: WorktreeAccion::Limpiar { id } } => commands::worktree::limpiar(&mut store, &id)?,
         Command::Tui => tui::run(&mut store)?,
-        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Servicios { .. } | Command::Hook { .. } | Command::Equipo { .. } => unreachable!("se atiende antes de abrir la base"),
+        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Servicios { .. } | Command::Hook { .. } | Command::Equipo { .. } | Command::Worktree { accion: WorktreeAccion::Listar { .. } } => unreachable!("se atiende antes de abrir la base"),
     }
 
     Ok(())
