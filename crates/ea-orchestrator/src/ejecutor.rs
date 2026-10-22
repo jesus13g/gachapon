@@ -993,6 +993,24 @@ mod tests {
         assert_eq!(correr_cancelable(c, 10, &|| false).salida, "hola");
     }
 
+    /// Corre `c` con el tope dado y comprueba que mueren el hijo y el nieto
+    /// (cuyos pids deja escritos el script en `pid-hijo` y `pid-nieto`).
+    fn comprobar_que_muere_el_arbol(d: &Path, c: Command, tope_s: u64) {
+        let t = Instant::now();
+        let r = correr_cancelable(c, tope_s, &|| false);
+        assert!(t.elapsed() < Duration::from_secs(tope_s + 11), "tardó {:?}", t.elapsed());
+        assert_eq!((r.codigo, r.cancelado), (None, false));
+        let pid = |f: &str| -> u32 { std::fs::read_to_string(d.join(f)).unwrap().trim().parse().unwrap() };
+        for f in ["pid-hijo", "pid-nieto"] {
+            let p = pid(f);
+            let limite = Instant::now() + Duration::from_secs(5);
+            while ea_plataforma::proceso::vive(p) && Instant::now() < limite {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            assert!(!ea_plataforma::proceso::vive(p), "{f} ({p}) sigue vivo");
+        }
+    }
+
     /// Spec 020 (CE-005): el tope de tiempo lo vigila el orquestador y mata al
     /// hijo y al nieto, sin `timeout` externo; el código queda en `None`.
     #[cfg(unix)]
@@ -1001,19 +1019,20 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let mut c = Command::new("sh");
         c.arg("-c").arg("sleep 600 & echo $! > pid-nieto; echo $$ > pid-hijo; wait").current_dir(d.path());
-        let t = Instant::now();
-        let r = correr_cancelable(c, 1, &|| false);
-        assert!(t.elapsed() < Duration::from_secs(12), "tardó {:?}", t.elapsed());
-        assert_eq!((r.codigo, r.cancelado), (None, false));
-        let pid = |f: &str| -> u32 { std::fs::read_to_string(d.path().join(f)).unwrap().trim().parse().unwrap() };
-        for f in ["pid-hijo", "pid-nieto"] {
-            let p = pid(f);
-            let limite = Instant::now() + Duration::from_secs(3);
-            while ea_plataforma::proceso::vive(p) && Instant::now() < limite {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            assert!(!ea_plataforma::proceso::vive(p), "{f} ({p}) sigue vivo");
-        }
+        comprobar_que_muere_el_arbol(d.path(), c, 1);
+    }
+
+    /// Lo mismo en Windows: el hijo es PowerShell y el nieto, un `ping`
+    /// lanzado con `Start-Process`; el trabajo (job object) los mata a ambos.
+    #[cfg(windows)]
+    #[test]
+    fn el_tope_de_tiempo_mata_al_hijo_y_al_nieto() {
+        let d = tempfile::tempdir().unwrap();
+        let guion = "$p = Start-Process -PassThru -WindowStyle Hidden ping -ArgumentList '-n','600','127.0.0.1'; \
+                     $p.Id | Out-File -Encoding ascii pid-nieto; $PID | Out-File -Encoding ascii pid-hijo; Wait-Process -Id $p.Id";
+        let mut c = Command::new("powershell");
+        c.args(["-NoProfile", "-NonInteractive", "-Command", guion]).current_dir(d.path());
+        comprobar_que_muere_el_arbol(d.path(), c, 10);
     }
 
     #[test]

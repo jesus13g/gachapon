@@ -212,6 +212,6 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let c = canonica(d.path()).unwrap();
         assert!(c.is_absolute() && !c.to_string_lossy().starts_with(r"\\?\"));
-        assert!(canonica(&d.path().join("no-existe")).is_err());
+        assert!(canonica(d.path().join("no-existe")).is_err());
     }
 }

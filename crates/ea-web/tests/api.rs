@@ -841,7 +841,7 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     assert_eq!(v[0]["modo"], "mision");
     assert_eq!(v[0]["estado"], "en_cola");
     assert!(v[0]["resultado"].is_null());
-    assert!(v[0]["worktree"].as_str().unwrap().ends_with("tmp"));
+    assert!(std::path::Path::new(v[0]["worktree"].as_str().unwrap()).ends_with(std::path::Path::new(tmp!()).file_name().unwrap()));
 
     let (_, c) = get(&f, "/api/colas").await;
     assert_eq!(c["modelo-local"][0]["trabajo"], id.as_str());
@@ -2155,7 +2155,7 @@ async fn crear_sin_criterio_o_worktree_invalido_da_400_y_no_escribe() {
         con("criterio", json!("x".repeat(2_001))),
         con("worktree", json!("")),
         con("worktree", json!("relativo/a/algo")),
-        con("worktree", json!("/no/existe/de/ninguna/manera")),
+        con("worktree", json!(concat!(tmp!(), "/no/existe/de/ninguna/manera"))),
         con("worktree", json!(sin_repo.to_str().unwrap())),
         con("worktree", json!(fichero.to_str().unwrap())),
         sin("worktree"),
@@ -3367,7 +3367,7 @@ async fn despertar_rechaza_lo_que_la_cli_rechaza() {
     sin_titulo["titulo"] = json!("  ");
     rechaza(sin_titulo, "titulo").await;
     let mut sin_wt = despertar_cuerpo(&wt, &BASICO, false);
-    sin_wt["worktree"] = json!("/no/existe/de/verdad");
+    sin_wt["worktree"] = json!(concat!(tmp!(), "/no/existe/de/verdad"));
     rechaza(sin_wt, "no existe").await;
     // un binario que falta
     let fichero = f.state.config.ajustes.fichero();

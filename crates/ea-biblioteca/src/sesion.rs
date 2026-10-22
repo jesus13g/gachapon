@@ -296,8 +296,8 @@ fn leer_completo(f: &FuenteMcp, r: &Raices, entorno: &dyn Fn(&str) -> Option<Str
         "claude-code" if fichero == ".claude.json" => {
             let j = json(&texto)?;
             if f.ambito == "proyecto" {
-                let p = r.proyecto.as_ref().map(|p| p.to_string_lossy().into_owned()).ok_or_else(no_esta)?;
-                j.get("projects").and_then(|x| x.get(&p)).and_then(|x| x.get("mcpServers")).and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
+                let p = r.proyecto.as_ref().ok_or_else(no_esta)?;
+                j.get("projects").and_then(|x| crate::agentes::comun::proyecto_en(x, p)).and_then(|x| x.get("mcpServers")).and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
             } else {
                 j.get("mcpServers").and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
             }

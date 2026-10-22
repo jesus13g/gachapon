@@ -195,7 +195,7 @@ fn mover_skill_enlace_subagente_y_comando_ida_y_vuelta() {
     let almacen = m.ctx.raices.estado.join("biblioteca/desactivadas");
 
     // Directorio con contenido.
-    let propia = m.home.join(".claude/skills/propia");
+    let propia = m.home.join(".claude").join("skills").join("propia");
     cambiar(&m, "claude-code/skill/usuario/propia", false, &o).unwrap();
     assert!(!propia.exists());
     assert_eq!(lee(almacen.join("claude-code/skill/propia/extra.txt")), "extra");

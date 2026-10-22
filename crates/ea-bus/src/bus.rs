@@ -822,6 +822,14 @@ pub(crate) fn tomar_en(dir: &Path, admite: &dyn Fn(&str) -> bool) -> Resultado<O
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.into()),
     };
+    // Un solo reclamante a la vez en esta cola (entre hilos y procesos): el
+    // `rename` basta en Unix, pero en Windows dos reclamos simultáneos del
+    // mismo fichero no son fiables.
+    let _cerrojo = {
+        let f = fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".tomar.lock"))?;
+        f.lock()?;
+        f
+    };
     let mut candidatas: Vec<PathBuf> = rd
         .flatten()
         .map(|e| e.path())
