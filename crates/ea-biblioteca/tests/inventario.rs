@@ -51,7 +51,7 @@ fn mundo() -> Mundo {
 
     // Claude Code
     fs::create_dir_all(home.join(".claude/skills")).unwrap();
-    std::os::unix::fs::symlink(repo.join("claude/skills/mision"), home.join(".claude/skills/mision")).unwrap();
+    ea_plataforma::fs::enlazar(&repo.join("claude/skills/mision"), &home.join(".claude/skills/mision")).unwrap();
     escribe(home.join(".claude/skills/propia/SKILL.md"), "---\nname: propia\ndescription: >\n  Hace cosas\n  en dos lineas\n---\n");
     escribe(home.join(".claude/skills/sin-skill-md/otro.txt"), "no es una skill");
     escribe(home.join(".claude/agents/revisor.md"), "---\nname: revisor\ndescription: Revisa\n---\n");

@@ -15,8 +15,8 @@ thiserror = "1.0"
 # migraciones al abrir y rechaza esquemas ajenos, y aquí no se debe escribir nada.
 rusqlite = { version = "0.32", features = ["bundled"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
-# `renameat2(RENAME_NOREPLACE)` para mover sin pisar (Linux); ya está en el árbol.
-libc = "0.2"
+ea-plataforma = { path = "../ea-plataforma" }
+directories = "5.0"
 
 [dev-dependencies]
 tempfile = "3"

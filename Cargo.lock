@@ -495,6 +495,7 @@ name = "ea-ajustes"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "ea-plataforma",
  "serde",
  "serde_json",
  "tempfile",
@@ -507,8 +508,9 @@ dependencies = [
 name = "ea-biblioteca"
 version = "0.1.0"
 dependencies = [
+ "directories",
  "ea-ajustes",
- "libc",
+ "ea-plataforma",
  "rusqlite",
  "serde",
  "serde_json",
@@ -536,6 +538,7 @@ name = "ea-bus"
 version = "0.1.0"
 dependencies = [
  "ea-ajustes",
+ "ea-plataforma",
  "ea-store",
  "serde",
  "serde_json",

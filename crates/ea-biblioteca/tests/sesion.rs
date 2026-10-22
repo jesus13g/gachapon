@@ -3,7 +3,6 @@
 //! `tempfile`; no se ejecuta ningún agente.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -135,8 +134,11 @@ fn sin_secretos(plan: &PlanSesion) {
     }
 }
 
-fn modo(p: &Path) -> u32 {
-    fs::metadata(p).unwrap().permissions().mode() & 0o777
+/// Comprueba los bits de permiso (solo en Unix; en Windows no hay modos).
+fn assert_modo(p: &Path, esperado: u32) {
+    if let Some(m) = ea_plataforma::fs::permisos_unix(&fs::metadata(p).unwrap()) {
+        assert_eq!(m & 0o777, esperado, "{}", p.display());
+    }
 }
 
 fn texto(p: &Path) -> String {
@@ -193,10 +195,10 @@ fn materializar_claude_escribe_los_secretos_solo_en_ficheros_0600() {
     assert!(real.argv.iter().all(|a| !a.contains(&plan.directorio.display().to_string()) || a.contains(&real.directorio.display().to_string())));
     let plan = real;
 
-    assert_eq!(modo(&plan.directorio), 0o700);
-    assert_eq!(modo(&plan.directorio.parent().unwrap().to_path_buf()), 0o700);
+    assert_modo(&plan.directorio, 0o700);
+    assert_modo(plan.directorio.parent().unwrap(), 0o700);
     for f in &plan.ficheros {
-        assert_eq!(modo(&f.ruta), 0o600, "{}", f.ruta.display());
+        assert_modo(&f.ruta, 0o600);
     }
     let mcp: serde_json::Value = serde_json::from_str(&texto(&plan.directorio.join("mcp.json"))).unwrap();
     assert_eq!(mcp["mcpServers"]["stdio-claude"]["env"]["API_KEY"], "SECRETO_ENV_CLAUDE");
@@ -279,7 +281,7 @@ fn plan_de_opencode_usa_standalone_y_un_fichero_con_los_demas_apagados() {
     let plan = materializar(&plan, &m.r).unwrap();
     let fichero = plan.directorio.join("opencode.json");
     assert_eq!(plan.entorno, [("OPENCODE_CONFIG".to_string(), fichero.display().to_string())]);
-    assert_eq!(modo(&fichero), 0o600);
+    assert_modo(&fichero, 0o600);
     let real: serde_json::Value = serde_json::from_str(&texto(&fichero)).unwrap();
     assert_eq!(real["mcp"]["remoto-oc"]["headers"]["Authorization"], "SECRETO_HEADER_OPENCODE");
     assert_eq!(real["mcp"]["remoto-oc"]["url"], "https://oc.ejemplo.com/SECRETO_RUTA_URL");
@@ -431,7 +433,7 @@ fn materializar_no_lee_fuentes_que_por_un_enlace_salen_del_home() {
     let fuera = m._d.path().join("fuera.json");
     fs::write(&fuera, r#"{"mcpServers":{"stdio-claude":{"command":"malo"}}}"#).unwrap();
     let enlace = m.home.join("enlace.json");
-    std::os::unix::fs::symlink(&fuera, &enlace).unwrap();
+    ea_plataforma::fs::enlazar(&fuera, &enlace).unwrap();
     let mut plan = plan0.clone();
     plan.mcp[0].ruta = enlace;
     let e = materializar(&plan, &m.r).unwrap_err();

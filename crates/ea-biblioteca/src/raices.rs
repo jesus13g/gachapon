@@ -10,7 +10,7 @@ pub struct Raices {
     pub proyecto: Option<PathBuf>,
     /// Estado del ecosistema (copias y almacén de desactivadas de la F4).
     pub estado: PathBuf,
-    /// `$XDG_RUNTIME_DIR` (ficheros efímeros de sesión de la F5).
+    /// Directorio de ejecución del usuario (Linux: `$XDG_RUNTIME_DIR`; ficheros efímeros de sesión de la F5).
     pub runtime: Option<PathBuf>,
     /// Repo del ecosistema (`claude/skills`, `qwen/skills`), si se conoce.
     pub repo: Option<PathBuf>,
@@ -30,16 +30,17 @@ impl Raices {
         Self { home, proyecto, estado, runtime, repo }
     }
 
-    /// Las del entorno real: `$HOME`, el directorio actual, `$EA_ESTADO_DIR`
-    /// (o `~/.local/state/ecosistema-asistente`), `$XDG_RUNTIME_DIR` y
-    /// `$EA_REPO_DIR` para el repo si no es el directorio actual.
+    /// Las del entorno real: el home del usuario (`directories::BaseDirs`),
+    /// el directorio actual, el estado del ecosistema (`$EA_ESTADO_DIR` o
+    /// `rutas.estado` de los ajustes: el mismo que usa el bus), el directorio
+    /// de ejecución de la plataforma y `$EA_REPO_DIR` para el repo si no es el
+    /// directorio actual.
     pub fn desde_entorno() -> Self {
         let var = |n: &str| std::env::var_os(n).filter(|v| !v.is_empty()).map(PathBuf::from);
-        let home = var("HOME").unwrap_or_default();
-        let estado = var("EA_ESTADO_DIR").unwrap_or_else(|| {
-            var("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state")).join("ecosistema-asistente")
-        });
-        let mut r = Self::nuevo(home, std::env::current_dir().ok(), estado, var("XDG_RUNTIME_DIR"));
+        let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()).or_else(|| var("HOME")).unwrap_or_default();
+        let estado = var("EA_ESTADO_DIR").unwrap_or_else(|| ea_ajustes::cargar().rutas.estado);
+        let runtime = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso);
+        let mut r = Self::nuevo(home, std::env::current_dir().ok(), estado, runtime);
         if r.repo.is_none() {
             r.repo = var("EA_REPO_DIR").filter(|p| es_repo(p));
         }

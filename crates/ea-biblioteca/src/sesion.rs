@@ -51,7 +51,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use ea_plataforma::fs::{enlazar, opciones_privadas, poner_permisos_unix, poner_privado};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -73,7 +73,6 @@ const EDAD_MAXIMA: Duration = Duration::from_secs(7 * 24 * 3600);
 /// Fichero con los segundos Unix de la creación de la sesión.
 const MARCA_CREACION: &str = ".creada";
 const MODO_FICHERO: u32 = 0o600;
-const MODO_DIRECTORIO: u32 = 0o700;
 /// Lo que ocupa el sitio de un valor secreto en un plan.
 const OCULTO: &str = "<oculto>";
 /// Nombre que no existe, para pedirle a Qwen «ningún MCP».
@@ -492,7 +491,7 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
         return mal("hay que elegir al menos una herramienta");
     }
     let Some(runtime) = &raices.runtime else {
-        return mal("no hay $XDG_RUNTIME_DIR: no hay dónde escribir los ficheros efímeros de la sesión");
+        return mal("no hay directorio de ejecución (en Linux, $XDG_RUNTIME_DIR): no hay dónde escribir los ficheros efímeros de la sesión");
     };
     let mut elegidos: Vec<&Elemento> = Vec::new();
     for id in &ids {
@@ -703,7 +702,13 @@ fn io(ruta: &Path, e: std::io::Error) -> ErrorBiblioteca {
 }
 
 fn crear_directorios(ruta: &Path) -> Result<(), ErrorBiblioteca> {
-    std::fs::DirBuilder::new().recursive(true).mode(MODO_DIRECTORIO).create(ruta).map_err(|e| io(ruta, e))
+    // Todo directorio que se cree (también los intermedios) queda privado.
+    let nuevos: Vec<&Path> = ruta.ancestors().take_while(|d| !d.as_os_str().is_empty() && !d.exists()).collect();
+    std::fs::create_dir_all(ruta).map_err(|e| io(ruta, e))?;
+    for d in nuevos {
+        poner_privado(d).map_err(|e| io(d, e))?;
+    }
+    Ok(())
 }
 
 /// Segundos Unix de la creación de una sesión: la marca `.creada` y, si no
@@ -769,7 +774,7 @@ pub fn materializar(plan: &PlanSesion, raices: &Raices) -> Result<PlanSesion, Er
 /// variables que un MCP de Codex nombra (`env_http_headers`,
 /// `bearer_token_env_var`).
 pub fn materializar_con_entorno(plan: &PlanSesion, raices: &Raices, entorno: &dyn Fn(&str) -> Option<String>) -> Result<PlanSesion, ErrorBiblioteca> {
-    let Some(runtime) = &raices.runtime else { return mal("no hay $XDG_RUNTIME_DIR") };
+    let Some(runtime) = &raices.runtime else { return mal("no hay directorio de ejecución (en Linux, $XDG_RUNTIME_DIR)") };
     let base = runtime.join("ea-biblioteca").join("sesiones");
     let esperado = base.join(&plan.id);
     let id_ok = plan.id.len() == 13 && plan.id.starts_with('s') && plan.id[1..].bytes().all(|b| b.is_ascii_hexdigit());
@@ -798,8 +803,9 @@ pub fn materializar_con_entorno(plan: &PlanSesion, raices: &Raices, entorno: &dy
     let mut real = None;
     for _ in 0..16 {
         let dir = base.join(format!("{}-{}", plan.id, nonce()));
-        match std::fs::DirBuilder::new().mode(MODO_DIRECTORIO).create(&dir) {
+        match std::fs::create_dir(&dir) {
             Ok(()) => {
+                poner_privado(&dir).map_err(|e| io(&dir, e))?;
                 real = Some(dir);
                 break;
             }
@@ -822,21 +828,24 @@ pub fn materializar_con_entorno(plan: &PlanSesion, raices: &Raices, entorno: &dy
 fn escribir_sesion(plan: &PlanSesion, completas: &[(String, Mcp, bool)]) -> Result<PlanSesion, ErrorBiblioteca> {
     let marca = plan.directorio.join(MARCA_CREACION);
     let ahora = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let mut h = std::fs::OpenOptions::new().write(true).create_new(true).mode(MODO_FICHERO).open(&marca).map_err(|e| io(&marca, e))?;
+    let mut h = opciones_privadas().write(true).create_new(true).open(&marca).map_err(|e| io(&marca, e))?;
     h.write_all(format!("{ahora}\n").as_bytes()).map_err(|e| io(&marca, e))?;
     for f in &plan.ficheros {
         if let Some(padre) = f.ruta.parent() {
             crear_directorios(padre)?;
         }
         let contenido = if f.con_secretos { texto_mcp(&plan.agente, completas) } else { f.contenido.clone() };
-        let mut h = std::fs::OpenOptions::new().write(true).create_new(true).mode(f.modo).open(&f.ruta).map_err(|e| io(&f.ruta, e))?;
+        let mut h = opciones_privadas().write(true).create_new(true).open(&f.ruta).map_err(|e| io(&f.ruta, e))?;
+        if f.modo != MODO_FICHERO {
+            poner_permisos_unix(&f.ruta, f.modo).map_err(|e| io(&f.ruta, e))?;
+        }
         h.write_all(contenido.as_bytes()).map_err(|e| io(&f.ruta, e))?;
     }
     for l in &plan.enlaces {
         if let Some(padre) = l.ruta.parent() {
             crear_directorios(padre)?;
         }
-        std::os::unix::fs::symlink(&l.destino, &l.ruta).map_err(|e| io(&l.ruta, e))?;
+        enlazar(&l.destino, &l.ruta).map_err(|e| io(&l.ruta, e))?;
     }
     Ok(plan.clone())
 }

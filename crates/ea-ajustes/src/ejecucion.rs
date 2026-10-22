@@ -3,7 +3,6 @@
 //! escribe), `ea-web-open` (que la lee) y el ejecutor (que tapa el
 //! directorio dentro de `bwrap` para que el agente local no la lea).
 
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use crate::fuentes::Entorno;
@@ -13,15 +12,11 @@ pub const DIR_WEB: &str = "ea-web";
 /// Fichero con la clave de sesión del panel (0600).
 pub const FICHERO_CLAVE: &str = "clave";
 
-/// `$XDG_RUNTIME_DIR` si está definido (y es absoluto); si no,
-/// `/run/user/<uid>` cuando existe. `None` si no hay ninguno.
+/// El directorio de ejecución de la plataforma (Linux: `$XDG_RUNTIME_DIR` o
+/// `/run/user/<uid>`; macOS: `$TMPDIR/…`; Windows: `%LOCALAPPDATA%\…`). El
+/// entorno se lee a través de `entorno`. `None` si no hay ninguno.
 pub fn dir_ejecucion(entorno: &Entorno) -> Option<PathBuf> {
-    if let Some(d) = entorno.var("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_absolute()) {
-        return Some(d);
-    }
-    let uid = std::fs::metadata("/proc/self").ok()?.uid();
-    let d = PathBuf::from(format!("/run/user/{uid}"));
-    d.is_dir().then_some(d)
+    ea_plataforma::rutas::dir_ejecucion(|n| entorno.var(n))
 }
 
 /// Ruta del fichero de la clave dentro de un directorio de ejecución.
@@ -34,6 +29,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    #[cfg(unix)]
     #[test]
     fn el_directorio_sale_de_xdg_runtime_dir() {
         let e = Entorno::Fijo(BTreeMap::from([("XDG_RUNTIME_DIR".into(), "/run/user/42".into())]));
