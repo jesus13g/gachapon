@@ -2817,9 +2817,10 @@ async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
         _ => unreachable!(),
     };
     let id_txt = id.to_string();
+    let lanzador = ea_plataforma::escritorio::lanzadores_terminal()[0];
     let esperado: Vec<Vec<String>> = [
-        vec!["xdg-terminal-exec", &ea, "propuestas", "decidir", &id_txt, "--aceptar", "--esperar"],
-        vec!["xdg-terminal-exec", &ea, "acciones", "ejecutar", "ea_eliminar_rutina", "--args", r#"{"slug":"revision-diaria"}"#, "--esperar"],
+        vec![lanzador, &ea, "propuestas", "decidir", &id_txt, "--aceptar", "--esperar"],
+        vec![lanzador, &ea, "acciones", "ejecutar", "ea_eliminar_rutina", "--args", r#"{"slug":"revision-diaria"}"#, "--esperar"],
     ]
     .into_iter()
     .map(|v| v.into_iter().map(String::from).collect())

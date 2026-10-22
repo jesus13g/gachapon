@@ -54,6 +54,6 @@ jobs:
       # -D warnings solo se exige a ea-plataforma (job anterior): el resto
       # del workspace arrastra avisos antiguos ajenos a esta spec.
       - name: Compilar
-        run: cargo build --workspace --all-targets
+        run: cargo build --workspace --all-targets --keep-going
       - name: Pruebas
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
