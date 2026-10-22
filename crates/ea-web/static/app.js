@@ -3005,8 +3005,10 @@ function cabecera() {
   const caidos = e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => s.nombre);
   const salud = $('#salud');
   salud.textContent = caidos.length ? 'parado: ' + caidos.join(', ')
-    : !e.orquestador.vivo ? 'orquestador sin latido'
+    : !e.orquestador.vivo ? 'sin latido'
       : e.servicios.every(s => s.activo === 'active') ? 'todo en marcha' : '';
+  salud.title = caidos.length ? 'servicios parados: ' + caidos.join(', ')
+    : !e.orquestador.vivo ? 'el orquestador no da latido: no se ejecutará nada' : '';
   salud.className = caidos.length || !e.orquestador.vivo ? 'hot' : '';
   const o = $('#orq');
   o.classList.toggle('hot', !e.orquestador.vivo);

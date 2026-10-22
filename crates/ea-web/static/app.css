@@ -74,7 +74,7 @@ header, #cabecera, #barra, #lista { width: 100%; max-width: calc(960px + 20%); m
 header { display: flex; align-items: center; gap: 12px; height: 52px; flex: none; }
 /* Cabecera de una línea: estado a la izquierda, sección al centro, tema y ayuda a la derecha. */
 #cabecera {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, max-content) minmax(0, 1fr);
   align-items: center; gap: 12px; height: 44px; margin-bottom: 4px;
 }
 .cab-lado { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -426,6 +426,8 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   .tablero.t5 { grid-template-columns: 1fr; }
   .actor .rol { min-height: 0; }
   #salud { display: none; }
+  /* en el móvil los avisos de la cabecera son solo el glifo (el texto sigue en el title) */
+  #off span, #lectura span { display: none; }
   #cabecera { grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; }
   #fproy span { display: none; }
   #barra { gap: 8px; }
