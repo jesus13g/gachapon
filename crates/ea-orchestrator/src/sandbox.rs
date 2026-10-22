@@ -92,6 +92,12 @@ fn literal(ruta: &Path) -> String {
 ///    en `localhost` y el socket de
 ///    `mDNSResponder`, que usa la resolución de nombres del sistema. No se
 ///    abre ningún otro socket unix.
+/// Cierra las vías para lanzar código fuera del sandbox (con `allow default`
+/// los hijos heredan el perfil, pero `open`, `osascript` o `launchctl` piden a
+/// otro proceso, ya fuera, que lo ejecute): sin esos binarios ni los servicios
+/// de LaunchServices y AppleEvents. Un agente Node normal no los usa.
+const REGLAS_ESCAPE: &str = "(deny process-exec*\n  (literal \"/usr/bin/open\")\n  (literal \"/usr/bin/osascript\")\n  (literal \"/usr/bin/automator\")\n  (literal \"/usr/bin/shortcuts\")\n  (literal \"/bin/launchctl\")\n  (literal \"/usr/bin/launchctl\"))\n(deny mach-lookup\n  (global-name \"com.apple.coreservices.launchservicesd\")\n  (global-name \"com.apple.coreservices.appleevents\")\n  (global-name-prefix \"com.apple.lsd\"))\n";
+
 pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucion: Option<&Path>) -> String {
     let mut p = String::from("(version 1)\n(allow default)\n(deny file-write* (subpath \"/\"))\n(allow file-write*\n");
     p.push_str(&format!("  (subpath {})\n  (subpath {})\n", literal(worktree), literal(tmp)));
@@ -102,6 +108,7 @@ pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucio
     if let Some(d) = ejecucion {
         p.push_str(&format!("(deny file-read* (subpath {}))\n", literal(d)));
     }
+    p.push_str(REGLAS_ESCAPE);
     p.push_str("(deny network*)\n(allow network* (remote ip \"localhost:*\"))\n(allow network-bind network-inbound (local ip \"localhost:*\"))\n");
     p.push_str("(allow network* (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n");
     p
@@ -156,6 +163,11 @@ mod tests {
         // (lo comprobó la CI de macOS): solo se escucha en localhost.
         assert!(!p.contains("(allow network* (local ip"), "{p}");
         assert!(p.contains("(allow network-bind network-inbound (local ip \"localhost:*\"))"));
+        // Vías de escape del sandbox cerradas, y antes de los permisos de red.
+        for esperado in ["(deny process-exec*", "\"/usr/bin/open\"", "\"/usr/bin/osascript\"", "\"/bin/launchctl\"", "(deny mach-lookup", "com.apple.coreservices.launchservicesd", "com.apple.coreservices.appleevents", "(global-name-prefix \"com.apple.lsd\")"] {
+            assert!(p.contains(esperado), "falta {esperado}\n{p}");
+        }
+        assert!(p.find("(deny process-exec*").unwrap() < p.find("(deny network*)").unwrap());
         // Sin directorio de ejecución no hay nada que tapar.
         assert!(!perfil_seatbelt(Path::new("/w"), Path::new("/t"), &[], None).contains("deny file-read*"));
     }
@@ -199,6 +211,20 @@ mod tests {
         // El directorio de ejecución (clave del panel) no se puede leer.
         let l = sh(format!("cat '{}'", run_c.join("clave").display()));
         assert!(!l.status.success() && l.stdout.is_empty(), "leyó el directorio de ejecución");
+
+        // Vías de escape: lanzar código fuera del sandbox falla; lo normal sigue.
+        for orden in ["/usr/bin/open -a Calculator", "/usr/bin/osascript -e 'return 1'", "/bin/launchctl submit -l x -- /usr/bin/true"] {
+            let o = sh(orden.into());
+            assert!(!o.status.success(), "`{orden}` no debería poder dentro del sandbox");
+        }
+        let ok = sh("echo ok".into());
+        assert!(ok.status.success() && String::from_utf8_lossy(&ok.stdout).trim() == "ok");
+        if Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success()) {
+            let n = sh(format!("node -e 'require(\"fs\").writeFileSync(\"{}/x\",\"1\")'", tmp_c.display()));
+            assert!(n.status.success() && tmp_c.join("x").exists(), "node debe poder escribir en su temporal: {}", String::from_utf8_lossy(&n.stderr));
+        } else {
+            eprintln!("sin node: comprobación de Node omitida");
+        }
 
         // Red: solo localhost.
         let oyente = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

@@ -51,7 +51,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
-use ea_plataforma::fs::{enlazar, opciones_privadas, poner_permisos_unix, poner_privado};
+use ea_plataforma::fs::{crear_dir_nuevo_privado, crear_dir_privado, enlazar, opciones_privadas, poner_permisos_unix, poner_privado};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -701,13 +701,8 @@ fn io(ruta: &Path, e: std::io::Error) -> ErrorBiblioteca {
 }
 
 fn crear_directorios(ruta: &Path) -> Result<(), ErrorBiblioteca> {
-    // Todo directorio que se cree (también los intermedios) queda privado.
-    let nuevos: Vec<&Path> = ruta.ancestors().take_while(|d| !d.as_os_str().is_empty() && !d.exists()).collect();
-    std::fs::create_dir_all(ruta).map_err(|e| io(ruta, e))?;
-    for d in nuevos {
-        poner_privado(d).map_err(|e| io(d, e))?;
-    }
-    Ok(())
+    // Todo directorio que se cree (también los intermedios) nace 0700.
+    crear_dir_privado(ruta).map_err(|e| io(ruta, e))
 }
 
 /// Segundos Unix de la creación de una sesión: la marca `.creada` y, si no
@@ -802,7 +797,7 @@ pub fn materializar_con_entorno(plan: &PlanSesion, raices: &Raices, entorno: &dy
     let mut real = None;
     for _ in 0..16 {
         let dir = base.join(format!("{}-{}", plan.id, nonce()));
-        match std::fs::create_dir(&dir) {
+        match crear_dir_nuevo_privado(&dir) {
             Ok(()) => {
                 poner_privado(&dir).map_err(|e| io(&dir, e))?;
                 real = Some(dir);

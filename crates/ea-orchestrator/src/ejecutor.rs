@@ -55,7 +55,7 @@ const MAX_EVIDENCIA: usize = 2048;
 /// Cada cuánto se relee `estado.json` mientras corre el agente.
 const SONDEO_CANCELACION: Duration = Duration::from_secs(2);
 /// Lo que se espera tras pedir terminar al árbol antes de matarlo.
-const MARGEN_TERM: Duration = Duration::from_secs(5);
+const MARGEN_TERM: Duration = Duration::from_secs(10);
 /// Lo que se espera a que se cierren stdout y stderr tras la salida del
 /// proceso (un nieto escapado del grupo podría tenerlos abiertos).
 const ESPERA_SALIDA: Duration = Duration::from_secs(5);

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [multisistema, desarrollo, main]
+    branches: [multisistema, multisistema-c2, desarrollo, main]
   pull_request:
 
 env:
