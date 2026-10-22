@@ -56,7 +56,7 @@ comando, que el ejecutor implementa fase a fase con revisión cada N fases.
 }
 ```
 
-5. `ea trabajo crear --orden /tmp/…json` imprime el **id**. Infórmalo y di que las
+5. `ea trabajo crear --orden <fichero temporal>.json` (en el directorio temporal del sistema) imprime el **id**. Infórmalo y di que las
    revisiones intermedias y la final llegan a la cola del planificador
    (`ea cola planificador`; revisión en `agentes/flujo/revisar.md`).
 

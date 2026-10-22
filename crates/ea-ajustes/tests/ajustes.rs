@@ -240,7 +240,7 @@ fn escribir_conserva_comentarios_y_claves_ajenas() {
 
 #[test]
 fn utilidades() {
-    let casa = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
+    let casa = ea_plataforma::usuario::home().unwrap();
     assert_eq!(expandir_tilde("~"), casa);
     assert_eq!(expandir_tilde("~/x/y"), casa.join("x/y"));
     assert_eq!(expandir_tilde("/abs"), PathBuf::from("/abs"));

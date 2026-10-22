@@ -817,20 +817,40 @@ fn listar_en(dir: &Path) -> Resultado<Vec<EntradaCola>> {
 }
 
 pub(crate) fn tomar_en(dir: &Path, admite: &dyn Fn(&str) -> bool) -> Resultado<Option<String>> {
-    let rd = match fs::read_dir(dir) {
-        Ok(rd) => rd,
+    fn listar(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+        let mut v: Vec<PathBuf> = fs::read_dir(dir)?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                !n.starts_with('.') && n.ends_with(".json")
+            })
+            .collect();
+        v.sort();
+        Ok(v)
+    }
+    // Sondeo barato: con la cola vacía (o sin directorio) no se crea ni se
+    // abre el cerrojo.
+    match listar(dir) {
+        Ok(v) if v.is_empty() => return Ok(None),
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    }
+    // Un solo reclamante a la vez en esta cola (entre hilos y procesos): el
+    // `rename` basta en Unix, pero en Windows dos reclamos simultáneos del
+    // mismo fichero no son fiables.
+    let _cerrojo = {
+        let f = fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".tomar.lock"))?;
+        f.lock()?;
+        f
+    };
+    // Dentro del cerrojo se vuelve a listar: otro pudo llevarse las candidatas.
+    let candidatas = match listar(dir) {
+        Ok(v) => v,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.into()),
     };
-    let mut candidatas: Vec<PathBuf> = rd
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            !n.starts_with('.') && n.ends_with(".json")
-        })
-        .collect();
-    candidatas.sort();
     for p in candidatas {
         // Con filtro, se mira la entrada antes de reclamarla; si no pasa, se queda.
         if let Some(e) = fs::read(&p).ok().and_then(|b| serde_json::from_slice::<EntradaCola>(&b).ok())
@@ -839,7 +859,10 @@ pub(crate) fn tomar_en(dir: &Path, admite: &dyn Fn(&str) -> bool) -> Resultado<O
             continue;
         }
         let nombre = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-        let reclamada = dir.join(format!(".{nombre}.tomada-{}", std::process::id()));
+        // Único por reclamo: dos hilos del mismo proceso no pueden pisarse.
+        static RECLAMOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = RECLAMOS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let reclamada = dir.join(format!(".{nombre}.tomada-{}-{n}", std::process::id()));
         if fs::rename(&p, &reclamada).is_err() {
             continue; // otro proceso se adelantó
         }

@@ -51,7 +51,7 @@ fn mundo() -> Mundo {
 
     // Claude Code
     fs::create_dir_all(home.join(".claude/skills")).unwrap();
-    std::os::unix::fs::symlink(repo.join("claude/skills/mision"), home.join(".claude/skills/mision")).unwrap();
+    ea_plataforma::fs::enlazar(&repo.join("claude/skills/mision"), &home.join(".claude/skills/mision")).unwrap();
     escribe(home.join(".claude/skills/propia/SKILL.md"), "---\nname: propia\ndescription: >\n  Hace cosas\n  en dos lineas\n---\n");
     escribe(home.join(".claude/skills/sin-skill-md/otro.txt"), "no es una skill");
     escribe(home.join(".claude/agents/revisor.md"), "---\nname: revisor\ndescription: Revisa\n---\n");
@@ -68,7 +68,7 @@ fn mundo() -> Mundo {
               "apagado@mkt":[{{"scope":"user","installPath":"/no/existe","version":"2"}}],
               "ajeno@mkt":[{{"scope":"project","projectPath":"/otro/proyecto","installPath":"/x","version":"1"}}]
             }}}}"#,
-            plugin_dir.display()
+            plugin_dir.display().to_string().replace('\\', "/")
         ),
     );
     escribe(home.join(".claude/settings.json"), r#"{"enabledPlugins":{"foo@mkt":true,"apagado@mkt":false}}"#);
@@ -83,7 +83,7 @@ fn mundo() -> Mundo {
               }},
               "projects":{{"{}":{{"mcpServers":{{"del-proyecto":{{"command":"servidor"}}}},"disabledMcpServers":["del-proyecto"],"disabledMcpjsonServers":["off"]}}}}
             }}"#,
-            proyecto.display()
+            proyecto.display().to_string().replace('\\', "/")
         ),
     );
     escribe(
@@ -138,7 +138,7 @@ X-Auth = "SECRETO_HEADER_CODEX"
     escribe(home.join(".qwen/extensions/ext2/qwen-extension.json"), r#"{"name":"ext2"}"#);
     escribe(
         home.join(".qwen/extensions/extension-enablement.json"),
-        &format!(r#"{{"ext2":{{"overrides":["{0}/*","!{1}/*"]}}}}"#, home.display(), proyecto.display()),
+        &format!(r#"{{"ext2":{{"overrides":["{0}/*","!{1}/*"]}}}}"#, home.display().to_string().replace('\\', "/"), proyecto.display().to_string().replace('\\', "/")),
     );
 
     // Antigravity
@@ -408,7 +408,10 @@ fn lo_que_viene_de_ficheros_ajenos_no_lleva_secuencias_de_escape() {
     let m = mundo();
     // Frontmatter, nota (JSONC), aviso (nombre raro de directorio) y argumentos de un MCP.
     escribe(m.home.join(".claude/skills/rara/SKILL.md"), "---\ndescription: \"hola\x1b]0;pwn\x07 \x1b[2Jmundo\"\n---\n");
-    escribe(m.home.join(".claude/skills/mal\x1bnombre/SKILL.md"), "---\ndescription: x\n---\n");
+    // Windows no admite caracteres de control en los nombres de fichero.
+    if cfg!(unix) {
+        escribe(m.home.join(".claude/skills/mal\x1bnombre/SKILL.md"), "---\ndescription: x\n---\n");
+    }
     escribe(m.home.join(".config/opencode/opencode.jsonc"), "{\n // comentario\n \"mcp\": { \"j\": { \"type\": \"local\", \"command\": [\"x\x1b[31m\", \"a\x07b\"] } }\n}\n");
     let inv = Biblioteca::cargar(&raices(&m), &m.ajustes);
     let rara = get(&inv, "claude-code/skill/usuario/rara");
@@ -417,6 +420,8 @@ fn lo_que_viene_de_ficheros_ajenos_no_lleva_secuencias_de_escape() {
     for c in ['\u{1b}', '\u{7}'] {
         assert!(!json.contains(&format!("\\u{:04x}", c as u32)), "quedó un carácter de control: {json}");
     }
-    assert!(inv.avisos.iter().any(|a| a.contains("mal")), "{:?}", inv.avisos);
+    if cfg!(unix) {
+        assert!(inv.avisos.iter().any(|a| a.contains("mal")), "{:?}", inv.avisos);
+    }
     assert!(inv.avisos.iter().all(|a| !a.contains('\x1b')));
 }

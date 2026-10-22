@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [multisistema, desarrollo, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  plataforma:
+    name: ea-plataforma (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy -p ea-plataforma --all-targets --features tokio -- -D warnings
+      - name: Pruebas
+        run: cargo test -p ea-plataforma --features tokio
+
+  workspace:
+    name: workspace (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: workspace
+      - name: Instalar bubblewrap (pruebas del sandbox real)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restringe los espacios de nombres sin privilegios.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Comprobar que sh existe
+        shell: bash
+        run: command -v sh && sh -c 'echo sh ok'
+      # Compilación de todo el workspace, pruebas incluidas. Clippy con
+      # -D warnings solo se exige a ea-plataforma (job anterior): el resto
+      # del workspace arrastra avisos antiguos ajenos a esta spec.
+      - name: Compilar
+        run: cargo build --workspace --all-targets --keep-going
+      - name: Pruebas
+        run: cargo test --workspace --no-fail-fast

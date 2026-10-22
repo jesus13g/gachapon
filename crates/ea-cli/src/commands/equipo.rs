@@ -96,7 +96,7 @@ pub fn despertar_sin_tty(
     if todos == !miembros.is_empty() {
         bail!("indica --todos o uno o más --miembro agente:rol (no las dos cosas)");
     }
-    let worktree = std::fs::canonicalize(worktree).with_context(|| format!("el worktree {worktree:?} no existe"))?;
+    let worktree = ea_plataforma::rutas::canonica(worktree).with_context(|| format!("el worktree {worktree:?} no existe"))?;
     if !worktree.is_dir() {
         bail!("el worktree {} no es una carpeta", worktree.display());
     }
@@ -303,12 +303,11 @@ mod tests {
 
     /// Un directorio con binarios de mentira para los ids dados.
     fn bin(ids: &[&str], a: &Ajustes) -> (tempfile::TempDir, std::ffi::OsString) {
-        use std::os::unix::fs::PermissionsExt;
         let d = tempfile::tempdir().unwrap();
         for id in ids {
-            let p = d.path().join(&a.agentes[*id].bin);
+            let p = d.path().join(ea_plataforma::rutas::nombre_exe(&a.agentes[*id].bin));
             std::fs::write(&p, "#!/bin/sh\n").unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            ea_plataforma::fs::poner_permisos_unix(&p, 0o755).unwrap();
         }
         let path = d.path().as_os_str().to_owned();
         (d, path)

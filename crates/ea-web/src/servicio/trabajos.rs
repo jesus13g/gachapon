@@ -251,7 +251,7 @@ pub(super) async fn validar_worktree(wt: &str) -> Resultado<String> {
     if !ruta.is_absolute() {
         return Err(ErrorWeb::Invalido("'worktree' debe ser una ruta absoluta".into()));
     }
-    let canon = std::fs::canonicalize(ruta)
+    let canon = ea_plataforma::rutas::canonica(ruta)
         .map_err(|_| ErrorWeb::Invalido(format!("el worktree '{wt}' no existe")))?;
     if !canon.is_dir() {
         return Err(ErrorWeb::Invalido(format!("el worktree '{wt}' no es un directorio")));

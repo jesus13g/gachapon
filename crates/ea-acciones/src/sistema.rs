@@ -1,4 +1,4 @@
-//! La capa de sistema operativo (§7.3): lo único que toca `systemctl` y el
+//! La capa de sistema operativo (§7.3): lo único que toca el gestor de servicios (`systemctl`, `launchctl`, `schtasks`) y el
 //! sistema de ficheros. Dos traits para que el tipo diga lo que se puede
 //! hacer: [`Consulta`] solo mira (basta para simular y para proponer; es lo
 //! único que reciben `ea-mcp` y el orquestador) y [`Sistema`] además muta
@@ -9,16 +9,14 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use ea_biblioteca::{Cambio, Contexto, Hecho, Ordenes, OrdenesDoble, OrdenesReales};
 use ea_biblioteca::{Inventario, PlanSesion, Raices};
 use ea_boveda::{Boveda, ErrorBoveda, PlanPromocion};
 use ea_store::Store;
-use tokio::process::Command;
-use tokio::time::timeout;
 
 use crate::catalogo::Canal;
+use crate::servicios::GestorServicios;
 use crate::temporizador::{comprobar_calendario, Calendario, EstadoTimer, Temporizadores};
 use crate::terminal::{TerminalSimulada, TerminalSistema};
 
@@ -179,33 +177,6 @@ fn leer_opcional(ruta: &std::path::Path) -> Result<Option<String>, String> {
     }
 }
 
-async fn estado_systemd(nombre: &str) -> Result<EstadoServicio, String> {
-    let mut cmd = Command::new("systemctl");
-    cmd.args(["--user", "show", "-p", "LoadState", "-p", "ActiveState"]);
-    cmd.arg(format!("{nombre}.service"));
-    cmd.kill_on_drop(true);
-    let salida = timeout(Duration::from_secs(5), cmd.output())
-        .await
-        .map_err(|_| "systemctl tardó demasiado".to_string())?
-        .map_err(|e| format!("no se pudo ejecutar systemctl: {e}"))?;
-    if !salida.status.success() {
-        return Err(String::from_utf8_lossy(&salida.stderr).trim().to_string());
-    }
-    let texto = String::from_utf8_lossy(&salida.stdout);
-    let valor = |clave: &str| {
-        texto
-            .lines()
-            .find_map(|l| l.strip_prefix(clave).and_then(|r| r.strip_prefix('=')))
-            .unwrap_or("")
-            .trim()
-            .to_string()
-    };
-    Ok(EstadoServicio {
-        cargado: valor("LoadState") == "loaded",
-        activo: valor("ActiveState"),
-    })
-}
-
 /// Solo mira: lo que reciben `ea-mcp` y el orquestador. No implementa
 /// [`Sistema`], así que con él es imposible mutar el sistema.
 pub struct SoloConsulta {
@@ -217,7 +188,7 @@ pub struct SoloConsulta {
 
 impl Consulta for SoloConsulta {
     async fn servicio_estado(&self, nombre: &str) -> Result<EstadoServicio, String> {
-        estado_systemd(nombre).await
+        GestorServicios::usuario().estado(nombre).await
     }
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
         leer_rutina(&self.rutinas_dir, slug)
@@ -258,7 +229,7 @@ pub struct SistemaReal {
 
 impl Consulta for SistemaReal {
     async fn servicio_estado(&self, nombre: &str) -> Result<EstadoServicio, String> {
-        estado_systemd(nombre).await
+        GestorServicios::usuario().estado(nombre).await
     }
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
         leer_rutina(&self.rutinas_dir, slug)
@@ -294,18 +265,7 @@ impl Sistema for SistemaReal {
                  hazlo desde la terminal con `ea`"
             ));
         }
-        let mut cmd = Command::new("systemctl");
-        cmd.args(["--user", "restart", &format!("{nombre}.service")]);
-        cmd.kill_on_drop(true);
-        let salida = timeout(Duration::from_secs(30), cmd.output())
-            .await
-            .map_err(|_| "systemctl tardó demasiado".to_string())?
-            .map_err(|e| format!("no se pudo ejecutar systemctl: {e}"))?;
-        if salida.status.success() {
-            Ok(())
-        } else {
-            Err(String::from_utf8_lossy(&salida.stderr).trim().to_string())
-        }
+        GestorServicios::usuario().reiniciar(nombre).await
     }
 
     fn rutina_eliminar(&self, slug: &str) -> Result<(), String> {

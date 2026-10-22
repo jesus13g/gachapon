@@ -125,8 +125,7 @@ fn mcp(r: &Raices, avisos: &mut Vec<String>) -> Vec<Elemento> {
     let mut sal = Vec::new();
     let config = r.home.join(".claude.json");
     let global = leer_json(&config, true, avisos);
-    let clave_proyecto = r.proyecto.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let del_proyecto = global.as_ref().zip(clave_proyecto.as_ref()).and_then(|(g, p)| g.get("projects")?.get(p));
+    let del_proyecto = global.as_ref().zip(r.proyecto.as_ref()).and_then(|(g, p)| super::comun::proyecto_en(g.get("projects")?, p));
     let mut sin_permiso: Vec<String> = del_proyecto.map(|p| nombres(p, "disabledMcpServers")).unwrap_or_default();
 
     if let Some(g) = &global {

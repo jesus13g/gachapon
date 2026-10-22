@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use ea_store::Store;
 
-use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, TrabajoAccion};
+use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, HookAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion};
 
 fn main() -> Result<()> {
     salir_en_silencio_si_se_cierra_la_tuberia();
@@ -26,6 +26,18 @@ fn main() -> Result<()> {
             return match accion {
                 None => commands::agentes::listar(json),
                 Some(AgentesAccion::Rol { rol, agente }) => commands::agentes::rol(&rol, &agente),
+            };
+        }
+        Command::Hook { accion } => {
+            return match accion {
+                HookAccion::Subagentes { accion } => commands::hook::subagentes(&accion),
+            };
+        }
+        Command::Servicios { accion } => {
+            return match accion {
+                ServiciosAccion::Ver => commands::servicios::ver(),
+                ServiciosAccion::Instalar => commands::servicios::instalar(),
+                ServiciosAccion::Desinstalar => commands::servicios::desinstalar(),
             };
         }
         Command::Equipo { accion } => {
@@ -145,7 +157,7 @@ fn main() -> Result<()> {
             _ => unreachable!("se atiende antes de abrir la base"),
         },
         Command::Tui => tui::run(&mut store)?,
-        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Equipo { .. } => unreachable!("se atiende antes de abrir la base"),
+        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Servicios { .. } | Command::Hook { .. } | Command::Equipo { .. } => unreachable!("se atiende antes de abrir la base"),
     }
 
     Ok(())
@@ -155,8 +167,5 @@ fn main() -> Result<()> {
 /// en una tubería cerrada. Con la acción por defecto el proceso termina sin
 /// ruido, como cualquier herramienta de Unix.
 fn salir_en_silencio_si_se_cierra_la_tuberia() {
-    // SAFETY: se llama al principio de `main`, antes de crear hilos.
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    }
+    ea_plataforma::proceso::ignorar_sigpipe_por_defecto();
 }

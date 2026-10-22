@@ -10,6 +10,23 @@ use serde_json::Value;
 use crate::modelo::{Activado, Ambito, DefMcp, Elemento, Mecanismo, Tipo};
 use crate::redactar::{nombres_de, redactar_args, redactar_texto, redactar_url, sin_control};
 
+/// La entrada de `projects` de `~/.claude.json` que corresponde a un proyecto.
+/// La clave exacta gana; si no, se compara sin distinguir `/` de `\` (Claude
+/// Code escribe `C:/Users/x/proy` en Windows) ni, allí, mayúsculas.
+pub fn proyecto_en<'a>(projects: &'a Value, proyecto: &Path) -> Option<&'a Value> {
+    let clave = proyecto.to_string_lossy();
+    if let Some(v) = projects.get(&*clave) {
+        return Some(v);
+    }
+    let norma = |t: &str| {
+        let t = t.replace('\\', "/");
+        let t = t.trim_end_matches('/').to_string();
+        if cfg!(windows) { t.to_lowercase() } else { t }
+    };
+    let buscada = norma(&clave);
+    projects.as_object()?.iter().find(|(k, _)| norma(k) == buscada).map(|(_, v)| v)
+}
+
 pub fn leer_texto(ruta: &Path) -> Option<String> {
     std::fs::read_to_string(ruta).ok()
 }
@@ -197,7 +214,7 @@ fn entradas(dir: &Path) -> Vec<(String, PathBuf)> {
 /// ¿Esta ruta (quizá un enlace) apunta dentro de `<repo>/claude/skills`?
 fn apunta_al_repo(ruta: &Path, repo: Option<&Path>) -> bool {
     let Some(repo) = repo else { return false };
-    let (Ok(destino), Ok(base)) = (std::fs::canonicalize(ruta), std::fs::canonicalize(repo.join("claude/skills"))) else {
+    let (Ok(destino), Ok(base)) = (ea_plataforma::rutas::canonica(ruta), ea_plataforma::rutas::canonica(repo.join("claude/skills"))) else {
         return false;
     };
     destino.starts_with(base)

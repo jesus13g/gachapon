@@ -51,10 +51,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use ea_plataforma::fs::{crear_dir_nuevo_privado, crear_dir_privado, enlazar, opciones_privadas, poner_permisos_unix, poner_privado};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use ea_plataforma::escritorio::{argv_lanzador, OrdenTerminal};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
@@ -73,7 +74,6 @@ const EDAD_MAXIMA: Duration = Duration::from_secs(7 * 24 * 3600);
 /// Fichero con los segundos Unix de la creación de la sesión.
 const MARCA_CREACION: &str = ".creada";
 const MODO_FICHERO: u32 = 0o600;
-const MODO_DIRECTORIO: u32 = 0o700;
 /// Lo que ocupa el sitio de un valor secreto en un plan.
 const OCULTO: &str = "<oculto>";
 /// Nombre que no existe, para pedirle a Qwen «ningún MCP».
@@ -142,21 +142,19 @@ pub struct PlanSesion {
 }
 
 impl PlanSesion {
-    /// El argv que se entrega a la terminal, sin shell: `env [-C <cwd>]
-    /// K=V… <argv>`. Así el directorio y las variables no dependen de si el
-    /// lanzador de terminal hereda el entorno.
+    /// Lo que se abre en la terminal: el comando, el directorio del proyecto
+    /// y las variables de la sesión. Cada sistema lo traduce a su lanzador
+    /// (`ea_plataforma::escritorio::lanzar_en_terminal`).
+    pub fn orden_terminal(&self) -> OrdenTerminal {
+        OrdenTerminal { argv: self.argv.clone(), cwd: self.cwd.clone(), entorno: self.entorno.clone() }
+    }
+
+    /// El argv de Linux que se entrega a la terminal, sin shell: `env [-C
+    /// <cwd>] K=V… <argv>`. Así el directorio y las variables no dependen de
+    /// si el lanzador de terminal hereda el entorno. Es también la forma que
+    /// se muestra y se apunta en el diario, en cualquier sistema.
     pub fn argv_terminal(&self) -> Vec<String> {
-        if self.entorno.is_empty() && self.cwd.is_none() {
-            return self.argv.clone();
-        }
-        let mut v = vec!["env".to_string()];
-        if let Some(c) = &self.cwd {
-            v.push("-C".into());
-            v.push(c.display().to_string());
-        }
-        v.extend(self.entorno.iter().map(|(k, x)| format!("{k}={x}")));
-        v.extend(self.argv.iter().cloned());
-        v
+        argv_lanzador(&self.orden_terminal(), "xdg-terminal-exec").into_iter().map(|a| a.to_string_lossy().into_owned()).collect()
     }
 
     /// Texto de una línea del comando, para mostrarlo.
@@ -282,8 +280,8 @@ fn leer_completo(f: &FuenteMcp, r: &Raices, entorno: &dyn Fn(&str) -> Option<Str
     // Solo se lee dentro del HOME o del proyecto: la ruta viene de un plan. Se
     // compara la ruta CANÓNICA (un enlace dentro del HOME no puede sacar la
     // lectura de él).
-    let canonica = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let real = std::fs::canonicalize(&f.ruta);
+    let canonica = |p: &Path| ea_plataforma::rutas::canonica(p).unwrap_or_else(|_| p.to_path_buf());
+    let real = ea_plataforma::rutas::canonica(&f.ruta);
     let dentro = real.as_ref().is_ok_and(|c| c.starts_with(canonica(&r.home)) || r.proyecto.as_ref().is_some_and(|p| c.starts_with(canonica(p))));
     if !dentro || f.ruta.components().any(|c| c.as_os_str() == "..") {
         return mal(format!("{}: la fuente {} está fuera del HOME y del proyecto", f.id, f.ruta.display()));
@@ -298,8 +296,8 @@ fn leer_completo(f: &FuenteMcp, r: &Raices, entorno: &dyn Fn(&str) -> Option<Str
         "claude-code" if fichero == ".claude.json" => {
             let j = json(&texto)?;
             if f.ambito == "proyecto" {
-                let p = r.proyecto.as_ref().map(|p| p.to_string_lossy().into_owned()).ok_or_else(no_esta)?;
-                j.get("projects").and_then(|x| x.get(&p)).and_then(|x| x.get("mcpServers")).and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
+                let p = r.proyecto.as_ref().ok_or_else(no_esta)?;
+                j.get("projects").and_then(|x| crate::agentes::comun::proyecto_en(x, p)).and_then(|x| x.get("mcpServers")).and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
             } else {
                 j.get("mcpServers").and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
             }
@@ -492,7 +490,7 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
         return mal("hay que elegir al menos una herramienta");
     }
     let Some(runtime) = &raices.runtime else {
-        return mal("no hay $XDG_RUNTIME_DIR: no hay dónde escribir los ficheros efímeros de la sesión");
+        return mal("no hay directorio de ejecución (en Linux, $XDG_RUNTIME_DIR): no hay dónde escribir los ficheros efímeros de la sesión");
     };
     let mut elegidos: Vec<&Elemento> = Vec::new();
     for id in &ids {
@@ -703,7 +701,8 @@ fn io(ruta: &Path, e: std::io::Error) -> ErrorBiblioteca {
 }
 
 fn crear_directorios(ruta: &Path) -> Result<(), ErrorBiblioteca> {
-    std::fs::DirBuilder::new().recursive(true).mode(MODO_DIRECTORIO).create(ruta).map_err(|e| io(ruta, e))
+    // Todo directorio que se cree (también los intermedios) nace 0700.
+    crear_dir_privado(ruta).map_err(|e| io(ruta, e))
 }
 
 /// Segundos Unix de la creación de una sesión: la marca `.creada` y, si no
@@ -769,7 +768,7 @@ pub fn materializar(plan: &PlanSesion, raices: &Raices) -> Result<PlanSesion, Er
 /// variables que un MCP de Codex nombra (`env_http_headers`,
 /// `bearer_token_env_var`).
 pub fn materializar_con_entorno(plan: &PlanSesion, raices: &Raices, entorno: &dyn Fn(&str) -> Option<String>) -> Result<PlanSesion, ErrorBiblioteca> {
-    let Some(runtime) = &raices.runtime else { return mal("no hay $XDG_RUNTIME_DIR") };
+    let Some(runtime) = &raices.runtime else { return mal("no hay directorio de ejecución (en Linux, $XDG_RUNTIME_DIR)") };
     let base = runtime.join("ea-biblioteca").join("sesiones");
     let esperado = base.join(&plan.id);
     let id_ok = plan.id.len() == 13 && plan.id.starts_with('s') && plan.id[1..].bytes().all(|b| b.is_ascii_hexdigit());
@@ -798,8 +797,9 @@ pub fn materializar_con_entorno(plan: &PlanSesion, raices: &Raices, entorno: &dy
     let mut real = None;
     for _ in 0..16 {
         let dir = base.join(format!("{}-{}", plan.id, nonce()));
-        match std::fs::DirBuilder::new().mode(MODO_DIRECTORIO).create(&dir) {
+        match crear_dir_nuevo_privado(&dir) {
             Ok(()) => {
+                poner_privado(&dir).map_err(|e| io(&dir, e))?;
                 real = Some(dir);
                 break;
             }
@@ -822,21 +822,24 @@ pub fn materializar_con_entorno(plan: &PlanSesion, raices: &Raices, entorno: &dy
 fn escribir_sesion(plan: &PlanSesion, completas: &[(String, Mcp, bool)]) -> Result<PlanSesion, ErrorBiblioteca> {
     let marca = plan.directorio.join(MARCA_CREACION);
     let ahora = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let mut h = std::fs::OpenOptions::new().write(true).create_new(true).mode(MODO_FICHERO).open(&marca).map_err(|e| io(&marca, e))?;
+    let mut h = opciones_privadas().write(true).create_new(true).open(&marca).map_err(|e| io(&marca, e))?;
     h.write_all(format!("{ahora}\n").as_bytes()).map_err(|e| io(&marca, e))?;
     for f in &plan.ficheros {
         if let Some(padre) = f.ruta.parent() {
             crear_directorios(padre)?;
         }
         let contenido = if f.con_secretos { texto_mcp(&plan.agente, completas) } else { f.contenido.clone() };
-        let mut h = std::fs::OpenOptions::new().write(true).create_new(true).mode(f.modo).open(&f.ruta).map_err(|e| io(&f.ruta, e))?;
+        let mut h = opciones_privadas().write(true).create_new(true).open(&f.ruta).map_err(|e| io(&f.ruta, e))?;
+        if f.modo != MODO_FICHERO {
+            poner_permisos_unix(&f.ruta, f.modo).map_err(|e| io(&f.ruta, e))?;
+        }
         h.write_all(contenido.as_bytes()).map_err(|e| io(&f.ruta, e))?;
     }
     for l in &plan.enlaces {
         if let Some(padre) = l.ruta.parent() {
             crear_directorios(padre)?;
         }
-        std::os::unix::fs::symlink(&l.destino, &l.ruta).map_err(|e| io(&l.ruta, e))?;
+        enlazar(&l.destino, &l.ruta).map_err(|e| io(&l.ruta, e))?;
     }
     Ok(plan.clone())
 }

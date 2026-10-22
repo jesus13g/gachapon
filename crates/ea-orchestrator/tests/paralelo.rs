@@ -504,9 +504,15 @@ fn roles_ejecutor_sigue_mandando_en_los_trabajos_sin_equipo() {
     assert_eq!(quien(&r1).as_deref(), Some("qwen-code"), "sin equipo: roles.ejecutor");
     assert_eq!(quien(&r2).as_deref(), Some("codex"), "del equipo: su ejecutor");
     // Lo que se devuelve a la cola al dormir lo hace el de `roles.ejecutor`.
+    // Sin trabajadores entre medias: con el de codex vivo podría tomar el
+    // trabajo asignado antes de que el equipo se duerma (y la prueba sería
+    // una carrera, sobre todo en máquinas lentas).
+    t.detener();
     let r3 = repo(e.d.path(), "r3");
     let asignado = e.bus.crear_trabajo(Orden { equipo: Some(eq.clone()), asignado_a: Some("codex".into()), ..orden(&r3) }).unwrap();
     e.bus.dormir_equipo(&eq).unwrap();
+    e.apagar.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut t = Trabajadores::new(e.contexto(&doble));
     esperar_que(
         || {
             t.reconciliar();

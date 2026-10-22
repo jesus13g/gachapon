@@ -81,8 +81,37 @@ pub enum Command {
         #[command(subcommand)]
         accion: EquipoAccion,
     },
+    /// Servicios residentes (ea-mcp, ea-orchestrator, ea-web) en el gestor del sistema: ver, instalar y desinstalar (instalar y desinstalar exigen una terminal interactiva real)
+    Servicios {
+        #[command(subcommand)]
+        accion: ServiciosAccion,
+    },
+    /// Hooks de Claude Code (leen el JSON del hook por stdin; nunca fallan)
+    Hook {
+        #[command(subcommand)]
+        accion: HookAccion,
+    },
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum HookAccion {
+    /// SubagentStart / SubagentStop: apunta los subagentes en marcha para ea-web
+    Subagentes {
+        /// `start` o `stop`
+        accion: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ServiciosAccion {
+    /// Qué instalaría (unidades, rutas reales de los binarios y órdenes) y cómo está cada servicio; no cambia nada
+    Ver,
+    /// Escribe las unidades con la ruta real de los binarios y arranca los servicios (systemd --user, launchd o el Programador de tareas)
+    Instalar,
+    /// Para y quita los servicios instalados con `ea servicios instalar`
+    Desinstalar,
 }
 
 #[derive(Subcommand)]

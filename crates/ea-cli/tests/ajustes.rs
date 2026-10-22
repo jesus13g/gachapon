@@ -25,7 +25,7 @@ fn ver_en_json_es_json_valido() {
     let o = ea(d.path(), &["ajustes", "ver", "--json"], &[]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
-    assert_eq!(v["fichero"], d.path().join("config/ajustes.toml").display().to_string());
+    assert_eq!(v["fichero"], d.path().join("config").join("ajustes.toml").display().to_string());
     assert_eq!(v["secciones"].as_array().unwrap().len(), 9);
 }
 
@@ -56,5 +56,5 @@ fn establecer_sin_terminal_no_escribe_nada() {
     let o = ea(d.path(), &["ajustes", "establecer", "web.sondeo_ms=5000"], &[]);
     assert!(!o.status.success());
     assert!(String::from_utf8_lossy(&o.stderr).contains("terminal interactiva"), "{}", String::from_utf8_lossy(&o.stderr));
-    assert!(!d.path().join("config/ajustes.toml").exists());
+    assert!(!d.path().join("config").join("ajustes.toml").exists());
 }

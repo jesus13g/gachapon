@@ -30,6 +30,7 @@ pub const VERSION: &str = "2.1.1";
 pub fn leer(r: &Raices, avisos: &mut Vec<String>) -> Vec<Elemento> {
     let repo = r.repo_efectivo();
     let mut sal = Vec::new();
+    // OpenCode usa `~/.config/opencode` (XDG) también en macOS y Windows.
     let mut sitios = vec![(r.home.join(".config/opencode"), r.home.join(".config/opencode"), Ambito::Usuario)];
     if let Some(p) = &r.proyecto {
         sitios.push((p.clone(), p.join(".opencode"), Ambito::Proyecto));

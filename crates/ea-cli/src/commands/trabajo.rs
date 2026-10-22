@@ -44,7 +44,7 @@ pub fn crear(
             otro => bail!("modo desconocido: {otro} (mision, obra o rutina)"),
         };
         let worktree = worktree.ok_or_else(|| anyhow!("falta --worktree (o --orden)"))?;
-        let worktree = std::fs::canonicalize(&worktree)?.to_string_lossy().into_owned();
+        let worktree = ea_plataforma::rutas::canonica(&worktree)?.to_string_lossy().into_owned();
         Orden {
             id: String::new(),
             modo,

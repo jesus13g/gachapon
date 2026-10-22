@@ -3,7 +3,6 @@
 //! `tempfile`; no se ejecuta ningún agente.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -63,7 +62,7 @@ fn mundo() -> Mundo {
               "foo@mkt":[{{"scope":"user","installPath":"{}","version":"1.0"}}],
               "apagado@mkt":[{{"scope":"user","installPath":"/no/existe","version":"2"}}]
             }}}}"#,
-            plugin_dir.display()
+            plugin_dir.display().to_string().replace('\\', "/")
         ),
     );
     escribe(home.join(".claude/settings.json"), r#"{"enabledPlugins":{"foo@mkt":true,"apagado@mkt":true}}"#);
@@ -76,7 +75,7 @@ fn mundo() -> Mundo {
               }},
               "projects":{{"{}":{{"mcpServers":{{"del-proyecto":{{"command":"servidor","args":["--ok"]}}}}}}}}
             }}"#,
-            proyecto.display()
+            proyecto.display().to_string().replace('\\', "/")
         ),
     );
     escribe(proyecto.join(".mcp.json"), r#"{"mcpServers":{"aprobado":{"command":"c"}}}"#);
@@ -135,8 +134,11 @@ fn sin_secretos(plan: &PlanSesion) {
     }
 }
 
-fn modo(p: &Path) -> u32 {
-    fs::metadata(p).unwrap().permissions().mode() & 0o777
+/// Comprueba los bits de permiso (solo en Unix; en Windows no hay modos).
+fn assert_modo(p: &Path, esperado: u32) {
+    if let Some(m) = ea_plataforma::fs::permisos_unix(&fs::metadata(p).unwrap()) {
+        assert_eq!(m & 0o777, esperado, "{}", p.display());
+    }
 }
 
 fn texto(p: &Path) -> String {
@@ -160,7 +162,7 @@ fn plan_de_claude_code_con_mcp_plugins_skills_y_subagentes() {
         ],
     );
     let plan = plan_sesion("claude-code", &sel, &m.inv, &m.r).unwrap();
-    let dir = m.runtime.join("ea-biblioteca/sesiones").join(&plan.id);
+    let dir = m.runtime.join("ea-biblioteca").join("sesiones").join(&plan.id);
     assert_eq!(plan.directorio, dir);
     let d = |n: &str| dir.join(n).display().to_string();
     assert_eq!(
@@ -174,7 +176,7 @@ fn plan_de_claude_code_con_mcp_plugins_skills_y_subagentes() {
 
     let ajustes: serde_json::Value = serde_json::from_str(&plan.ficheros.iter().find(|f| f.ruta.ends_with("ajustes.json")).unwrap().contenido).unwrap();
     assert_eq!(ajustes["enabledPlugins"], serde_json::json!({ "foo@mkt": true, "apagado@mkt": false }));
-    let enlaces: Vec<String> = plan.enlaces.iter().map(|e| e.ruta.strip_prefix(&dir).unwrap().display().to_string()).collect();
+    let enlaces: Vec<String> = plan.enlaces.iter().map(|e| e.ruta.strip_prefix(&dir).unwrap().display().to_string().replace('\\', "/")).collect();
     assert_eq!(enlaces, ["complemento/skills/propia", "complemento/skills/mision", "complemento/agents/revisor.md", "complemento/commands/saludo.md"]);
 
     // El plan es determinista (la simulación y la ejecución coinciden).
@@ -193,10 +195,10 @@ fn materializar_claude_escribe_los_secretos_solo_en_ficheros_0600() {
     assert!(real.argv.iter().all(|a| !a.contains(&plan.directorio.display().to_string()) || a.contains(&real.directorio.display().to_string())));
     let plan = real;
 
-    assert_eq!(modo(&plan.directorio), 0o700);
-    assert_eq!(modo(&plan.directorio.parent().unwrap().to_path_buf()), 0o700);
+    assert_modo(&plan.directorio, 0o700);
+    assert_modo(plan.directorio.parent().unwrap(), 0o700);
     for f in &plan.ficheros {
-        assert_eq!(modo(&f.ruta), 0o600, "{}", f.ruta.display());
+        assert_modo(&f.ruta, 0o600);
     }
     let mcp: serde_json::Value = serde_json::from_str(&texto(&plan.directorio.join("mcp.json"))).unwrap();
     assert_eq!(mcp["mcpServers"]["stdio-claude"]["env"]["API_KEY"], "SECRETO_ENV_CLAUDE");
@@ -279,7 +281,7 @@ fn plan_de_opencode_usa_standalone_y_un_fichero_con_los_demas_apagados() {
     let plan = materializar(&plan, &m.r).unwrap();
     let fichero = plan.directorio.join("opencode.json");
     assert_eq!(plan.entorno, [("OPENCODE_CONFIG".to_string(), fichero.display().to_string())]);
-    assert_eq!(modo(&fichero), 0o600);
+    assert_modo(&fichero, 0o600);
     let real: serde_json::Value = serde_json::from_str(&texto(&fichero)).unwrap();
     assert_eq!(real["mcp"]["remoto-oc"]["headers"]["Authorization"], "SECRETO_HEADER_OPENCODE");
     assert_eq!(real["mcp"]["remoto-oc"]["url"], "https://oc.ejemplo.com/SECRETO_RUTA_URL");
@@ -373,6 +375,19 @@ fn sesion_vieja(base: &Path, nombre: &str, horas: u64) {
     escribe(base.join(nombre).join(".creada"), &format!("{}\n", ahora - horas * 3600));
 }
 
+/// Abre un directorio para cambiarle la fecha (en Windows hace falta pedirlo).
+fn abrir_dir(ruta: &Path) -> fs::File {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        fs::OpenOptions::new().write(true).custom_flags(0x0200_0000).open(ruta).unwrap() // FILE_FLAG_BACKUP_SEMANTICS
+    }
+    #[cfg(not(windows))]
+    {
+        fs::File::open(ruta).unwrap()
+    }
+}
+
 #[test]
 fn las_sesiones_se_limpian_por_antiguedad_de_creacion_con_margen_de_7_dias() {
     let m = mundo();
@@ -382,7 +397,7 @@ fn las_sesiones_se_limpian_por_antiguedad_de_creacion_con_margen_de_7_dias() {
     sesion_vieja(&base, "reciente", 2);
     // Un directorio con el mtime de hace años pero creado ahora no es vieja.
     escribe(base.join("mtime-antiguo/x"), "x");
-    let f = fs::File::open(base.join("mtime-antiguo")).unwrap();
+    let f = abrir_dir(&base.join("mtime-antiguo"));
     f.set_modified(SystemTime::now() - Duration::from_secs(40 * 24 * 3600)).unwrap();
     escribe(base.join("mtime-antiguo/.creada"), &format!("{}\n", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()));
     f.set_modified(SystemTime::now() - Duration::from_secs(40 * 24 * 3600)).unwrap();
@@ -431,7 +446,7 @@ fn materializar_no_lee_fuentes_que_por_un_enlace_salen_del_home() {
     let fuera = m._d.path().join("fuera.json");
     fs::write(&fuera, r#"{"mcpServers":{"stdio-claude":{"command":"malo"}}}"#).unwrap();
     let enlace = m.home.join("enlace.json");
-    std::os::unix::fs::symlink(&fuera, &enlace).unwrap();
+    ea_plataforma::fs::enlazar(&fuera, &enlace).unwrap();
     let mut plan = plan0.clone();
     plan.mcp[0].ruta = enlace;
     let e = materializar(&plan, &m.r).unwrap_err();

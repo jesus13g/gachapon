@@ -1,4 +1,7 @@
 #!/bin/bash
+# Solo Linux (Hyprland/Omarchy): usa hyprctl y omarchy-launch-webapp. No se porta;
+# fuera de Linux el orquestador avisa sin acción y el panel se abre con el
+# navegador en http://localhost:8092.
 # Abre el panel de ea-web como web app en el escritorio 4. Si la ventana ya
 # existe, solo enfoca el escritorio. La clase de ventana de Chromium sale del
 # host (localhost → chrome-localhost__-Default); no usar 127.0.0.1, que ya es

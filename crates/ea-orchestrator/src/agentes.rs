@@ -11,7 +11,7 @@
 //! Con `agente.sandbox = false` Codex usa su propio sandbox
 //! (`workspace-write`); Qwen y OpenCode no tienen uno utilizable aquí.
 //! Codex y OpenCode no admiten topes de turnos ni de llamadas: su único
-//! tope es el `timeout` del sistema, igual al tiempo de la orden.
+//! tope es el tope de tiempo del orquestador, igual al tiempo de la orden.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,6 +20,7 @@ use ea_ajustes::buscar_binario;
 use ea_bus::{ConfigOrquestador, PerfilEjecutor, TipoAgente, Topes};
 
 use crate::ejecutor::{correr_cancelable, SalidaAgente};
+use crate::sandbox::{canonica, perfil_seatbelt, Sandbox, SANDBOX_EXEC};
 
 /// Lo que el bucle del orquestador necesita de un ejecutor.
 pub trait Ejecutor {
@@ -64,10 +65,10 @@ pub trait AgenteCli {
         vec![]
     }
 
-    /// Directorios de estado, relativos a `$HOME`, escribibles dentro de bwrap.
+    /// Directorios de estado, relativos al home, escribibles dentro del sandbox.
     fn dirs_estado(&self) -> &'static [&'static str];
 
-    /// Margen del `timeout` del sistema sobre el tiempo de la orden.
+    /// Margen del tope de tiempo del orquestador sobre el tiempo de la orden.
     fn margen_s(&self) -> u64 {
         0
     }
@@ -91,26 +92,7 @@ impl<A: AgenteCli> Ejecutor for A {
         config: &ConfigOrquestador,
         cancelado: &dyn Fn() -> bool,
     ) -> SalidaAgente {
-        let p = &config.ejecutor;
-        let mut args: Vec<String> = Vec::new();
-        let mut cmd = if config.sandbox {
-            let home = std::env::var("HOME").unwrap_or_default();
-            let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir());
-            let estado = preparar_dirs_estado(Path::new(&home), self.dirs_estado());
-            args.extend(argumentos_bwrap(worktree, ejecucion.as_deref(), &estado));
-            args.push(p.bin.clone());
-            Command::new("bwrap")
-        } else {
-            Command::new(&p.bin)
-        };
-        args.extend(self.argumentos(p, prompt, sistema, worktree, topes, config.sandbox));
-        cmd.args(&args).current_dir(worktree);
-        for (k, v) in self.entorno(p) {
-            cmd.env(k, v);
-        }
-        let c = correr_cancelable(cmd, topes.tiempo_s + self.margen_s(), cancelado);
-        let resumen = ea_bus::resumen_salida_agente(self.tipo(), &c.salida);
-        SalidaAgente { codigo: c.codigo, bruta: c.salida, resumen, cancelado: c.cancelado }
+        lanzar(self, Sandbox::actual(config.sandbox), prompt, sistema, worktree, topes, config, cancelado)
     }
 
     fn regla_herramientas(&self) -> &str {
@@ -122,11 +104,71 @@ impl<A: AgenteCli> Ejecutor for A {
     }
 
     fn disponible(&self, config: &ConfigOrquestador) -> Result<(), String> {
+        Sandbox::actual(config.sandbox).comprobar()?;
         let bin = &config.ejecutor.bin;
         buscar_binario(bin, std::env::var_os("PATH").as_deref())
             .map(|_| ())
             .ok_or_else(|| format!("no se encuentra el binario {bin:?} (agentes.{}.bin)", config.ejecutor.id))
     }
+}
+
+/// Lanza al agente con el aislamiento `sandbox` (separado de `ejecutar` para
+/// poder probar la elección por sistema). Con `NoDisponible` no se lanza nada.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lanzar<A: AgenteCli>(
+    a: &A,
+    sandbox: Sandbox,
+    prompt: &str,
+    sistema: &str,
+    worktree: &Path,
+    topes: &Topes,
+    config: &ConfigOrquestador,
+    cancelado: &dyn Fn() -> bool,
+) -> SalidaAgente {
+    let p = &config.ejecutor;
+    let mut args: Vec<String> = Vec::new();
+    // El temporal propio de macOS vive hasta que acaba la corrida.
+    let mut _tmp_propio = None;
+    let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir());
+    let mut cmd = match &sandbox {
+        Sandbox::NoDisponible(motivo) => {
+            // Sin aislamiento posible no se lanza al agente (art. V y VIII).
+            tracing::error!(%motivo, "el ejecutor no arranca");
+            return SalidaAgente { codigo: None, bruta: motivo.clone(), resumen: motivo.clone(), cancelado: false };
+        }
+        Sandbox::Ninguno => Command::new(&p.bin),
+        Sandbox::Bwrap => {
+            let estado = preparar_dirs_estado(&home_usuario(), a.dirs_estado());
+            args.extend(argumentos_bwrap(worktree, ejecucion.as_deref(), &estado));
+            args.push(p.bin.clone());
+            Command::new("bwrap")
+        }
+        Sandbox::Seatbelt => {
+            let tmp = match tempfile::Builder::new().prefix("ea-ejecutor-").tempdir() {
+                Ok(t) => t,
+                Err(e) => {
+                    let motivo = format!("no se pudo crear el temporal propio del agente: {e}");
+                    return SalidaAgente { codigo: None, bruta: motivo.clone(), resumen: motivo, cancelado: false };
+                }
+            };
+            let estado: Vec<PathBuf> =
+                preparar_dirs_estado(&home_usuario(), a.dirs_estado()).iter().map(|d| canonica(d)).collect();
+            let perfil = perfil_seatbelt(&canonica(worktree), &canonica(tmp.path()), &estado, ejecucion.as_deref().map(canonica).as_deref());
+            args.extend(["-p".to_string(), perfil, p.bin.clone()]);
+            let mut c = Command::new(SANDBOX_EXEC);
+            c.env("TMPDIR", canonica(tmp.path()));
+            _tmp_propio = Some(tmp);
+            c
+        }
+    };
+    args.extend(a.argumentos(p, prompt, sistema, worktree, topes, config.sandbox));
+    cmd.args(&args).current_dir(worktree);
+    for (k, v) in a.entorno(p) {
+        cmd.env(k, v);
+    }
+    let c = correr_cancelable(cmd, topes.tiempo_s + a.margen_s(), cancelado);
+    let resumen = ea_bus::resumen_salida_agente(a.tipo(), &c.salida);
+    SalidaAgente { codigo: c.codigo, bruta: c.salida, resumen, cancelado: c.cancelado }
 }
 
 /// El adaptador del agente que ocupa el rol de ejecutor. Se llama en cada
@@ -197,7 +239,7 @@ impl AgenteCli for QwenCode {
         &[".qwen"]
     }
 
-    /// Qwen corta solo por sus topes; el `timeout` es la red de seguridad.
+    /// Qwen corta solo por sus topes; el tope de tiempo del orquestador es la red de seguridad.
     fn margen_s(&self) -> u64 {
         120
     }
@@ -339,6 +381,12 @@ impl AgenteCli for OpenCode {
 }
 
 // --- comunes -------------------------------------------------------------------
+
+/// El directorio personal del usuario (`directories`; en Windows no hay `HOME`).
+/// Vacío si no se conoce: entonces no se monta ningún directorio de estado.
+fn home_usuario() -> PathBuf {
+    ea_plataforma::usuario::home().unwrap_or_default()
+}
 
 /// Crea (si faltan) los directorios de estado del agente bajo `home` y
 /// devuelve los que existen: bwrap no puede montar uno que no existe.
@@ -506,6 +554,7 @@ mod tests {
         assert!(preparar_dirs_estado(Path::new(""), &[".qwen"]).is_empty(), "sin HOME no se monta nada");
     }
 
+    #[cfg(unix)]
     #[test]
     fn el_binario_se_busca_en_el_path() {
         use std::os::unix::fs::PermissionsExt;
@@ -520,5 +569,21 @@ mod tests {
         assert_eq!(buscar_binario("opencode", Some(&path)), None);
         assert_eq!(buscar_binario(&b.to_string_lossy(), None), Some(b));
         assert_eq!(buscar_binario("", Some(&path)), None);
+    }
+
+    #[test]
+    fn sin_sandbox_posible_el_agente_no_se_lanza() {
+        // Windows con sandbox = true: el binario ni se intenta (si se lanzara,
+        // dejaría la marca).
+        let d = tempfile::tempdir().unwrap();
+        let marca = d.path().join("marca");
+        let mut cfg = ConfigOrquestador { sandbox: true, ..Default::default() };
+        cfg.ejecutor = perfil(TipoAgente::QwenCode);
+        cfg.ejecutor.bin = if cfg!(windows) { "cmd".into() } else { "touch".into() };
+        let sandbox = Sandbox::elegir(ea_plataforma::Sistema::Windows, true, true);
+        assert!(sandbox.comprobar().is_err());
+        let s = lanzar(&QwenCode, sandbox, &marca.to_string_lossy(), "", d.path(), &topes(), &cfg, &|| false);
+        assert!(s.codigo.is_none() && !s.cancelado && !marca.exists());
+        assert!(s.resumen.contains("no hay un sandbox equivalente a bwrap"), "{}", s.resumen);
     }
 }

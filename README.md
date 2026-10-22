@@ -33,7 +33,7 @@ agente: ningún agente se da el visto bueno a sí mismo.
 
 El agente de cada rol se elige entre un catálogo cerrado (cada uno necesita su
 adaptador en el código). La nube solo se usa para planificar: el ejecutor corre
-desatendido en `bwrap` y su modelo es siempre un endpoint local.
+desatendido en el aislamiento del sistema (`bwrap` en Linux; ver [Instalación por sistema](#instalación-por-sistema)) y su modelo es siempre un endpoint local.
 
 | Agente | Id | Planificador | Ejecutor | Notas |
 |---|---|:-:|:-:|---|
@@ -117,7 +117,7 @@ una fase en una misión o rutina, se rechaza sin escribir nada.
 ### Seguridad
 
 El agente ejecutor (Qwen Code, Codex u OpenCode) corre dentro de
-**bubblewrap** (`bwrap`): sistema de ficheros de solo lectura salvo el
+**bubblewrap** (`bwrap`; en macOS, un perfil Seatbelt equivalente; en Windows nativo no hay sandbox y el ejecutor se niega con `sandbox = true`, ver [Limitaciones](#limitaciones-y-garantías-por-sistema)): sistema de ficheros de solo lectura salvo el
 worktree, un `/tmp` propio y sus directorios de estado (`~/.qwen`; `~/.codex`;
 `~/.local/share/opencode`, `~/.local/state/opencode` y `~/.cache/opencode`), con
 `$XDG_RUNTIME_DIR` tapado por un tmpfs vacío (ahí están la clave de sesión del
@@ -187,7 +187,7 @@ comentarios y claves ajenas).
 | `red.puerto_web` | 8092 | 1024–65535 | `EA_WEB_PORT` | web y terminal | reiniciar `ea-web` |
 | `red.puerto_mcp` | 8765 | 1024–65535 | `EA_MCP_PORT` | web y terminal | reiniciar `ea-mcp` (y cambiar la URL del MCP en Claude Code) |
 | `rutas.db` | `~/.local/share/ecosistema-asistente/ecosistema.db` | ruta | `EA_DB_PATH` | solo terminal | reiniciar todo |
-| `rutas.estado` | `~/.local/state/ecosistema-asistente` | ruta | `EA_ESTADO_DIR` | solo terminal | reiniciar todo (el hook de subagentes solo lee la variable) |
+| `rutas.estado` | `~/.local/state/ecosistema-asistente` | ruta | `EA_ESTADO_DIR` | solo terminal | reiniciar todo (el hook de subagentes usa la misma ruta que el resto) |
 | `rutas.boveda` | `~/.local/share/ecosistema-asistente/boveda` | ruta | `EA_BOVEDA_DIR` | solo terminal | reiniciar `ea-web`, `ea-mcp` |
 | `web.sondeo_ms` | 3000 | 1000–60000 | | web y terminal | en caliente (la página) |
 | `web.diario_limite` | 300 | 10–1000 | | web y terminal | en caliente (la página) |
@@ -297,7 +297,7 @@ volver a arrancar los servicios.
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
   rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
 - `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).
-- `claude/hooks/`: los hooks de Claude Code que usa `ea-web`.
+- `claude/hooks/`: el envoltorio del hook de subagentes de Claude Code que usa `ea-web` (el trabajo lo hace `ea hook subagentes`).
 - `qwen/skills/`: las skills propias del agente local.
 
 ## Equipos de agentes
@@ -400,8 +400,8 @@ done
 ln -sfn "$PWD/agentes/antigravity/rules/ea-planificador.md" ~/.gemini/config/rules/ea-planificador.md
 ```
 
-Los adaptadores nombran la ruta `~/Proyectos/ecosistema-asistente/agentes/flujo/`;
-si el repo está en otro sitio, el resumen de cada adaptador basta para arrancar y
+Los adaptadores nombran la ruta `~/Proyectos/ecosistema-asistente/agentes/flujo/`
+(es un ejemplo, vale cualquier sitio y cualquier sistema); si el repo está en otro sitio, el resumen de cada adaptador basta para arrancar y
 `agentes/flujo/` en la raíz del repo es la referencia. Los formatos salen de lo
 instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
@@ -411,18 +411,31 @@ Antigravity no se ha probado en una sesión real (necesita iniciar sesión con G
 
 `ea-web` pinta en la portada cada sesión abierta de Claude Code con sus
 subagentes. Las sesiones las lee de `~/.claude/sessions/`; los subagentes los
-apunta `claude/hooks/ea-subagentes.sh` (`SubagentStart` / `SubagentStop`) en
-`~/.local/state/ecosistema-asistente/subagentes/<sesión>/<agente>.json`.
-Necesita `jq`.
+apunta `ea hook subagentes start|stop` (`SubagentStart` / `SubagentStop`) en
+`<estado>/subagentes/<sesión>/<agente>.json`, donde `<estado>` es el mismo del
+bus (`$EA_ESTADO_DIR` o `rutas.estado`; ver «Dónde queda cada cosa»). Es Rust:
+funciona igual en Linux, macOS y Windows y ya no necesita `jq`. Lee el JSON del
+hook por la entrada estándar, no escribe nada en la salida y siempre termina
+con código 0, para no estorbar nunca a Claude Code.
 
-```bash
-ln -sfn "$PWD/claude/hooks/ea-subagentes.sh" ~/.claude/hooks/ea-subagentes.sh
-# y en ~/.claude/settings.json, dentro de "hooks":
-#   "SubagentStart": [{"matcher": "*", "hooks": [{"type": "command",
-#     "command": "sh \"$HOME/.claude/hooks/ea-subagentes.sh\" start", "timeout": 5}]}],
-#   "SubagentStop":  [{"matcher": "*", "hooks": [{"type": "command",
-#     "command": "sh \"$HOME/.claude/hooks/ea-subagentes.sh\" stop", "timeout": 5}]}]
+```jsonc
+// ~/.claude/settings.json (%USERPROFILE%\.claude\settings.json en Windows), dentro de "hooks".
+// <ruta> es la carpeta de los binarios, p. ej. /ruta/al/repo/target/release
+"SubagentStart": [{"matcher": "*", "hooks": [{"type": "command",
+  "command": "<ruta>/ea hook subagentes start", "timeout": 5}]}],
+"SubagentStop":  [{"matcher": "*", "hooks": [{"type": "command",
+  "command": "<ruta>/ea hook subagentes stop", "timeout": 5}]}]
 ```
+
+En Windows usa barras normales o `\\` dobles en el JSON
+(`C:/ruta/target/release/ea.exe hook subagentes start`). Las instalaciones
+anteriores con `claude/hooks/ea-subagentes.sh` siguen funcionando: ahora es un
+envoltorio que busca el binario en este orden (`$EA_BIN`; si no, el
+`target/release/ea` del repo donde vive el script, siguiendo el enlace de
+`~/.claude/hooks`; si no, el `ea` del `PATH`) y **siempre sale con 0**, sin
+estorbar a Claude Code. Para que el hook haga algo hay que **recompilar en
+release** (`cargo build --release`): un `ea` anterior no tiene el subcomando
+`hook`.
 
 ## Skills de Qwen
 
@@ -465,6 +478,140 @@ ea trabajo crear --modo mision … --skills rust,tests --por claude-code
 `.claude/settings.json` da permiso a Claude Code para `ea qwen-skills` y
 `ea trabajo crear` sin preguntar. Una skill nueva es un `.md` más en
 `qwen/skills/` con una línea `descripcion:` entre dos `---` al principio. Mantenla corta.
+
+## Instalación por sistema
+
+Linux, macOS y Windows (spec 020, issue #2). El comportamiento en Linux no
+cambia. El aislamiento por sistema lo fija la
+[enmienda 1.5.0 de la constitución](#limitaciones-y-garantías-por-sistema),
+aprobada el 2026-10-22.
+
+### Requisitos
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Rust stable y Git | sí | sí | sí |
+| Aislamiento del ejecutor | `bubblewrap` (`bwrap`) | `/usr/bin/sandbox-exec` (viene con el sistema) | no hay: con `sandbox = true` el ejecutor se niega; usa WSL2 (vale lo de Linux) |
+| `sh` para el criterio | el del sistema | el del sistema | el `sh` de **Git for Windows** (si falta, el criterio falla con motivo claro) |
+| Gestor de servicios | `systemd --user` | `launchd` | Programador de tareas (`schtasks`) |
+| Modelo del ejecutor | `llama-server` o cualquier endpoint local | ídem | ídem |
+
+### Compilar e instalar los servicios
+
+```bash
+cargo build --release
+# binarios en target/release/{ea,ea-mcp,ea-orchestrator,ea-web}
+# (en Windows, con extensión: ea.exe, ea-web.exe…)
+
+target/release/ea servicios ver          # qué instalaría y cómo está cada servicio; no cambia nada
+target/release/ea servicios instalar     # exige una terminal real y la confirmación escrita
+target/release/ea servicios desinstalar  # para y quita lo que instaló `instalar`
+```
+
+`ea servicios instalar` escribe las unidades con la **ruta real** de los
+binarios (junto al `ea` que lo ejecuta; ya no hace falta que el repo esté en
+`~/Proyectos/`) y arranca `ea-mcp`, `ea-orchestrator` y `ea-web`:
+
+| Sistema | Qué crea |
+|---|---|
+| Linux | unidades `ea-mcp.service`, `ea-orchestrator.service` y `ea-web.service` en `~/.config/systemd/user/`, con `daemon-reload` y `enable --now` |
+| macOS | LaunchAgents `es.gachapon.<servicio>.plist` en `~/Library/LaunchAgents/`, cargados con `launchctl` (arrancan al iniciar sesión) |
+| Windows | tareas `ecosistema-asistente\<servicio>` en el Programador de tareas, al iniciar sesión, creadas desde un XML (`schtasks /Create /XML`) como tareas **del usuario y de privilegio mínimo** (`LeastPrivilege`, sin tope de 72 h, sin parar ni negarse a arrancar con batería, reinicio automático si fallan) |
+
+Notas por sistema:
+
+- **macOS: `PATH`.** launchd arranca los agentes con `PATH=/usr/bin:/bin:/usr/sbin:/sbin`,
+  y el ejecutor no encontraría `qwen`, `claude` o `codex` instalados con
+  Homebrew, nvm o mise. Por eso `ea servicios instalar` guarda en cada plist
+  (`EnvironmentVariables`) el `PATH` que tienes en ese momento; `ea servicios ver`
+  lo muestra. Si cambias el `PATH` (o instalas un agente en otra carpeta),
+  vuelve a ejecutar `ea servicios instalar`.
+- **macOS: carga.** `launchctl bootout` es asíncrono; si `bootstrap` falla justo
+  después con «Input/output error», se reintenta unas veces (5 × 200 ms).
+- **Windows: administrador.** En algunas configuraciones de Windows crear tareas
+  programadas puede exigir una terminal de administrador (no verificado en una
+  máquina real); si `schtasks` responde «acceso denegado», `ea` lo dice así.
+  Las rutinas se crean igual, con un XML propio: tope de una hora (solo ejecutan
+  `ea rutina lanzar`, que es corto), sin condición de batería y recuperando el
+  disparo perdido si el equipo estaba apagado.
+
+Las plantillas `crates/*/systemd/*.service` siguen ahí como referencia (y para
+quien prefiera enlazarlas a mano en Linux, como en las secciones de `ea-mcp` y
+`ea-web`). El estado y el reinicio de los servicios (`ea servicios ver`, el
+panel y `ea_reiniciar_servicio`) pasan por el mismo gestor de cada sistema.
+
+### Dónde queda cada cosa
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Ajustes (`ajustes.toml`) | `~/.config/ecosistema-asistente` | `~/Library/Application Support/ecosistema-asistente` | `%APPDATA%\ecosistema-asistente\config` |
+| Base de datos y bóveda | `~/.local/share/ecosistema-asistente` | `~/Library/Application Support/ecosistema-asistente` | `%APPDATA%\ecosistema-asistente\data` |
+| Estado (bus, subagentes) | `~/.local/state/ecosistema-asistente` | `~/Library/Application Support/ecosistema-asistente` | `%LOCALAPPDATA%\ecosistema-asistente\data` |
+| Ejecución (clave del panel) | `$XDG_RUNTIME_DIR` (o `/run/user/<uid>`) | un directorio privado bajo `$TMPDIR` | `%LOCALAPPDATA%\ecosistema-asistente\ejecucion` |
+
+`$EA_CONFIG_DIR`, `$EA_DB_PATH`, `$EA_ESTADO_DIR` y `$EA_BOVEDA_DIR` mandan en
+los tres. El resto del README escribe las rutas de Linux; en los otros sistemas,
+sustitúyelas por las de esta tabla (`ea ajustes ver` dice las reales).
+
+### Skills y adaptadores
+
+En Linux y macOS se instalan con los `ln -sfn` de
+[Adaptadores del planificador](#adaptadores-del-planificador). En Windows, con
+un enlace de directorio que no pide permisos especiales (`mklink /J`) o con una
+copia:
+
+```bat
+mklink /J "%USERPROFILE%\.claude\skills\mision" "%CD%\claude\skills\mision"
+:: ... y lo mismo con obra, rutina, revisar y equipo; o copiarlas con xcopy /E /I
+```
+
+Con copia, las skills no se actualizan solas al cambiar el repo: hay que volver
+a copiarlas. Los enlaces efímeros de las sesiones de la biblioteca, en Windows
+sin modo desarrollador, se copian (son de solo lectura y efímeros).
+
+El hook de subagentes de Claude Code es igual en los tres sistemas; ver
+[Hook de subagentes](#hook-de-subagentes).
+
+### Rutinas programadas
+
+En Linux, cada rutina es un `ea-rutina@<slug>.timer` de systemd con toda la
+sintaxis de `OnCalendar`. En macOS (LaunchAgent con `StartCalendarInterval`) y
+Windows (tarea de `schtasks`) se admite un **subconjunto portable**, que
+valida, y para el que calcula las próximas ejecuciones, el propio sistema:
+
+- `minutely`, `hourly`, `daily`, `weekly` (lunes 00:00), `monthly` (día 1 a las 00:00);
+- `HH:MM[:SS]` y `*-*-* HH:MM[:SS]`, con segundos a 0;
+- un prefijo opcional de días, con las horas detrás: `Mon..Fri`, `Mon,Wed,Fri`,
+  `Sat`, `Mon..Wed,Fri` (también con el nombre entero), p. ej. `Mon..Fri 09:00`.
+
+No se admiten varias horas, fechas concretas, listas de horas, segundos
+distintos de 0, rangos que dan la vuelta (`Fri..Mon`) ni días con una palabra
+clave (`Mon daily`); se rechazan con un motivo. Las horas son las locales, sin
+ajustar los cambios de horario de verano.
+
+### Limitaciones y garantías por sistema
+
+Las garantías son las mismas donde el sistema las puede dar; donde no, se dice
+aquí y el ecosistema no las relaja en silencio.
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree, un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
+| Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`) | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
+| Solo local | `127.0.0.1`; `ea-web` filtra el `Host` | ídem | ídem |
+| Terminal real (TTY) para lo irreversible | sí | sí | sí |
+| Ficheros privados (clave del panel, secretos de sesión) | `0600` / `0700` | `0600` / `0700` | dentro del perfil del usuario, que solo él (y los administradores) lee por la ACL heredada; no se fuerzan ACL propias |
+| Avisos de escritorio | sí | sí | no hay |
+| Estado de los servicios | `systemctl --user` | `launchctl print` | `schtasks /Query`; reconoce «Running» y «En ejecución» (y algunos idiomas más) |
+| Arranque diferido de timers | `OnStartupSec` y todo `OnCalendar` | no replica `OnStartupSec`; subconjunto de calendario | no replica `OnStartupSec`; subconjunto de calendario |
+| Enlaces de la biblioteca | enlaces simbólicos | enlaces simbólicos | copia, sin exigir el modo desarrollador |
+| `ea-web-open` (Hyprland/Omarchy) | sí | no (solo Linux) | no (solo Linux); el panel se abre con el navegador en `http://localhost:8092` |
+
+La **enmienda 1.5.0** de la constitución (aprobada el 2026-10-22) reescribe
+los artículos V y VIII para que pidan «el sandbox del sistema» en vez de
+nombrar `bubblewrap`: donde no lo hay (Windows nativo), el ejecutor con
+`sandbox = true` se niega. Las referencias a `bwrap` de este README valen para
+Linux.
 
 ## Uso
 
@@ -521,13 +668,16 @@ ea acciones listar|simular|ejecutar          # catálogo de herramientas
 ea boveda estado|listar|buscar|leer|promover|reindexar
 ea ajustes ver|obtener|establecer|ruta       # ajustes.toml (establecer: solo con TTY)
 ea biblioteca listar|ver|uso|activar|desactivar|sesion|categoria  # herramientas de los agentes (ver «Biblioteca»)
+ea servicios ver|instalar|desinstalar        # servicios residentes en el gestor del sistema (instalar/desinstalar: solo con TTY)
+ea hook subagentes start|stop                # hook de Claude Code (ver «Hook de subagentes»)
 ea tui                                       # interfaz interactiva
 ```
 
 La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
-(o en `rutas.db` de los ajustes, o en `$EA_DB_PATH`). Servicios de sesión (`systemd --user`): `llama-server`,
+(o en `rutas.db` de los ajustes, o en `$EA_DB_PATH`). Servicios de sesión (`systemd --user` en Linux; launchd y el Programador de tareas en los demás, ver `ea servicios`): `llama-server`,
 `ea-orchestrator`, `ea-mcp` y `ea-web`; las rutinas se programan con
-`ea-rutina@<slug>.timer`, que solo crea el trabajo en el bus.
+`ea-rutina@<slug>.timer` (en macOS y Windows, un LaunchAgent o una tarea con
+el [subconjunto portable](#rutinas-programadas)), que solo crea el trabajo en el bus.
 
 Programar una rutina no exige copiar la plantilla a mano: `ea_programar_rutina`
 (`{slug, calendario}`) y `ea_desprogramar_rutina` (`{slug}`) son herramientas
@@ -628,7 +778,9 @@ argumento) y del rol que ocupa ese agente **en ese momento** según los ajustes
 La autorización es del servidor, no del prompt. Cambiar de planificador no exige
 reconectar: los roles se releen en cada llamada.
 
-Instalación como servicio de sesión (`systemd --user`):
+Instalación como servicio de sesión: `ea servicios instalar` (ver
+[Instalación por sistema](#instalación-por-sistema)) o, a mano en Linux
+(`systemd --user`):
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -1102,7 +1254,8 @@ argv sin shell, el `ea` es el de la carpeta de `ea-web` (no el del `PATH`) y
 cualquier otra cosa, texto libre incluido, da 400. Queda en el diario como
 `accion_terminal_abierta`.
 
-Instalación como servicio de sesión:
+Instalación como servicio de sesión: `ea servicios instalar` (ver
+[Instalación por sistema](#instalación-por-sistema)) o, a mano en Linux:
 
 ```bash
 ln -sf ~/Proyectos/ecosistema-asistente/crates/ea-web/systemd/ea-web.service \
@@ -1111,7 +1264,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now ea-web.service
 ```
 
-Se abre en el escritorio 4 al iniciar sesión (Hyprland) como `localhost`, no
+`ea-web-open` es solo de Linux (Hyprland/Omarchy). Se abre en el escritorio 4 al iniciar sesión (Hyprland) como `localhost`, no
 `127.0.0.1`, porque esa clase de ventana ya la usa el tutor:
 
 ```lua
@@ -1130,7 +1283,7 @@ monotónico e ignora latidos fechados en el futuro.
 ```bash
 cargo test --workspace
 cargo build --release
-systemctl --user restart ea-web ea-orchestrator ea-mcp
+systemctl --user restart ea-web ea-orchestrator ea-mcp   # Linux; en otros sistemas, `ea servicios`
 
 # El diario es append-only a nivel de motor, no solo por convención:
 sqlite3 ~/.local/share/ecosistema-asistente/ecosistema.db \

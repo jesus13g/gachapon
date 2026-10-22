@@ -54,7 +54,7 @@ mod ordenes;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use ea_plataforma::fs::{opciones_privadas, permisos_unix, poner_permisos_unix, sincronizar_dir, ErrorRenombrar};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -407,8 +407,8 @@ fn copia_previa(r: &Raices, ruta: &Path) -> Resultado<PathBuf> {
     fs::create_dir_all(&dir)?;
     let nombre = ruta.file_name().and_then(|n| n.to_str()).unwrap_or("fichero");
     let destino = dir.join(format!("{}-{nombre}", marca_tiempo()));
-    let origen = fs::canonicalize(ruta)?;
-    let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&destino)?;
+    let origen = ea_plataforma::rutas::canonica(ruta)?;
+    let mut f = opciones_privadas().write(true).create_new(true).open(&destino)?;
     let mut src = fs::File::open(origen)?;
     std::io::copy(&mut src, &mut f)?;
     f.sync_all()?;
@@ -445,14 +445,20 @@ fn marca_tiempo() -> String {
 fn escribir_atomico_conservando(ruta: &Path, bytes: &[u8]) -> Resultado<()> {
     use std::io::Write;
     static N: AtomicU64 = AtomicU64::new(0);
-    let destino = fs::canonicalize(ruta)?;
-    let permisos = fs::metadata(&destino)?.permissions();
+    let destino = ea_plataforma::rutas::canonica(ruta)?;
+    let meta = fs::metadata(&destino)?;
+    let modo = permisos_unix(&meta);
     let dir = destino.parent().ok_or_else(|| ErrorBiblioteca::Io("ruta sin directorio".into()))?;
     let nombre = destino.file_name().and_then(|n| n.to_str()).unwrap_or("fichero");
     let temporal = dir.join(format!(".{nombre}.ea-biblioteca.{}.{}.tmp", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
     let r = (|| -> std::io::Result<()> {
-        let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(permisos.mode() & 0o7777).open(&temporal)?;
-        f.set_permissions(permisos.clone())?;
+        let mut f = opciones_privadas().write(true).create_new(true).open(&temporal)?;
+        // Conserva los permisos del original (en Unix, los bits de modo; en
+        // Windows, los atributos de solo lectura).
+        match modo {
+            Some(m) => poner_permisos_unix(&temporal, m)?,
+            None => f.set_permissions(meta.permissions())?,
+        }
         f.write_all(bytes)?;
         f.sync_all()?;
         fs::rename(&temporal, &destino)
@@ -461,9 +467,7 @@ fn escribir_atomico_conservando(ruta: &Path, bytes: &[u8]) -> Resultado<()> {
         let _ = fs::remove_file(&temporal);
         return Err(e.into());
     }
-    if let Ok(d) = fs::File::open(dir) {
-        let _ = d.sync_all();
-    }
+    sincronizar_dir(dir);
     Ok(())
 }
 
@@ -578,16 +582,10 @@ fn plan_mover(el: &Elemento, activar: bool, r: &Raices) -> Resultado<Cambio> {
     })
 }
 
-/// Mueve `a` a `b` sin pisar nada: `renameat2` con `RENAME_NOREPLACE` (Linux),
-/// atómico frente a un destino creado entre la comprobación y el movimiento.
-fn renombrar_sin_pisar(a: &Path, b: &Path) -> std::io::Result<()> {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-    let c = |p: &Path| CString::new(p.as_os_str().as_bytes()).map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL));
-    let (origen, destino) = (c(a)?, c(b)?);
-    // SAFETY: dos cadenas C válidas y terminadas en NUL que viven toda la llamada.
-    let r = unsafe { libc::syscall(libc::SYS_renameat2, libc::AT_FDCWD, origen.as_ptr(), libc::AT_FDCWD, destino.as_ptr(), libc::RENAME_NOREPLACE) };
-    if r == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+/// Mueve `a` a `b` sin pisar nada, atómico frente a un destino creado entre
+/// la comprobación y el movimiento (lo resuelve `ea-plataforma` por sistema).
+fn renombrar_sin_pisar(a: &Path, b: &Path) -> Result<(), ErrorRenombrar> {
+    ea_plataforma::fs::renombrar_sin_pisar(a, b)
 }
 
 /// `renombrar_sin_pisar` con errores en español.
@@ -595,17 +593,13 @@ fn mover_sin_pisar(a: &Path, b: &Path) -> Resultado<()> {
     if let Some(p) = b.parent() {
         fs::create_dir_all(p)?;
     }
-    renombrar_sin_pisar(a, b).map_err(|e| match e.raw_os_error() {
-        Some(libc::EXDEV) => {
+    renombrar_sin_pisar(a, b).map_err(|e| match e {
+        ErrorRenombrar::OtroDispositivo => {
             ErrorBiblioteca::Io(format!("{} y {} están en sistemas de ficheros distintos: no se puede mover sin copiar", a.display(), b.display()))
         }
-        Some(libc::EEXIST | libc::ENOTEMPTY) => ErrorBiblioteca::Ocupado(format!("{} ya existe; no se pisa", b.display())),
-        Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => ErrorBiblioteca::Io(format!(
-            "no se puede mover {} a {} sin riesgo de pisar algo: el sistema de ficheros no admite RENAME_NOREPLACE ({e})",
-            a.display(),
-            b.display()
-        )),
-        _ => e.into(),
+        ErrorRenombrar::Existe => ErrorBiblioteca::Ocupado(format!("{} ya existe; no se pisa", b.display())),
+        ErrorRenombrar::NoSoportado(m) => ErrorBiblioteca::Io(format!("no se puede mover {} a {} sin riesgo de pisar algo: {m}", a.display(), b.display())),
+        ErrorRenombrar::Io(e) => e.into(),
     })
 }
 
@@ -615,7 +609,7 @@ fn bloquear_almacen(r: &Raices) -> Resultado<fs::File> {
     let base = base_desactivadas(r);
     fs::create_dir_all(&base)?;
     let ruta = base.join(".lock");
-    let f = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(&ruta)?;
+    let f = opciones_privadas().read(true).write(true).create(true).truncate(false).open(&ruta)?;
     f.lock().map_err(|e| ErrorBiblioteca::Io(format!("{}: no se pudo tomar el cerrojo: {e}", ruta.display())))?;
     Ok(f)
 }
@@ -814,7 +808,7 @@ mod pruebas {
         let b = d.path().join("b");
         fs::write(&a, "a").unwrap();
         fs::write(&b, "b").unwrap();
-        assert_eq!(renombrar_sin_pisar(&a, &b).unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(matches!(renombrar_sin_pisar(&a, &b).unwrap_err(), ErrorRenombrar::Existe));
         assert_eq!(fs::read_to_string(&b).unwrap(), "b");
         fs::remove_file(&b).unwrap();
         renombrar_sin_pisar(&a, &b).unwrap();

@@ -52,9 +52,9 @@ impl Presencia {
     }
 }
 
-/// El proceso existe (Linux: `/proc/<pid>`). El pid 0 nunca cuenta.
+/// El proceso existe. El pid 0 nunca cuenta.
 fn pid_vivo(pid: u32) -> bool {
-    pid != 0 && std::path::Path::new(&format!("/proc/{pid}")).exists()
+    pid != 0 && ea_plataforma::proceso::vive(pid)
 }
 
 impl Bus {

@@ -70,8 +70,9 @@ fn texto_presencia(p: Option<&(ea_bus::Presencia, bool)>) -> String {
 
 /// `$HOME/...` como `~/...`, para que la tabla quepa.
 fn corta_home(ruta: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(h) if !h.is_empty() && ruta.starts_with(&format!("{h}/")) => format!("~{}", &ruta[h.len()..]),
+    let resto = ea_plataforma::usuario::home().and_then(|h| std::path::Path::new(ruta).strip_prefix(h).ok().map(|r| r.display().to_string()));
+    match resto {
+        Some(r) if !r.is_empty() => format!("~/{r}"),
         _ => ruta.to_string(),
     }
 }

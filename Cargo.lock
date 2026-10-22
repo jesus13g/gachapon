@@ -482,11 +482,13 @@ dependencies = [
  "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+ "time",
  "tokio",
 ]
 
@@ -495,6 +497,7 @@ name = "ea-ajustes"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "ea-plataforma",
  "serde",
  "serde_json",
  "tempfile",
@@ -507,8 +510,9 @@ dependencies = [
 name = "ea-biblioteca"
 version = "0.1.0"
 dependencies = [
+ "directories",
  "ea-ajustes",
- "libc",
+ "ea-plataforma",
  "rusqlite",
  "serde",
  "serde_json",
@@ -536,6 +540,7 @@ name = "ea-bus"
 version = "0.1.0"
 dependencies = [
  "ea-ajustes",
+ "ea-plataforma",
  "ea-store",
  "serde",
  "serde_json",
@@ -558,9 +563,9 @@ dependencies = [
  "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
  "ea-web",
- "libc",
  "ratatui",
  "reqwest 0.12.28",
  "serde",
@@ -599,10 +604,11 @@ name = "ea-orchestrator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "directories",
  "ea-ajustes",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
- "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -610,6 +616,16 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ea-plataforma"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tempfile",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -638,9 +654,10 @@ dependencies = [
  "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
+ "getrandom 0.2.17",
  "http-body-util",
- "libc",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

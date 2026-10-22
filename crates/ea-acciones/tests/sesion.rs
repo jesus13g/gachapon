@@ -3,7 +3,6 @@
 //! `tempfile`; nunca una ventana de verdad ni el HOME del usuario.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use ea_acciones::*;
@@ -97,9 +96,11 @@ async fn simular_describe_el_plan_sin_secretos_y_no_escribe_nada() {
     assert_eq!(sim.riesgo, Riesgo::Reversible);
     // Normalizados: ordenados y sin repetir.
     assert_eq!(sim.argumentos, json!({ "agente": "claude-code", "herramientas": [MCP, REMOTO, SKILL] }));
-    for trozo in ["--strict-mcp-config", "--mcp-config", "mcp.json", "ajustes.json", "--plugin-dir", "0600", "complemento/skills/propia"] {
+    for trozo in ["--strict-mcp-config", "--mcp-config", "mcp.json", "ajustes.json", "--plugin-dir", "0600"] {
         assert!(sim.texto.contains(trozo), "{trozo}: {}", sim.texto);
     }
+    let sep = std::path::MAIN_SEPARATOR;
+    assert!(sim.texto.contains(&format!("complemento{sep}skills{sep}propia")), "{}", sim.texto);
     sin_secretos(&sim.texto);
     sin_secretos(&sim.precondicion.to_string());
     assert!(!e.runtime.join("ea-biblioteca").exists(), "simular no escribe");
@@ -147,7 +148,11 @@ async fn proponer_no_abre_nada_y_aceptar_materializa_y_abre_la_terminal() {
     // El secreto solo está en el fichero 0600 del runtime.
     let contenido = fs::read_to_string(&mcp_json).unwrap();
     assert!(contenido.contains("SECRETO_ENV") && contenido.contains("SECRETO_HEADER") && contenido.contains("SECRETO_RUTA"));
-    assert_eq!(fs::metadata(&mcp_json).unwrap().permissions().mode() & 0o777, 0o600);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&mcp_json).unwrap().permissions().mode() & 0o777, 0o600);
+    }
     assert!(Path::new(&mcp_json).starts_with(e.runtime.join("ea-biblioteca/sesiones")));
     assert_eq!(e.sis.mutaciones().len(), 1);
 

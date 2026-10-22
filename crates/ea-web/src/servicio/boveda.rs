@@ -110,7 +110,7 @@ fn cabecera_vista(c: ea_boveda::Cabecera) -> CabeceraVista {
 }
 
 fn fichero_vista(s: &AppState, n: ea_boveda::NotaCompleta) -> NotaFichero {
-    let raiz = std::fs::canonicalize(s.boveda.raiz()).unwrap_or_else(|_| s.boveda.raiz().to_path_buf());
+    let raiz = ea_plataforma::rutas::canonica(s.boveda.raiz()).unwrap_or_else(|_| s.boveda.raiz().to_path_buf());
     NotaFichero {
         absoluta: raiz.join(&n.ruta).display().to_string(),
         ruta: n.ruta,

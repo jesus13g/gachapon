@@ -5,9 +5,11 @@ pub mod biblioteca;
 pub mod boveda;
 pub mod diario;
 pub mod equipo;
+pub mod hook;
 pub mod propuestas;
 pub mod qwen_skills;
 pub mod rutinas;
+pub mod servicios;
 pub mod status;
 pub mod trabajo;
 

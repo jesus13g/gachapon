@@ -1,5 +1,19 @@
 use std::sync::Arc;
 
+/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
+#[cfg(windows)]
+macro_rules! tmp {
+    () => {
+        "C:/Windows"
+    };
+}
+#[cfg(not(windows))]
+macro_rules! tmp {
+    () => {
+        "/tmp"
+    };
+}
+
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use axum::Router;
@@ -25,7 +39,7 @@ fn texto(descripcion: &str) -> ea_store::NuevaPropuesta {
     ea_store::NuevaPropuesta { proponente: "claude-code".into(), descripcion: descripcion.into(), accion: None }
 }
 
-const RUTINA_BUS: &str = "[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"revisa y escribe {salida}\"\n";
+const RUTINA_BUS: &str = concat!("[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"revisa y escribe {salida}\"\n");
 
 /// Las pruebas que lanzan rutinas comparten la variable de entorno del
 /// directorio de estado del bus: una a una, cada cual con el suyo.
@@ -214,13 +228,13 @@ const ESCRITURAS: [(&str, &str); 11] = [
     ("/api/biblioteca/simular", r#"{"herramienta":"ea_desactivar_herramienta","argumentos":{"elemento":"claude-code/skill/usuario/propia"}}"#),
     ("/api/biblioteca/ejecutar", r#"{"herramienta":"ea_desactivar_herramienta","argumentos":{"elemento":"claude-code/skill/usuario/propia"},"precondicion":{}}"#),
     ("/api/rutinas/revision-diaria/lanzar", "{}"),
-    ("/api/trabajos", r#"{"titulo":"x","worktree":"/tmp","objetivo":"x","criterio":"true"}"#),
+    ("/api/trabajos", concat!(r#"{"titulo":"x","worktree":""#, tmp!(), r#"","objetivo":"x","criterio":"true"}"#)),
     ("/api/propuestas/1/decidir", r#"{"decision":"rechazar"}"#),
     ("/api/acciones/simular", r#"{"herramienta":"ea_status","argumentos":{}}"#),
     ("/api/boveda/crear", r#"{"ruta":"compartida/x.md"}"#),
     ("/api/ajustes", r#"{"version":"","cambios":{}}"#),
     ("/api/servicios/ea-mcp/reiniciar", "{}"),
-    ("/api/equipos", r#"{"titulo":"x","objetivo":"x","worktree":"/tmp","todos":true}"#),
+    ("/api/equipos", concat!(r#"{"titulo":"x","objetivo":"x","worktree":""#, tmp!(), r#"","todos":true}"#)),
     ("/api/equipos/x/dormir", "{}"),
 ];
 
@@ -739,7 +753,7 @@ async fn la_ficha_de_una_rutina_lista_sus_ejecuciones_mas_recientes_primero() {
     // una misión y con otra rutina. Los ids fijan el orden (empiezan por la
     // fecha); se crean desordenados para que no cuente el orden de creación.
     let de_rutina = |n: u32, slug: &str, version: u32| {
-        let mut o = orden(ea_bus::Modo::Rutina, slug, "/tmp");
+        let mut o = orden(ea_bus::Modo::Rutina, slug, tmp!());
         o.id = format!("20260101T0000{n:02}-0000aaaa");
         o.rutina = Some(ea_bus::RutinaRef { slug: slug.into(), version });
         o
@@ -750,7 +764,7 @@ async fn la_ficha_de_una_rutina_lista_sus_ejecuciones_mas_recientes_primero() {
     let mut otra = de_rutina(13, "otra-rutina", 1);
     otra.id = "20260101T000013-0000bbbb".into();
     bus.crear_trabajo(otra).unwrap();
-    let mut mision = orden(ea_bus::Modo::Mision, "Una misión", "/tmp");
+    let mut mision = orden(ea_bus::Modo::Mision, "Una misión", tmp!());
     mision.id = "20260101T000014-0000cccc".into();
     bus.crear_trabajo(mision).unwrap();
     // La más reciente entregó informe; la anterior se canceló.
@@ -821,13 +835,13 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     let (s, v) = get(&f, "/api/trabajos").await;
     assert_eq!((s, v.as_array().unwrap().len()), (StatusCode::OK, 0));
 
-    let id = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "Primera", "/tmp")).unwrap();
+    let id = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "Primera", tmp!())).unwrap();
     let (_, v) = get(&f, "/api/trabajos").await;
     assert_eq!(v[0]["id"], id.as_str());
     assert_eq!(v[0]["modo"], "mision");
     assert_eq!(v[0]["estado"], "en_cola");
     assert!(v[0]["resultado"].is_null());
-    assert!(v[0]["worktree"].as_str().unwrap().ends_with("tmp"));
+    assert!(std::path::Path::new(v[0]["worktree"].as_str().unwrap()).ends_with(std::path::Path::new(tmp!()).file_name().unwrap()));
 
     let (_, c) = get(&f, "/api/colas").await;
     assert_eq!(c["modelo-local"][0]["trabajo"], id.as_str());
@@ -849,7 +863,7 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     assert_eq!((s, sem.as_array().unwrap().len()), (StatusCode::OK, 0));
     let _candado = ea_bus::CandadoWorktree::adquirir_en(
         bus.raiz(),
-        std::path::Path::new("/tmp"),
+        std::path::Path::new(tmp!()),
         ea_bus::Ocupante { agente: "modelo-local".into(), trabajo: id.clone(), pid: 0, desde: "2026-10-14T10:00:00Z".into(), rol: None },
         std::time::Duration::from_millis(50),
     )
@@ -883,7 +897,7 @@ async fn acciones_del_usuario_sobre_los_trabajos() {
     };
 
     // cerrar
-    let a = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "A", "/tmp")).unwrap();
+    let a = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "A", tmp!())).unwrap();
     let (s, _) = post(&f, &format!("/api/trabajos/{a}/cerrar"), json!({})).await;
     assert_eq!(s, StatusCode::CONFLICT, "en cola no se cierra");
     entrega(&a, true);
@@ -895,7 +909,7 @@ async fn acciones_del_usuario_sobre_los_trabajos() {
     assert!(c["claude-code"].as_array().unwrap().is_empty());
 
     // reformular exige nota y vuelve a la cola del modelo local
-    let b = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "B", "/tmp")).unwrap();
+    let b = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "B", tmp!())).unwrap();
     entrega(&b, true);
     let (s, _) = post(&f, &format!("/api/trabajos/{b}/reformular"), json!({})).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
@@ -904,7 +918,7 @@ async fn acciones_del_usuario_sobre_los_trabajos() {
     assert_eq!(bus.leer_orden(&b).unwrap().notas_revision, vec!["falta el caso vacío"]);
 
     // continuar y cancelar
-    let c1 = bus.crear_trabajo(orden(ea_bus::Modo::Obra, "C", "/tmp")).unwrap();
+    let c1 = bus.crear_trabajo(orden(ea_bus::Modo::Obra, "C", tmp!())).unwrap();
     entrega(&c1, false);
     let (s, r) = post(&f, &format!("/api/trabajos/{c1}/continuar"), json!({})).await;
     assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("en_cola")));
@@ -912,7 +926,7 @@ async fn acciones_del_usuario_sobre_los_trabajos() {
     assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("cancelado")));
 
     // confirmar el paquete de corrección de una rutina en espera
-    let r1 = bus.crear_trabajo(orden(ea_bus::Modo::Rutina, "R", "/tmp")).unwrap();
+    let r1 = bus.crear_trabajo(orden(ea_bus::Modo::Rutina, "R", tmp!())).unwrap();
     let (s, _) = post(&f, &format!("/api/trabajos/{r1}/confirmar"), json!({})).await;
     assert_eq!(s, StatusCode::CONFLICT, "solo en espera");
     bus.aplicar(&r1, ea_bus::Evento::Tomar).unwrap();
@@ -938,7 +952,7 @@ fn obra_completa(bus: &ea_bus::Bus) -> String {
         criterio: "true".into(),
         skills: vec![],
     };
-    let o = ea_bus::Orden { criterio_exito: None, fases: vec![fase(1), fase(2), fase(3)], ..orden(ea_bus::Modo::Obra, "O", "/tmp") };
+    let o = ea_bus::Orden { criterio_exito: None, fases: vec![fase(1), fase(2), fase(3)], ..orden(ea_bus::Modo::Obra, "O", tmp!()) };
     let id = bus.crear_trabajo(o).unwrap();
     bus.aplicar(&id, ea_bus::Evento::Tomar).unwrap();
     let inf = ea_bus::Informe { fases_hechas: 3, obra_completa: true, ..ea_bus::Informe::nuevo(ea_bus::ResultadoInforme::Terminado) };
@@ -958,7 +972,7 @@ async fn reformular_con_fase_fuera_de_rango_da_400() {
         assert_eq!(s, StatusCode::BAD_REQUEST, "fase {fase}: {r}");
     }
     // Una misión no tiene fases.
-    let m = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "M", "/tmp")).unwrap();
+    let m = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "M", tmp!())).unwrap();
     bus.aplicar(&m, ea_bus::Evento::Tomar).unwrap();
     bus.aplicar(&m, ea_bus::Evento::Entregar(ea_bus::Informe::nuevo(ea_bus::ResultadoInforme::Terminado))).unwrap();
     let (s, _) = post(&f, &format!("/api/trabajos/{m}/reformular"), json!({ "nota": "rehaz", "fase": 1 })).await;
@@ -1466,7 +1480,7 @@ async fn las_sesiones_de_claude_code_solo_cuentan_si_el_proceso_vive() {
     std::fs::create_dir_all(&dir).unwrap();
     let propio = std::process::id();
     let ses = |pid: u32, nombre: &str| {
-        json!({"pid": pid, "sessionId": "x", "cwd": "/tmp", "name": nombre, "status": "busy",
+        json!({"pid": pid, "sessionId": "x", "cwd": tmp!(), "name": nombre, "status": "busy",
                "startedAt": 1000, "updatedAt": 2000})
         .to_string()
     };
@@ -1490,7 +1504,7 @@ async fn cada_sesion_lleva_sus_subagentes_en_marcha_primero() {
     std::fs::create_dir_all(&dir).unwrap();
     let propio = std::process::id();
     let ses = |pid: u32, id: &str| {
-        json!({"pid": pid, "sessionId": id, "cwd": "/tmp", "name": id, "status": "idle",
+        json!({"pid": pid, "sessionId": id, "cwd": tmp!(), "name": id, "status": "idle",
                "startedAt": 1000, "updatedAt": 2000})
         .to_string()
     };
@@ -1622,7 +1636,7 @@ async fn la_memoria_rechaza_nombres_maliciosos() {
     let mem = montar_memoria(&f);
     let fuera = f._dir.path().join("secreto.md");
     std::fs::write(&fuera, "fuera").unwrap();
-    std::os::unix::fs::symlink(&fuera, mem.join("enlace.md")).unwrap();
+    ea_plataforma::fs::enlazar(&fuera, &mem.join("enlace.md")).unwrap();
     std::fs::write(mem.join(".oculto.md"), "oculto").unwrap();
     let rutas = [
         "/api/memoria/%2E%2E/refactor.md",
@@ -1673,7 +1687,8 @@ async fn la_memoria_se_lee_con_su_ruta_absoluta() {
     let f = montar();
     let mem = montar_memoria(&f);
     let (_, v) = get(&f, "/api/memoria/-home-u-proy/refactor.md").await;
-    assert_eq!(v["ruta"], mem.join("refactor.md").display().to_string());
+    // Como `Path`, no como texto: en Windows la barra y la contrabarra valen igual.
+    assert_eq!(std::path::PathBuf::from(v["ruta"].as_str().unwrap()), mem.join("refactor.md"));
 }
 
 #[tokio::test]
@@ -1707,7 +1722,7 @@ async fn eliminar_exige_la_version_y_no_toca_el_indice_ni_fuera() {
 
     let fuera = f._dir.path().join("secreto.md");
     std::fs::write(&fuera, "fuera").unwrap();
-    std::os::unix::fs::symlink(&fuera, mem.join("enlace.md")).unwrap();
+    ea_plataforma::fs::enlazar(&fuera, &mem.join("enlace.md")).unwrap();
     for r in ["/api/memoria/-home-u-proy/enlace.md/eliminar", "/api/memoria/-home-u-proy/..%2F..%2Fsecreto.md/eliminar"] {
         let (s, _) = post(&f, r, json!({ "version": memoria_version("fuera") })).await;
         assert!(matches!(s, StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND), "{r}: {s}");
@@ -1801,7 +1816,7 @@ async fn la_nota_se_lee_entera_y_se_guarda_con_su_version() {
     assert_eq!(s, StatusCode::OK, "{v}");
     let contenido = v["contenido"].as_str().unwrap().to_string();
     assert!(contenido.starts_with("---\n") && contenido.contains("Lentejas."));
-    assert!(v["absoluta"].as_str().unwrap().ends_with("/boveda/modelo-local/receta.md"));
+    assert!(std::path::Path::new(v["absoluta"].as_str().unwrap()).ends_with("boveda/modelo-local/receta.md"));
     let version = v["version"].as_str().unwrap().to_string();
 
     let nuevo = contenido.replace("Lentejas.", "Garbanzos.");
@@ -2054,7 +2069,7 @@ fn repo_git_vacio(f: &Fixture, nombre: &str) -> std::path::PathBuf {
     std::fs::create_dir_all(&wt).unwrap();
     let ok = std::process::Command::new("git").arg("init").arg("-q").arg(&wt).status().unwrap().success();
     assert!(ok, "git init");
-    wt.canonicalize().unwrap()
+    ea_plataforma::rutas::canonica(&wt).unwrap()
 }
 
 fn mision(wt: &str) -> Value {
@@ -2140,7 +2155,7 @@ async fn crear_sin_criterio_o_worktree_invalido_da_400_y_no_escribe() {
         con("criterio", json!("x".repeat(2_001))),
         con("worktree", json!("")),
         con("worktree", json!("relativo/a/algo")),
-        con("worktree", json!("/no/existe/de/ninguna/manera")),
+        con("worktree", json!(concat!(tmp!(), "/no/existe/de/ninguna/manera"))),
         con("worktree", json!(sin_repo.to_str().unwrap())),
         con("worktree", json!(fichero.to_str().unwrap())),
         sin("worktree"),
@@ -2377,7 +2392,7 @@ async fn registrar_desde_la_web_exige_version_mayor_y_toml_valido() {
     for (toml, motivo) in [
         (RUTINA_BUS.to_string(), "la nueva debe ser mayor"),
         (RUTINA_BUS.replace("version = 1", "version = 0"), "la versión empieza en 1"),
-        (RUTINA_BUS.replace("version = 1", "version = 2").replace("\"/tmp\"", "\"tmp\""), "worktree debe ser una ruta absoluta"),
+        (RUTINA_BUS.replace("version = 1", "version = 2").replace(concat!("\"", tmp!(), "\""), "\"tmp\""), "worktree debe ser una ruta absoluta"),
         (RUTINA_BUS.replace("version = 1", "version = 2").replace("test -f {salida}", " "), "falta criterio_exito"),
         ("[rutina]\nslug = ".into(), "rutina inválida"),
         (format!("{}#{}", RUTINA_BUS.replace("version = 1", "version = 2"), "x".repeat(ea_bus::MAX_DEFINICION)), "demasiado larga"),
@@ -2445,7 +2460,7 @@ async fn validar_no_registra_nada() {
 #[tokio::test]
 async fn crear_una_rutina_nueva_desde_la_web() {
     let f = montar();
-    let toml = "# Una rutina nueva\n[rutina]\nslug = \"nueva\"\nversion = 1\ndescripcion = \"De prueba\"\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n\n[[pasos]]\ntexto = \"nada\"\n";
+    let toml = concat!("# Una rutina nueva\n[rutina]\nslug = \"nueva\"\nversion = 1\ndescripcion = \"De prueba\"\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n\n[[pasos]]\ntexto = \"nada\"\n");
     let (s, v) = post(&f, "/api/rutinas/registrar", json!({ "toml": toml })).await;
     assert_eq!(s, StatusCode::CREATED, "{v}");
     assert_eq!(v, json!({ "rutina": "nueva", "version": 1, "anterior": null }));
@@ -2644,9 +2659,18 @@ async fn las_versiones_de_una_rutina_se_listan_y_se_leen() {
 
 // ------------------------------------------- programar una rutina (R4)
 
+/// Sin `sh` (Windows) no hay fakes de `systemctl`: órdenes que no existen,
+/// y las pruebas que dependen de ellas se compilan solo en Unix.
+#[cfg(not(unix))]
+fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
+    let no = || vec!["orden-inexistente-para-las-pruebas".to_string()];
+    ea_acciones::Temporizadores::systemd(dir.join("systemd-user"), no(), no())
+}
+
 /// `systemctl` y `systemd-analyze` falsos para los timers de las rutinas:
 /// nunca el `~/.config/systemd/user` real ni el `systemctl` de verdad. Las
 /// unidades van a `<dir>/systemd-user`; las órdenes, a `<dir>/ordenes.log`.
+#[cfg(unix)]
 fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
     let log = dir.join("ordenes.log");
     let unidades = dir.join("systemd-user");
@@ -2674,9 +2698,10 @@ fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
     )
     .unwrap();
     let sh = |p: &std::path::Path| vec!["sh".to_string(), p.display().to_string()];
-    ea_acciones::Temporizadores { unidades_dir: unidades, systemctl: sh(&sc), systemd_analyze: sh(&sa) }
+    ea_acciones::Temporizadores::systemd(unidades, sh(&sc), sh(&sa))
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn programar_desde_la_web_pide_simulacion_y_revalida() {
     let f = montar();
@@ -2807,9 +2832,10 @@ async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
         _ => unreachable!(),
     };
     let id_txt = id.to_string();
+    let lanzador = ea_plataforma::escritorio::lanzadores_terminal()[0];
     let esperado: Vec<Vec<String>> = [
-        vec!["xdg-terminal-exec", &ea, "propuestas", "decidir", &id_txt, "--aceptar", "--esperar"],
-        vec!["xdg-terminal-exec", &ea, "acciones", "ejecutar", "ea_eliminar_rutina", "--args", r#"{"slug":"revision-diaria"}"#, "--esperar"],
+        vec![lanzador, &ea, "propuestas", "decidir", &id_txt, "--aceptar", "--esperar"],
+        vec![lanzador, &ea, "acciones", "ejecutar", "ea_eliminar_rutina", "--args", r#"{"slug":"revision-diaria"}"#, "--esperar"],
     ]
     .into_iter()
     .map(|v| v.into_iter().map(String::from).collect())
@@ -2829,6 +2855,7 @@ async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
 /// (salvo con `?retiradas=1`) ni se lanza, y la web y la simulación de
 /// `ea_encolar_rutina` por la capa de MCP (`SoloConsulta`) dan la misma
 /// respuesta. Restaurar la devuelve, sin volver a programar el timer.
+#[cfg(unix)]
 #[tokio::test]
 async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     let f = montar();
@@ -3106,7 +3133,7 @@ async fn lo_que_no_se_puede_cambiar_se_rechaza() {
     // Solo las tres herramientas de la sección; ni otras ni un directorio a pedido.
     for cuerpo in [
         json!({ "herramienta": "ea_reiniciar_servicio", "argumentos": { "servicio": "ea-mcp" } }),
-        json!({ "herramienta": "ea_lanzar_sesion", "argumentos": { "agente": "codex", "herramientas": [MCP_CODEX], "directorio": "/tmp" } }),
+        json!({ "herramienta": "ea_lanzar_sesion", "argumentos": { "agente": "codex", "herramientas": [MCP_CODEX], "directorio": tmp!() } }),
     ] {
         let (st, _) = post(&f, "/api/biblioteca/simular", cuerpo).await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
@@ -3138,7 +3165,6 @@ async fn proponer_y_aceptar_una_sesion_abre_la_terminal_sin_secretos() {
     assert!(abiertas[0].iter().any(|a| a == "claude"), "{abiertas:?}");
     sin_secretos(&format!("{abiertas:?}"));
     // Los secretos solo están en los ficheros efímeros, con permisos 0600.
-    use std::os::unix::fs::PermissionsExt;
     let mcp = std::fs::read_dir(f._dir.path().join("runtime/ea-biblioteca/sesiones"))
         .unwrap()
         .flatten()
@@ -3146,7 +3172,9 @@ async fn proponer_y_aceptar_una_sesion_abre_la_terminal_sin_secretos() {
         .map(|e| e.path())
         .find(|p| std::fs::read_to_string(p).is_ok_and(|t| t.contains("SECRETO_HEADER_CLAUDE")))
         .expect("el fichero efímero con la definición completa");
-    assert_eq!(std::fs::metadata(mcp).unwrap().permissions().mode() & 0o777, 0o600);
+    if let Some(m) = ea_plataforma::fs::permisos_unix(&std::fs::metadata(mcp).unwrap()) {
+        assert_eq!(m & 0o777, 0o600);
+    }
 }
 
 #[tokio::test]
@@ -3186,15 +3214,16 @@ async fn la_categoria_propia_va_por_ajustes() {
 /// los usan, con `orquestador.paralelo = paralelo`: así la prueba no depende
 /// del PATH real. Devuelve el repo git donde se despiertan los equipos.
 fn preparar_equipos(f: &Fixture, paralelo: u32) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let bins = f._dir.path().join("bins");
     std::fs::create_dir_all(&bins).unwrap();
     let mut toml = format!("[orquestador]\nparalelo = {paralelo}\n");
     for id in ea_ajustes::IDS_AGENTES {
-        let p = bins.join(id);
-        std::fs::write(&p, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-        toml += &format!("[agentes.{id}]\nbin = \"{}\"\n", p.display());
+        // Un binario falso que `buscar_binario` da por ejecutable en cada sistema.
+        let p = bins.join(if cfg!(windows) { format!("{id}.cmd") } else { id.to_string() });
+        std::fs::write(&p, if cfg!(windows) { "@echo off\r\n" } else { "#!/bin/sh\n" }).unwrap();
+        #[cfg(unix)]
+        ea_plataforma::fs::poner_permisos_unix(&p, 0o755).unwrap();
+        toml += &format!("[agentes.{id}]\nbin = \"{}\"\n", p.display().to_string().replace('\\', "/"));
     }
     let fichero = f.state.config.ajustes.fichero();
     std::fs::create_dir_all(fichero.parent().unwrap()).unwrap();
@@ -3282,7 +3311,7 @@ async fn despertar_con_terminal_abre_una_por_planificador_y_revisor() {
     assert!(r["sesiones"].as_array().unwrap().iter().all(|x| x["abierta"] == true && x["error"].is_null()));
     // Solo planificador y revisor; argv cerrado `ea equipo sesion <id> <agente>`.
     let ea = f._dir.path().join("bin/ea").display().to_string();
-    let esperado = |agente: &str| vec![ea_acciones::LANZADORES[0].to_string(), ea.clone(), "equipo".into(), "sesion".into(), id.into(), agente.into()];
+    let esperado = |agente: &str| vec![ea_plataforma::escritorio::lanzadores_terminal()[0].to_string(), ea.clone(), "equipo".into(), "sesion".into(), id.into(), agente.into()];
     assert_eq!(lanzadas(&f), vec![esperado("claude-code"), esperado("antigravity")]);
     let (_, d) = get(&f, "/api/diario?accion=equipo_sesion").await;
     assert_eq!(d.as_array().unwrap().len(), 2, "{d}");
@@ -3338,7 +3367,7 @@ async fn despertar_rechaza_lo_que_la_cli_rechaza() {
     sin_titulo["titulo"] = json!("  ");
     rechaza(sin_titulo, "titulo").await;
     let mut sin_wt = despertar_cuerpo(&wt, &BASICO, false);
-    sin_wt["worktree"] = json!("/no/existe/de/verdad");
+    sin_wt["worktree"] = json!(concat!(tmp!(), "/no/existe/de/verdad"));
     rechaza(sin_wt, "no existe").await;
     // un binario que falta
     let fichero = f.state.config.ajustes.fichero();

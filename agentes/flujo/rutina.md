@@ -9,7 +9,7 @@ ejecutor lo corre cada vez. El planificador no ejecuta la rutina.
 - **Ningún agente se confirma a sí mismo.** Registrar, programar, retirar o
   corregir una rutina por MCP solo **simula o propone**; el usuario acepta en
   ◇ Propuestas del panel o con `ea propuestas decidir <n> --aceptar`. No pidas
-  la terminal ni lances `systemctl` a mano.
+  la terminal ni lances `systemctl`/`launchctl`/`schtasks` a mano.
 - El criterio de éxito lo ejecuta el sistema; un criterio vacío no es éxito.
 
 ## Crear o actualizar
@@ -18,7 +18,7 @@ ejecutor lo corre cada vez. El planificador no ejecuta la rutina.
    (`ea agentes` dice cuál es y con qué modelo): concretos, con rutas y
    comandos. Un `criterio_exito` en shell que pase o falle.
 2. Escribe `<slug>.toml` (slug: `[A-Za-z0-9_-]`, ≤ 64) en
-   `~/Proyectos/ecosistema-asistente/rutinas/` o donde el usuario indique:
+   `rutinas/` en la raíz del repo o donde el usuario indique:
 
 ```toml
 [rutina]
@@ -58,12 +58,12 @@ El servicio `ea-rutina@<slug>.service` ya existe y solo ejecuta
 `ea rutina lanzar <slug>` (crea el trabajo; no ejecuta nada). El horario se
 **propone** por MCP con `ea_programar_rutina` (`slug` de una rutina registrada y
 `calendario`, una expresión `OnCalendar` de una línea: `*-*-* 08:00:00` cada día,
-`Mon *-*-* 09:00` los lunes, `daily`):
+`Mon *-*-* 09:00` los lunes, `daily`; fuera de Linux solo vale el subconjunto portable: `daily`, `HH:MM`, `Mon..Fri 09:00`…, ver el README):
 
-1. Primero con `simular: true`: valida el calendario con `systemd-analyze` y
+1. Primero con `simular: true`: valida el calendario (`systemd-analyze` en Linux; fuera de Linux, el subconjunto portable) y
    enseña las próximas 3 ejecuciones y el horario actual. Si da error, corrige.
 2. Luego sin simular: encola una propuesta. Dile al usuario que la acepte; al
-   aceptarla se escribe `~/.config/systemd/user/ea-rutina@<slug>.timer` y se
+   aceptarla se escribe el temporizador de la rutina (en Linux, `~/.config/systemd/user/ea-rutina@<slug>.timer`; un LaunchAgent en macOS o una tarea de `schtasks` en Windows) y se
    activa. También puede hacerlo él en la ficha de la rutina (↻ Rutinas,
    «◷ guardar»).
 

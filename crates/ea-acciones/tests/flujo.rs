@@ -5,6 +5,20 @@ use ea_acciones::*;
 use ea_store::{EstadoEjecucion, EstadoPropuesta, EventFilter, NuevaPropuesta, Store, StoreError};
 use serde_json::{json, Value};
 
+/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
+#[cfg(windows)]
+macro_rules! tmp {
+    () => {
+        "C:/Windows"
+    };
+}
+#[cfg(not(windows))]
+macro_rules! tmp {
+    () => {
+        "/tmp"
+    };
+}
+
 fn store() -> (Store, tempfile::TempDir) {
     // Una sola raíz de estado del bus para todo el proceso de pruebas.
     static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
@@ -17,7 +31,8 @@ fn store() -> (Store, tempfile::TempDir) {
             slug: slug.into(),
             version: 1,
             definicion: format!(
-                "[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+                concat!("[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"),
+                slug = slug
             ),
             creada_en: "2026-01-01T00:00:00Z".into(),
             creada_por: "test".into(),
@@ -27,7 +42,7 @@ fn store() -> (Store, tempfile::TempDir) {
     s.guardar_rutina(&ea_store::FilaRutina {
         slug: "con-entradas".into(),
         version: 1,
-        definicion: "[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n".into(),
+        definicion: concat!("[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n").into(),
         creada_en: "2026-01-01T00:00:00Z".into(),
         creada_por: "test".into(),
     })
@@ -467,7 +482,7 @@ fn los_campos_declarados_casan_con_los_argumentos_que_se_validan() {
             (_, _, "ruta") => json!("claude-code/tema/nota.md"),
             (_, _, "destino") => json!("tema/nota.md"),
             (_, _, "toml") => json!(
-                "[rutina]\nslug = \"x\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+                concat!("[rutina]\nslug = \"x\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n")
             ),
             _ => json!("revision-diaria"),
         };
