@@ -32,13 +32,24 @@ impl Estado {
     }
 }
 
+/// `desconocido` (la API no consultó systemd) no degrada el semáforo.
+fn servicio_sano(activo: Option<&str>) -> bool {
+    matches!(activo, Some("active" | "desconocido"))
+}
+
+/// Si la ventana inicial se crea visible: con `--oculto` solo si hay bandeja
+/// desde la que recuperarla.
+pub fn visible_al_crear(oculto: bool, hay_bandeja: bool) -> bool {
+    !oculto || !hay_bandeja
+}
+
 /// Estado a partir de `GET /api/estado`: el orquestador tiene que estar vivo y
 /// todos los servicios activos; si no, aviso.
 pub fn estado_de(estado_general: &Value) -> Estado {
     let vivo = estado_general["orquestador"]["vivo"].as_bool().unwrap_or(false);
     let servicios_activos = estado_general["servicios"]
         .as_array()
-        .is_none_or(|s| s.iter().all(|sv| sv["activo"].as_str() == Some("active")));
+        .is_none_or(|s| s.iter().all(|sv| servicio_sano(sv["activo"].as_str())));
     if vivo && servicios_activos { Estado::Bien } else { Estado::Aviso }
 }
 
@@ -115,6 +126,23 @@ mod tests {
 
     const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    #[test]
+    fn servicios_desconocidos_no_degradan_pero_inactivos_si() {
+        let ok = json!({"orquestador":{"vivo":true},"servicios":[{"activo":"desconocido"},{"activo":"active"}]});
+        assert_eq!(estado_de(&ok), Estado::Bien);
+        let mal = json!({"orquestador":{"vivo":true},"servicios":[{"activo":"failed"},{"activo":"active"}]});
+        assert_eq!(estado_de(&mal), Estado::Aviso);
+        let muerto = json!({"orquestador":{"vivo":false},"servicios":[{"activo":"desconocido"}]});
+        assert_eq!(estado_de(&muerto), Estado::Aviso);
+    }
+
+    #[test]
+    fn oculto_sin_bandeja_se_muestra() {
+        assert!(!visible_al_crear(true, true));
+        assert!(visible_al_crear(true, false));
+        assert!(visible_al_crear(false, true));
+    }
 
     #[test]
     fn el_vigia_ve_la_clave_nueva_y_su_desaparicion() {

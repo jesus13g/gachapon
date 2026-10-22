@@ -253,12 +253,13 @@ const EA_WEB_OPEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../ea-web/bin/ea
 /// La orden del aviso de escritorio con la acción «abrir» (solo Linux): lanza
 /// `abrir '#trabajos/<id>'`. `notify-send --action` espera a que se pulse o se
 /// descarte el aviso; si no admite acciones (o falla), se avisa sin ella. Los
-/// textos van como argumentos, nunca dentro del guion.
+/// textos van como argumentos, nunca dentro del guion. Sale con error solo si
+/// `notify-send` falta o falla (el aviso no se entregó).
 #[cfg(target_os = "linux")]
 fn orden_aviso(titulo: &str, resultado: &str, id: &str, abrir: &Path) -> Command {
     let mut c = Command::new("sh");
     c.arg("-c")
-        .arg(r#"r=$(notify-send --action=abrir=abrir "$1" "$2") || exec notify-send "$1" "$2"; [ "$r" = abrir ] && exec "$3" "$4"; exit 0"#)
+        .arg(r#"r=$(notify-send --action=abrir=abrir "$1" "$2") || exec notify-send "$1" "$2"; if [ "$r" = abrir ]; then "$3" "$4"; fi; exit 0"#)
         .arg("ea-aviso")
         .arg(format!("ea: {titulo}"))
         .arg(resultado)
@@ -271,10 +272,23 @@ fn orden_aviso(titulo: &str, resultado: &str, id: &str, abrir: &Path) -> Command
 /// directorio de ejecución (`<ejecucion>/ea-escritorio/presencia`, con su pid
 /// en la primera palabra): si el pid ya no existe (el shell murió sin limpiar),
 /// no cuenta.
+/// Además el proceso con ese pid tiene que ser de verdad `ea-escritorio`: un
+/// pid reutilizado por otro programa tras un cierre sucio no cuenta.
 fn escritorio_vivo(ejecucion: Option<&Path>) -> bool {
+    escritorio_vivo_con(ejecucion, ea_plataforma::proceso::vive, ea_plataforma::proceso::nombre)
+}
+
+/// ¿Es `nombre` el ejecutable del shell? Sin nombre legible se da por bueno
+/// (el pid vive y no se puede comprobar más).
+fn es_ea_escritorio(nombre: Option<&str>) -> bool {
+    nombre.is_none_or(|n| n.to_ascii_lowercase().starts_with("ea-escritorio"))
+}
+
+fn escritorio_vivo_con(ejecucion: Option<&Path>, vive: impl Fn(u32) -> bool, nombre: impl Fn(u32) -> Option<String>) -> bool {
     let Some(ejecucion) = ejecucion else { return false };
     let Ok(texto) = std::fs::read_to_string(ea_ajustes::fichero_presencia_escritorio(ejecucion)) else { return false };
-    texto.split_whitespace().next().and_then(|p| p.parse::<u32>().ok()).is_some_and(ea_plataforma::proceso::vive)
+    let Some(pid) = texto.split_whitespace().next().and_then(|p| p.parse::<u32>().ok()) else { return false };
+    vive(pid) && es_ea_escritorio(nombre(pid).as_deref())
 }
 
 /// ¿Avisa el orquestador? No con `avisos_escritorio = false` (no suena nadie) ni
@@ -312,24 +326,35 @@ fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str, id: &str) {
         if let Some(abrir) = elegir_lanzador(binario_escritorio(), Path::new(EA_WEB_OPEN)) {
             let mut c = orden_aviso(titulo, resultado, id, &abrir);
             c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+            let (t, r) = (format!("ea: {titulo}"), resultado.to_string());
             match c.spawn() {
                 Ok(mut hijo) => {
+                    // Si `notify-send` falta o falla, el aviso no se entregó:
+                    // se cae al mecanismo simple de la plataforma.
                     std::thread::spawn(move || {
-                        let _ = hijo.wait();
+                        if !hijo.wait().is_ok_and(|st| st.success()) {
+                            avisar_simple(&t, &r);
+                        }
                     });
                 }
-                Err(e) => tracing::debug!(error = %e, "no se pudo lanzar el aviso de escritorio"),
+                Err(e) => {
+                    tracing::debug!(error = %e, "no se pudo lanzar el aviso de escritorio");
+                    std::thread::spawn(move || avisar_simple(&t, &r));
+                }
             }
             return;
         }
     }
     let _ = (id, binario_escritorio);
     let (titulo, resultado) = (format!("ea: {titulo}"), resultado.to_string());
-    std::thread::spawn(move || {
-        if let Err(e) = ea_plataforma::escritorio::avisar(&titulo, &resultado) {
-            tracing::debug!(error = %e, "no se pudo lanzar el aviso de escritorio");
-        }
-    });
+    std::thread::spawn(move || avisar_simple(&titulo, &resultado));
+}
+
+/// Aviso simple de la plataforma (síncrono; llamar desde un hilo).
+fn avisar_simple(titulo: &str, resultado: &str) {
+    if let Err(e) = ea_plataforma::escritorio::avisar(titulo, resultado) {
+        tracing::debug!(error = %e, "no se pudo entregar el aviso de escritorio");
+    }
 }
 
 fn bloqueado(motivo: &str, evidencia: String) -> Informe {
@@ -863,8 +888,14 @@ mod tests {
         let fichero = ea_ajustes::fichero_presencia_escritorio(d.path());
         std::fs::create_dir_all(fichero.parent().unwrap()).unwrap();
         std::fs::write(&fichero, format!("{}\n", std::process::id())).unwrap();
-        assert!(escritorio_vivo(Some(d.path())));
-        assert!(!debe_avisar(&con, Some(d.path())));
+        // (el nombre del proceso lo decide `es_ea_escritorio`; ver su prueba)
+        let nombre_ok = |_| Some("ea-escritorio".to_string());
+        assert!(escritorio_vivo_con(Some(d.path()), ea_plataforma::proceso::vive, nombre_ok));
+        assert!(!escritorio_vivo_con(Some(d.path()), ea_plataforma::proceso::vive, |_| Some("firefox".into())));
+        assert!(!escritorio_vivo_con(Some(d.path()), |_| false, nombre_ok));
+        // Este proceso es el binario de pruebas, no ea-escritorio: pid reutilizado.
+        assert!(!escritorio_vivo(Some(d.path())));
+        assert!(debe_avisar(&con, Some(d.path())));
         assert!(!debe_avisar(&sin, Some(d.path())));
         // Presencia de un pid muerto o ilegible: no cuenta y avisa el orquestador.
         std::fs::write(&fichero, "4294967294").unwrap();
@@ -872,6 +903,15 @@ mod tests {
         assert!(debe_avisar(&con, Some(d.path())));
         std::fs::write(&fichero, "basura").unwrap();
         assert!(debe_avisar(&con, Some(d.path())));
+    }
+
+    #[test]
+    fn solo_el_ejecutable_ea_escritorio_cuenta_como_shell() {
+        assert!(es_ea_escritorio(Some("ea-escritorio")));
+        assert!(es_ea_escritorio(Some("ea-escritorio.exe")));
+        assert!(es_ea_escritorio(None));
+        assert!(!es_ea_escritorio(Some("firefox")));
+        assert!(!es_ea_escritorio(Some("")));
     }
 
     #[test]

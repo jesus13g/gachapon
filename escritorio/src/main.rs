@@ -53,7 +53,7 @@ fn ventana(app: &AppHandle) -> Option<WebviewWindow> {
 fn crear_ventana(app: &AppHandle, panel: bool, fragmento: Option<&str>, visible: bool) -> tauri::Result<WebviewWindow> {
     let c = compartido(app);
     let puerto = c.puerto;
-    let n = c.generacion.fetch_add(1, Ordering::SeqCst) + 1;
+    let n = c.generacion.load(Ordering::SeqCst) + 1;
     let url = if panel { origen::url_panel(puerto, fragmento) } else { espera::url_espera() };
     let url = Url::parse(&url).expect("la URL del panel es válida");
     let mut b = WebviewWindowBuilder::new(app, format!("principal-{n}"), WebviewUrl::External(url))
@@ -78,6 +78,8 @@ fn crear_ventana(app: &AppHandle, panel: bool, fragmento: Option<&str>, visible:
         }
     }
     let w = b.build()?;
+    // Solo con la ventana construida pasa a ser la vigente.
+    c.generacion.store(n, Ordering::SeqCst);
     let w2 = w.clone();
     let app2 = app.clone();
     w.on_window_event(move |ev| {
@@ -168,25 +170,74 @@ fn avisar(app: &AppHandle, a: vigia::AvisoTrabajo) {
     std::thread::spawn(move || {
         #[cfg(target_os = "linux")]
         {
-            use std::process::{Command, Stdio};
-            let salida = Command::new("notify-send")
-                .args(["--app-name=ea-escritorio", "--action=abrir=Abrir", "--wait"])
-                .arg(&titulo)
-                .arg(&cuerpo)
-                .stdin(Stdio::null())
-                .stderr(Stdio::null())
-                .output();
-            if let Ok(s) = salida {
-                if String::from_utf8_lossy(&s.stdout).trim() == "abrir" {
+            match avisar_notify_send(&titulo, &cuerpo) {
+                Some(true) => {
                     let app2 = app.clone();
                     let _ = app.run_on_main_thread(move || mostrar(&app2, Some(&format!("trabajos/{}", a.id))));
+                    return;
                 }
-                return;
+                Some(false) => return,
+                None => {} // notify-send no sirvió: cae al plugin
             }
         }
         use tauri_plugin_notification::NotificationExt;
         let _ = app.notification().builder().title(titulo).body(cuerpo).show();
     });
+}
+
+/// Avisos de `notify-send` en curso a la vez.
+#[cfg(target_os = "linux")]
+static AVISOS_EN_CURSO: AtomicUsize = AtomicUsize::new(0);
+#[cfg(target_os = "linux")]
+const MAX_AVISOS_SIMULTANEOS: usize = 4;
+#[cfg(target_os = "linux")]
+const TOPE_AVISO: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// `Some(true)` si el usuario pulsó «Abrir»; `Some(false)` si se cerró sin
+/// pulsar (o venció el tope); `None` si `notify-send` no existe, falló o hay
+/// demasiados avisos abiertos (entonces se usa el plugin).
+#[cfg(target_os = "linux")]
+fn avisar_notify_send(titulo: &str, cuerpo: &str) -> Option<bool> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    if AVISOS_EN_CURSO.fetch_add(1, Ordering::SeqCst) >= MAX_AVISOS_SIMULTANEOS {
+        AVISOS_EN_CURSO.fetch_sub(1, Ordering::SeqCst);
+        return None;
+    }
+    let resultado = (|| {
+        let mut hijo = Command::new("notify-send")
+            .args(["--app-name=ea-escritorio", "--action=abrir=Abrir", "--wait"])
+            .arg(titulo)
+            .arg(cuerpo)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let inicio = std::time::Instant::now();
+        let estado = loop {
+            match hijo.try_wait() {
+                Ok(Some(e)) => break e,
+                Ok(None) if inicio.elapsed() >= TOPE_AVISO => {
+                    let _ = hijo.kill();
+                    let _ = hijo.wait();
+                    return Some(false);
+                }
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(200)),
+                Err(_) => return None,
+            }
+        };
+        if !estado.success() {
+            return None;
+        }
+        let mut s = String::new();
+        if let Some(mut o) = hijo.stdout.take() {
+            let _ = o.read_to_string(&mut s);
+        }
+        Some(s.trim() == "abrir")
+    })();
+    AVISOS_EN_CURSO.fetch_sub(1, Ordering::SeqCst);
+    resultado
 }
 
 /// El hilo del vigía: estado, clave, página de espera y avisos.
@@ -296,7 +347,9 @@ fn main() {
             }
             // Si ea-web ya responde, abre directo el panel; si no, la espera.
             let listo = api::obtener(puerto, "estado").is_ok();
-            crear_ventana(&handle, listo, inicial.as_deref(), !oculto)?;
+            // Sin bandeja una ventana oculta sería inalcanzable: se muestra.
+            let visible = vigia::visible_al_crear(oculto, compartido(&handle).bandeja.load(Ordering::SeqCst));
+            crear_ventana(&handle, listo, inicial.as_deref(), visible)?;
             if listo {
                 compartido(&handle).panel.store(true, Ordering::SeqCst);
             } else {
