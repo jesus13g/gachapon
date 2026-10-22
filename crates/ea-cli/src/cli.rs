@@ -81,6 +81,11 @@ pub enum Command {
         #[command(subcommand)]
         accion: EquipoAccion,
     },
+    /// Worktrees propios de los trabajos (spec 019, anexo A): listarlos y quitar los de trabajos terminados
+    Worktree {
+        #[command(subcommand)]
+        accion: WorktreeAccion,
+    },
     /// Servicios residentes (ea-mcp, ea-orchestrator, ea-web) en el gestor del sistema: ver, instalar y desinstalar (instalar y desinstalar exigen una terminal interactiva real)
     Servicios {
         #[command(subcommand)]
@@ -120,6 +125,17 @@ pub enum ServiciosAccion {
         #[arg(long)]
         esperar: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum WorktreeAccion {
+    /// Los worktrees propios vivos: trabajo, rama ea/<id>, estado del trabajo y si están limpios
+    Listar {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Quita el worktree de un trabajo cerrado o cancelado (`git worktree remove`, sin --force; la rama se conserva); simula y pide confirmación en una terminal
+    Limpiar { id: String },
 }
 
 #[derive(Subcommand)]

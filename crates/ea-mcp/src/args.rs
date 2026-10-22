@@ -69,6 +69,15 @@ pub struct HerramientaArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct WorktreeArgs {
+    /// Id del trabajo con worktree propio (el de `ea trabajo listar`).
+    pub trabajo: String,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct EncolarRutinaArgs {
     /// Nombre (slug) de la rutina, p. ej. "revision-diaria".
     pub slug: String,

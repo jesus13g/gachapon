@@ -177,6 +177,18 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Abre en una terminal un agente (Claude Code, Qwen Code, Codex u OpenCode) con solo las herramientas elegidas de la biblioteca",
     },
+    // Spec 019, anexo A: quitar el directorio del worktree propio de un trabajo
+    // terminado (`git worktree remove`, sin `--force`: git se niega si hay
+    // cambios sin guardar). La rama `ea/<id>` se conserva y el directorio se
+    // vuelve a sacar con `preparar_worktree`: reversible. Fusionar la rama es
+    // del usuario y no tiene herramienta.
+    Herramienta {
+        nombre: "ea_limpiar_worktree",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Quita el worktree propio de un trabajo terminado y limpio (la rama ea/<id> se conserva)",
+    },
     // Vaciar la papelera: solo una rutina ya retirada, y solo desde la terminal.
     Herramienta {
         nombre: "ea_eliminar_rutina",

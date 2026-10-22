@@ -103,6 +103,7 @@ const st = {
   rutVer: {},          // por rutina: { abierto, lista, err, txt: { n: TOML } }: ver versionesHtml()
   rutVerSel: null,     // versión elegida: { slug (null: la fila del enlace), n, diff }
   rutHor: {},          // por rutina: { v: OnCalendar escrito, sim, quitar, err }: ver horarioRutina()
+  wtLimp: {},          // por trabajo: { sim, err }: limpiar su worktree propio, ver worktreeHtml()
   rutRet: {},          // por rutina: { herr, sim, err }: retirar o restaurar, ver retiroRutina()
   rutRetiradas: false, // la barra de Rutinas enseña las retiradas en vez de las activas
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
@@ -315,7 +316,7 @@ function diffHtml(id) {
 
 // Ficha completa (H16): metadatos de la orden, el plan de la obra con el
 // estado y el diff de cada fase, y el resumen del agente. Solo lectura.
-function metaTrabajo(o) {
+function metaTrabajo(o, w = null) {
   const t = o.topes || {};
   const sk = o.skills?.length ? 'skills: ' + o.skills.map(esc).join(', ') : 'sin skills';
   const topes = `topes: ${t.iteraciones} it. · ${Math.round((t.tiempo_s || 0) / 60)} min · ${t.turnos} turnos · ${t.llamadas_herramienta} llamadas`;
@@ -324,7 +325,60 @@ function metaTrabajo(o) {
     ? `<p class="m">equipo ${btn('ir-equipo', esc(o.equipo.slice(9, 15) || o.equipo), 'abrir el equipo ' + o.equipo + ' en ◎ Equipos', { id: o.equipo }, 'l')}` +
       `${o.asignado_a ? ' · asignado a ' + esc(o.asignado_a) : ''}${o.revisor ? ' · revisor ' + esc(o.revisor) : ''}${o.worktree_propio ? ' · worktree propio' : ''}</p>`
     : o.worktree_propio ? '<p class="m">worktree propio</p>' : '';
-  return `<p class="m">${sk} · ${topes} · creada por ${esc(o.creada_por || '—')}${rut}</p>` + eq;
+  return `<p class="m">${sk} · ${topes} · creada por ${esc(o.creada_por || '—')}${rut}</p>` + eq + (o.worktree_propio ? worktreeHtml(o.id ?? w?.trabajo, w, o) : '');
+}
+
+// ------------------------------------- worktree propio de un trabajo (#7)
+//
+// Ruta, rama ea/<id> y si está limpio. Quitarlo es ea_limpiar_worktree
+// (reversible: la rama se conserva): el primer clic simula, el segundo ejecuta
+// lo simulado, con la clave de sesión. Solo con el trabajo cerrado o
+// cancelado y el worktree limpio; fusionar la rama o descartar cambios es del
+// usuario, con git (nunca --force).
+const LIMPIEZA = { true: ['limpio', 'ok'], false: ['con cambios sin guardar', 'hot'] };
+function worktreeHtml(id, w, o = {}) {
+  if (!w) {
+    return `<p class="m">worktree propio: sin directorio (aún no se ha creado o ya se limpió; la rama ea/${esc(id ?? o.id ?? '')} se conserva)</p>`;
+  }
+  const [txt, cls] = LIMPIEZA[w.limpio] ?? ['estado desconocido', 'hot'];
+  const L = st.wtLimp[w.trabajo] || {};
+  const puede = w.estado_trabajo === 'cerrado' || w.estado_trabajo === 'cancelado';
+  let h = `<p class="m">worktree propio: <code>${esc(w.ruta)}</code> · rama <code>${esc(w.rama)}</code> · <span class="${cls}">${txt}</span>${w.ocupado ? ' · en uso' : ''}`;
+  h += puede && !w.ocupado
+    ? ' ' + btn('wtlimpiar', L.sim ? '✓ confirmar' : '▣ limpiar worktree',
+      L.sim ? 'segundo clic: hace lo que dice la simulación' : 'simula quitar el worktree (git worktree remove, sin --force); la rama se conserva', { id: w.trabajo }, L.sim ? 'hot' : 'l')
+    : '</p><p class="m">se podrá limpiar cuando el trabajo esté cerrado o cancelado y el ejecutor lo haya soltado';
+  h += '</p>';
+  if (L.sim) h += `<p class="tx sal">${esc(L.sim.texto)}</p>`;
+  if (L.err) h += `<p class="hot sal">✕ ${esc(L.err)}</p>`;
+  return h;
+}
+
+async function accionWorktree(id) {
+  const L = (st.wtLimp[id] ??= {});
+  if (L.sim) {
+    let r;
+    try {
+      r = await ea.ejecutar('ea_limpiar_worktree', L.sim.argumentos, L.sim.precondicion);
+    } catch (e) {
+      if (e.status === 403) throw e;
+      L.sim = null;
+      L.err = e.message;
+    }
+    if (r) {
+      delete st.wtLimp[id];
+      avisa('✓ ' + r.texto, true);
+      if (st.datos?.worktrees) st.datos.worktrees = await ea.worktrees().catch(() => st.datos.worktrees);
+    }
+    return;
+  }
+  Object.assign(L, { sim: null, err: null });
+  try {
+    L.sim = await ea.simular('ea_limpiar_worktree', { trabajo: id });
+  } catch (e) {
+    if (e.status === 403) throw e;
+    L.err = e.message;
+  }
 }
 
 const FASE_IC = { hecha: ['✓', ''], pendiente: ['·', 'm'], bloqueada: ['✕', 'hot'], cancelada: ['⊘', 'm'], 'en curso': ['▶', ''] };
@@ -382,7 +436,7 @@ function filasTrabajos(ts) {
       det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
         `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
         (d.estado?.ejecutado_por ? `<p class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</p>` : '') +
-        metaTrabajo(o) +
+        metaTrabajo(o, d.worktree) +
         (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
         informeHtml(d) +
         resumenAgente(d) +
@@ -1944,6 +1998,22 @@ function filaServicios(p) {
   return fila('ssvc', 's', row, 'servicios residentes gestor instalar desinstalar ' + p.backend + ' ' + p.sistema, det);
 }
 
+// Los worktrees propios vivos en ▦ Sistema (#7): una fila por trabajo con su
+// rama y si está limpio; el detalle trae la ficha y el botón de limpiar.
+function filasWorktrees(lista) {
+  if (!lista?.length) return [];
+  const out = [grupo('▦', 'worktrees propios', lista.length, 'git worktrees de trabajos, en <estado>/worktrees')];
+  for (const w of lista) {
+    const k = 'w' + w.trabajo, [txt, cls] = LIMPIEZA[w.limpio] ?? ['desconocido', 'hot'];
+    const row = `<i class="n">⎇</i><span class="x" title="${esc(w.ruta)}">${esc(w.rama)}</span>` +
+      `<span class="m">${esc(w.estado_trabajo ?? 'sin trabajo')}${w.ocupado ? ' · en uso' : ''}</span><span class="${cls}">${txt}</span><span></span>`;
+    out.push(fila(k, 's', row, `${w.trabajo} ${w.rama} ${w.titulo ?? ''} ${w.ruta}`,
+      (w.titulo ? `<p class="tx">${esc(w.titulo)}</p>` : '') + worktreeHtml(w.trabajo, w) +
+      `<p>${btn('ir-trabajo', '→ trabajo', 'abrir la ficha del trabajo', { id: w.trabajo }, 'l')}</p>`));
+  }
+  return out;
+}
+
 // El detalle de un rol en ▦ Sistema: los agentes del catálogo que pueden
 // ocuparlo, con su binario y su modelo (/api/agentes), y el cambio (spec
 // 017). Va por POST /api/ajustes (`roles.<rol>`), con segundo clic para
@@ -2717,7 +2787,7 @@ function construir() {
     case 'biblioteca': return d ? filasBiblioteca(d) : [];
     case 'equipos': return d ? filasEquipos(d) : [];
     case 'ajustes': return d ? filasAjustes(d) : [];
-    default: return st.estado ? [columnas('s', '', 'servicio o rol', 'qué hace', 'desde', ''), ...filasSistema(st.estado, false, d)] : [];
+    default: return st.estado ? [columnas('s', '', 'servicio o rol', 'qué hace', 'desde', ''), ...filasSistema(st.estado, false, d), ...filasWorktrees(d?.worktrees)] : [];
   }
 }
 
@@ -3062,8 +3132,8 @@ async function cargaSeccion() {
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await ea.acciones();
   else if (sec === 'sistema') {
-    const [ag, plan] = await Promise.all([ea.agentes(), ea.serviciosPlan().catch(() => null)]);
-    datos = { ...ag, plan };
+    const [ag, plan, ws] = await Promise.all([ea.agentes(), ea.serviciosPlan().catch(() => null), ea.worktrees().catch(() => [])]);
+    datos = { ...ag, plan, worktrees: ws };
   }
   else if (sec === 'diario') {
     const filtros = filtrosDiario();
@@ -3458,6 +3528,8 @@ async function accion(b) {
       }
     } else if (a === 'rhguardar' || a === 'rhquitar') {
       await accionHorario(a, slug, b);
+    } else if (a === 'wtlimpiar') {
+      await accionWorktree(id);
     } else if (a === 'rretiro') {
       await accionRetiro(slug, v);
     } else if (a === 'rretiradas') {

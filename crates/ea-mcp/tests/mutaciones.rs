@@ -195,6 +195,7 @@ async fn el_modelo_local_como_mucho_propone_reversibles_de_su_proyeccion() {
         ("ea_desprogramar_rutina", json!({ "slug": "vieja", "simular": true })),
         ("ea_retirar_rutina", json!({ "slug": "vieja", "simular": true })),
         ("ea_restaurar_rutina", json!({ "slug": "retirada", "simular": true })),
+        ("ea_limpiar_worktree", json!({ "trabajo": "t-1", "simular": true })),
         ("ea_activar_herramienta", json!({ "elemento": "codex/mcp/usuario/docs", "simular": true })),
         ("ea_desactivar_herramienta", json!({ "elemento": "codex/mcp/usuario/docs", "simular": true })),
         ("ea_lanzar_sesion", json!({ "agente": "claude-code", "herramientas": ["claude-code/mcp/usuario/x"], "simular": true })),
@@ -222,6 +223,7 @@ async fn lo_desatendido_no_puede_ni_simular_ni_proponer() {
             "ea_programar_rutina" => json!({ "slug": "vieja", "calendario": "daily" }),
             "ea_activar_herramienta" | "ea_desactivar_herramienta" => json!({ "elemento": "codex/mcp/usuario/docs" }),
             "ea_lanzar_sesion" => json!({ "agente": "claude-code", "herramientas": ["claude-code/mcp/usuario/x"] }),
+            "ea_limpiar_worktree" => json!({ "trabajo": "t-1" }),
             _ => json!({ "slug": "vieja" }),
         };
         let err = llamar(&c, h.nombre, args).await.unwrap_err();

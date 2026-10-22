@@ -15,7 +15,8 @@ use std::process::Command;
 
 use crate::bus::Bus;
 use crate::error::{ErrorBus, Resultado};
-use crate::tipos::Orden;
+use crate::tipos::{EstadoTrabajo, Orden};
+use serde::Serialize;
 
 /// Resultado de una orden `git`: su salida estándar si salió bien, y el error
 /// de git (ya recortado) si no.
@@ -48,7 +49,70 @@ fn comun(dir: &Path) -> Result<PathBuf, String> {
     Ok(ea_plataforma::rutas::canonica(&c).unwrap_or_else(|_| PathBuf::from(c)))
 }
 
+/// Un worktree propio vivo en `<estado>/worktrees/` (spec 019, anexo A).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InfoWorktree {
+    pub trabajo: String,
+    pub ruta: String,
+    /// La rama `ea/<id>`.
+    pub rama: String,
+    /// Estado del trabajo en el bus (`None` si el directorio no es de ningún trabajo).
+    pub estado_trabajo: Option<&'static str>,
+    pub titulo: Option<String>,
+    /// Sin cambios ni ficheros sin seguimiento. `None` si git no pudo decirlo
+    /// (directorio roto o ajeno).
+    pub limpio: Option<bool>,
+    /// El semáforo del ejecutor lo tiene cogido este trabajo ahora.
+    pub ocupado: bool,
+}
+
+impl InfoWorktree {
+    /// El trabajo terminó (`cerrado` o `cancelado`): ya no escribe en él.
+    pub fn trabajo_terminado(&self) -> bool {
+        matches!(self.estado_trabajo, Some("cerrado" | "cancelado"))
+    }
+}
+
 impl Bus {
+    /// El worktree propio del trabajo, si existe su directorio. Solo lee.
+    pub fn info_worktree(&self, id: &str) -> Resultado<Option<InfoWorktree>> {
+        let ruta = self.ruta_worktree(id)?;
+        if !ruta.is_dir() {
+            return Ok(None);
+        }
+        let estado = self.leer_estado(id).ok().map(|e| e.estado);
+        let limpio = git_en(&ruta, &["status", "--porcelain"]).ok().map(|s| s.is_empty());
+        let ocupado = crate::candado::listar_semaforos_en(&self.raiz).iter().any(|(_, o)| o.trabajo == id);
+        Ok(Some(InfoWorktree {
+            trabajo: id.to_string(),
+            ruta: ruta.to_string_lossy().into_owned(),
+            rama: format!("ea/{id}"),
+            estado_trabajo: estado.map(EstadoTrabajo::as_str),
+            titulo: self.leer_orden(id).ok().map(|o| o.titulo),
+            limpio,
+            ocupado,
+        }))
+    }
+
+    /// Los worktrees propios vivos, por id. Solo lee.
+    pub fn listar_worktrees(&self) -> Resultado<Vec<InfoWorktree>> {
+        let mut ids: Vec<String> = std::fs::read_dir(self.raiz.join("worktrees"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        ids.sort();
+        let mut v = Vec::new();
+        for id in ids {
+            if let Some(i) = self.info_worktree(&id).ok().flatten() {
+                v.push(i);
+            }
+        }
+        Ok(v)
+    }
+
     fn ruta_worktree(&self, id: &str) -> Resultado<PathBuf> {
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
             return Err(ErrorBus::Argumentos(format!("id de trabajo inválido: {id:?}")));
@@ -115,7 +179,8 @@ impl Bus {
     /// Quita el worktree propio de un trabajo con `git worktree remove` (sin
     /// `--force`: si tiene cambios sin guardar o ficheros nuevos, git se
     /// niega y el error sube). No borra la rama `ea/<id>`. Devuelve `false` si
-    /// no había worktree. Aún no la llama nadie (la limpieza es posterior).
+    /// no había worktree. La llama `ea_limpiar_worktree` (spec 019, anexo A), que
+    /// además exige un trabajo terminado y el worktree limpio.
     pub fn limpiar_worktree(&self, id: &str) -> Resultado<bool> {
         let ruta = self.ruta_worktree(id)?;
         if !ruta.exists() {

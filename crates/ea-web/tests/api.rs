@@ -3744,3 +3744,64 @@ async fn probar_skills_desde_la_web_reutiliza_la_validacion() {
     let (s, _) = post(&f, "/api/skills/probar", json!({ "skills": [], "otro": 1 })).await;
     assert!(s.is_client_error());
 }
+
+/// Worktrees propios (spec 019, anexo A): listarlos, verlos en la ficha del
+/// trabajo y quitar el de un trabajo terminado con simulación y revalidación;
+/// la rama se conserva y un worktree con cambios no se toca (sin --force).
+#[tokio::test]
+async fn los_worktrees_propios_se_listan_y_se_limpian_con_simulacion() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let bus = ea_bus::Bus::abrir().unwrap();
+    let repo = repo_git(&f);
+    let (s, v) = get(&f, "/api/worktrees").await;
+    assert_eq!((s, v), (StatusCode::OK, json!([])));
+
+    let mut o = orden(ea_bus::Modo::Mision, "Con worktree", repo.to_str().unwrap());
+    o.worktree_propio = true;
+    let id = bus.crear_trabajo(o.clone()).unwrap().to_string();
+    let ruta = bus.preparar_worktree(&id, &o).unwrap();
+
+    let (_, v) = get(&f, "/api/worktrees").await;
+    assert_eq!(v.as_array().unwrap().len(), 1, "{v}");
+    assert_eq!(v[0]["trabajo"], id.as_str());
+    assert_eq!(v[0]["rama"], format!("ea/{id}"));
+    assert_eq!(v[0]["limpio"], true);
+    assert_eq!(v[0]["estado_trabajo"], "en_cola");
+    let (_, d) = get(&f, &format!("/api/trabajos/{id}")).await;
+    assert_eq!(d["worktree"]["rama"], format!("ea/{id}"), "{d}");
+
+    let pedir = json!({ "herramienta": "ea_limpiar_worktree", "argumentos": { "trabajo": id } });
+    // Sin terminar, no se limpia.
+    let (s, r) = post(&f, "/api/acciones/simular", pedir.clone()).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{r}");
+    bus.aplicar(&id, ea_bus::Evento::Cancelar).unwrap();
+
+    // Con cambios sin guardar, tampoco: nunca se fuerza.
+    std::fs::write(ruta.join("nuevo.txt"), "x").unwrap();
+    let (s, r) = post(&f, "/api/acciones/simular", pedir.clone()).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{r}");
+    assert!(r.to_string().contains("nunca se fuerza"), "{r}");
+    std::fs::remove_file(ruta.join("nuevo.txt")).unwrap();
+
+    let (s, sim) = post(&f, "/api/acciones/simular", pedir).await;
+    assert_eq!(s, StatusCode::OK, "{sim}");
+    assert!(ruta.exists(), "simular no cambia nada");
+    let (s, r) = post(
+        &f,
+        "/api/acciones/ejecutar",
+        json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(!ruta.exists());
+    let (_, v) = get(&f, "/api/worktrees").await;
+    assert_eq!(v, json!([]));
+    let rama = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/ea/{id}")])
+        .status()
+        .unwrap();
+    assert!(rama.success(), "la rama se conserva");
+}

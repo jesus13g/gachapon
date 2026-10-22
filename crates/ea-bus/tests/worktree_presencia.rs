@@ -230,3 +230,32 @@ fn la_presencia_valida_el_agente_y_salta_lo_ajeno() {
     std::fs::write(b.raiz().join("agentes/codex/presencia.json"), "{").unwrap();
     assert!(b.presencias().is_empty());
 }
+
+#[test]
+fn listar_worktrees_ve_rama_y_distingue_limpio_de_sucio_y_limpiar_no_fuerza() {
+    let d = tempfile::tempdir().unwrap();
+    let r = repo(d.path(), true);
+    let b = bus(d.path());
+    assert!(b.listar_worktrees().unwrap().is_empty());
+    assert!(b.info_worktree("t1").unwrap().is_none());
+    let id = b.crear_trabajo(orden(&r, true)).unwrap().to_string();
+    let ruta = b.preparar_worktree(&id, &orden(&r, true)).unwrap();
+    let v = b.listar_worktrees().unwrap();
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].trabajo, id);
+    assert_eq!(v[0].rama, format!("ea/{id}"));
+    assert_eq!(v[0].limpio, Some(true));
+    assert_eq!(v[0].estado_trabajo, Some("en_cola"));
+    assert!(!v[0].ocupado && !v[0].trabajo_terminado());
+    // un fichero nuevo lo ensucia, y git se niega a quitarlo sin --force
+    std::fs::write(ruta.join("nuevo.txt"), "x").unwrap();
+    assert_eq!(b.info_worktree(&id).unwrap().unwrap().limpio, Some(false));
+    assert!(b.limpiar_worktree(&id).is_err());
+    assert!(ruta.exists());
+    // limpio otra vez: se quita el directorio y la rama se conserva
+    std::fs::remove_file(ruta.join("nuevo.txt")).unwrap();
+    assert!(b.limpiar_worktree(&id).unwrap());
+    assert!(!ruta.exists());
+    assert!(b.listar_worktrees().unwrap().is_empty());
+    git(&r, &["rev-parse", "--verify", &format!("refs/heads/ea/{id}")]);
+}
