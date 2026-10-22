@@ -97,6 +97,13 @@ pub struct VigiaTrabajos {
 }
 
 impl VigiaTrabajos {
+    /// Tras una caída de `ea-web` (o un sondeo fallido) la lista previa ya no
+    /// es fiable: la siguiente lectura solo recalibra, sin avisar de lo
+    /// ocurrido mientras no se veía.
+    pub fn olvidar(&mut self) {
+        self.vistos = None;
+    }
+
     pub fn observar(&mut self, lista: &Value) -> Vec<AvisoTrabajo> {
         let Some(filas) = lista.as_array() else { return Vec::new() };
         let ahora: HashMap<String, String> = filas
@@ -199,5 +206,33 @@ mod tests {
         // Cancelado no avisa; un valor que no es lista, tampoco.
         assert!(v.observar(&json!([t("d", "cancelado")])).is_empty());
         assert!(v.observar(&json!({"error": "x"})).is_empty());
+    }
+
+    #[test]
+    fn tras_una_caida_se_recalibra_sin_avisar_de_lo_antiguo() {
+        let mut v = VigiaTrabajos::default();
+        let t = |id: &str, estado: &str| json!({"id": id, "titulo": format!("t {id}"), "estado": estado});
+        assert!(v.observar(&json!([t("a", "ejecutando")])).is_empty());
+        v.olvidar();
+        // Al volver, a ya terminó y llegó b terminado: no se avisa de golpe.
+        assert!(v.observar(&json!([t("a", "cerrado"), t("b", "en_revision")])).is_empty());
+        // Lo que termina después sí avisa.
+        assert_eq!(v.observar(&json!([t("a", "cerrado"), t("b", "en_revision"), t("c", "cerrado")])).len(), 1);
+    }
+
+    #[test]
+    fn avisa_por_el_estado_final_aunque_salte_estados_intermedios() {
+        let mut v = VigiaTrabajos::default();
+        let t = |estado: &str| json!([{"id": "a", "titulo": "t a", "estado": estado}]);
+        assert!(v.observar(&t("pendiente")).is_empty());
+        // Entre dos sondeos pasó por ejecutando y en_revision: se ve cerrado.
+        let av = v.observar(&t("cerrado"));
+        assert_eq!(av.len(), 1);
+        assert_eq!(av[0].estado, "cerrado");
+        // Un trabajo en revisión que se cierra después no repite el aviso.
+        let mut w = VigiaTrabajos::default();
+        w.observar(&t("ejecutando"));
+        assert_eq!(w.observar(&t("en_revision")).len(), 1);
+        assert!(w.observar(&t("cerrado")).is_empty());
     }
 }

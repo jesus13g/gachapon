@@ -647,4 +647,7 @@ pub struct AjusteAplicado {
 pub struct AjustesCambiados {
     pub aplicados: Vec<AjusteAplicado>,
     pub ajustes: AjustesVista,
+    /// Efectos que fallaron (p. ej. el autoarranque); el ajuste sí quedó guardado.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub avisos: Vec<String>,
 }

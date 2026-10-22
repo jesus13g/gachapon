@@ -663,8 +663,8 @@ pub(crate) fn valor_de(a: &Ajustes, nombre: &str) -> Value {
         "rutas.estado" => ruta(&a.rutas.estado),
         "rutas.boveda" => ruta(&a.rutas.boveda),
         "web.sondeo_ms" => a.web.sondeo_ms.into(),
-        "escritorio.al_iniciar" => a.escritorio.al_iniciar.into(),
         "web.diario_limite" => a.web.diario_limite.into(),
+        "escritorio.al_iniciar" => a.escritorio.al_iniciar.into(),
         "biblioteca.categorias" => serde_json::to_value(&a.biblioteca.categorias).unwrap_or(Value::Null),
         _ => Value::Null,
     }
@@ -732,8 +732,8 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
         "rutas.estado" => a.rutas.estado = r(),
         "rutas.boveda" => a.rutas.boveda = r(),
         "web.sondeo_ms" => a.web.sondeo_ms = n() as u64,
-        "escritorio.al_iniciar" => a.escritorio.al_iniciar = b(),
         "web.diario_limite" => a.web.diario_limite = n() as u32,
+        "escritorio.al_iniciar" => a.escritorio.al_iniciar = b(),
         "biblioteca.categorias" => {
             a.biblioteca.categorias = v
                 .as_object()

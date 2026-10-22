@@ -263,6 +263,9 @@ fn vigilar(app: AppHandle) {
             let a = app.clone();
             let _ = app.run_on_main_thread(move || bandeja::actualizar(&a, estado));
         }
+        if respuesta.is_err() {
+            trabajos.olvidar();
+        }
         let en_panel = compartido(&app).panel.load(Ordering::SeqCst);
         match respuesta {
             Err(motivo) if !en_panel => {
@@ -295,10 +298,13 @@ fn vigilar(app: AppHandle) {
                         }
                     });
                 }
-                if let Ok(lista) = api::obtener(puerto, "trabajos") {
-                    for a in trabajos.observar(&lista) {
-                        avisar(&app, a);
+                match api::obtener(puerto, "trabajos") {
+                    Ok(lista) => {
+                        for a in trabajos.observar(&lista) {
+                            avisar(&app, a);
+                        }
                     }
+                    Err(_) => trabajos.olvidar(),
                 }
             }
         }

@@ -274,8 +274,10 @@ pub const NOMBRE_AUTOARRANQUE: &str = "ea-escritorio";
 /// Etiqueta del LaunchAgent de macOS.
 pub const ETIQUETA_LAUNCHAGENT: &str = "com.ecosistema-asistente.escritorio";
 
-/// Cita para el campo `Exec` de un `.desktop`: entre comillas dobles, con
-/// `\`, `"`, `` ` `` y `$` escapados (y `%` duplicado: son códigos de campo).
+/// Cita para el campo `Exec` de un `.desktop` según la Desktop Entry Spec:
+/// primero el citado de Exec (entre comillas dobles, `"`, `` ` ``, `$` y `\`
+/// con barra; `%` duplicado por los códigos de campo) y después el escape de
+/// cadena del valor, que duplica cada `\`.
 fn citar_desktop(t: &str) -> String {
     let mut s = String::from("\"");
     for ch in t.chars() {
@@ -289,7 +291,7 @@ fn citar_desktop(t: &str) -> String {
         }
     }
     s.push('"');
-    s
+    s.replace('\\', "\\\\")
 }
 
 /// Contenido del `.desktop` de autoarranque (Linux). Puro.
@@ -361,6 +363,9 @@ pub fn autoarranque_en(home: Option<&Path>, config: Option<&Path>, activar: bool
     let home = home.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no se conoce el directorio personal"))?;
     let ruta = ruta_autoarranque(home, config).ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "sin autoarranque en este sistema"))?;
     if !activar {
+        if cfg!(target_os = "macos") {
+            launchctl(false, &ruta);
+        }
         return match std::fs::remove_file(&ruta) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
@@ -370,7 +375,36 @@ pub fn autoarranque_en(home: Option<&Path>, config: Option<&Path>, activar: bool
     if let Some(dir) = ruta.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(&ruta, contenido)
+    if cfg!(target_os = "macos") {
+        // Si ya estaba cargado, se descarga antes para que tome el plist nuevo.
+        launchctl(false, &ruta);
+    }
+    std::fs::write(&ruta, &contenido)?;
+    if cfg!(target_os = "macos") {
+        launchctl(true, &ruta);
+    }
+    Ok(())
+}
+
+/// Carga o descarga el LaunchAgent en la sesión gráfica del usuario
+/// (`launchctl bootstrap|bootout gui/<uid>`). Mejor esfuerzo: si falla, el
+/// plist ya está escrito o borrado y el cambio vale desde el siguiente inicio
+/// de sesión. En pruebas no se ejecuta.
+#[allow(unused_variables)]
+fn launchctl(cargar: bool, plist: &Path) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        let uid = Command::new("id").arg("-u").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
+        let Some(uid) = uid else { return };
+        let dominio = format!("gui/{uid}");
+        let mut c = Command::new("launchctl");
+        if cargar {
+            c.args(["bootstrap", &dominio]).arg(plist);
+        } else {
+            c.args(["bootout", &format!("{dominio}/{ETIQUETA_LAUNCHAGENT}")]);
+        }
+        let _ = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
 }
 
 #[cfg(test)]
@@ -448,7 +482,11 @@ mod tests {
     fn contenidos_de_autoarranque() {
         let d = contenido_desktop(Path::new("/opt/mi app/ea-escritorio"));
         assert!(d.contains("Exec=\"/opt/mi app/ea-escritorio\" --oculto\n"), "{d}");
-        assert!(contenido_desktop(Path::new("/a\"$b")).contains("Exec=\"/a\\\"\\$b\" --oculto"));
+        // Citado de Exec y luego escape de cadena (cada `\` se duplica).
+        assert!(contenido_desktop(Path::new("/a\"$b")).contains("Exec=\"/a\\\\\"\\\\$b\" --oculto"));
+        assert_eq!(citar_desktop("/a b/c"), "\"/a b/c\"");
+        assert_eq!(citar_desktop("/a\\b"), "\"/a\\\\\\\\b\"");
+        assert_eq!(citar_desktop("/x`y%z"), "\"/x\\\\`y%%z\"");
         let p = contenido_launchagent(Path::new("/x/a&b"));
         assert!(p.contains("<string>/x/a&amp;b</string>") && p.contains("<string>--oculto</string>") && p.contains("RunAtLoad"));
         assert_eq!(valor_run(Path::new(r"C:\ea\ea-escritorio.exe")), "\"C:\\ea\\ea-escritorio.exe\" --oculto");
