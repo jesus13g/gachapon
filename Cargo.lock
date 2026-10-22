@@ -599,10 +599,11 @@ name = "ea-orchestrator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "directories",
  "ea-ajustes",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
- "libc",
  "serde",
  "serde_json",
  "tempfile",

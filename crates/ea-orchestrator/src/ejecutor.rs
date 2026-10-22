@@ -12,8 +12,9 @@
 //! - Rutina: si pasa, se cierra sola; si falla, deja un paquete de
 //!   corrección en espera hasta que el usuario lo confirme.
 //!
-//! Seguridad: con `sandbox = true` (por defecto) el agente se lanza dentro de
-//! bubblewrap: sistema de ficheros de solo lectura salvo el worktree, `/tmp`
+//! Seguridad: con `sandbox = true` (por defecto) el agente se lanza aislado
+//! (spec 020: `bwrap` en Linux, `sandbox-exec` en macOS; en Windows el
+//! ejecutor no arranca, ver [`crate::sandbox`]). En Linux: sistema de ficheros de solo lectura salvo el worktree, `/tmp`
 //! propio y sus directorios de estado; `$XDG_RUNTIME_DIR` tapado, para que no
 //! lea la clave del panel web; la red queda abierta para llegar a
 //! llama-server. Con `sandbox = false` Qwen y OpenCode corren con aprobación
@@ -28,18 +29,19 @@
 //!
 //! Cancelación cooperativa: el estado se relee antes de cada iteración y de
 //! cada fase, y mientras corre el agente se sondea cada `SONDEO_CANCELACION`.
-//! El agente va en su propio grupo de procesos: si el trabajo pasa a
-//! `cancelado`, el grupo recibe `SIGTERM` y, tras `MARGEN_TERM`, `SIGKILL`.
+//! El agente va en su propio grupo de procesos (Job Object en Windows): si el
+//! trabajo pasa a `cancelado` o vence su tope de tiempo, el árbol recibe
+//! `SIGTERM` y, tras `MARGEN_TERM`, se mata siempre.
 //! Tras una cancelación no se corre el criterio ni se entrega informe; lo que
 //! el agente ya escribió en el worktree se queda como está.
 
 use std::io::Read;
-use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use ea_plataforma::proceso::Arbol;
 use ea_bus::{
     Bus, Rol, CandadoWorktree, ConfigOrquestador, Evento, FaseInforme, Informe, Modo, Ocupante,
     Orden, ResultadoInforme,
@@ -52,7 +54,7 @@ const TIEMPO_CRITERIO_S: u64 = 120;
 const MAX_EVIDENCIA: usize = 2048;
 /// Cada cuánto se relee `estado.json` mientras corre el agente.
 const SONDEO_CANCELACION: Duration = Duration::from_secs(2);
-/// Lo que se espera tras el `SIGTERM` al grupo antes del `SIGKILL`.
+/// Lo que se espera tras pedir terminar al árbol antes de matarlo.
 const MARGEN_TERM: Duration = Duration::from_secs(5);
 /// Lo que se espera a que se cierren stdout y stderr tras la salida del
 /// proceso (un nieto escapado del grupo podría tenerlos abiertos).
@@ -73,9 +75,8 @@ pub struct SalidaAgente {
 
 pub use crate::agentes::{fabricar, Ejecutor, QwenCode};
 
-/// Ejecuta con `timeout`; devuelve (código, stdout, stderr). Código `None`
-/// si no arrancó o murió por señal (incluido el 124 del timeout, que se
-/// convierte en `None`).
+/// Ejecuta con tope de tiempo; devuelve (código, stdout, stderr). Código
+/// `None` si no arrancó, murió por señal o venció el tope.
 fn correr(cmd: Command, tope_s: u64) -> (Option<i32>, String, String) {
     let c = correr_cancelable(cmd, tope_s, &|| false);
     (c.codigo, c.salida, c.errores)
@@ -89,53 +90,51 @@ pub(crate) struct Corrida {
     pub cancelado: bool,
 }
 
-/// Como [`correr`], pero el proceso (`timeout` y todo lo que cuelga de él,
-/// bwrap incluido) va en su propio grupo, y cada `SONDEO_CANCELACION` se
-/// pregunta a `cancelado`: si dice que sí, se manda `SIGTERM` al grupo
-/// entero y, si el líder no ha salido tras `MARGEN_TERM`, `SIGKILL`. El
-/// `SIGKILL` final va siempre, para no dejar nietos sueltos.
-pub(crate) fn correr_cancelable(cmd: Command, tope_s: u64, cancelado: &dyn Fn() -> bool) -> Corrida {
-    let prog = cmd.get_program().to_os_string();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_os_string()).collect();
-    let dir = cmd.get_current_dir().map(|d| d.to_path_buf());
-    let mut c = Command::new("timeout");
-    c.arg("-k").arg("10").arg(tope_s.to_string()).arg(prog).args(args);
-    if let Some(d) = dir {
-        c.current_dir(d);
-    }
-    for (k, v) in cmd.get_envs() {
-        match v {
-            Some(v) => c.env(k, v),
-            None => c.env_remove(k),
-        };
-    }
-    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0);
-    let mut hijo = match c.spawn() {
+/// Como [`correr`], pero el proceso va en su propio grupo (Unix) o Job Object
+/// (Windows), y cada `SONDEO_CANCELACION` se pregunta a `cancelado`. Si dice
+/// que sí, o vence el plazo `tope_s` (el tope de tiempo es del propio
+/// orquestador, sin `timeout` externo), se mata el árbol entero: `SIGTERM` al
+/// grupo, espera de `MARGEN_TERM` y `matar` siempre, para no dejar nietos
+/// sueltos. Por tiempo agotado el código es `None`, igual que antes con el 124.
+pub(crate) fn correr_cancelable(mut cmd: Command, tope_s: u64, cancelado: &dyn Fn() -> bool) -> Corrida {
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    ea_plataforma::proceso::preparar_grupo(&mut cmd);
+    let mut hijo = match cmd.spawn() {
         Ok(h) => h,
         Err(e) => return Corrida { codigo: None, salida: String::new(), errores: e.to_string(), cancelado: false },
     };
+    let arbol = Arbol::adoptar(hijo.id());
+    if let Err(e) = &arbol {
+        tracing::warn!(error = %e, "no se pudo agrupar el proceso del agente: al vencer el tope solo morirá el líder");
+    }
     let rx_salida = leer_en_hilo(hijo.stdout.take());
     let rx_errores = leer_en_hilo(hijo.stderr.take());
+    let plazo = Instant::now() + Duration::from_secs(tope_s);
     let mut ultimo_sondeo = Instant::now();
     let mut cancelada = false;
+    let mut agotado = false;
     let estado = loop {
         match hijo.try_wait() {
             Ok(Some(st)) => break Some(st),
             Ok(None) => {}
             Err(_) => break None,
         }
+        if Instant::now() >= plazo {
+            agotado = true;
+            break matar_arbol(&mut hijo, arbol.as_ref().ok());
+        }
         if ultimo_sondeo.elapsed() >= SONDEO_CANCELACION {
             ultimo_sondeo = Instant::now();
             if cancelado() {
                 cancelada = true;
-                break matar_grupo(&mut hijo);
+                break matar_arbol(&mut hijo, arbol.as_ref().ok());
             }
         }
         std::thread::sleep(Duration::from_millis(20));
     };
     let salida = rx_salida.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
     let errores = rx_errores.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
-    let codigo = if cancelada { None } else { estado.and_then(|s| s.code()).filter(|c| *c != 124 && *c != 137) };
+    let codigo = if cancelada || agotado { None } else { estado.and_then(|s| s.code()) };
     Corrida { codigo, salida, errores, cancelado: cancelada }
 }
 
@@ -152,29 +151,28 @@ fn leer_en_hilo<R: Read + Send + 'static>(flujo: Option<R>) -> mpsc::Receiver<St
     rx
 }
 
-/// `SIGTERM` al grupo del hijo (su pgid es su pid: `process_group(0)`),
-/// espera hasta `MARGEN_TERM` a que salga el líder y luego `SIGKILL` al
-/// grupo, por si queda alguien. Devuelve el estado de salida del líder.
-fn matar_grupo(hijo: &mut Child) -> Option<std::process::ExitStatus> {
-    let grupo = -(hijo.id() as libc::pid_t);
-    // SAFETY: `kill` solo recibe enteros; con un pid negativo señala al
-    // grupo que creó `process_group(0)` para este hijo, que aún no se ha
-    // recogido (su pid, y por tanto el grupo, no se ha podido reutilizar).
-    unsafe { libc::kill(grupo, libc::SIGTERM) };
-    let limite = Instant::now() + MARGEN_TERM;
+/// Pide terminar al árbol (`SIGTERM` al grupo en Unix), espera hasta
+/// `MARGEN_TERM` a que salga el líder y luego lo mata SIEMPRE, por si queda
+/// algún nieto. Sin árbol (no se pudo agrupar), solo cae el líder. Devuelve el
+/// estado de salida del líder.
+fn matar_arbol(hijo: &mut Child, arbol: Option<&Arbol>) -> Option<std::process::ExitStatus> {
     let mut estado = None;
-    while Instant::now() < limite {
-        if let Ok(Some(st)) = hijo.try_wait() {
-            estado = Some(st);
-            break;
+    if let Some(a) = arbol {
+        if Arbol::admite_terminar_suave() {
+            a.terminar_suave();
+            let limite = Instant::now() + MARGEN_TERM;
+            while Instant::now() < limite {
+                if let Ok(Some(st)) = hijo.try_wait() {
+                    estado = Some(st);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
-        std::thread::sleep(Duration::from_millis(50));
+        a.matar();
+    } else {
+        let _ = hijo.kill();
     }
-    // SAFETY: solo enteros. Si el líder ya se recogió y no queda nadie en el
-    // grupo, `kill` falla con ESRCH; mientras quede algún miembro, el kernel
-    // no reutiliza ese id. Reutilizarlo en estos milisegundos exigiría dar la
-    // vuelta entera al espacio de pids.
-    unsafe { libc::kill(grupo, libc::SIGKILL) };
     estado.or_else(|| hijo.wait().ok())
 }
 
@@ -249,47 +247,58 @@ fn construir_prompt(orden: &Orden, titulo: &str, cuerpo: &str, criterio: &str, r
 
 /// El lanzador del panel web del checkout con que se compiló el ejecutor:
 /// abre `ea-web` en un enlace profundo (`ea-web-open '#trabajos/<id>'`).
+#[cfg(target_os = "linux")]
 const EA_WEB_OPEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../ea-web/bin/ea-web-open");
 
-/// La orden del aviso de escritorio. Con `abrir`, el aviso lleva la acción
-/// «abrir», que lanza `abrir '#trabajos/<id>'`. `notify-send --action` espera
-/// a que se pulse o se descarte el aviso; si no admite acciones (o falla), se
-/// avisa sin ella. Los textos van como argumentos, nunca dentro del guion.
-fn orden_aviso(titulo: &str, resultado: &str, id: &str, abrir: Option<&Path>) -> Command {
-    let titulo = format!("ea: {titulo}");
-    let Some(abrir) = abrir else {
-        let mut c = Command::new("notify-send");
-        c.arg(titulo).arg(resultado);
-        return c;
-    };
+/// La orden del aviso de escritorio con la acción «abrir» (solo Linux): lanza
+/// `abrir '#trabajos/<id>'`. `notify-send --action` espera a que se pulse o se
+/// descarte el aviso; si no admite acciones (o falla), se avisa sin ella. Los
+/// textos van como argumentos, nunca dentro del guion.
+#[cfg(target_os = "linux")]
+fn orden_aviso(titulo: &str, resultado: &str, id: &str, abrir: &Path) -> Command {
     let mut c = Command::new("sh");
     c.arg("-c")
         .arg(r#"r=$(notify-send --action=abrir=abrir "$1" "$2") || exec notify-send "$1" "$2"; [ "$r" = abrir ] && exec "$3" "$4"; exit 0"#)
         .arg("ea-aviso")
-        .arg(titulo)
+        .arg(format!("ea: {titulo}"))
         .arg(resultado)
         .arg(abrir)
         .arg(format!("#trabajos/{id}"));
     c
 }
 
-/// Aviso de escritorio sobre un trabajo. Desacoplado: el ejecutor no lo
-/// espera (un hilo recoge el proceso cuando acaba, para no dejar zombis).
+/// Aviso de escritorio sobre un trabajo, mejor esfuerzo. Desacoplado: el
+/// ejecutor no lo espera (un hilo recoge el proceso cuando acaba, para no
+/// dejar zombis). En Linux con el lanzador del panel, el aviso lleva la acción
+/// «abrir»; en cualquier otro caso es un aviso simple (`ea-plataforma`).
 fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str, id: &str) {
     if !config.avisos_escritorio {
         return;
     }
-    let abrir = Path::new(EA_WEB_OPEN);
-    let mut c = orden_aviso(titulo, resultado, id, abrir.is_file().then_some(abrir));
-    c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    match c.spawn() {
-        Ok(mut hijo) => {
-            std::thread::spawn(move || {
-                let _ = hijo.wait();
-            });
+    #[cfg(target_os = "linux")]
+    {
+        let abrir = Path::new(EA_WEB_OPEN);
+        if abrir.is_file() {
+            let mut c = orden_aviso(titulo, resultado, id, abrir);
+            c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+            match c.spawn() {
+                Ok(mut hijo) => {
+                    std::thread::spawn(move || {
+                        let _ = hijo.wait();
+                    });
+                }
+                Err(e) => tracing::debug!(error = %e, "no se pudo lanzar el aviso de escritorio"),
+            }
+            return;
         }
-        Err(e) => tracing::debug!(error = %e, "no se pudo lanzar el aviso de escritorio"),
     }
+    let _ = id;
+    let (titulo, resultado) = (format!("ea: {titulo}"), resultado.to_string());
+    std::thread::spawn(move || {
+        if let Err(e) = ea_plataforma::escritorio::avisar(&titulo, &resultado) {
+            tracing::debug!(error = %e, "no se pudo lanzar el aviso de escritorio");
+        }
+    });
 }
 
 fn bloqueado(motivo: &str, evidencia: String) -> Informe {
@@ -532,8 +541,11 @@ struct Bucle {
 }
 
 fn correr_criterio(wt: &Path, criterio: &str) -> (bool, String) {
-    let mut c = Command::new("sh");
-    c.arg("-c").arg(format!("exec 2>&1; {criterio}")).current_dir(wt);
+    let Some(mut c) = ea_plataforma::shell::orden_sh(&format!("exec 2>&1; {criterio}")) else {
+        // Sin `sh` el criterio no se puede comprobar: nunca cuenta como éxito.
+        return (false, "no hay `sh`: instala Git for Windows (el criterio se ejecuta con sh)".into());
+    };
+    c.current_dir(wt);
     let (codigo, out, err) = correr(c, TIEMPO_CRITERIO_S);
     let mut texto = format!("{out}{err}");
     if codigo.is_none() {
@@ -832,22 +844,17 @@ mod tests {
             Some(55)
         }
     }
+    #[cfg(target_os = "linux")]
     fn argumentos(c: &Command) -> Vec<String> {
         c.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
     }
 
-    #[test]
-    fn el_aviso_sin_lanzador_es_el_de_siempre() {
-        let c = orden_aviso("t", "terminado", "x", None);
-        assert_eq!(c.get_program(), "notify-send");
-        assert_eq!(argumentos(&c), ["ea: t", "terminado"]);
-    }
-
+    #[cfg(target_os = "linux")]
     #[test]
     fn el_aviso_lleva_la_accion_abrir_con_el_enlace_al_trabajo() {
         // El lanzador existe en el checkout (si se mueve, que falle aquí).
         assert!(Path::new(EA_WEB_OPEN).is_file(), "{EA_WEB_OPEN}");
-        let c = orden_aviso("misión $(rm -rf ~)", "terminado", "20261020-101500-ab12", Some(Path::new("/x/ea-web-open")));
+        let c = orden_aviso("misión $(rm -rf ~)", "terminado", "20261020-101500-ab12", Path::new("/x/ea-web-open"));
         assert_eq!(c.get_program(), "sh");
         let a = argumentos(&c);
         assert!(a[1].contains("--action=abrir=abrir"));
@@ -856,6 +863,7 @@ mod tests {
         assert_eq!(&a[2..], ["ea-aviso", "ea: misión $(rm -rf ~)", "terminado", "/x/ea-web-open", "#trabajos/20261020-101500-ab12"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn el_guion_del_aviso_lanza_el_enlace_solo_si_se_pulsa_abrir() {
         use std::os::unix::fs::PermissionsExt;
@@ -873,7 +881,7 @@ mod tests {
         for (respuesta, esperado) in [("abrir", "#trabajos/x"), ("", "")] {
             let _ = std::fs::remove_file(&abierto);
             escribe("notify-send", format!("echo '{respuesta}'"));
-            let st = orden_aviso("t", "r", "x", Some(&abrir))
+            let st = orden_aviso("t", "r", "x", &abrir)
                 .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
                 .status()
                 .unwrap();
@@ -983,6 +991,37 @@ mod tests {
         let mut c = Command::new("sh");
         c.arg("-c").arg("printf %s \"$EA_PRUEBA\"").env("EA_PRUEBA", "hola");
         assert_eq!(correr_cancelable(c, 10, &|| false).salida, "hola");
+    }
+
+    /// Spec 020 (CE-005): el tope de tiempo lo vigila el orquestador y mata al
+    /// hijo y al nieto, sin `timeout` externo; el código queda en `None`.
+    #[cfg(unix)]
+    #[test]
+    fn el_tope_de_tiempo_mata_al_hijo_y_al_nieto() {
+        let d = tempfile::tempdir().unwrap();
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("sleep 600 & echo $! > pid-nieto; echo $$ > pid-hijo; wait").current_dir(d.path());
+        let t = Instant::now();
+        let r = correr_cancelable(c, 1, &|| false);
+        assert!(t.elapsed() < Duration::from_secs(12), "tardó {:?}", t.elapsed());
+        assert_eq!((r.codigo, r.cancelado), (None, false));
+        let pid = |f: &str| -> u32 { std::fs::read_to_string(d.path().join(f)).unwrap().trim().parse().unwrap() };
+        for f in ["pid-hijo", "pid-nieto"] {
+            let p = pid(f);
+            let limite = Instant::now() + Duration::from_secs(3);
+            while ea_plataforma::proceso::vive(p) && Instant::now() < limite {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            assert!(!ea_plataforma::proceso::vive(p), "{f} ({p}) sigue vivo");
+        }
+    }
+
+    #[test]
+    fn un_proceso_que_acaba_a_tiempo_devuelve_su_codigo() {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("echo hola; exit 3");
+        let r = correr_cancelable(c, 30, &|| false);
+        assert_eq!((r.codigo, r.salida.trim()), (Some(3), "hola"));
     }
 
     /// T-007 de la spec 017: una misión trivial con el agente de verdad,
@@ -1526,6 +1565,7 @@ mod tests {
         assert_eq!(cancelaciones_en_curso(e.path()).len(), 1);
     }
 
+    #[cfg(unix)]
     #[test]
     fn cancelar_durante_la_ejecucion_mata_al_agente() {
         use std::os::unix::fs::PermissionsExt;
@@ -1550,10 +1590,7 @@ mod tests {
         // Sondeo (2 s) + margen del TERM (5 s), con holgura.
         assert!(t.elapsed() < Duration::from_secs(15), "tardó {:?}", t.elapsed());
         let nieto: u32 = std::fs::read_to_string(wt.path().join("pid-nieto")).unwrap().trim().parse().unwrap();
-        let vivo = |pid: u32| {
-            std::fs::read_to_string(format!("/proc/{pid}/stat"))
-                .is_ok_and(|s| s.rsplit(')').next().is_some_and(|r| !r.trim_start().starts_with('Z')))
-        };
+        let vivo = ea_plataforma::proceso::vive;
         let limite = Instant::now() + Duration::from_secs(3);
         while vivo(nieto) && Instant::now() < limite {
             std::thread::sleep(Duration::from_millis(50));
