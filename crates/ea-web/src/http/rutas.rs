@@ -451,6 +451,20 @@ pub async fn boveda_carpeta(State(s): Estado, Json(b): Json<RutaBody>) -> Result
     Ok((StatusCode::CREATED, Json(servicio::boveda::carpeta(&s, &b.ruta).await?)))
 }
 
+#[derive(Deserialize)]
+pub struct RenombrarCarpetaBody {
+    ruta: String,
+    nuevo: String,
+}
+
+pub async fn boveda_carpeta_renombrar(State(s): Estado, Json(b): Json<RenombrarCarpetaBody>) -> Api<CarpetaRenombradaVista> {
+    ok(servicio::boveda::renombrar_carpeta(&s, &b.ruta, &b.nuevo).await)
+}
+
+pub async fn boveda_carpeta_eliminar(State(s): Estado, Json(b): Json<RutaBody>) -> Api<CarpetaBorradaVista> {
+    ok(servicio::boveda::eliminar_carpeta(&s, &b.ruta).await)
+}
+
 pub async fn boveda_mostrar(State(s): Estado, Json(b): Json<RutaBody>) -> Api<Hecho> {
     ok(servicio::boveda::mostrar(&s, &b.ruta).await)
 }

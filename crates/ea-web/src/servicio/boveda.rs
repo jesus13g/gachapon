@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::{sistema, Resultado, ACTOR};
 use crate::vistas::{
-    ArbolBoveda, CabeceraVista, EnPapelera, Hecho, ListadoBoveda, NotaFichero, NotaResumen, NotaVista, Promocion,
+    ArbolBoveda, CabeceraVista, CarpetaBorradaVista, CarpetaRenombradaVista, EnPapelera, NotaMovida, Hecho, ListadoBoveda, NotaFichero, NotaResumen, NotaVista, Promocion,
     RenombradoBoveda,
 };
 use crate::AppState;
@@ -182,6 +182,24 @@ pub async fn carpeta(s: &AppState, ruta: &str) -> Resultado<Hecho> {
     let mut store = s.store.lock().await;
     s.boveda.crear_carpeta(&mut store, ruta, ACTOR)?;
     Ok(Hecho { ok: true })
+}
+
+pub async fn renombrar_carpeta(s: &AppState, ruta: &str, nuevo: &str) -> Resultado<CarpetaRenombradaVista> {
+    let mut store = s.store.lock().await;
+    let r = s.boveda.renombrar_carpeta(&mut store, ruta, nuevo, ACTOR)?;
+    Ok(CarpetaRenombradaVista {
+        carpeta: r.carpeta,
+        movidas: r.movidas.into_iter().map(|(de, a)| NotaMovida { de, a }).collect(),
+        actualizadas: r.actualizadas,
+        ambiguas: r.ambiguas,
+    })
+}
+
+/// Borrar una carpeta es mandarla a la papelera: reversible (se restaura).
+pub async fn eliminar_carpeta(s: &AppState, ruta: &str) -> Resultado<CarpetaBorradaVista> {
+    let mut store = s.store.lock().await;
+    let r = s.boveda.carpeta_a_papelera(&mut store, ruta, ACTOR)?;
+    Ok(CarpetaBorradaVista { vacia: r.id.is_none(), id: r.id, notas: r.notas })
 }
 
 pub fn papelera(s: &AppState) -> Resultado<Vec<EnPapelera>> {

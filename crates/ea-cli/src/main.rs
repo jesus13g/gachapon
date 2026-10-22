@@ -123,6 +123,9 @@ fn main() -> Result<()> {
             BovedaAccion::Leer { ruta, desde } => commands::boveda::leer(&ruta, desde)?,
             BovedaAccion::Promover { ruta, destino } => commands::boveda::promover(&mut store, &ruta, destino)?,
             BovedaAccion::Reindexar => commands::boveda::reindexar(&mut store)?,
+            BovedaAccion::VaciarPapelera { esperar } => {
+                commands::al_final(esperar, commands::boveda::vaciar_papelera(&mut store))?
+            }
         },
         Command::QwenSkills { accion } => match accion {
             QwenSkillsAccion::Listar { json } => commands::qwen_skills::listar(json)?,

@@ -522,6 +522,32 @@ pub struct RenombradoBoveda {
     pub ambiguas: Vec<String>,
 }
 
+/// Una carpeta renombrada o movida, con sus notas.
+#[derive(Serialize)]
+pub struct CarpetaRenombradaVista {
+    pub carpeta: String,
+    pub movidas: Vec<NotaMovida>,
+    /// Las otras notas cuyos enlaces se reescribieron.
+    pub actualizadas: Vec<String>,
+    pub ambiguas: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct NotaMovida {
+    pub de: String,
+    pub a: String,
+}
+
+/// Una carpeta mandada a la papelera (`id` es `None` si no tenía notas).
+#[derive(Serialize)]
+pub struct CarpetaBorradaVista {
+    pub id: Option<String>,
+    pub notas: Vec<String>,
+    pub vacia: bool,
+}
+
+/// Lo que hay en la papelera, para decir qué borraría vaciarla (la web no
+/// la vacía: solo abre la terminal).
 #[derive(Serialize)]
 pub struct EnPapelera {
     pub id: String,

@@ -73,6 +73,77 @@ pub struct Renombrada {
     pub ambiguas: Vec<String>,
 }
 
+/// Una carpeta renombrada o movida.
+#[derive(Debug, Clone)]
+pub struct CarpetaRenombrada {
+    pub carpeta: String,
+    /// Cada nota movida: (ruta vieja, ruta nueva).
+    pub movidas: Vec<(String, String)>,
+    /// Otras notas cuyos enlaces se reescribieron.
+    pub actualizadas: Vec<String>,
+    /// Notas con `[[enlaces]]` ambiguos a alguna movida, que se dejaron igual.
+    pub ambiguas: Vec<String>,
+}
+
+/// Una carpeta mandada a la papelera.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CarpetaEnPapelera {
+    /// Con qué se restaura; `None` si la carpeta no tenía notas y se quitó sin más.
+    pub id: Option<String>,
+    /// Las notas que llevaba.
+    pub notas: Vec<String>,
+}
+
+/// Lo que hay en la papelera (y lo que vaciarla borraría para siempre).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ResumenPapelera {
+    pub entradas: usize,
+    pub notas: usize,
+    pub bytes: u64,
+}
+
+/// El contenido de una carpeta de la bóveda.
+struct Inventario {
+    /// Notas `.md`, relativas a la carpeta.
+    notas: Vec<String>,
+    /// Subcarpetas, relativas a la carpeta.
+    carpetas: Vec<String>,
+    /// Lo que no es una nota ni una carpeta (imágenes, ocultos, enlaces).
+    otros: usize,
+}
+
+fn inventario(dir: &Path) -> Inventario {
+    let mut inv = Inventario { notas: Vec::new(), carpetas: Vec::new(), otros: 0 };
+    let mut pendientes = vec![(dir.to_path_buf(), String::new())];
+    while let Some((d, prefijo)) = pendientes.pop() {
+        let Ok(entradas) = fs::read_dir(&d) else {
+            inv.otros += 1;
+            continue;
+        };
+        for e in entradas.flatten() {
+            let nombre = e.file_name().to_string_lossy().into_owned();
+            let rel = if prefijo.is_empty() { nombre.clone() } else { format!("{prefijo}/{nombre}") };
+            let Ok(tipo) = e.file_type() else {
+                inv.otros += 1;
+                continue;
+            };
+            if nombre.starts_with('.') || tipo.is_symlink() {
+                inv.otros += 1;
+            } else if tipo.is_dir() {
+                inv.carpetas.push(rel.clone());
+                pendientes.push((e.path(), rel));
+            } else if tipo.is_file() && nombre.ends_with(".md") {
+                inv.notas.push(rel);
+            } else {
+                inv.otros += 1;
+            }
+        }
+    }
+    inv.notas.sort();
+    inv.carpetas.sort();
+    inv
+}
+
 /// Una nota en la papelera.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnPapelera {
@@ -172,6 +243,18 @@ fn marca_ahora() -> String {
     )
 }
 
+/// Un id libre en la papelera: `<marca de tiempo>-<n>`.
+fn id_nuevo(papelera: &Path) -> Resultado<String> {
+    let marca = marca_ahora();
+    for n in 1..=10_000 {
+        let id = format!("{marca}-{n}");
+        if !existe(&papelera.join(&id)) {
+            return Ok(id);
+        }
+    }
+    Err(ErrorBoveda::Io("la papelera no admite más entradas en este segundo".into()))
+}
+
 /// `20261019T120000Z-1` → `2026-10-19T12:00:00Z`.
 fn borrada_de(id: &str) -> String {
     let m = id.as_bytes();
@@ -209,20 +292,6 @@ fn notas_bajo(dir: &Path) -> Vec<(String, PathBuf)> {
     }
     out.sort();
     out
-}
-
-/// Borra las carpetas vacías desde `desde` hacia arriba, hasta `tope` incluida.
-fn podar(desde: &Path, tope: &Path) {
-    let mut d = Some(desde);
-    while let Some(dir) = d {
-        if !dir.starts_with(tope) || fs::remove_dir(dir).is_err() {
-            break;
-        }
-        if dir == tope {
-            break;
-        }
-        d = dir.parent();
-    }
 }
 
 impl Boveda {
@@ -449,6 +518,22 @@ impl Boveda {
         if huella(&texto) != version {
             return Err(ErrorBoveda::Cambio(format!("{de} cambió en disco desde que la abriste; recárgala")));
         }
+        self.mover_nota(store, de, &a, texto, quien, inicio)
+    }
+
+    /// El movimiento de una nota ya validada y con el candado tomado: mueve el
+    /// fichero sin pisar nada, reescribe los enlaces de las demás notas y
+    /// anota el evento. Lo comparten renombrar una nota y renombrar una carpeta.
+    fn mover_nota(
+        &self,
+        store: &mut Store,
+        de: &str,
+        a: &str,
+        texto: String,
+        quien: &str,
+        inicio: Instant,
+    ) -> Resultado<Renombrada> {
+        let a = a.to_string();
         let origen = self.resolver(de)?;
         let destino = self.resolver(&a)?;
         if existe(&destino) {
@@ -552,18 +637,7 @@ impl Boveda {
         }
         let origen = self.resolver(ruta)?;
         let papelera = self.dir_papelera()?;
-        let marca = marca_ahora();
-        let mut n = 1;
-        let id = loop {
-            let id = format!("{marca}-{n}");
-            if !existe(&papelera.join(&id)) {
-                break id;
-            }
-            n += 1;
-            if n > 10_000 {
-                return Err(ErrorBoveda::Io("la papelera no admite más entradas en este segundo".into()));
-            }
-        };
+        let id = id_nuevo(&papelera)?;
         let destino = papelera.join(&id).join(ruta);
         if let Some(dir) = destino.parent() {
             fs::create_dir_all(dir)?;
@@ -606,8 +680,9 @@ impl Boveda {
         Ok(out)
     }
 
-    /// Devuelve a su sitio la nota `id` de la papelera; si allí ya hay otra,
-    /// [`ErrorBoveda::YaExiste`] y no se toca nada.
+    /// Devuelve a su sitio todo lo que hay en la entrada `id` de la papelera (una
+    /// nota, o las de una carpeta); si en el sitio de alguna ya hay otra,
+    /// [`ErrorBoveda::YaExiste`] y no se mueve ninguna. Devuelve la primera.
     pub fn restaurar(&self, store: &mut Store, id: &str, quien: &str) -> Resultado<NotaCompleta> {
         let inicio = Instant::now();
         exigir_usuario(quien, "restaurar notas a mano")?;
@@ -619,35 +694,261 @@ impl Boveda {
         if !base.is_dir() || es_enlace(&base) {
             return Err(ErrorBoveda::NoExiste(format!("{id} (en la papelera)")));
         }
-        let Some((ruta, guardada)) = notas_bajo(&base).into_iter().find(|(r, _)| validar_ruta(r).is_ok()) else {
+        let notas: Vec<(String, PathBuf)> =
+            notas_bajo(&base).into_iter().filter(|(r, _)| validar_ruta(r).is_ok()).collect();
+        if notas.is_empty() {
             return Err(ErrorBoveda::NoExiste(format!("{id} (en la papelera)")));
-        };
-        let destino = self.resolver(&ruta)?;
+        }
+        // Todo se comprueba antes de mover nada.
+        for (ruta, _) in &notas {
+            let destino = self.resolver(ruta)?;
+            if existe(&destino) {
+                return Err(ErrorBoveda::YaExiste(format!(
+                    "{ruta} (ya hay otra nota ahí: renómbrala antes de restaurar)"
+                )));
+            }
+        }
+        let mut primera = None;
+        for (ruta, guardada) in notas {
+            let destino = self.resolver(&ruta)?;
+            if let Some(dir) = destino.parent() {
+                fs::create_dir_all(dir)?;
+            }
+            let destino = self.resolver(&ruta)?;
+            fs::rename(&guardada, &destino)?;
+            let texto = self.leer_texto(&ruta)?;
+            let meta = fs::metadata(&destino)?;
+            let (entrada, c) = entrada_de(&ruta, &texto, &meta);
+            let indice = store.boveda_indexar(&entrada, &c);
+            evento(
+                store,
+                quien,
+                "boveda_restauracion",
+                None,
+                true,
+                json!({ "ruta": ruta, "region": region_de(&ruta), "id": id, "bytes": texto.len(), "indice": indice.is_ok() }),
+                inicio,
+            )
+            .map_err(|e| ErrorBoveda::EventoPerdido(ruta.clone(), e))?;
+            primera.get_or_insert(ruta);
+        }
+        // Lo que quede (subcarpetas vacías) no vale una entrada de la papelera.
+        let _ = fs::remove_dir_all(&base);
+        self.leer_completa(&primera.unwrap_or_default())
+    }
+
+    // --- carpetas (fase 2) ---------------------------------------------------
+
+    /// Valida la ruta de una carpeta que se renombra o borra: dentro de una
+    /// región (no una región entera).
+    fn carpeta_de_region(ruta: &str, que: &str) -> Resultado<String> {
+        let ruta = ruta.trim().trim_end_matches('/').to_string();
+        if ruta::validar_carpeta(&ruta)?.len() < 2 {
+            return Err(ErrorBoveda::Argumentos(format!("una región no se {que}: elige una carpeta dentro de ella")));
+        }
+        Ok(ruta)
+    }
+
+    /// Renombra o mueve una carpeta dentro de su región. Cada nota se mueve
+    /// como en [`Self::renombrar`] (enlaces al día en todas las notas), todo
+    /// bajo un solo candado. Solo admite carpetas con notas y subcarpetas.
+    pub fn renombrar_carpeta(&self, store: &mut Store, de: &str, a: &str, quien: &str) -> Resultado<CarpetaRenombrada> {
+        let inicio = Instant::now();
+        exigir_usuario(quien, "renombrar carpetas a mano")?;
+        let de = Self::carpeta_de_region(de, "renombra")?;
+        let a = Self::carpeta_de_region(a, "renombra")?;
+        if !ruta::misma_region(&de, &a) {
+            return Err(ErrorBoveda::Prohibida(format!(
+                "{de} → {a}: solo se mueve dentro de la misma región (a la compartida se llega promoviendo)"
+            )));
+        }
+        if a == de {
+            return Err(ErrorBoveda::Argumentos("la ruta nueva es la misma".into()));
+        }
+        if a.starts_with(&format!("{de}/")) {
+            return Err(ErrorBoveda::Argumentos("una carpeta no se puede mover dentro de sí misma".into()));
+        }
+        self.sincronizar(store, false)?;
+        let _candado = self.candado()?;
+        let origen = self.resolver_carpeta(&de)?;
+        if !origen.is_dir() {
+            return Err(ErrorBoveda::NoExiste(format!("{de} (carpeta)")));
+        }
+        let destino = self.resolver_carpeta(&a)?;
         if existe(&destino) {
-            return Err(ErrorBoveda::YaExiste(format!("{ruta} (ya hay otra nota ahí: renómbrala antes de restaurar)")));
+            return Err(ErrorBoveda::YaExiste(a));
         }
-        if let Some(dir) = destino.parent() {
-            fs::create_dir_all(dir)?;
+        let inv = inventario(&origen);
+        if inv.otros > 0 {
+            return Err(ErrorBoveda::Argumentos(format!(
+                "{de} contiene ficheros que no son notas (.md) o carpetas ocultas; la bóveda solo mueve notas"
+            )));
         }
-        let destino = self.resolver(&ruta)?;
-        fs::rename(&guardada, &destino)?;
-        if let Some(dir) = guardada.parent() {
-            podar(dir, &base);
+        // Se comprueba todo antes de mover nada.
+        let plan: Vec<(String, String)> =
+            inv.notas.iter().map(|n| (format!("{de}/{n}"), format!("{a}/{n}"))).collect();
+        for (_, nueva) in &plan {
+            validar_ruta(nueva)?;
         }
-        let texto = self.leer_texto(&ruta)?;
-        let meta = fs::metadata(&destino)?;
-        let (entrada, c) = entrada_de(&ruta, &texto, &meta);
-        let indice = store.boveda_indexar(&entrada, &c);
+        fs::create_dir_all(&destino)?;
+        let destino = self.resolver_carpeta(&a)?;
+        for c in &inv.carpetas {
+            fs::create_dir_all(destino.join(c))?;
+        }
+        let mut actualizadas: Vec<String> = Vec::new();
+        let mut ambiguas: Vec<String> = Vec::new();
+        let mut movidas = Vec::new();
+        for (vieja, nueva) in plan {
+            let texto = self.leer_texto(&vieja)?;
+            let r = self.mover_nota(store, &vieja, &nueva, texto, quien, inicio)?;
+            for x in r.actualizadas {
+                if !actualizadas.contains(&x) {
+                    actualizadas.push(x);
+                }
+            }
+            for x in r.ambiguas {
+                if !ambiguas.contains(&x) {
+                    ambiguas.push(x);
+                }
+            }
+            movidas.push((vieja, nueva));
+        }
+        // Las notas movidas no cuentan como «otras» actualizadas.
+        actualizadas.retain(|x| !movidas.iter().any(|(_, n)| n == x));
+        quitar_arbol_vacio(&origen, &inv.carpetas);
         evento(
             store,
             quien,
-            "boveda_restauracion",
+            "boveda_carpeta_renombrada",
             None,
             true,
-            json!({ "ruta": ruta, "region": region_de(&ruta), "id": id, "bytes": texto.len(), "indice": indice.is_ok() }),
+            json!({
+                "de": de, "a": a, "region": region_de(&a), "notas": movidas.len(),
+                "actualizadas": actualizadas, "ambiguas": ambiguas,
+            }),
+            inicio,
+        )
+        .map_err(|e| ErrorBoveda::EventoPerdido(a.clone(), e))?;
+        Ok(CarpetaRenombrada { carpeta: a, movidas, actualizadas, ambiguas })
+    }
+
+    /// Manda una carpeta a la papelera (`<raíz>/.papelera/<id>/<ruta>`): se
+    /// restaura con [`Self::restaurar`]. Una carpeta sin notas se quita sin más.
+    pub fn carpeta_a_papelera(&self, store: &mut Store, ruta: &str, quien: &str) -> Resultado<CarpetaEnPapelera> {
+        let inicio = Instant::now();
+        exigir_usuario(quien, "borrar carpetas a mano")?;
+        let ruta = Self::carpeta_de_region(ruta, "borra")?;
+        let _candado = self.candado()?;
+        let origen = self.resolver_carpeta(&ruta)?;
+        if !origen.is_dir() {
+            return Err(ErrorBoveda::NoExiste(format!("{ruta} (carpeta)")));
+        }
+        let inv = inventario(&origen);
+        if inv.otros > 0 {
+            return Err(ErrorBoveda::Argumentos(format!(
+                "{ruta} contiene ficheros que no son notas (.md) o carpetas ocultas; la bóveda no los borra"
+            )));
+        }
+        let notas: Vec<String> = inv.notas.iter().map(|n| format!("{ruta}/{n}")).collect();
+        if notas.is_empty() {
+            quitar_arbol_vacio(&origen, &inv.carpetas);
+            if existe(&origen) {
+                return Err(ErrorBoveda::Io(format!("no se pudo quitar la carpeta vacía {ruta}")));
+            }
+            evento(store, quien, "boveda_carpeta_eliminada", None, true, json!({ "ruta": ruta, "region": region_de(&ruta) }), inicio)
+                .map_err(|e| ErrorBoveda::EventoPerdido(ruta.clone(), e))?;
+            return Ok(CarpetaEnPapelera { id: None, notas });
+        }
+        let mut bytes = 0u64;
+        for n in &notas {
+            bytes += fs::metadata(self.resolver(n)?).map(|m| m.len()).unwrap_or(0);
+        }
+        let papelera = self.dir_papelera()?;
+        let id = id_nuevo(&papelera)?;
+        let destino = papelera.join(&id).join(&ruta);
+        if let Some(dir) = destino.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        fs::rename(&origen, &destino)?;
+        for n in &notas {
+            store.boveda_olvidar(n)?;
+        }
+        evento(
+            store,
+            quien,
+            "boveda_papelera_carpeta",
+            None,
+            true,
+            json!({ "ruta": ruta, "region": region_de(&ruta), "id": id, "notas": notas, "bytes": bytes }),
             inicio,
         )
         .map_err(|e| ErrorBoveda::EventoPerdido(ruta.clone(), e))?;
-        self.leer_completa(&ruta)
+        Ok(CarpetaEnPapelera { id: Some(id), notas })
     }
+
+    // --- vaciar la papelera (irreversible) -----------------------------------
+
+    /// Lo que hay en la papelera: lo que [`Self::vaciar_papelera`] borraría.
+    pub fn simular_vaciar_papelera(&self) -> Resultado<ResumenPapelera> {
+        Ok(self.entradas_papelera()?.1)
+    }
+
+    fn entradas_papelera(&self) -> Resultado<(Vec<PathBuf>, ResumenPapelera)> {
+        let mut resumen = ResumenPapelera::default();
+        let mut dirs = Vec::new();
+        let Ok(papelera) = self.dir_papelera() else { return Ok((dirs, resumen)) };
+        let Ok(entradas) = fs::read_dir(&papelera) else { return Ok((dirs, resumen)) };
+        for e in entradas.flatten() {
+            let id = e.file_name().to_string_lossy().into_owned();
+            if !id_valido(&id) || !e.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            resumen.entradas += 1;
+            for (_, p) in notas_bajo(&e.path()) {
+                resumen.notas += 1;
+                resumen.bytes += fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            }
+            dirs.push(e.path());
+        }
+        Ok((dirs, resumen))
+    }
+
+    /// Borra **para siempre** lo que hay en la papelera. Es irreversible
+    /// (art. IV.2): quien llama tiene que haberlo confirmado en una terminal
+    /// real (`ea boveda vaciar-papelera`); la web no llega aquí. Solo toca
+    /// entradas con un id de la papelera, sin seguir enlaces simbólicos.
+    pub fn vaciar_papelera(&self, store: &mut Store, quien: &str) -> Resultado<ResumenPapelera> {
+        let inicio = Instant::now();
+        exigir_usuario(quien, "vaciar la papelera")?;
+        let _candado = self.candado()?;
+        let (dirs, resumen) = self.entradas_papelera()?;
+        if resumen.entradas == 0 {
+            return Ok(resumen);
+        }
+        for d in &dirs {
+            fs::remove_dir_all(d)?;
+        }
+        evento(
+            store,
+            quien,
+            "boveda_papelera_vaciada",
+            None,
+            true,
+            json!({ "entradas": resumen.entradas, "notas": resumen.notas, "bytes": resumen.bytes }),
+            inicio,
+        )
+        .map_err(|e| ErrorBoveda::EventoPerdido("papelera".into(), e))?;
+        Ok(resumen)
+    }
+}
+
+/// Quita las carpetas vacías de un árbol ya sin notas: las subcarpetas, de la
+/// más profunda a la menos, y por último la propia raíz del árbol.
+fn quitar_arbol_vacio(raiz: &Path, subcarpetas: &[String]) {
+    let mut subs: Vec<&String> = subcarpetas.iter().collect();
+    subs.sort_by_key(|c| std::cmp::Reverse(c.matches('/').count()));
+    for c in subs {
+        let _ = fs::remove_dir(raiz.join(c));
+    }
+    let _ = fs::remove_dir(raiz);
 }

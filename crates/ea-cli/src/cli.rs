@@ -501,6 +501,14 @@ pub enum BovedaAccion {
     },
     /// Reconstruye el índice de búsqueda desde los ficheros
     Reindexar,
+    /// Borra PARA SIEMPRE lo que hay en la papelera de la bóveda. Es
+    /// irreversible: exige una terminal real, enseña lo que borraría y pide
+    /// escribir `confirmo vaciar-papelera`
+    VaciarPapelera {
+        /// Al terminar, espera a Intro antes de salir (la usa «⌨» de ea-web)
+        #[arg(long)]
+        esperar: bool,
+    },
 }
 
 #[derive(Subcommand)]
