@@ -267,19 +267,50 @@ fn orden_aviso(titulo: &str, resultado: &str, id: &str, abrir: &Path) -> Command
     c
 }
 
+/// ¿Hay un `ea-escritorio` vivo? Lo dice su fichero de presencia en el
+/// directorio de ejecución (`<ejecucion>/ea-escritorio/presencia`, con su pid
+/// en la primera palabra): si el pid ya no existe (el shell murió sin limpiar),
+/// no cuenta.
+fn escritorio_vivo(ejecucion: Option<&Path>) -> bool {
+    let Some(ejecucion) = ejecucion else { return false };
+    let Ok(texto) = std::fs::read_to_string(ea_ajustes::fichero_presencia_escritorio(ejecucion)) else { return false };
+    texto.split_whitespace().next().and_then(|p| p.parse::<u32>().ok()).is_some_and(ea_plataforma::proceso::vive)
+}
+
+/// ¿Avisa el orquestador? No con `avisos_escritorio = false` (no suena nadie) ni
+/// con el shell de escritorio vivo (los avisos los da él).
+fn debe_avisar(config: &ConfigOrquestador, ejecucion: Option<&Path>) -> bool {
+    config.avisos_escritorio && !escritorio_vivo(ejecucion)
+}
+
+/// El binario `ea-escritorio` junto a los demás (el directorio del ejecutable),
+/// si existe.
+fn binario_escritorio() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let b = exe.parent()?.join(ea_plataforma::rutas::nombre_exe("ea-escritorio"));
+    b.is_file().then_some(b)
+}
+
+/// El lanzador de la acción «abrir»: `ea-escritorio` si está instalado y, si no,
+/// `ea-web-open` (si existe). Ambos se invocan igual: `<lanzador> '#trabajos/<id>'`.
+#[cfg(any(target_os = "linux", test))]
+fn elegir_lanzador(escritorio: Option<std::path::PathBuf>, web_open: &Path) -> Option<std::path::PathBuf> {
+    escritorio.or_else(|| web_open.is_file().then(|| web_open.to_path_buf()))
+}
+
 /// Aviso de escritorio sobre un trabajo, mejor esfuerzo. Desacoplado: el
 /// ejecutor no lo espera (un hilo recoge el proceso cuando acaba, para no
-/// dejar zombis). En Linux con el lanzador del panel, el aviso lleva la acción
-/// «abrir»; en cualquier otro caso es un aviso simple (`ea-plataforma`).
+/// dejar zombis). En Linux con un lanzador (`ea-escritorio` o el del panel), el
+/// aviso lleva la acción «abrir»; en cualquier otro caso es un aviso simple
+/// (`ea-plataforma`). Calla con el ajuste en `false` o con `ea-escritorio` vivo.
 fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str, id: &str) {
-    if !config.avisos_escritorio {
+    if !debe_avisar(config, ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).as_deref()) {
         return;
     }
     #[cfg(target_os = "linux")]
     {
-        let abrir = Path::new(EA_WEB_OPEN);
-        if abrir.is_file() {
-            let mut c = orden_aviso(titulo, resultado, id, abrir);
+        if let Some(abrir) = elegir_lanzador(binario_escritorio(), Path::new(EA_WEB_OPEN)) {
+            let mut c = orden_aviso(titulo, resultado, id, &abrir);
             c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
             match c.spawn() {
                 Ok(mut hijo) => {
@@ -292,7 +323,7 @@ fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str, id: &str) {
             return;
         }
     }
-    let _ = id;
+    let _ = (id, binario_escritorio);
     let (titulo, resultado) = (format!("ea: {titulo}"), resultado.to_string());
     std::thread::spawn(move || {
         if let Err(e) = ea_plataforma::escritorio::avisar(&titulo, &resultado) {
@@ -819,6 +850,45 @@ fn recortar_resumen(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn el_aviso_calla_con_el_ajuste_apagado_y_con_el_shell_vivo() {
+        let d = tempfile::tempdir().unwrap();
+        let con = ConfigOrquestador { avisos_escritorio: true, ..Default::default() };
+        let sin = ConfigOrquestador { avisos_escritorio: false, ..Default::default() };
+        // Sin presencia: avisa solo si el ajuste lo permite.
+        assert!(debe_avisar(&con, Some(d.path())));
+        assert!(debe_avisar(&con, None));
+        assert!(!debe_avisar(&sin, Some(d.path())));
+        // Presencia viva (este mismo proceso): calla; con el ajuste apagado, también.
+        let fichero = ea_ajustes::fichero_presencia_escritorio(d.path());
+        std::fs::create_dir_all(fichero.parent().unwrap()).unwrap();
+        std::fs::write(&fichero, format!("{}\n", std::process::id())).unwrap();
+        assert!(escritorio_vivo(Some(d.path())));
+        assert!(!debe_avisar(&con, Some(d.path())));
+        assert!(!debe_avisar(&sin, Some(d.path())));
+        // Presencia de un pid muerto o ilegible: no cuenta y avisa el orquestador.
+        std::fs::write(&fichero, "4294967294").unwrap();
+        assert!(!escritorio_vivo(Some(d.path())));
+        assert!(debe_avisar(&con, Some(d.path())));
+        std::fs::write(&fichero, "basura").unwrap();
+        assert!(debe_avisar(&con, Some(d.path())));
+    }
+
+    #[test]
+    fn la_accion_abrir_prefiere_ea_escritorio() {
+        let d = tempfile::tempdir().unwrap();
+        let web_open = d.path().join("ea-web-open");
+        let escritorio = d.path().join("ea-escritorio");
+        // Ninguno: sin acción.
+        assert_eq!(elegir_lanzador(None, &web_open), None);
+        // Solo el del panel.
+        std::fs::write(&web_open, "").unwrap();
+        assert_eq!(elegir_lanzador(None, &web_open), Some(web_open.clone()));
+        // Con ea-escritorio, manda este.
+        assert_eq!(elegir_lanzador(Some(escritorio.clone()), &web_open), Some(escritorio.clone()));
+        assert_eq!(elegir_lanzador(Some(escritorio.clone()), &d.path().join("no-existe")), Some(escritorio));
+    }
+
     use super::*;
     use ea_bus::{EstadoTrabajo, Modo, Topes};
     use std::sync::Mutex;

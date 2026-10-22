@@ -109,6 +109,7 @@ pub struct Ajustes {
     pub red: Red,
     pub rutas: Rutas,
     pub web: Web,
+    pub escritorio: Escritorio,
     pub biblioteca: AjustesBiblioteca,
 }
 
@@ -203,6 +204,13 @@ pub struct Web {
     pub diario_limite: u32,
 }
 
+/// La app de escritorio (`ea-escritorio`, spec 021).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Escritorio {
+    /// Abrirla (oculta en la bandeja) al iniciar sesión.
+    pub al_iniciar: bool,
+}
+
 impl Ajustes {
     /// Los valores por defecto. Es el único sitio del código donde se nombran
     /// el modelo y su endpoint (art. VII).
@@ -255,6 +263,7 @@ impl Ajustes {
                 boveda: f.dir_datos.join("boveda"),
             },
             web: Web { sondeo_ms: 3000, diario_limite: 300 },
+            escritorio: Escritorio { al_iniciar: false },
             biblioteca: AjustesBiblioteca::default(),
         }
     }

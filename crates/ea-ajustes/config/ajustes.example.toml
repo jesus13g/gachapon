@@ -83,3 +83,6 @@
 [web]
 # sondeo_ms = 3000                          # refresco de la página
 # diario_limite = 300                       # eventos que carga Diario
+
+[escritorio]
+# al_iniciar = false                        # abrir ea-escritorio (en la bandeja) al iniciar sesión

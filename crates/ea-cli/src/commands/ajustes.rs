@@ -95,6 +95,9 @@ pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
     let aplicados = escribir(&f, Canal::Terminal, None, &lote)?;
     // Antes de imprimir: si la salida se corta, el diario ya lo tiene.
     apuntar(&f, &aplicados);
+    for aviso in ea_ajustes::aplicar_efectos(&aplicados) {
+        eprintln!("aviso: {aviso}");
+    }
     let mut reiniciar: Vec<&str> = Vec::new();
     for a in &aplicados {
         println!("  {}: {} → {}", a.clave, mostrar(&a.antes), mostrar(&a.despues));

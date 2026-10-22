@@ -17,6 +17,7 @@ mod cargar;
 pub mod claves;
 mod ejecucion;
 mod equipo;
+mod efectos;
 mod error;
 mod escribir;
 mod fuentes;
@@ -27,11 +28,14 @@ pub use agentes::{buscar_binario, ficha, id_perfil_valido, por_cliente_mcp, Fich
 pub use cargar::{cargar, cargar_de, Efectivos, Origen};
 pub use claves::{clave, concretas, sin_alias, titulo, Aplica, Canal, Clave, Edicion, Tipo, ALIAS, CLAVES, SECCIONES};
 pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo, Miembro, RolEquipo};
-pub use ejecucion::{dir_ejecucion, fichero_clave_web, DIR_WEB, FICHERO_CLAVE};
+pub use ejecucion::{
+    dir_ejecucion, fichero_clave_web, fichero_presencia_escritorio, DIR_ESCRITORIO, DIR_WEB, FICHERO_CLAVE, FICHERO_PRESENCIA,
+};
+pub use efectos::{aplicar_al_iniciar, aplicar_efectos, binario_escritorio, CLAVE_AL_INICIAR};
 pub use error::ErrorAjustes;
 pub use escribir::{escribir_atomico, establecer, huella, interpretar, Aplicado};
 pub use fuentes::{
-    Agente, Ajustes, AjustesBiblioteca, ConfigAgente, Entorno, Fuentes, Orquestador, PerfilModelo, Roles, Red, Rutas, Skills, TechoTopes, Web, ENV_CONFIG, TECHO_DURO,
+    Agente, Ajustes, AjustesBiblioteca, ConfigAgente, Entorno, Escritorio, Fuentes, Orquestador, PerfilModelo, Roles, Red, Rutas, Skills, TechoTopes, Web, ENV_CONFIG, TECHO_DURO,
 };
 pub use validar::{expandir_tilde, validar_base_url, validar_perfil, validar_roles, validar_url_remota};
 pub use vista::{Cliente, FilaAjuste, Heredado, Resumen, SeccionAjustes};

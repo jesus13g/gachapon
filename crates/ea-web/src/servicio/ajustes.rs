@@ -40,6 +40,12 @@ pub async fn cambiar(s: &AppState, version: &str, cambios: BTreeMap<String, Opti
     let lote: Vec<(String, Option<Value>)> = cambios.into_iter().collect();
     let aplicados = establecer(&s.config.ajustes, Canal::Web, Some(version), &lote)?;
 
+    // El efecto de `escritorio.al_iniciar` (autoarranque); si falla, el ajuste
+    // ya está guardado y queda en el log.
+    for aviso in ea_ajustes::aplicar_efectos(&aplicados) {
+        tracing::warn!("{aviso}");
+    }
+
     let detalle = json!({
         "canal": "web",
         "fichero": s.config.ajustes.fichero().display().to_string(),

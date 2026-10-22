@@ -137,6 +137,7 @@ pub static SECCIONES: &[(&str, &str)] = &[
     ("red", "Red"),
     ("rutas", "Rutas"),
     ("web", "Panel web"),
+    ("escritorio", "App de escritorio"),
     ("biblioteca", "Biblioteca"),
 ];
 
@@ -260,7 +261,7 @@ pub static CLAVES: &[Clave] = &[
         nombre: "agente.avisos_escritorio",
         seccion: "agente",
         titulo: "Avisos de escritorio",
-        descripcion: "notify-send al terminar cada trabajo.",
+        descripcion: "Aviso de escritorio al terminar cada trabajo: lo da la app ea-escritorio si está abierta y, si no, el orquestador (notify-send, osascript). Desactivado, no avisa ninguno de los dos.",
         tipo: Tipo::Booleano,
         edicion: Edicion::Web,
         endurecible: false,
@@ -497,6 +498,18 @@ pub static CLAVES: &[Clave] = &[
         heredada: &[],
     },
     Clave {
+        nombre: "escritorio.al_iniciar",
+        seccion: "escritorio",
+        titulo: "Abrir la app al iniciar sesión",
+        descripcion: "Abre ea-escritorio (oculta en la bandeja) al iniciar sesión: escribe o quita la entrada de autoarranque del sistema (~/.config/autostart en Linux, LaunchAgent en macOS, clave Run en Windows). Necesita el binario ea-escritorio junto a los demás.",
+        tipo: Tipo::Booleano,
+        edicion: Edicion::Web,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
+    },
+    Clave {
         nombre: "biblioteca.categorias",
         seccion: "biblioteca",
         titulo: "Categorías propias",
@@ -650,6 +663,7 @@ pub(crate) fn valor_de(a: &Ajustes, nombre: &str) -> Value {
         "rutas.estado" => ruta(&a.rutas.estado),
         "rutas.boveda" => ruta(&a.rutas.boveda),
         "web.sondeo_ms" => a.web.sondeo_ms.into(),
+        "escritorio.al_iniciar" => a.escritorio.al_iniciar.into(),
         "web.diario_limite" => a.web.diario_limite.into(),
         "biblioteca.categorias" => serde_json::to_value(&a.biblioteca.categorias).unwrap_or(Value::Null),
         _ => Value::Null,
@@ -718,6 +732,7 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
         "rutas.estado" => a.rutas.estado = r(),
         "rutas.boveda" => a.rutas.boveda = r(),
         "web.sondeo_ms" => a.web.sondeo_ms = n() as u64,
+        "escritorio.al_iniciar" => a.escritorio.al_iniciar = b(),
         "web.diario_limite" => a.web.diario_limite = n() as u32,
         "biblioteca.categorias" => {
             a.biblioteca.categorias = v
