@@ -88,7 +88,8 @@ fn literal(ruta: &Path) -> String {
 /// 3. escritura permitida en el worktree, el temporal propio, los directorios
 ///    de estado del adaptador y los dispositivos mínimos;
 /// 4. lectura denegada en el directorio de ejecución (clave del panel);
-/// 5. red denegada salvo `localhost` (llama-server) y el socket de
+/// 5. red denegada salvo conectar a `localhost` (llama-server), escuchar solo
+///    en `localhost` y el socket de
 ///    `mDNSResponder`, que usa la resolución de nombres del sistema. No se
 ///    abre ningún otro socket unix.
 pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucion: Option<&Path>) -> String {
@@ -101,7 +102,7 @@ pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucio
     if let Some(d) = ejecucion {
         p.push_str(&format!("(deny file-read* (subpath {}))\n", literal(d)));
     }
-    p.push_str("(deny network*)\n(allow network* (remote ip \"localhost:*\"))\n(allow network* (local ip \"localhost:*\"))\n");
+    p.push_str("(deny network*)\n(allow network* (remote ip \"localhost:*\"))\n(allow network-bind network-inbound (local ip \"localhost:*\"))\n");
     p.push_str("(allow network* (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n");
     p
 }
@@ -151,6 +152,10 @@ mod tests {
         // La denegación de escritura va antes de los permisos; la de red, antes de localhost.
         assert!(p.find("(deny file-write*").unwrap() < p.find("(allow file-write*").unwrap());
         assert!(p.find("(deny network*)").unwrap() < p.find("(allow network*").unwrap());
+        // Una regla `local ip` que permita `network*` abriría la red entera
+        // (lo comprobó la CI de macOS): solo se escucha en localhost.
+        assert!(!p.contains("(allow network* (local ip"), "{p}");
+        assert!(p.contains("(allow network-bind network-inbound (local ip \"localhost:*\"))"));
         // Sin directorio de ejecución no hay nada que tapar.
         assert!(!perfil_seatbelt(Path::new("/w"), Path::new("/t"), &[], None).contains("deny file-read*"));
     }
