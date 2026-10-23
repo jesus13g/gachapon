@@ -23,7 +23,7 @@
   --stop: #ff5d5d;
   --wait: #b4bfcc;
   --capsule-shell: #f1f0ea;
-  --shader-veil: rgba(9, 11, 14, 0.62); /* darkens the gradient shader under the copy */
+  --shader-veil: rgba(9, 11, 14, 0.7); /* darkens the gradient shader under the copy */
 
   /* type */
   --display: 'Big Shoulders Display', 'Arial Narrow', Impact, sans-serif;
