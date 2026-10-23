@@ -6,9 +6,9 @@ defecto Qwen Code sobre `llama-server`). El agente de cada rol es intercambiable
 ([Agentes y roles](#agentes-y-roles)). Ambos trabajan sobre el mismo worktree de git y se comunican por un bus de ficheros con
 colas y semáforos. Diseño y razones en `orquestador-claude-qwen.md`.
 
-[![Cómo funciona gachapon en 15 segundos](docs/media/gachapon-explicado.gif)](docs/media/gachapon-explicado.mp4)
+[![Cómo funciona gachapon en 20 segundos](docs/media/gachapon-explicado.gif)](docs/media/gachapon-explicado.mp4)
 
-*Cómo funciona en 15 segundos, sobre la interfaz `ea-web` ([vídeo en MP4](docs/media/gachapon-explicado.mp4)).*
+*Cómo funciona en 20 segundos, sobre el Inicio de `ea-web` con una secuencia de ejemplo ([vídeo en MP4](docs/media/gachapon-explicado.mp4)).*
 
 ## Estado actual
 
