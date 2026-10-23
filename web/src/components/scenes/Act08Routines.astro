@@ -1,0 +1,63 @@
+---
+import Scene from '../Scene.astro';
+import AgentNode from '../AgentNode.astro';
+import FlowPath from '../FlowPath.astro';
+import Barrier from '../Barrier.astro';
+import Capsule from '../Capsule.astro';
+import Cursor from '../Cursor.astro';
+const cells = Array.from({ length: 14 }, (_, i) => ({ x: 920 + (i % 7) * 78, y: 430 + Math.floor(i / 7) * 74, i }));
+const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+const ok = [0, 1, 2, 4, 7, 8, 9];
+const fail = 11;
+---
+<Scene i={8}>
+  <FlowPath id="rt-cal" d="M640 520 H900" state="active" />
+  <FlowPath id="rt-fail" d="M1265 565 V700" state="fail" thin />
+  <FlowPath id="rt-pkg" d="M1050 750 H820" state="wait" thin />
+  <FlowPath id="rt-back" d="M720 750 H450 V610" state="planner" thin />
+
+  <!-- versioned layers -->
+  <g data-k="stack">
+    {[1, 2, 3].map((v) => (
+      <g data-k="plate" data-v={v} transform={`translate(${450 + (v - 1) * 14} ${540 - (v - 1) * 20})`}>
+        <rect class="panel-hi" x="-120" y="-38" width="240" height="76" rx="6" style={`stroke:${v === 3 ? 'var(--planner)' : 'var(--accent)'}`} />
+        <text class="t-sm" x="-104" y="-14" style={`fill:${v === 3 ? 'var(--planner)' : 'var(--accent)'}`}>routine</text>
+        <text class="t-d t-fg" x="-104" y="24" style="font-size:36px">v{v}</text>
+      </g>
+    ))}
+  </g>
+  <text class="t-sm" x="450" y="620" text-anchor="middle" data-k="stack-label">each version explicit · validated</text>
+
+  <!-- calendar -->
+  <g data-k="calendar">
+    <text class="t-sm" x="920" y="396">scheduled runs</text>
+    {days.map((d, i) => <text class="t-sm" x={945 + i * 78} y="418" text-anchor="middle" style="font-size:11px">{d}</text>)}
+    {cells.map((c) => (
+      <g transform={`translate(${c.x} ${c.y})`}>
+        <rect class="panel" width="66" height="58" rx="4" style={c.i === fail ? 'stroke:var(--stop)' : ''} />
+        {ok.includes(c.i) && <g data-k="cell-ok"><circle cx="33" cy="29" r="10" fill="var(--ok)" /><use href="#i-check" transform="translate(33 29) scale(.65)" color="#04140a" /></g>}
+        {c.i === fail && <g data-k="cell-fail"><circle cx="33" cy="29" r="10" fill="var(--stop)" /><use href="#i-cross" transform="translate(33 29) scale(.7)" color="#1a0505" /></g>}
+      </g>
+    ))}
+    <text data-k="failed-t" class="t-md" x="1265" y="626" text-anchor="middle" style="fill:var(--stop)">FAILED</text>
+  </g>
+
+  <!-- failure → correction package → you → planner -->
+  <g data-k="pkg" data-state="wait" transform="translate(1050 700)">
+    <rect class="hatch" width="330" height="100" rx="8" style="stroke:var(--wait);stroke-width:1.5" />
+    <rect x="10" y="10" width="310" height="80" rx="5" fill="var(--bg)" opacity=".86" />
+    <text class="t-md" x="165" y="42" text-anchor="middle" style="fill:var(--wait)">CORRECTION PACKAGE</text>
+    <text class="t-sm t-nocase" x="165" y="64" text-anchor="middle">definition · output · error</text>
+    <text class="t-sm" x="165" y="84" text-anchor="middle" style="fill:var(--wait);font-size:11px">waiting for you</text>
+  </g>
+  <g data-k="confirm"><Barrier x={950} y={750} h={110} state="blocked" /></g>
+  <g data-k="user" transform="translate(1000 850)">
+    <use href="#i-key" color="var(--accent)" />
+    <text class="t-sm" x="26" y="5" style="fill:var(--accent)">YOU CONFIRM</text>
+  </g>
+  <AgentNode kind="planner" x={720} y={750} s={0.42} state="idle" label="" />
+  <text class="t-sm" x="720" y="804" text-anchor="middle" style="fill:var(--planner)" data-k="planner-t">planner fixes it</text>
+  <Capsule class="capF" x={640} y={520} s={0.7} state="fail" />
+  <Capsule class="capRun" x={640} y={520} s={0.6} state="exec" />
+  <Cursor x={1090} y={830} />
+</Scene>

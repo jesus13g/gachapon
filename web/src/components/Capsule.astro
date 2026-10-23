@@ -1,0 +1,14 @@
+---
+interface Props {
+  x?: number; y?: number; s?: number; rot?: number;
+  state?: 'idle' | 'active' | 'planner' | 'exec' | 'ok' | 'fail' | 'blocked' | 'wait';
+  label?: string;
+  class?: string;
+  hint?: string;
+}
+const { x = 0, y = 0, s = 1, rot = 0, state = 'active', label, class: cls, hint } = Astro.props;
+---
+<g class:list={['capsule', cls, hint && 'hoverable']} data-state={state} data-hint={hint} transform={`translate(${x} ${y}) rotate(${rot}) scale(${s})`}>
+  <g class="cap"><use href="#cap" /></g>
+  {label && <text class="cap-label" y="48" text-anchor="middle">{label}</text>}
+</g>

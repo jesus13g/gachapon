@@ -1,0 +1,8 @@
+---
+interface Props { x: number; y: number; state?: string; r?: number; class?: string }
+const { x, y, state = 'idle', r = 5, class: cls } = Astro.props;
+---
+<g class:list={['ledwrap', cls]} data-state={state}>
+  <circle class="led-ring" cx={x} cy={y} r={r + 3.5} />
+  <circle class="led" cx={x} cy={y} r={r} data-state={state} />
+</g>

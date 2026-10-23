@@ -1,0 +1,19 @@
+---
+// A physical gate on a lane. Jaws close = lock held / blocked. Animated through attr height/y (see motion.ts → gate()).
+interface Props { x: number; y: number; h?: number; open?: boolean; state?: string; label?: string; sub?: string; class?: string; labelSide?: 'top' | 'bottom' }
+const { x, y, h = 130, open = false, state = 'ok', label, sub, class: cls, labelSide = 'top' } = Astro.props;
+const half = h / 2;
+const g = 12; // visible stub when open
+const th = open ? g : half;
+const by = open ? half - g : 0;
+const bh = open ? g : half;
+---
+<g class:list={['gate', cls]} data-state={state} data-h={h} transform={`translate(${x} ${y})`}>
+  <rect class="gate__post" x="-11" y={-half - 12} width="22" height="12" rx="2" />
+  <rect class="gate__post" x="-11" y={half} width="22" height="12" rx="2" />
+  <rect class="gate__jaw gate__jaw--t" x="-6" y={-half} width="12" height={th} />
+  <rect class="gate__jaw gate__jaw--b" x="-6" y={by} width="12" height={bh} />
+  <g class="gate__lock" style="color:var(--c)" transform="translate(0 0)"><use href="#i-lock" transform="scale(.9)" opacity={open ? 0.0 : 1} /></g>
+  {label && <text class="t-md t-hot" y={labelSide === 'top' ? -half - 26 : half + 40} text-anchor="middle">{label}</text>}
+  {sub && <text class="t-sm t-nocase" y={labelSide === 'top' ? -half - 46 : half + 60} text-anchor="middle">{sub}</text>}
+</g>

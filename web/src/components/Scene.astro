@@ -1,0 +1,21 @@
+---
+import { acts } from '../content/copy.en';
+import { STORY } from '../lib/tokens';
+import Capsule from './Capsule.astro';
+import SceneCopy from './SceneCopy.astro';
+interface Props { i: number; thread?: boolean; copy?: boolean }
+const { i, thread = true, copy = true } = Astro.props;
+const a = acts[i];
+const cfg = STORY[i];
+---
+<section class="scene" id={a.id} data-act={i} data-id={a.id} aria-labelledby={`${a.id}-title`}>
+  <div class="scene__art">
+    <div class="scene__svg-wrap">
+      <svg class="scene__svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet" role="img" aria-label={a.alt} data-crop={cfg.crop.join(' ')}>
+        <g class="world"><slot /></g>
+        {thread && <Capsule class="local-thread" x={cfg.end[0]} y={cfg.end[1]} state="active" />}
+      </svg>
+    </div>
+  </div>
+  {copy ? <SceneCopy i={i} /> : <slot name="copy" />}
+</section>

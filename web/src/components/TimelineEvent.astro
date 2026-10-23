@@ -1,0 +1,14 @@
+---
+interface Props { x: number; y: number; label: string; sub?: string; up?: boolean; state?: string; class?: string; w?: number }
+const { x, y, label, sub, up = true, state = 'idle', class: cls, w = 150 } = Astro.props;
+const dir = up ? -1 : 1;
+---
+<g class:list={['tl-event', cls]} data-state={state} transform={`translate(${x} ${y})`}>
+  <path d={`M0 0 V${dir * 54}`} stroke="var(--c)" stroke-width="2" />
+  <circle r="6" fill="var(--bg)" stroke="var(--c)" stroke-width="2.4" />
+  <g transform={`translate(${-w / 2} ${up ? -112 : 54})`}>
+    <rect class="panel" width={w} height="58" rx="5" style="stroke:var(--c)" />
+    <text class="t-sm t-hot" x="12" y="23">{label}</text>
+    {sub && <text class="t-sm t-nocase" x="12" y="43">{sub}</text>}
+  </g>
+</g>

@@ -1,0 +1,41 @@
+---
+// The Gachapon machine as a precision instrument: dome, bus conduits, slots. Hero (dormant) and final (lit).
+import Capsule from './Capsule.astro';
+import FlowPath from './FlowPath.astro';
+interface Props { lit?: boolean; k?: string }
+const { lit = false, k = 'machine' } = Astro.props;
+const caps = [
+  [-70, 40, 20], [-20, 80, -35], [40, 60, 12], [88, 20, -50], [-96, -20, 55], [10, -10, -15], [-40, -70, 30], [60, -60, 65],
+];
+---
+<g data-k={k} class:list={['machine', !lit && 'is-dormant']} data-state={lit ? 'active' : 'idle'}>
+  <g data-k={`${k}-conduits`}>
+    <FlowPath d="M930 460 H800" state={lit ? 'active' : 'idle'} id={`${k}-in`} />
+    <FlowPath d="M1330 460 H1460 V690 H1560" state={lit ? 'active' : 'idle'} />
+  </g>
+  <rect class="steel" x="930" y="104" width="400" height="696" rx="30" />
+  <rect x="946" y="120" width="368" height="664" rx="20" fill="none" stroke="var(--line)" stroke-dasharray="2 7" />
+  <g data-k={`${k}-dome`}>
+    <circle cx="1130" cy="330" r="188" fill="#07090c" stroke="var(--line-hi)" stroke-width="3" />
+    <circle class="spin-slow" cx="1130" cy="330" r="200" fill="none" stroke="var(--accent)" stroke-opacity=".5" stroke-width="2" stroke-dasharray="2 18" />
+    <circle cx="1130" cy="330" r="168" fill="none" stroke="var(--line)" stroke-width="1.5" />
+    <g transform="translate(1130 330)" data-k={`${k}-pile`} opacity="0.28">
+      {caps.map(([x, y, r]) => <Capsule x={x} y={y} rot={r} s={0.62} state={lit ? 'exec' : 'idle'} />)}
+    </g>
+  </g>
+  <g transform="translate(1130 560)">
+    <rect x="-150" y="-26" width="300" height="52" rx="6" fill="#0b0e12" stroke="var(--line)" />
+    {['PLN', 'BUS', 'EXE', 'LOG', 'SBX'].map((t, i) => (
+      <g transform={`translate(${-112 + i * 56} 0)`}>
+        <circle class="led machine__led" r="6" data-state={lit ? (i === 2 ? 'exec' : i === 0 ? 'planner' : 'active') : 'idle'} />
+        <text class="t-sm" y="22" text-anchor="middle" style="font-size:10px">{t}</text>
+      </g>
+    ))}
+  </g>
+  <g transform="translate(1130 690)">
+    <rect x="-96" y="-40" width="192" height="78" rx="12" fill="#07090c" stroke="var(--line-hi)" stroke-width="2" />
+    <rect x="-84" y="8" width="168" height="18" rx="4" fill="none" stroke="var(--accent)" stroke-opacity={lit ? 0.9 : 0.25} />
+    <path d="M-108 40 H108 L120 62 H-120 Z" class="steel" />
+  </g>
+  <text class="t-sm" x="1130" y="782" text-anchor="middle" style="font-size:11px;letter-spacing:.3em">GACHAPON · ORCHESTRATOR</text>
+</g>

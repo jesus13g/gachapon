@@ -1,0 +1,17 @@
+---
+import { acts } from '../content/copy.en';
+interface Props { i: number }
+const a = acts[Astro.props.i];
+---
+<div class="scene__copy">
+  <p class="kicker">{a.kicker}</p>
+  <div class="beats">
+    {a.beats.map((b, n) => (
+      <div class="beat" data-beat={n}>
+        <h2 id={n === 0 ? `${a.id}-title` : undefined}>{b.h}</h2>
+        {b.p && <p>{b.p}</p>}
+      </div>
+    ))}
+  </div>
+  {a.flow && <p class="flow-text">{a.flow}</p>}
+</div>

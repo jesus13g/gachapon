@@ -1,0 +1,45 @@
+---
+import Scene from '../Scene.astro';
+import Terminal from '../Terminal.astro';
+import Hub from '../Hub.astro';
+import FlowPath from '../FlowPath.astro';
+import Capsule from '../Capsule.astro';
+// Ring positions (final, ordered). The builder throws them into chaos on entry and brings them back.
+const terms = [
+  { x: 150, y: 520, title: 'claude-code', lines: ['$ rename 40 files', '$ npm install', '…'], tag: 'premium model' },
+  { x: 420, y: 700, title: 'opencode', lines: ['$ fix lint x14', '$ run tests', '…'], tag: 'mechanical' },
+  { x: 1130, y: 700, title: 'codex', lines: ['$ bump versions', '$ format code', '…'], tag: 'premium model' },
+  { x: 1180, y: 480, title: 'qwen-code', lines: ['$ grep -r TODO', '$ summarise', '…'], tag: 'who has the lock?' },
+  { x: 960, y: 190, title: 'agent #5', lines: ['$ ???', '…'], tag: 'state: ?' },
+  { x: 140, y: 350, title: 'agent #6', lines: ['waiting…', '…'], tag: 'state: ?' },
+];
+const tangle = [
+  'M290 600 C 500 450, 700 800, 900 760 S 1200 600, 1180 540',
+  'M560 760 C 400 500, 640 360, 960 250',
+  'M260 420 C 450 300, 700 600, 1180 560',
+  'M1280 760 C 1000 560, 700 700, 280 560',
+  'M1100 260 C 900 400, 600 380, 300 400',
+  'M1300 540 C 1000 300, 700 300, 260 440',
+];
+---
+<Scene i={1} thread={false}>
+  <g data-k="tangle" class="tangle">
+    {tangle.map((d) => <path class="wire dash" {d} style="stroke:var(--stop);stroke-opacity:.45" />)}
+  </g>
+  <g data-k="order" class="order">
+    {terms.map((t) => <FlowPath thin state="active" d={`M${t.x + 100} ${t.y + 50} L800 ${t.y + 50 > 450 ? 520 : 380}`} />)}
+  </g>
+  <Hub x={800} y={450} s={1} />
+  {terms.map((t, n) => (
+    <g data-k="term" data-n={n}>
+      <Terminal x={t.x} y={t.y} w={290} h={140} title={t.title} lines={t.lines} state="idle" tag={t.tag} tagState={t.tag.includes('?') ? 'wait' : 'fail'} />
+      <g data-k="okTag" transform={`translate(${t.x} ${t.y + 156})`}>
+        <rect width="150" height="20" rx="2" fill="none" stroke="var(--ok)" />
+        <text x="10" y="14" class="t-sm" style="fill:var(--ok);font-size:11px">queue · state · lock</text>
+      </g>
+    </g>
+  ))}
+  <g data-k="chaos-caps">
+    {[[60, 760, 25], [1500, 300, -30], [700, 880, 70], [1560, 700, 20], [500, 120, -20]].map(([x, y, r]) => <Capsule x={x} y={y} rot={r} s={0.55} state="fail" />)}
+  </g>
+</Scene>
