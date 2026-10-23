@@ -6,6 +6,7 @@ import '@fontsource-variable/jetbrains-mono';
 import '../styles/global.css';
 import { site } from '../content/copy.en';
 import Sprite from '../components/Sprite.astro';
+import GradientShaderBg from '../components/ui/GradientShaderBg.astro';
 
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const ogImage = new URL(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/og.png`, Astro.site).href;
@@ -57,6 +58,7 @@ const ld = {
   <body>
     <a class="skip" href="#story">Skip to content</a>
     <Sprite />
+    <GradientShaderBg />
     <slot />
   </body>
 </html>
