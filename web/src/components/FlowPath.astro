@@ -1,10 +1,17 @@
 ---
+import { uid } from '../lib/uid';
 // A conduit: the physical lane along which capsules and signals travel. Draw-on via DrawSVG on .conduit__wall.
+// The bore is a real hole cut out of the wall (a mask), not a stroke painted in the page colour, so the tube
+// stays hollow over any ground — the plain graphite or the gradient shader behind the page.
 interface Props { d: string; id?: string; state?: string; thin?: boolean; class?: string; arrow?: boolean }
 const { d, id, state = 'idle', thin = false, class: cls } = Astro.props;
+const cut = uid('conduit-cut');
 ---
 <g class:list={['conduit', thin && 'conduit--thin', cls]} data-state={state}>
-  <path class="conduit__wall" {d} id={id} />
-  <path class="conduit__bore" {d} />
+  <mask id={cut} maskUnits="userSpaceOnUse" x="-10000" y="-10000" width="30000" height="30000">
+    <rect x="-10000" y="-10000" width="30000" height="30000" fill="#fff" />
+    <path class="conduit__bore" {d} />
+  </mask>
+  <path class="conduit__wall" {d} id={id} mask={`url(#${cut})`} />
   <path class="conduit__flow" {d} />
 </g>

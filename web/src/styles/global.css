@@ -552,7 +552,8 @@ a {
 .led[data-state='wait'] { animation: beat var(--t-heart) ease-in-out infinite; }
 
 .conduit__wall { fill: none; stroke: var(--line); stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
-.conduit__bore { fill: none; stroke: var(--bg); stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; }
+/* the bore lives in the wall's mask: black = cut out */
+.conduit__bore { fill: none; stroke: #000; stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; }
 .conduit--thin .conduit__wall { stroke-width: 10; }
 .conduit--thin .conduit__bore { stroke-width: 6; }
 .conduit__flow {
