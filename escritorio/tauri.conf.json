@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ea-escritorio",
+  "version": "0.1.0",
+  "identifier": "es.gachapon.ea-escritorio",
+  "build": {},
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "icon": ["iconos/icono.png", "iconos/icono.ico"] }
+}

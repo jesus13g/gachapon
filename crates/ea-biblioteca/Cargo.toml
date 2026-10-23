@@ -1,0 +1,22 @@
+[package]
+name = "ea-biblioteca"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+ea-ajustes = { path = "../ea-ajustes" }
+ea-plataforma = { path = "../ea-plataforma" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+toml_edit = "0.22"
+thiserror = "1.0"
+# Solo lectura del diario del ecosistema y de la base de OpenCode: ea-store ejecuta
+# migraciones al abrir y rechaza esquemas ajenos, y aquí no se debe escribir nada.
+rusqlite = { version = "0.32", features = ["bundled"] }
+time = { version = "0.3", features = ["formatting", "parsing"] }
+directories = "5.0"
+
+[dev-dependencies]
+tempfile = "3"

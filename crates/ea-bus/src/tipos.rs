@@ -4,21 +4,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{ErrorBus, Resultado};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Agente {
-    #[serde(rename = "modelo-local")]
-    ModeloLocal,
-    #[serde(rename = "claude-code")]
-    ClaudeCode,
-}
+/// El rol de una cola: el planificador (`claude-code` en disco) o el
+/// ejecutor (`modelo-local`). Lo define `ea-ajustes` (spec 017, RF-001).
+pub use ea_ajustes::Rol;
 
-impl Agente {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Agente::ModeloLocal => "modelo-local",
-            Agente::ClaudeCode => "claude-code",
-        }
-    }
+/// Miembro de un equipo y su rol dentro de él (spec 019). Los define
+/// `ea-ajustes`, que valida los equipos.
+pub use ea_ajustes::{Miembro, RolEquipo};
+
+/// Quién ejecutó una iteración: el agente (id del catálogo) y el nombre del
+/// modelo con el que se tomó el trabajo (spec 017, RF-008). Opcional en todo
+/// lo que se guarda, para leer trabajos de antes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EjecutadoPor {
+    pub agente: String,
+    pub modelo: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +54,19 @@ impl Default for Topes {
     }
 }
 
+impl Topes {
+    /// Recorta cada tope al del techo (el de los ajustes). Al menos una
+    /// iteración: una orden siempre llega a llamar al agente una vez.
+    pub fn acotar(self, techo: &Topes) -> Topes {
+        Topes {
+            turnos: self.turnos.min(techo.turnos),
+            tiempo_s: self.tiempo_s.min(techo.tiempo_s),
+            llamadas_herramienta: self.llamadas_herramienta.min(techo.llamadas_herramienta),
+            iteraciones: self.iteraciones.min(techo.iteraciones).max(1),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fase {
     pub numero: u32,
@@ -62,7 +75,7 @@ pub struct Fase {
     pub entregable: String,
     /// Comando de shell que decide si la fase está hecha.
     pub criterio: String,
-    /// Skills de Qwen para esta fase; si está vacío, las de la orden.
+    /// Skills del ejecutor para esta fase; si está vacío, las de la orden.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
 }
@@ -96,11 +109,67 @@ pub struct Orden {
     /// Notas que añade la revisión al reformular.
     #[serde(default)]
     pub notas_revision: Vec<String>,
-    /// Skills de Qwen que lleva el trabajo (las elige quien tenga la llave).
+    /// Skills del ejecutor que lleva el trabajo (las elige quien tenga la llave).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
+    /// Equipo para el que se crea el trabajo (spec 019, RF-004).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub equipo: Option<String>,
+    /// Agente ejecutor concreto del equipo; sin él, lo toma cualquiera.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asignado_a: Option<String>,
+    /// Agente del equipo al que llega la entrega para revisarla.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisor: Option<String>,
+    /// El sistema crea un `git worktree` para el trabajo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub worktree_propio: bool,
     pub creada_en: String,
     pub creada_por: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EstadoEquipo {
+    Despierto,
+    Dormido,
+}
+
+impl EstadoEquipo {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EstadoEquipo::Despierto => "despierto",
+            EstadoEquipo::Dormido => "dormido",
+        }
+    }
+}
+
+/// Un grupo de agentes despertado por el usuario para una tarea
+/// (`equipos/<id>/equipo.json`, spec 019, RF-001).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Equipo {
+    pub id: String,
+    pub titulo: String,
+    pub objetivo: String,
+    /// Repo sobre el que trabaja el equipo.
+    pub worktree_base: String,
+    pub miembros: Vec<Miembro>,
+    pub estado: EstadoEquipo,
+    pub creado_en: String,
+    pub creado_por: String,
+    /// Ids de los trabajos creados para el equipo, en orden.
+    #[serde(default)]
+    pub trabajos: Vec<String>,
+}
+
+impl Equipo {
+    pub fn miembro(&self, agente: &str) -> Option<&Miembro> {
+        self.miembros.iter().find(|m| m.agente == agente)
+    }
+
+    pub fn con_rol(&self, agente: &str, rol: RolEquipo) -> bool {
+        self.miembro(agente).is_some_and(|m| m.rol == rol)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,6 +206,9 @@ pub struct Estado {
     pub actualizado_en: String,
     #[serde(default)]
     pub detalle: Option<String>,
+    /// El agente y el modelo con los que se tomó por última vez.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ejecutado_por: Option<EjecutadoPor>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +227,8 @@ pub struct FaseInforme {
     pub resultado: String,
     #[serde(default)]
     pub diff_stat: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ejecutado_por: Option<EjecutadoPor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,8 +257,17 @@ pub struct Informe {
     /// Obra: diff de las fases desde la última revisión (recortado).
     #[serde(default)]
     pub diff: Option<String>,
+    /// Con qué agente y modelo se hizo esta iteración.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ejecutado_por: Option<EjecutadoPor>,
+    /// Aviso del sistema al revisar (p. ej. el revisor es quien ejecutó).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aviso: Option<String>,
 }
 
+// Un evento vive lo que dura una transición: no compensa meter el informe en
+// una caja.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Evento {
     Tomar,
@@ -246,6 +329,22 @@ impl Informe {
             obra_completa: false,
             fases: vec![],
             diff: None,
+            ejecutado_por: None,
+            aviso: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Topes;
+
+    #[test]
+    fn acotar_recorta_cada_tope_al_techo() {
+        let pedidos = Topes { turnos: 500, tiempo_s: 9000, llamadas_herramienta: 20, iteraciones: 0 };
+        let techo = Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 200, iteraciones: 3 };
+        let t = pedidos.acotar(&techo);
+        assert_eq!(t, Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 20, iteraciones: 1 });
+        assert_eq!(Topes::default().acotar(&Topes::default()), Topes::default());
     }
 }

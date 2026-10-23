@@ -26,6 +26,8 @@ struct Entorno {
     url: String,
     db: std::path::PathBuf,
     rutinas: std::path::PathBuf,
+    /// Ajustes aislados del servidor (los roles se leen en cada llamada).
+    ajustes: ea_ajustes::Fuentes,
     _dir: tempfile::TempDir,
 }
 
@@ -39,11 +41,16 @@ async fn entorno() -> Entorno {
     let rutinas = dir.path().join("rutinas");
     std::fs::create_dir_all(&rutinas).unwrap();
     std::fs::write(rutinas.join("vieja.toml"), "[rutina]\n").unwrap();
+    // «retirada» está en la papelera: lo único que se borra para siempre.
+    std::fs::create_dir_all(rutinas.join(".papelera")).unwrap();
+    std::fs::write(rutinas.join(".papelera/retirada.toml"), "[rutina]\n").unwrap();
     let store = Arc::new(Mutex::new(Store::open_at(&db).unwrap()));
     let r = rutinas.clone();
     let boveda = dir.path().join("boveda");
+    let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
+    let f = ajustes.clone();
     let service = StreamableHttpService::new(
-        move || Ok(EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()))),
+        move || Ok(EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone())).con_ajustes(f.clone())),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig::default(),
     );
@@ -53,7 +60,7 @@ async fn entorno() -> Entorno {
     tokio::spawn(async move {
         let _ = axum::serve(listener, router).await;
     });
-    Entorno { url: format!("http://{addr}/mcp"), db, rutinas, _dir: dir }
+    Entorno { url: format!("http://{addr}/mcp"), db, rutinas, ajustes, _dir: dir }
 }
 
 async fn conectar(url: &str, nombre: &str) -> Client {
@@ -119,16 +126,16 @@ async fn simular_no_escribe_nada_pero_queda_en_el_diario() {
     let c = conectar(&e.url, "claude-code").await;
     let r = llamar(&c, "ea_promover_nota", json!({ "ruta": "claude-code/inexistente.md", "simular": true })).await;
     assert!(r.is_err(), "una nota inexistente no se simula");
-    let r = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "vieja", "simular": true })).await.unwrap();
+    let r = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await.unwrap();
     assert_eq!(r["riesgo"], "irreversible");
 
     assert!(propuestas(&e).is_empty());
-    assert!(e.rutinas.join("vieja.toml").exists());
+    assert!(e.rutinas.join(".papelera/retirada.toml").exists());
     let s = Store::open_at(&e.db).unwrap();
     let ev = s.list_events(&EventFilter { limit: Some(50), ..Default::default() }).unwrap();
     let sim = ev.iter().find(|x| x.action == "mcp_eliminar_rutina_simulada").expect("diario");
     assert_eq!(sim.actor, "claude-code");
-    assert!(sim.detail.as_ref().unwrap().contains("vieja"));
+    assert!(sim.detail.as_ref().unwrap().contains("retirada"));
     assert!(ev.iter().any(|x| x.action == "mcp_eliminar_rutina_simulada"));
 }
 
@@ -140,7 +147,7 @@ async fn un_agente_que_pide_ejecutar_solo_consigue_una_propuesta_pendiente() {
     let r = llamar(
         &c,
         "ea_eliminar_rutina",
-        json!({ "slug": "vieja", "confirmar": true, "confirmacion": "si", "token": "x" }),
+        json!({ "slug": "retirada", "confirmar": true, "confirmacion": "si", "token": "x" }),
     )
     .await
     .unwrap();
@@ -159,10 +166,10 @@ async fn un_agente_que_pide_ejecutar_solo_consigue_una_propuesta_pendiente() {
     assert_eq!(a.herramienta, "ea_eliminar_rutina");
     assert!(a.argumentos.get("confirmar").is_none());
     assert!(ps[0].ejecucion.is_none());
-    assert!(e.rutinas.join("vieja.toml").exists(), "el fichero sigue ahí");
+    assert!(e.rutinas.join(".papelera/retirada.toml").exists(), "el fichero sigue ahí");
 
     // Repetir no duplica.
-    let r2 = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "vieja" })).await.unwrap();
+    let r2 = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "retirada" })).await.unwrap();
     assert_eq!(r2["propuesta"]["id"], r["propuesta"]["id"]);
     assert_eq!(r2["propuesta"]["nueva"], false);
     assert_eq!(propuestas(&e).len(), 1);
@@ -183,6 +190,15 @@ async fn el_modelo_local_como_mucho_propone_reversibles_de_su_proyeccion() {
         ("ea_eliminar_rutina", json!({ "slug": "vieja", "simular": true })),
         ("ea_reiniciar_servicio", json!({ "servicio": "ea-mcp", "simular": true })),
         ("ea_encolar_rutina", json!({ "slug": "vieja", "simular": true })),
+        ("ea_registrar_rutina", json!({ "toml": "[rutina]", "simular": true })),
+        ("ea_programar_rutina", json!({ "slug": "vieja", "calendario": "daily", "simular": true })),
+        ("ea_desprogramar_rutina", json!({ "slug": "vieja", "simular": true })),
+        ("ea_retirar_rutina", json!({ "slug": "vieja", "simular": true })),
+        ("ea_restaurar_rutina", json!({ "slug": "retirada", "simular": true })),
+        ("ea_limpiar_worktree", json!({ "trabajo": "t-1", "simular": true })),
+        ("ea_activar_herramienta", json!({ "elemento": "codex/mcp/usuario/docs", "simular": true })),
+        ("ea_desactivar_herramienta", json!({ "elemento": "codex/mcp/usuario/docs", "simular": true })),
+        ("ea_lanzar_sesion", json!({ "agente": "claude-code", "herramientas": ["claude-code/mcp/usuario/x"], "simular": true })),
     ] {
         let err = llamar(&c, n, a).await.unwrap_err();
         assert!(err.contains("no está disponible"), "{n}: {err}");
@@ -203,6 +219,11 @@ async fn lo_desatendido_no_puede_ni_simular_ni_proponer() {
             // Denegadas antes de tocar nada, así que no llegan a la bóveda configurada.
             "ea_escribir_nota" => json!({ "titulo": "a", "contenido": "b" }),
             "ea_promover_nota" => json!({ "ruta": "modelo-local/a.md" }),
+            "ea_registrar_rutina" => json!({ "toml": "[rutina]" }),
+            "ea_programar_rutina" => json!({ "slug": "vieja", "calendario": "daily" }),
+            "ea_activar_herramienta" | "ea_desactivar_herramienta" => json!({ "elemento": "codex/mcp/usuario/docs" }),
+            "ea_lanzar_sesion" => json!({ "agente": "claude-code", "herramientas": ["claude-code/mcp/usuario/x"] }),
+            "ea_limpiar_worktree" => json!({ "trabajo": "t-1" }),
             _ => json!({ "slug": "vieja" }),
         };
         let err = llamar(&c, h.nombre, args).await.unwrap_err();
@@ -224,4 +245,95 @@ async fn argumentos_fuera_de_la_lista_cerrada_se_rechazan() {
         assert!(llamar(&c, n, a).await.is_err(), "{n}");
     }
     assert!(propuestas(&e).is_empty());
+}
+
+/// Retirar y restaurar solo proponen, como las demás (spec 004, RF-011), y
+/// una rutina retirada no se encola: la simulación da el mismo texto que la
+/// web y la CLI (`Ubicacion::motivo_no_lanzable`).
+#[tokio::test]
+async fn retirar_y_restaurar_proponen_y_una_retirada_no_se_encola() {
+    let e = entorno().await;
+    let c = conectar(&e.url, "claude-code").await;
+    let r = llamar(&c, "ea_retirar_rutina", json!({ "slug": "vieja", "simular": true })).await.unwrap();
+    assert_eq!(r["riesgo"], "reversible");
+    let t = r["simulacion"].as_str().unwrap_or_default().to_string() + &r.to_string();
+    assert!(t.contains("papelera") && t.contains("timer"), "{r}");
+    let r = llamar(&c, "ea_restaurar_rutina", json!({ "slug": "retirada" })).await.unwrap();
+    assert_eq!(r["ejecutado"], false);
+    assert_eq!(r["propuesta"]["estado"], "pendiente");
+    assert!(e.rutinas.join(".papelera/retirada.toml").exists() && !e.rutinas.join("retirada.toml").exists());
+
+    let err = llamar(&c, "ea_encolar_rutina", json!({ "slug": "retirada", "simular": true })).await.unwrap_err();
+    let motivo = ea_bus::Ubicacion::Retirada.motivo_no_lanzable("retirada").unwrap();
+    assert!(err.contains(&motivo), "{err}");
+    // Ya retirada: no se retira otra vez; activa: no se restaura.
+    assert!(llamar(&c, "ea_retirar_rutina", json!({ "slug": "retirada", "simular": true })).await.is_err());
+    assert!(llamar(&c, "ea_restaurar_rutina", json!({ "slug": "vieja", "simular": true })).await.is_err());
+}
+
+fn diario(e: &Entorno) -> Vec<ea_store::Event> {
+    Store::open_at(&e.db).unwrap().list_events(&EventFilter { limit: Some(200), ..Default::default() }).unwrap()
+}
+
+fn roles(e: &Entorno, planificador: &str, ejecutor: &str) {
+    std::fs::create_dir_all(&e.ajustes.dir_config).unwrap();
+    std::fs::write(
+        e.ajustes.dir_config.join("ajustes.toml"),
+        format!("[roles]\nplanificador = \"{planificador}\"\nejecutor = \"{ejecutor}\"\n"),
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn un_cliente_desconocido_solo_lee_y_queda_su_nombre_en_el_diario() {
+    let e = entorno().await;
+    let c = conectar(&e.url, "cliente-raro").await;
+    assert!(llamar(&c, "ea_status", json!({})).await.is_ok(), "leer sí");
+    for (h, args) in [
+        ("ea_encolar_rutina", json!({ "slug": "vieja" })),
+        ("ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })),
+        ("ea_escribir_nota", json!({ "ruta": "x.md", "titulo": "x", "contenido": "x" })),
+    ] {
+        let r = llamar(&c, h, args).await;
+        assert!(r.as_ref().is_err_and(|m| m.contains("desconocido")), "{h}: {r:?}");
+    }
+    assert!(propuestas(&e).is_empty(), "nada se propone");
+    let ev = diario(&e);
+    let status = ev.iter().find(|x| x.action == "mcp_status").expect("diario");
+    assert_eq!(status.actor, "desconocido");
+    assert!(status.detail.as_ref().unwrap().contains("\"cliente\":\"cliente-raro\""), "para poder añadirlo al catálogo");
+    assert!(ev.iter().any(|x| x.action == "mcp_escribir_nota_denegada" && x.actor == "desconocido"));
+}
+
+#[tokio::test]
+async fn los_permisos_salen_del_rol_que_ocupa_el_agente_ahora() {
+    let e = entorno().await;
+    // Por defecto Claude Code es el planificador: puede proponer.
+    let claude = conectar(&e.url, "claude-code").await;
+    assert!(llamar(&claude, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await.is_ok());
+    // Codex no ocupa ningún rol: solo lee.
+    let codex = conectar(&e.url, "codex-mcp-client").await;
+    let r = llamar(&codex, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await;
+    assert!(r.is_err_and(|m| m.contains("sin-rol")));
+
+    // Codex pasa a planificador, sin reconectar: ahora propone como el rol
+    // (`claude-code` en disco) y el diario dice qué agente fue. Claude Code
+    // se queda sin rol.
+    roles(&e, "codex", "qwen-code");
+    assert!(llamar(&codex, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await.is_ok());
+    let r = llamar(&claude, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await;
+    assert!(r.is_err_and(|m| m.contains("sin-rol")), "Claude Code sin rol no hereda los permisos del nombre");
+    let ev = diario(&e);
+    let de_codex = ev
+        .iter()
+        .find(|x| x.action == "mcp_eliminar_rutina_simulada" && x.detail.as_deref().is_some_and(|d| d.contains("\"agente\":\"codex\"")))
+        .expect("simulación de codex en el diario");
+    assert_eq!(de_codex.actor, "claude-code", "el actor es el rol planificador");
+
+    // Como ejecutor, OpenCode tiene la proyección reducida: nada irreversible.
+    roles(&e, "codex", "opencode");
+    let oc = conectar(&e.url, "opencode").await;
+    assert!(llamar(&oc, "ea_status", json!({})).await.is_ok());
+    let r = llamar(&oc, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await;
+    assert!(r.is_err_and(|m| m.contains("modelo-local")));
 }

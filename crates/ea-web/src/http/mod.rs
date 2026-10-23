@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 
-use crate::{tema, AppState};
+use crate::{clave, tema, AppState};
 
 mod error;
 mod rutas;
@@ -25,17 +25,28 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/app.css", get(app_css))
         .route("/app.js", get(app_js))
         .route("/cliente.js", get(cliente_js))
+        .route("/enlaces.js", get(enlaces_js))
         .route("/gashapon.css", get(gashapon_css))
         .route("/gashapon.js", get(gashapon_js))
         .route("/tour.js", get(tour_js))
         .route("/tema.css", get(tema_css))
         .route("/api/estado", get(estado_general))
         .route("/api/inicio", get(inicio))
+        .route("/api/agentes", get(agentes))
         .route("/api/diario", get(diario))
+        .route("/api/diario/anotar", post(diario_anotar))
         .route("/api/rutinas", get(rutinas_listar))
+        .route("/api/rutinas/validar", get(rutina_ver_validar).post(rutina_validar))
+        .route("/api/rutinas/registrar", get(rutina_ver_registrar).post(rutina_registrar))
         .route("/api/rutinas/{slug}", get(rutina_ver))
         .route("/api/rutinas/{slug}/lanzar", post(rutina_lanzar))
-        .route("/api/trabajos", get(trabajos_listar))
+        .route("/api/rutinas/{slug}/previa", post(rutina_previa))
+        .route("/api/rutinas/{slug}/versiones", get(rutina_versiones))
+        .route("/api/rutinas/{slug}/versiones/{n}", get(rutina_version))
+        .route("/api/trabajos", get(trabajos_listar).post(trabajo_crear))
+        .route("/api/trabajos/nuevo", get(trabajo_formulario))
+        .route("/api/skills", get(skills_catalogo))
+        .route("/api/skills/probar", post(skills_probar))
         .route("/api/trabajos/{id}", get(trabajo_ver))
         .route("/api/trabajos/{id}/diff", get(trabajo_diff))
         .route("/api/trabajos/{id}/cerrar", post(trabajo_cerrar))
@@ -46,17 +57,60 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/colas", get(colas))
         .route("/api/semaforos", get(semaforos))
         .route("/api/sesiones", get(sesiones))
+        .route("/api/ecosistema", get(ecosistema))
         .route("/api/propuestas", get(propuestas_listar))
         .route("/api/propuestas/{id}/decidir", post(propuesta_decidir))
+        .route("/api/equipos", get(equipos_listar).post(equipo_despertar))
+        .route("/api/equipos/{id}", get(equipo_ver))
+        .route("/api/worktrees", get(worktrees_listar))
+        .route("/api/equipos/{id}/dormir", post(equipo_dormir))
         .route("/api/acciones", get(acciones_listar))
         .route("/api/acciones/simular", post(accion_simular))
         .route("/api/acciones/ejecutar", post(accion_ejecutar))
+        .route("/api/acciones/{nombre}/historial", get(accion_historial))
+        .route("/api/terminal/abrir", post(terminal_abrir))
         .route("/api/boveda", get(boveda_listar))
         .route("/api/boveda/nota", get(boveda_leer))
         .route("/api/boveda/promover", post(boveda_promover))
+        .route("/api/boveda/arbol", get(boveda_arbol))
+        .route("/api/boveda/indice", get(boveda_indice))
+        .route("/api/boveda/reindexar", post(boveda_reindexar))
+        .route("/api/boveda/fichero", get(boveda_fichero))
+        .route("/api/boveda/guardar", post(boveda_guardar))
+        .route("/api/boveda/crear", post(boveda_crear))
+        .route("/api/boveda/renombrar", post(boveda_renombrar))
+        .route("/api/boveda/eliminar", post(boveda_eliminar))
+        .route("/api/boveda/carpeta", post(boveda_carpeta))
+        .route("/api/boveda/carpeta/renombrar", post(boveda_carpeta_renombrar))
+        .route("/api/boveda/carpeta/eliminar", post(boveda_carpeta_eliminar))
+        .route("/api/boveda/mostrar", post(boveda_mostrar))
+        .route("/api/boveda/papelera", get(boveda_papelera))
+        .route("/api/boveda/papelera/restaurar", post(boveda_restaurar))
+        .route("/api/memoria", get(memoria_listar))
+        .route("/api/memoria/{proyecto}/crear", post(memoria_crear))
+        .route("/api/memoria/{proyecto}/{fichero}", get(memoria_leer).post(memoria_guardar))
+        .route("/api/memoria/{proyecto}/{fichero}/eliminar", post(memoria_eliminar))
+        .route("/api/memoria/{proyecto}/{fichero}/renombrar", post(memoria_renombrar))
+        .route("/api/memoria/{proyecto}/{fichero}/mostrar", post(memoria_mostrar))
+        .route("/api/servicios/plan", get(servicios_plan))
         .route("/api/servicios/{nombre}/reiniciar", post(servicio_reiniciar))
-        .layer(middleware::from_fn(guardia))
+        .route("/api/biblioteca", get(biblioteca_listar))
+        .route("/api/biblioteca/uso", get(biblioteca_uso))
+        .route("/api/biblioteca/simular", post(biblioteca_simular))
+        .route("/api/biblioteca/ejecutar", post(biblioteca_ejecutar))
+        // Los ids llevan «/» y «@»: la página los codifica (%2F), pero valen también sin codificar.
+        .route("/api/biblioteca/{*id}", get(biblioteca_ficha))
+        .route("/api/ajustes", get(ajustes_ver).post(ajustes_cambiar))
+        .route("/api/sesion", get(sesion))
+        .layer(middleware::from_fn_with_state(state.clone(), guardia))
         .with_state(state)
+}
+
+/// Si la clave que trae la página (en `X-EA-Clave`, opcional) es la de este
+/// arranque: la página lo pregunta al cargar para saber si puede escribir.
+async fn sesion(State(s): State<Arc<AppState>>, headers: header::HeaderMap) -> Response {
+    let escritura = headers.get(clave::CABECERA).is_some_and(|v| s.clave.coincide(v.as_bytes()));
+    axum::Json(serde_json::json!({ "escritura": escritura })).into_response()
 }
 
 /// Defensa de una API local frente a páginas ajenas abiertas en el mismo
@@ -64,7 +118,11 @@ pub fn router(state: Arc<AppState>) -> Router {
 /// reenlace DNS llega con otro host) y toda escritura debe declarar
 /// `application/json`, lo que obliga a una petición previa (preflight) que
 /// este servidor nunca autoriza.
-async fn guardia(req: Request, next: Next) -> Response {
+///
+/// Frente a otros procesos locales (el agente local tiene la red abierta),
+/// todo lo que no sea GET/HEAD debe traer además la clave de sesión del
+/// arranque en `X-EA-Clave` (ver `clave`).
+async fn guardia(State(s): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     let host_ok = req
         .headers()
         .get(header::HOST)
@@ -81,6 +139,21 @@ async fn guardia(req: Request, next: Next) -> Response {
     }
 
     if !matches!(*req.method(), Method::GET | Method::HEAD) {
+        let mensaje = match req.headers().get(clave::CABECERA) {
+            None => Some(
+                "falta la clave de sesión del panel (cabecera X-EA-Clave): ábrelo con ea-escritorio o ea-web-open para poder cambiar nada",
+            ),
+            Some(v) if !s.clave.coincide(v.as_bytes()) => Some(
+                "la clave de sesión del panel no es válida (¿se reinició ea-web?): cierra la ventana y vuelve a abrirla con ea-escritorio o ea-web-open",
+            ),
+            Some(_) => None,
+        };
+        if let Some(m) = mensaje {
+            let mut r = ApiError::new(StatusCode::FORBIDDEN, m).into_response();
+            // Para que la página sepa que es la clave y pase a solo lectura.
+            r.headers_mut().insert(clave::CABECERA, header::HeaderValue::from_static("requerida"));
+            return r;
+        }
         let es_json = req
             .headers()
             .get(header::CONTENT_TYPE)
@@ -118,6 +191,10 @@ async fn app_js() -> Response {
 
 async fn cliente_js() -> Response {
     estatico("text/javascript; charset=utf-8", include_str!("../../static/cliente.js").into())
+}
+
+async fn enlaces_js() -> Response {
+    estatico("text/javascript; charset=utf-8", include_str!("../../static/enlaces.js").into())
 }
 
 async fn gashapon_css() -> Response {

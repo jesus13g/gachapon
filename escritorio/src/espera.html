@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Esperando a los servicios</title>
+<style>
+  :root { color-scheme: light dark; --fondo: #f6f5f2; --texto: #222; --suave: #666; --linea: #d8d6d0; }
+  @media (prefers-color-scheme: dark) { :root { --fondo: #1b1b1d; --texto: #e6e6e6; --suave: #9a9a9a; --linea: #333; } }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--fondo); color: var(--texto); font: 15px/1.5 system-ui, sans-serif; display: grid; place-items: center; }
+  main { max-width: 34rem; padding: 0 1.5rem; }
+  h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 .5rem; }
+  p { margin: .4rem 0; color: var(--suave); }
+  code { background: transparent; border: 1px solid var(--linea); border-radius: 4px; padding: .05rem .35rem; color: var(--texto); }
+  #motivo { color: var(--texto); }
+  .punto { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; background: var(--suave); margin-right: .5rem; animation: latido 1.4s ease-in-out infinite; }
+  @keyframes latido { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .punto { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1><span class="punto"></span>Esperando a los servicios</h1>
+  <p id="motivo">El panel (ea-web) todavía no responde.</p>
+  <p>Se volverá a intentar solo y el panel se cargará en cuanto responda.</p>
+  <p>Para ver el estado de los servicios: <code>ea servicios ver</code>. Para cargarlos: <code>ea servicios instalar</code>.</p>
+</main>
+</body>
+</html>

@@ -1,9 +1,16 @@
 # CLAUDE.md
 
 Orquestador en Rust (repo público `jesus13g/gachapon`) que reparte el trabajo
-entre Claude Code (formaliza y revisa) y un agente local, Qwen Code sobre
-`llama-server` (ejecuta). Se comunican por un bus de ficheros con colas y
-semáforos. Visión general en `README.md`; diseño original en
+entre dos roles: el **planificador** (formaliza y revisa; por defecto Claude
+Code) y el **ejecutor** (ejecuta; por defecto Qwen Code sobre `llama-server`).
+Desde la constitución 1.3.0 (1.3.1 con las sesiones interactivas de la biblioteca) el agente de cada rol es intercambiable (Claude
+Code, Qwen Code, Codex, OpenCode, Antigravity; spec 017). El usuario puede
+despertar **equipos** de varios agentes que trabajan a la vez, con colas por
+agente, worktree propio y presencia (spec 019, constitución 1.4.0). Corre en
+Linux, macOS y Windows con el sandbox de cada sistema (spec 020, constitución
+1.5.0). Una app de escritorio nativa (`escritorio/`, spec 021,
+constitución 1.5.1) envuelve el panel con bandeja y avisos. Se comunican
+por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
 `orquestador-claude-qwen.md`.
 
 ## Fuente de verdad: la documentación SDD
@@ -25,9 +32,10 @@ código. Esas notas son de la bóveda: se escriben con `ea_escribir_nota` (escri
 
 ```bash
 cargo build --release      # binarios en target/release/{ea,ea-mcp,ea-orchestrator,ea-web}
-cargo test --workspace     # toda la suite (unas 120 pruebas)
+cargo test --workspace     # toda la suite (unas 380 pruebas)
 cargo test -p ea-bus       # un solo crate
-systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en release
+systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en release (Linux)
+./target/release/ea servicios ver|instalar|desinstalar   # unidades con la ruta real: systemd --user, launchd (macOS) o schtasks (Windows)
 ```
 
 `ea` no está en el `PATH`: usa `./target/release/ea`. Los servicios `systemd
@@ -38,24 +46,31 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 
 | Crate | Qué es |
 |---|---|
+| `ea-ajustes` | Ajustes: `ajustes.toml` (más los TOML heredados), registro de claves con quién las cambia, validación y escritura atómica; base del grafo, no depende de ningún `ea-*` |
+| `ea-biblioteca` | Biblioteca de herramientas (spec 018): inventario de solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de los cinco agentes y del ecosistema, uso por actor, planes de activar/desactivar y de sesión efímera; solo depende de `ea-ajustes` |
+| `ea-plataforma` | Todas las diferencias entre Linux, macOS y Windows (rutas, procesos, ficheros privados, terminal, servicios); sin dependencias `ea-*`; ningún otro crate usa `libc`, `std::os::unix` ni `cfg(target_os)`, salvo pruebas y el aviso con acción de Hyprland del orquestador (solo Linux) |
 | `ea-store` | SQLite: diario, propuestas, índice de la bóveda, trabajos, fases, rutinas. Una sola migración (`0001_inicial.sql`) |
-| `ea-bus` | Bus de ficheros: colas, estado de trabajos (máquina de estados pura), semáforo `flock`, rutinas TOML, `orquestador.toml` |
-| `ea-orchestrator` | Ejecutor: toma de la cola `modelo-local`, lanza Qwen en `bwrap`, corre el criterio y entrega el informe |
+| `ea-bus` | Bus de ficheros: colas, estado de trabajos (máquina de estados pura), semáforo `flock`, rutinas TOML, `ConfigOrquestador` (la parte de los ajustes que usa el ejecutor) |
+| `ea-orchestrator` | Ejecutor: toma de la cola `modelo-local`, lanza Qwen en el sandbox del sistema, corre el criterio y entrega el informe |
 | `ea-acciones` | Catálogo único de herramientas con riesgo, simulación, revalidación y flujo propuesta → aceptación → ejecución |
 | `ea-boveda` | La bóveda de notas; **único código que escribe en ella** |
 | `ea-cli` | Binario `ea`: CLI y TUI (`ratatui`) |
 | `ea-mcp` | Servidor MCP HTTP en `127.0.0.1:8765` |
 | `ea-web` | API JSON y panel en `127.0.0.1:8092`; `static/` va embebido con `include_str!` (recompilar para ver cambios) |
 
-Fuera de `crates/`: `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
-`/revisar`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
-vivas), `claude/hooks/` (hook de subagentes para `ea-web`), `qwen/skills/`
+Fuera de `crates/`: `escritorio/` (app de escritorio `ea-escritorio`, spec 021;
+crate propio **fuera del workspace**, con su `Cargo.toml` y su CI; se compila con
+`cargo build --release --manifest-path escritorio/Cargo.toml`), `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
+`/revisar`, `/equipo`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
+vivas), `claude/hooks/` (envoltorio del hook de subagentes; el trabajo lo hace `ea hook subagentes`), `qwen/skills/`
 (skills cortas de Qwen) y `bench/` (banco de pruebas en Python, ajeno a los
 binarios).
 
-Estado en ejecución: base de datos en `~/.local/share/ecosistema-asistente/`
-(`$EA_DB_PATH`), bus en `~/.local/state/ecosistema-asistente/`
-(`$EA_ESTADO_DIR`), bóveda según `$EA_BOVEDA_DIR` o `boveda.toml`.
+Estado en ejecución: ajustes en `~/.config/ecosistema-asistente/ajustes.toml`
+(`$EA_CONFIG_DIR`; `ea ajustes ver` dice el origen de cada valor), base de datos
+en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
+`~/.local/state/ecosistema-asistente/` (`$EA_ESTADO_DIR`), bóveda según
+`$EA_BOVEDA_DIR`, `ajustes.toml` o el heredado `boveda.toml`.
 
 ## Reglas que el código hace cumplir (no las rompas)
 
@@ -64,12 +79,18 @@ Estado en ejecución: base de datos en `~/.local/share/ecosistema-asistente/`
   y el orquestador solo reciben la capa `SoloConsulta`. No añadas atajos.
 - **El criterio de éxito lo ejecuta el sistema**, nunca el agente; un criterio
   vacío no es éxito.
-- **El modelo se nombra solo en `orquestador.toml`** (`ConfigOrquestador`).
-  Nada de nombres de modelo ni endpoints en el código.
+- **Los modelos se configuran como perfiles en `ajustes.toml`** (o los
+  heredados `modelo.*` y `orquestador.toml`); en el código, solo en los valores
+  por defecto de `ea-ajustes`. El modelo del ejecutor tiene que ser local; uno
+  remoto solo vale para el planificador.
+- **Un agente no ocupa los dos roles**: planificador ≠ ejecutor.
 - **El diario es append-only a nivel de motor** (triggers): un error se corrige
   con otro evento. El estado del bus se escribe con `fs_atomico`.
 - **Solo local**: todo escucha en `127.0.0.1`; `ea-web` filtra el `Host`.
-- **El agente local**: `bwrap`, topes duros, sin herramientas web y semáforo
+- **El ejecutor**, sea cual sea el agente: el sandbox del sistema (`bwrap` en Linux, Seatbelt en
+  macOS; Windows nativo se niega con `sandbox = true`; constitución 1.5.0),
+  topes duros y muerte del árbol del agente, sin
+  herramientas web, aprobación automática solo dentro del sandbox y semáforo
   exclusivo del worktree.
 - Si un cambio choca con un artículo de la constitución, se enmienda la
   constitución primero; no se hace una excepción callada.
@@ -89,7 +110,9 @@ Estado en ejecución: base de datos en `~/.local/share/ecosistema-asistente/`
   esquema anterior se rechaza. Pregunta antes de añadir migraciones.
 - **`ea-web`**: app minimalista (raíl lateral, cabecera, filas con detalle en
   línea) con el estilo de la escena gashapon. Los cambios visuales parten de
-  `app.css`/`gashapon.css`. **La escena de Inicio (`gashapon.js`) no se toca.**
+  `app.css`/`gashapon.css`. La escena de Inicio (`gashapon.js`) solo pinta
+  estado real de `GET /api/ecosistema` (detectores en `ea-web/src/ecosistema/`):
+  nada de animaciones decorativas ni actividad inventada.
 - Al cambiar comandos, API o comportamiento visible, actualiza el `README.md`.
 
 ## Git

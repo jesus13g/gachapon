@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use serde_json::Value;
 
+pub use crate::memoria::{FicheroMemoria, Memoria, Proyecto as ProyectoMemoria};
 pub use crate::sesiones::Sesion;
 
 // ------------------------------------------------------------------ estado
@@ -33,12 +34,55 @@ pub struct ServicioVista {
 pub struct Orquestador {
     pub vivo: bool,
     pub ultimo_latido: Option<String>,
+    /// Aislamiento del ejecutor según el último latido (`null` si no lo declara).
+    pub sandbox: Option<ea_store::SandboxInfo>,
 }
 
 #[derive(Serialize)]
 pub struct AgenteVista {
+    /// El rol con su nombre en disco (`claude-code`, `modelo-local`).
     pub nombre: &'static str,
+    /// El rol con su nombre de la interfaz (`planificador`, `ejecutor`).
+    pub rol: &'static str,
+    /// Id del agente del catálogo que ocupa el rol ahora.
+    pub agente: String,
+    /// Su nombre para la interfaz.
+    pub agente_nombre: &'static str,
+    /// El modelo de su perfil; `None`: el propio del agente.
+    pub modelo: Option<String>,
     pub ultimo: Option<UltimoEvento>,
+    /// El agente que hizo ese último evento, si el diario lo dice.
+    pub ultimo_agente: Option<String>,
+}
+
+/// `GET /api/agentes`: el catálogo con su disponibilidad, más la huella de
+/// `ajustes.toml` para cambiar de rol con `POST /api/ajustes`.
+#[derive(Serialize)]
+pub struct AgentesVista {
+    pub version: String,
+    /// `roles.<rol>` → variable de entorno que lo fija (no se puede cambiar
+    /// desde aquí).
+    pub fijados: std::collections::BTreeMap<&'static str, &'static str>,
+    pub agentes: Vec<AgenteConPresencia>,
+}
+
+/// Un agente del catálogo y si está despierto (spec 019): lo mismo que
+/// `ea agentes --json`.
+#[derive(Serialize)]
+pub struct AgenteConPresencia {
+    #[serde(flatten)]
+    pub agente: crate::agentes::AgenteDisponible,
+    pub presencia: Option<PresenciaVista>,
+}
+
+#[derive(Serialize)]
+pub struct PresenciaVista {
+    pub viva: bool,
+    pub rol: &'static str,
+    pub equipo: Option<String>,
+    pub trabajo: Option<String>,
+    pub desde: String,
+    pub latido: String,
 }
 
 #[derive(Serialize)]
@@ -80,6 +124,10 @@ pub struct EventoVista {
     pub resultado: Option<&'static str>,
     pub duracion_ms: Option<i64>,
     pub detalle: Option<String>,
+    /// Las notas `usuario_nota` que corrigen este evento (el diario es
+    /// append-only: corregir es añadir otro evento que apunta a este).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub corregido_por: Vec<i64>,
 }
 
 // -------------------------------------------------------------- propuestas
@@ -94,6 +142,10 @@ pub struct PropuestaVista {
     pub decidida: Option<String>,
     pub accion: Option<AccionPropuesta>,
     pub ejecutada: Option<Ejecucion>,
+    /// Solo en la respuesta de aceptarla, si la acción se ejecutó: lo que
+    /// produjo, para enlazar con ello (como en la consola de acciones).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resultado: Option<ResultadoAccion>,
 }
 
 #[derive(Serialize)]
@@ -123,7 +175,17 @@ pub struct RutinaFila {
     pub entradas: Option<BTreeMap<String, String>>,
     pub error: Option<&'static str>,
     pub registrada: String,
+    /// Dónde está su TOML: `activa`, `retirada` (en la papelera) o
+    /// `sin_fichero` ([`ea_bus::Ubicacion`]).
+    pub ubicacion: &'static str,
     pub proxima: Option<i64>,
+    /// El `OnCalendar` de su timer (`ea-rutina@<slug>.timer`), si lo tiene.
+    pub calendario: Option<String>,
+    /// Estado del timer en systemd (`active`, `inactive`…); `None` si no se
+    /// pregunta (sin `systemctl`).
+    pub timer: Option<String>,
+    /// El trabajo más reciente de la rutina en el bus, si lo hay.
+    pub ultima: Option<RutinaEjecucion>,
 }
 
 #[derive(Serialize)]
@@ -131,12 +193,86 @@ pub struct RutinaDetalle {
     pub slug: String,
     pub version: i64,
     pub contenido: String,
+    /// Las últimas ejecuciones (trabajos del bus), la más reciente primero.
+    pub ejecuciones: Vec<RutinaEjecucion>,
+    /// `activa`, `retirada` o `sin_fichero`, como en la lista.
+    pub ubicacion: &'static str,
+}
+
+/// Una ejecución de una rutina: un trabajo del bus en modo rutina, con la
+/// versión con la que se lanzó y, si ya entregó informe, su resultado y lo
+/// que tardó el agente.
+#[derive(Serialize)]
+pub struct RutinaEjecucion {
+    pub trabajo: String,
+    pub estado: &'static str,
+    pub version: u32,
+    pub resultado: Option<&'static str>,
+    pub duracion_s: Option<u64>,
+    pub detalle: Option<String>,
+    pub creado: String,
+    pub actualizado: String,
 }
 
 #[derive(Serialize)]
 pub struct RutinaLanzada {
     pub trabajo: String,
     pub rutina: String,
+}
+
+/// La orden que recibiría el agente con unas entradas, sin crear trabajo.
+#[derive(Serialize)]
+pub struct RutinaPrevia {
+    pub rutina: String,
+    pub version: u32,
+    pub objetivo: String,
+    pub criterio: String,
+}
+
+/// La versión registrada de una rutina, para comparar con la que se edita.
+#[derive(Serialize)]
+pub struct RutinaAnterior {
+    pub version: i64,
+    pub definicion: String,
+}
+
+/// Lo que registraría una definición (`POST /api/rutinas/validar`), sin
+/// escribir nada: su slug y versión, la registrada ahora y la orden que
+/// recibiría el agente con las entradas por defecto.
+#[derive(Serialize)]
+pub struct RutinaValidada {
+    pub rutina: String,
+    pub version: u32,
+    pub anterior: Option<RutinaAnterior>,
+    pub previa: RutinaPrevia,
+}
+
+#[derive(Serialize)]
+pub struct RutinaRegistrada {
+    pub rutina: String,
+    pub version: u32,
+    /// La versión que había antes, o `None` si la rutina es nueva.
+    pub anterior: Option<i64>,
+}
+
+/// Una versión registrada de una rutina, sin su definición
+/// (`GET /api/rutinas/{slug}/versiones`).
+#[derive(Serialize)]
+pub struct RutinaVersionFila {
+    pub version: i64,
+    pub creada_en: String,
+    pub creada_por: String,
+}
+
+/// Una versión concreta con su definición
+/// (`GET /api/rutinas/{slug}/versiones/{n}`).
+#[derive(Serialize)]
+pub struct RutinaVersion {
+    pub slug: String,
+    pub version: i64,
+    pub creada_en: String,
+    pub creada_por: String,
+    pub contenido: String,
 }
 
 // ---------------------------------------------------------------- trabajos
@@ -153,6 +289,9 @@ pub struct TrabajoResumen {
     pub detalle: Option<String>,
     pub resultado: Option<&'static str>,
     pub obra_completa: Option<bool>,
+    /// Cancelado, pero el ejecutor aún tiene cogido su worktree (está
+    /// parando al agente).
+    pub cancelando: bool,
     pub rutina: Value,
     pub worktree: String,
     pub creado: String,
@@ -168,12 +307,35 @@ pub struct TrabajoDetalle {
     pub informe: Value,
     pub historial: Vec<Value>,
     pub paquete: Option<String>,
+    /// Las fases de una obra en `trabajo_fases` (vacío en misiones y rutinas).
+    pub fases: Vec<FaseVista>,
+    /// El texto final del agente en su última ejecución (`salida-agente.json`,
+    /// o `salida-qwen.json` en los trabajos de antes).
+    pub resumen_agente: Option<String>,
+    /// Su worktree propio vivo (spec 019, anexo A): ruta, rama y si está limpio.
+    pub worktree: Option<ea_bus::InfoWorktree>,
+}
+
+/// El estado de una fase en `trabajo_fases`; el plan (instrucciones,
+/// entregable, criterio) está en `orden.fases`.
+#[derive(Serialize)]
+pub struct FaseVista {
+    pub numero: i64,
+    pub titulo: String,
+    pub estado: String,
+    pub cerrado_en: Option<String>,
+    pub diff_stat: Option<String>,
+    /// Si guardó instantánea de árbol, es decir, si tiene diff de fase.
+    pub instantanea: bool,
 }
 
 #[derive(Serialize)]
 pub struct Diff {
     pub id: String,
-    pub commit_inicio: String,
+    /// La fase, si es el diff de una fase (`?fase=N`).
+    pub fase: Option<u32>,
+    /// `null` en el diff de una fase de una obra que aún no ha entregado.
+    pub commit_inicio: Option<String>,
     pub diff: String,
     pub truncado: bool,
 }
@@ -182,6 +344,46 @@ pub struct Diff {
 pub struct EstadoTrabajo {
     pub id: String,
     pub estado: &'static str,
+}
+
+/// Lo que necesita el formulario «＋ misión»: los modos que se pueden crear
+/// desde la web, el techo de los topes (`ajustes.toml`), los topes por
+/// defecto ya recortados a ese techo y los worktrees que se sugieren.
+#[derive(Serialize)]
+pub struct FormularioTrabajo {
+    pub modos: Vec<&'static str>,
+    pub techo: ea_bus::Topes,
+    pub defecto: ea_bus::Topes,
+    pub worktrees: Vec<String>,
+}
+
+/// Una skill del catálogo del ejecutor (sin su cuerpo).
+#[derive(Serialize)]
+pub struct SkillVista {
+    pub nombre: String,
+    pub descripcion: String,
+    pub caracteres: usize,
+    pub habilitada: bool,
+}
+
+/// El catálogo de skills del ejecutor con sus topes y la llave (spec 006,
+/// H6): de solo lectura. `usuario_tiene_llave`: si el actor de la web puede
+/// elegir skills (hoy no, salvo que la llave lo incluya).
+#[derive(Serialize)]
+pub struct CatalogoSkills {
+    pub skills: Vec<SkillVista>,
+    pub max_por_trabajo: usize,
+    pub max_caracteres: usize,
+    pub pueden_elegir: Vec<String>,
+    pub usuario_tiene_llave: bool,
+}
+
+/// Resultado de probar una selección de skills (como `ea qwen-skills probar`).
+#[derive(Serialize)]
+pub struct PruebaSkills {
+    pub por: String,
+    pub skills: Vec<String>,
+    pub caracteres: usize,
 }
 
 /// Por agente (`modelo-local`, `claude-code`).
@@ -221,8 +423,17 @@ pub struct AccionCatalogo {
 pub struct CampoVista {
     pub nombre: &'static str,
     pub entero: bool,
+    /// Texto de varias líneas: la consola pinta un área de texto.
+    pub largo: bool,
     pub obligatorio: bool,
     pub opciones: Vec<String>,
+    /// Valores conocidos para un campo libre (la consola los ofrece en un
+    /// `<datalist>`; se puede escribir otro): las notas que se pueden
+    /// promover para `ruta`. Vacío si no hay nada que sugerir.
+    pub sugerencias: Vec<String>,
+    /// Lo que se sabe ahora de cada opción, por su valor: el estado de cada
+    /// servicio para `servicio`. Solo informativo; no cambia el dominio.
+    pub estados: BTreeMap<String, String>,
     pub ayuda: &'static str,
 }
 
@@ -241,9 +452,41 @@ pub struct ResultadoAccion {
     pub texto: String,
     pub trabajo: Option<String>,
     pub datos: Value,
+    /// El evento `accion_ejecutada` del diario (para «≡ en el diario»).
+    pub evento: Option<i64>,
+}
+
+/// Un evento del historial de una herramienta (A3): cuándo, quién, por qué
+/// canal y cómo acabó, con el id para ir al evento en el diario.
+#[derive(Serialize)]
+pub struct EventoHerramienta {
+    pub id: i64,
+    pub ts: String,
+    pub actor: String,
+    pub accion: String,
+    pub resultado: Option<&'static str>,
+    /// `web`, `terminal`, `mcp`…: el del `detail` o, en un `mcp_*`, `mcp`.
+    pub canal: Option<String>,
+    /// Quién la propuso, si el evento viene de una propuesta.
+    pub proponente: Option<String>,
+    pub propuesta: Option<i64>,
+    pub trabajo: Option<String>,
+    pub error: Option<String>,
+    pub duracion_ms: Option<i64>,
 }
 
 // ------------------------------------------------------------------ bóveda
+
+/// Lo que el índice de búsqueda tiene de más o de menos respecto al disco.
+#[derive(Serialize)]
+pub struct IndiceBoveda {
+    pub nuevas: usize,
+    pub cambiadas: usize,
+    pub eliminadas: usize,
+    pub omitidas: usize,
+    /// `true` si hay alguna diferencia.
+    pub desfasado: bool,
+}
 
 #[derive(Serialize)]
 pub struct ListadoBoveda {
@@ -287,6 +530,76 @@ pub struct CabeceraVista {
     pub promovida_a: Option<String>,
 }
 
+/// El árbol del editor de la bóveda: regiones, carpetas (también vacías) y
+/// notas.
+#[derive(Serialize)]
+pub struct ArbolBoveda {
+    pub raiz: String,
+    pub regiones: Vec<&'static str>,
+    pub carpetas: Vec<String>,
+    pub notas: Vec<NotaResumen>,
+    pub en_papelera: usize,
+}
+
+/// Una nota entera para el editor, con la versión que hay que devolver al
+/// guardar (misma forma que una memoria: `contenido` y `version`).
+#[derive(Serialize)]
+pub struct NotaFichero {
+    pub ruta: String,
+    pub region: String,
+    pub contenido: String,
+    pub version: String,
+    pub cabecera: Option<CabeceraVista>,
+    pub aviso_cabecera: Option<String>,
+    pub bytes: u64,
+    pub modificada: Option<String>,
+    /// Ruta absoluta del fichero (para copiarla).
+    pub absoluta: String,
+}
+
+#[derive(Serialize)]
+pub struct RenombradoBoveda {
+    pub nota: NotaFichero,
+    /// Las otras notas cuyos enlaces se reescribieron.
+    pub actualizadas: Vec<String>,
+    /// Notas con `[[enlaces]]` ambiguos al nombre viejo, que no se tocaron.
+    pub ambiguas: Vec<String>,
+}
+
+/// Una carpeta renombrada o movida, con sus notas.
+#[derive(Serialize)]
+pub struct CarpetaRenombradaVista {
+    pub carpeta: String,
+    pub movidas: Vec<NotaMovida>,
+    /// Las otras notas cuyos enlaces se reescribieron.
+    pub actualizadas: Vec<String>,
+    pub ambiguas: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct NotaMovida {
+    pub de: String,
+    pub a: String,
+}
+
+/// Una carpeta mandada a la papelera (`id` es `None` si no tenía notas).
+#[derive(Serialize)]
+pub struct CarpetaBorradaVista {
+    pub id: Option<String>,
+    pub notas: Vec<String>,
+    pub vacia: bool,
+}
+
+/// Lo que hay en la papelera, para decir qué borraría vaciarla (la web no
+/// la vacía: solo abre la terminal).
+#[derive(Serialize)]
+pub struct EnPapelera {
+    pub id: String,
+    pub ruta: String,
+    pub borrada: String,
+    pub bytes: u64,
+}
+
 #[derive(Serialize)]
 pub struct Promocion {
     pub texto: String,
@@ -298,4 +611,43 @@ pub struct Promocion {
 #[derive(Serialize)]
 pub struct Hecho {
     pub ok: bool,
+}
+
+// ----------------------------------------------------------------- memoria
+
+#[derive(Serialize)]
+pub struct ListadoMemoria {
+    pub raiz: String,
+    pub proyectos: Vec<ProyectoMemoria>,
+}
+
+#[derive(Serialize)]
+pub struct Renombrado {
+    pub memoria: Memoria,
+    /// Las otras memorias del proyecto cuyos enlaces se reescribieron.
+    pub actualizadas: Vec<String>,
+}
+
+// ----------------------------------------------------------------- ajustes
+
+/// `GET /api/ajustes`: la misma forma que `ea ajustes ver --json`.
+pub use ea_ajustes::{FilaAjuste as ClaveVista, Resumen as AjustesVista, SeccionAjustes};
+
+#[derive(Serialize)]
+pub struct AjusteAplicado {
+    pub clave: String,
+    pub antes: Value,
+    pub despues: Value,
+    /// `caliente` o `reinicio`.
+    pub aplica: &'static str,
+    pub reinicio: &'static [&'static str],
+}
+
+#[derive(Serialize)]
+pub struct AjustesCambiados {
+    pub aplicados: Vec<AjusteAplicado>,
+    pub ajustes: AjustesVista,
+    /// Efectos que fallaron (p. ej. el autoarranque); el ajuste sí quedó guardado.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub avisos: Vec<String>,
 }

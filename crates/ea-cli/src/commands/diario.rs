@@ -1,24 +1,34 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_store::{EventFilter, Store};
+use ea_store::{EventFilter, EventOutcome, NuevaNota, Store};
 
 use super::{fmt_ts, parse_flexible_date};
 
-pub fn listar(
-    store: &Store,
-    trabajo: Option<String>,
-    actor: Option<String>,
-    desde: Option<String>,
-    hasta: Option<String>,
-    limite: i64,
-) -> Result<()> {
+/// Los filtros de `ea diario listar`, tal como llegan de la línea de órdenes.
+pub struct Filtro {
+    pub trabajo: Option<String>,
+    pub actor: Option<String>,
+    pub desde: Option<String>,
+    pub hasta: Option<String>,
+    /// `ok` o `error` (clap ya lo ha validado).
+    pub resultado: Option<String>,
+    /// Prefijo de la acción (clap ya lo ha validado como `[a-z_]+`).
+    pub accion: Option<String>,
+    /// Cursor: solo los eventos anteriores al de este id.
+    pub antes_de: Option<i64>,
+}
+
+pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
     let filter = EventFilter {
-        trabajo,
-        actor,
-        since: desde.as_deref().map(parse_flexible_date).transpose()?,
-        until: hasta.as_deref().map(parse_flexible_date).transpose()?,
-        exclude_action: None,
+        trabajo: f.trabajo,
+        actor: f.actor,
+        since: f.desde.as_deref().map(parse_flexible_date).transpose()?,
+        until: f.hasta.as_deref().map(parse_flexible_date).transpose()?,
+        outcome: f.resultado.as_deref().map(str::parse::<EventOutcome>).transpose()?,
+        action_prefix: f.accion,
+        before_id: f.antes_de,
         limit: Some(limite),
+        ..Default::default()
     };
 
     let events = store.list_events(&filter)?;
@@ -26,6 +36,9 @@ pub fn listar(
         println!("No hay eventos que coincidan con el filtro.");
         return Ok(());
     }
+
+    // Si la página va llena puede haber más: el cursor de la siguiente.
+    let siguiente = (events.len() as i64 >= limite).then(|| events.last().map(|e| e.id)).flatten();
 
     let mut table = Table::new();
     table.set_header(vec!["ID", "Cuándo", "Actor", "Acción", "Trabajo", "Resultado"]);
@@ -40,6 +53,9 @@ pub fn listar(
         ]);
     }
     println!("{table}");
+    if let Some(id) = siguiente {
+        println!("Más antiguos: añade --antes-de {id}");
+    }
     Ok(())
 }
 
@@ -61,5 +77,17 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
     if let Some(detail) = &e.detail {
         println!("  Detalle:   {detail}");
     }
+    if let Some(notas) = store.correcciones_diario(&[e.id])?.get(&e.id) {
+        let lista: Vec<String> = notas.iter().map(|n| format!("#{n}")).collect();
+        println!("  Corregido por: {}", lista.join(", "));
+    }
+    Ok(())
+}
+
+/// `ea diario anotar`: añade una nota del usuario; si corrige un evento, el
+/// original queda intacto y la nota apunta a él.
+pub fn anotar(store: &Store, nota: NuevaNota) -> Result<()> {
+    let e = store.anotar_diario(nota)?;
+    println!("Anotado en el diario: evento #{}.", e.id);
     Ok(())
 }

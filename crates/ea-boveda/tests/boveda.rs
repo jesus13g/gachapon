@@ -88,6 +88,7 @@ fn rechaza_rutas_que_salen_de_la_boveda() {
     assert!(!e.dir.path().join("compartida").exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn rechaza_enlaces_simbolicos_que_apuntan_fuera() {
     let e = entorno();
@@ -515,4 +516,36 @@ fn la_sincronizacion_ve_ediciones_externas_y_ignora_lo_que_no_es_de_las_regiones
     assert_eq!(e.boveda.buscar(&mut s, "garbanzos", None, None, &Limites::AMPLIOS).unwrap().len(), 1);
     std::fs::remove_file(raiz.join("compartida/del-usuario.md")).unwrap();
     assert!(e.boveda.buscar(&mut s, "garbanzos", None, None, &Limites::AMPLIOS).unwrap().is_empty());
+}
+
+#[test]
+fn la_diferencia_del_indice_cuenta_sin_escribir() {
+    let e = entorno();
+    e.escribir("claude-code", "Una", "cuerpo");
+    let mut s = e.store();
+    e.boveda.sincronizar(&mut s, false).unwrap();
+    assert_eq!(e.boveda.diferencia_indice(&mut s).unwrap(), Default::default());
+
+    // Una nota nueva a mano y otra borrada del disco.
+    let region = e.boveda.raiz().join("compartida");
+    std::fs::create_dir_all(&region).unwrap();
+    std::fs::write(region.join("externa.md"), "# Externa\n\ntexto").unwrap();
+    let propia = e.boveda.raiz().join("claude-code");
+    for f in std::fs::read_dir(&propia).unwrap().flatten() {
+        if f.path().extension().is_some_and(|x| x == "md") {
+            std::fs::remove_file(f.path()).unwrap();
+        }
+    }
+    let d = e.boveda.diferencia_indice(&mut s).unwrap();
+    assert_eq!((d.indexadas, d.eliminadas), (1, 1));
+    // No ha tocado el índice: sigue igual de desfasado.
+    assert_eq!(e.boveda.diferencia_indice(&mut s).unwrap(), d);
+
+    let r = e.boveda.reindexar(&mut s, "usuario").unwrap();
+    assert_eq!((r.indexadas, r.eliminadas), (1, 1));
+    assert_eq!(e.boveda.diferencia_indice(&mut s).unwrap(), Default::default());
+    let evs = s
+        .list_events(&EventFilter { action_prefix: Some("boveda_reindexado".into()), limit: Some(10), ..Default::default() })
+        .unwrap();
+    assert_eq!(evs.len(), 1);
 }

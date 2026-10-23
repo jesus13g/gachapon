@@ -13,7 +13,8 @@ ea-store = { path = "../ea-store" }
 ea-acciones = { path = "../ea-acciones" }
 ea-bus = { path = "../ea-bus" }
 ea-boveda = { path = "../ea-boveda" }
-ea-orchestrator = { path = "../ea-orchestrator" }
+ea-ajustes = { path = "../ea-ajustes" }
+ea-biblioteca = { path = "../ea-biblioteca" }
 rmcp = { version = "3.3", features = [
     "server",
     "macros",

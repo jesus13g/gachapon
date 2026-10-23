@@ -84,6 +84,22 @@ pub const CATALOGO: &[Herramienta] = &[
         local: true,
         resumen: "Detalle de un trabajo del bus: orden, estado, fases e informe",
     },
+    // Los equipos (spec 019, RF-015) solo se leen: despertarlos y dormirlos es
+    // de la CLI con TTY y de ea-web con clave, nunca de MCP.
+    Herramienta {
+        nombre: "ea_listar_equipos",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Lista los equipos de agentes con sus miembros y su presencia",
+    },
+    Herramienta {
+        nombre: "ea_ver_equipo",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Un equipo: miembros con presencia, colas y últimos trabajos con su informe",
+    },
     Herramienta {
         nombre: "ea_listar_diario",
         riesgo: Riesgo::Lectura,
@@ -98,6 +114,15 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Encola la ejecución de una rutina",
     },
+    // Registrar una versión nueva no borra nada: la anterior sigue en
+    // SQLite y se recupera registrándola otra vez con una versión mayor.
+    Herramienta {
+        nombre: "ea_registrar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Registra una rutina o una versión nueva de una (TOML)",
+    },
     Herramienta {
         nombre: "ea_reiniciar_servicio",
         riesgo: Riesgo::Reversible,
@@ -105,12 +130,72 @@ pub const CATALOGO: &[Herramienta] = &[
         local: false,
         resumen: "Reinicia un servicio del ecosistema (lista cerrada)",
     },
+    // El timer de una rutina (spec 004, H5): se deshace desprogramándolo
+    // (o programándolo otra vez con el horario anterior). Solo crea trabajos
+    // a su hora, nunca los ejecuta (art. V).
+    Herramienta {
+        nombre: "ea_programar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Programa una rutina registrada con un timer de systemd (OnCalendar)",
+    },
+    Herramienta {
+        nombre: "ea_desprogramar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Desactiva y borra el timer de systemd de una rutina",
+    },
+    // Retirar y restaurar una rutina (spec 004, RF-011): su TOML va a la
+    // papelera de `rutinas_dir` y vuelve, sin tocar SQLite. Se deshacen la
+    // una a la otra, como la papelera de la bóveda (art. IV.2, aclaración
+    // 1.2.0). Retirar también desprograma el timer.
+    Herramienta {
+        nombre: "ea_retirar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Retira una rutina: su TOML va a la papelera y se desprograma su timer",
+    },
+    Herramienta {
+        nombre: "ea_restaurar_rutina",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Devuelve una rutina retirada a rutinas_dir (sin volver a programar su timer)",
+    },
+    // Spec 018, F5: abre en una terminal un agente con SOLO las herramientas
+    // elegidas de la biblioteca. Reversible: se cierra la ventana y los
+    // ficheros efímeros (0600, en el runtime) caducan solos a los 7 días; no
+    // cambia la configuración de ningún agente. Nunca para el ejecutor
+    // (`local: false`): abrir una ventana del escritorio es del usuario.
+    Herramienta {
+        nombre: "ea_lanzar_sesion",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Abre en una terminal un agente (Claude Code, Qwen Code, Codex u OpenCode) con solo las herramientas elegidas de la biblioteca",
+    },
+    // Spec 019, anexo A: quitar el directorio del worktree propio de un trabajo
+    // terminado (`git worktree remove`, sin `--force`: git se niega si hay
+    // cambios sin guardar). La rama `ea/<id>` se conserva y el directorio se
+    // vuelve a sacar con `preparar_worktree`: reversible. Fusionar la rama es
+    // del usuario y no tiene herramienta.
+    Herramienta {
+        nombre: "ea_limpiar_worktree",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Quita el worktree propio de un trabajo terminado y limpio (la rama ea/<id> se conserva)",
+    },
+    // Vaciar la papelera: solo una rutina ya retirada, y solo desde la terminal.
     Herramienta {
         nombre: "ea_eliminar_rutina",
         riesgo: Riesgo::Irreversible,
         ejecucion: Ejecucion::Supervisada,
         local: false,
-        resumen: "Borra para siempre el fichero de una rutina",
+        resumen: "Borra para siempre la copia retirada de una rutina (la de la papelera)",
     },
     // Bóveda (fase 7). Leer y buscar son lecturas con resultados acotados
     // por actor (el modelo local, con 8192 tokens de contexto, recibe cotas
@@ -128,6 +213,17 @@ pub const CATALOGO: &[Herramienta] = &[
         ejecucion: Ejecucion::Directa,
         local: true,
         resumen: "Lee una nota de la bóveda (por trozos)",
+    },
+    // Biblioteca de herramientas (spec 018, RF-014): solo mirar, sin secretos
+    // (las definiciones MCP salen redactadas). Toda lectura es también del
+    // modelo local, con cotas más estrechas; nada de la biblioteca toca su
+    // proyección MCP ni su sandbox (plan, art. VIII).
+    Herramienta {
+        nombre: "ea_biblioteca",
+        riesgo: Riesgo::Lectura,
+        ejecucion: Ejecucion::Directa,
+        local: true,
+        resumen: "Inventario de herramientas de los agentes (skills, plugins, subagentes, MCP, comandos y extensiones) con su estado y su uso",
     },
     // Excepción razonada a §11.1: la región
     // propia de cada agente es de libertad total (decisión 8), así que
@@ -149,6 +245,24 @@ pub const CATALOGO: &[Herramienta] = &[
         ejecucion: Ejecucion::Supervisada,
         local: true,
         resumen: "Propone copiar una nota a la región compartida (la decide el usuario)",
+    },
+    // Biblioteca de herramientas (spec 018, F4): activar o desactivar una skill,
+    // plugin, subagente, MCP, comando o extensión de un agente. Reversible (la
+    // una deshace la otra, con copia previa de lo que se edita); lo decide el
+    // usuario. Fuera del modelo local: el ejecutor no se amplía las herramientas.
+    Herramienta {
+        nombre: "ea_activar_herramienta",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Activa un elemento de la biblioteca (skill, plugin, subagente, MCP, comando o extensión)",
+    },
+    Herramienta {
+        nombre: "ea_desactivar_herramienta",
+        riesgo: Riesgo::Reversible,
+        ejecucion: Ejecucion::Supervisada,
+        local: false,
+        resumen: "Desactiva un elemento de la biblioteca (skill, plugin, subagente, MCP, comando o extensión)",
     },
 ];
 
@@ -211,16 +325,20 @@ impl Canal {
 }
 
 /// Autorización de una invocación MCP según el actor (derivado del cliente
-/// que se identificó, §7.3: no es un argumento del modelo).
+/// que se identificó y del rol que ocupa, §7.3 y spec 017: no es un
+/// argumento del modelo). Es una lista blanca:
 ///
-/// - `orquestador` (lo desatendido, §11.2): solo lectura, sin excepciones.
-/// - `modelo-local`: la proyección reducida y, de ella, nada irreversible.
-/// - `claude-code`: el catálogo completo (las mutantes solo proponen).
+/// - `claude-code` (el rol planificador, lo ocupe el agente que lo ocupe): el
+///   catálogo completo (las mutantes solo proponen).
+/// - `modelo-local` (el rol ejecutor): la proyección reducida y, de ella,
+///   nada irreversible.
+/// - Cualquier otro (`orquestador`, lo desatendido, §11.2; un cliente
+///   desconocido; un agente que no ocupa ningún rol): solo lectura.
 pub fn autorizar_mcp(actor: &str, h: &Herramienta) -> Result<(), String> {
     let permitido = match actor {
-        "orquestador" => h.riesgo == Riesgo::Lectura,
+        "claude-code" => true,
         "modelo-local" => h.local && h.riesgo != Riesgo::Irreversible,
-        _ => true,
+        _ => h.riesgo == Riesgo::Lectura,
     };
     if permitido {
         Ok(())

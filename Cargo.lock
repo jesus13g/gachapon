@@ -478,35 +478,69 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "ea-acciones"
 version = "0.1.0"
 dependencies = [
+ "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
- "ea-store",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
-name = "ea-boveda"
-version = "0.1.0"
-dependencies = [
- "directories",
+ "ea-plataforma",
  "ea-store",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
  "time",
+ "tokio",
+]
+
+[[package]]
+name = "ea-ajustes"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "ea-plataforma",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
  "toml",
+ "toml_edit",
+]
+
+[[package]]
+name = "ea-biblioteca"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "ea-ajustes",
+ "ea-plataforma",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "toml",
+ "toml_edit",
+]
+
+[[package]]
+name = "ea-boveda"
+version = "0.1.0"
+dependencies = [
+ "ea-ajustes",
+ "ea-store",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
 ]
 
 [[package]]
 name = "ea-bus"
 version = "0.1.0"
 dependencies = [
- "directories",
+ "ea-ajustes",
+ "ea-plataforma",
  "ea-store",
  "serde",
  "serde_json",
@@ -525,15 +559,18 @@ dependencies = [
  "comfy-table",
  "crossterm 0.28.1",
  "ea-acciones",
+ "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
- "ea-orchestrator",
+ "ea-plataforma",
  "ea-store",
  "ea-web",
  "ratatui",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "tempfile",
  "time",
  "tokio",
 ]
@@ -545,9 +582,10 @@ dependencies = [
  "anyhow",
  "axum",
  "ea-acciones",
+ "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
- "ea-orchestrator",
  "ea-store",
  "rmcp",
  "schemars",
@@ -567,22 +605,34 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "directories",
+ "ea-ajustes",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
  "serde",
  "serde_json",
  "tempfile",
+ "time",
  "tokio",
- "toml",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ea-plataforma"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tempfile",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "ea-store"
 version = "0.1.0"
 dependencies = [
- "directories",
+ "ea-ajustes",
  "rusqlite",
  "rusqlite_migration",
  "serde",
@@ -600,12 +650,14 @@ dependencies = [
  "axum",
  "directories",
  "ea-acciones",
+ "ea-ajustes",
+ "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
- "ea-orchestrator",
+ "ea-plataforma",
  "ea-store",
+ "getrandom 0.2.17",
  "http-body-util",
- "libc",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

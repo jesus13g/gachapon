@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Result};
-use ea_bus::{Agente, Bus, Evento, Modo, Orden, Topes};
+use ea_bus::{Bus, Rol, Evento, Modo, Orden, Topes};
 
 pub(super) fn bus() -> Result<Bus> {
     let b = Bus::abrir()?.con_actor("ea-cli");
@@ -11,6 +11,15 @@ pub(super) fn bus() -> Result<Bus> {
         Ok(s) => b.con_store(s),
         Err(_) => b,
     })
+}
+
+/// Lo que `ea trabajo crear` añade para un equipo (spec 019).
+#[derive(Debug, Default)]
+pub struct DeEquipo {
+    pub equipo: Option<String>,
+    pub asignar: Option<String>,
+    pub revisor: Option<String>,
+    pub worktree_propio: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -23,6 +32,7 @@ pub fn crear(
     criterio: Option<String>,
     skills: Vec<String>,
     por: String,
+    de_equipo: DeEquipo,
 ) -> Result<()> {
     let orden: Orden = if let Some(f) = fichero {
         serde_json::from_str(&std::fs::read_to_string(&f)?).map_err(|e| anyhow!("orden inválida ({}): {e}", f.display()))?
@@ -34,7 +44,7 @@ pub fn crear(
             otro => bail!("modo desconocido: {otro} (mision, obra o rutina)"),
         };
         let worktree = worktree.ok_or_else(|| anyhow!("falta --worktree (o --orden)"))?;
-        let worktree = std::fs::canonicalize(&worktree)?.to_string_lossy().into_owned();
+        let worktree = ea_plataforma::rutas::canonica(&worktree)?.to_string_lossy().into_owned();
         Orden {
             id: String::new(),
             modo,
@@ -48,11 +58,14 @@ pub fn crear(
             rutina: None,
             notas_revision: vec![],
             skills,
+            equipo: de_equipo.equipo,
+            asignado_a: de_equipo.asignar,
+            revisor: de_equipo.revisor,
+            worktree_propio: de_equipo.worktree_propio,
             creada_en: String::new(),
             creada_por: por,
         }
     };
-    super::qwen_skills::validar_orden(&orden)?;
     println!("{}", bus()?.crear_trabajo(orden)?);
     Ok(())
 }
@@ -85,7 +98,34 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     if let Some(d) = &estado.detalle {
         println!("detalle   {d}");
     }
-    println!("worktree  {}", orden.worktree);
+    if let Some(e) = &estado.ejecutado_por {
+        println!("ejecutor  {} ({})", e.agente, e.modelo);
+    }
+    println!("worktree  {}{}", orden.worktree, if orden.worktree_propio { " (propio: se crea un git worktree para el trabajo)" } else { "" });
+    if orden.worktree_propio {
+        match b.info_worktree(id)? {
+            Some(w) => println!(
+                "propio    {} · rama {} · {}",
+                w.ruta,
+                w.rama,
+                match w.limpio {
+                    Some(true) => "limpio",
+                    Some(false) => "con cambios sin guardar",
+                    None => "estado desconocido",
+                }
+            ),
+            None => println!("propio    (sin directorio: aún no se ha creado o ya se limpió; la rama ea/{id} se conserva si existe)"),
+        }
+    }
+    if let Some(e) = &orden.equipo {
+        println!("equipo    {e}");
+    }
+    if let Some(a) = &orden.asignado_a {
+        println!("asignado  {a}");
+    }
+    if let Some(r) = &orden.revisor {
+        println!("revisor   {r}");
+    }
     if let Some(c) = &orden.criterio_exito {
         println!("criterio  {c}");
     }
@@ -112,8 +152,15 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     if let Some(c) = &i.commit_inicio {
         println!("commit_inicio {c}");
     }
+    if let Some(e) = &i.ejecutado_por {
+        println!("ejecutado_por {} ({})", e.agente, e.modelo);
+    }
+    if let Some(a) = &i.aviso {
+        println!("aviso         {a}");
+    }
     for f in &i.fases {
-        println!("fase {} [{}] {}", f.numero, f.resultado, f.titulo);
+        let por = f.ejecutado_por.as_ref().map(|e| format!("  · {} ({})", e.agente, e.modelo)).unwrap_or_default();
+        println!("fase {} [{}] {}{por}", f.numero, f.resultado, f.titulo);
     }
     println!("evidencia:\n{}", i.evidencia.trim_end());
     if let Some(d) = &i.diff_stat {
@@ -135,27 +182,18 @@ pub fn diff(id: &str, fase: Option<u32>) -> Result<()> {
     let b = Bus::abrir()?;
     let orden = b.leer_orden(id)?;
     let wt = orden.worktree.as_str();
-    let inicio = b
-        .leer_informe(id)?
-        .and_then(|i| i.commit_inicio)
-        .ok_or_else(|| anyhow!("el trabajo {id} no tiene informe con commit_inicio"))?;
-    let excl = ":(exclude,glob)**/__pycache__/**";
+    let inicio = b.leer_informe(id)?.and_then(|i| i.commit_inicio);
+    let excl = ea_bus::EXCLUIR_DIFF;
     if let Some(n) = fase {
-        // Árboles guardados por la obra en el informe de cada fase (SQLite).
+        // Árboles guardados por la obra en el informe de cada fase (SQLite);
+        // el rango lo calcula `ea-bus`, igual que para `ea-web`.
         let store = ea_store::Store::open().map_err(|e| anyhow!("sin acceso al store: {e}"))?;
         let fases = store.listar_fases(id)?;
-        let arbol = |num: i64| -> Option<String> {
-            let f = fases.iter().find(|f| f.numero == num)?;
-            let v: serde_json::Value = serde_json::from_str(f.informe.as_deref()?).ok()?;
-            v.get("arbol")?.as_str().map(String::from)
-        };
-        let Some(fin) = arbol(i64::from(n)) else {
-            bail!("no hay instantánea de árbol de la fase {n} (la obra no la guardó o el store no la tiene)");
-        };
-        let base = if n <= 1 { format!("{inicio}^{{tree}}") } else { arbol(i64::from(n) - 1).ok_or_else(|| anyhow!("no hay instantánea de la fase {}", n - 1))? };
+        let (base, fin) = ea_bus::rango_diff_fase(inicio.as_deref(), &fases, n)?;
         print!("{}", git(wt, &["diff", &base, &fin, "--", ".", excl])?);
         return Ok(());
     }
+    let inicio = inicio.ok_or_else(|| anyhow!("el trabajo {id} no tiene informe con commit_inicio"))?;
     print!("{}", git(wt, &["diff", &inicio, "--", ".", excl])?);
     let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"])?;
     for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {
@@ -177,9 +215,12 @@ pub fn evento(id: &str, ev: Evento) -> Result<()> {
     Ok(())
 }
 
-pub fn reformular(id: &str, nota: &str) -> Result<()> {
-    let e = bus()?.reformular(id, nota)?;
-    println!("{id}: reformular -> {}", e.estado.as_str());
+pub fn reformular(id: &str, nota: &str, fase: Option<u32>) -> Result<()> {
+    let e = bus()?.reformular(id, nota, fase)?;
+    match e.fase_actual.filter(|_| fase.is_some()) {
+        Some(n) => println!("{id}: reformular desde la fase {n} -> {}", e.estado.as_str()),
+        None => println!("{id}: reformular -> {}", e.estado.as_str()),
+    }
     Ok(())
 }
 
@@ -192,10 +233,11 @@ pub fn confirmar(id: &str, contexto: &str) -> Result<()> {
 pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
     let b = Bus::abrir()?;
     let agentes = match agente {
-        None => vec![Agente::ModeloLocal, Agente::ClaudeCode],
-        Some("modelo-local") => vec![Agente::ModeloLocal],
-        Some("claude-code") => vec![Agente::ClaudeCode],
-        Some(otro) => bail!("agente desconocido: {otro} (modelo-local o claude-code)"),
+        None => Rol::TODOS.to_vec(),
+        Some(nombre) => match Rol::desde(nombre) {
+            Some(rol) => vec![rol],
+            None => bail!("rol desconocido: {nombre} (planificador o ejecutor; también claude-code o modelo-local)"),
+        },
     };
     if json {
         let mut m = serde_json::Map::new();
@@ -211,7 +253,7 @@ pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
         return Ok(());
     }
     for a in agentes {
-        println!("[{}]", a.as_str());
+        println!("[{} · cola {}]", a.nombre(), a.as_str());
         for e in b.listar_cola(a)? {
             println!("  {}  {}  ({})", e.encolado_en, e.trabajo, e.motivo);
         }

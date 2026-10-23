@@ -13,12 +13,19 @@ use time::OffsetDateTime;
 use crate::AppState;
 
 pub mod acciones;
+pub mod ajustes;
+pub mod biblioteca;
 pub mod boveda;
 pub mod diario;
+pub mod ecosistema;
+pub mod equipos;
 pub mod estado;
+pub mod explorador;
+pub mod memoria;
 pub mod propuestas;
 pub mod rutinas;
 pub mod servicios;
+pub mod terminal;
 pub mod trabajos;
 
 const ACTOR: &str = "usuario";
@@ -41,7 +48,9 @@ impl From<StoreError> for ErrorWeb {
         let msg = e.to_string();
         match e {
             StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_) => Self::NoEncontrado(msg),
-            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) => Self::Invalido(msg),
+            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) | StoreError::NotaInvalida(_) => {
+                Self::Invalido(msg)
+            }
             _ => Self::Interno(msg),
         }
     }
@@ -69,17 +78,27 @@ impl From<ErrorBus> for ErrorWeb {
     fn from(e: ErrorBus) -> Self {
         let msg = e.to_string();
         match &e {
-            ErrorBus::NoExiste(_) => Self::NoEncontrado(msg),
-            ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado => Self::Conflicto(msg),
-            ErrorBus::Argumentos(_) => Self::Invalido(msg),
+            ErrorBus::NoExiste(_) | ErrorBus::SinInstantanea(_) => Self::NoEncontrado(msg),
+            ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado | ErrorBus::NoLanzable(_) => Self::Conflicto(msg),
+            ErrorBus::Argumentos(_) | ErrorBus::Skills(_) => Self::Invalido(msg),
             _ => Self::Interno(msg),
         }
     }
 }
 
+/// Directo, sin pasar por `ErrorAccion`: la bóveda distingue lo que no
+/// existe (404) de lo que choca con lo que hay (409).
 impl From<ea_boveda::ErrorBoveda> for ErrorWeb {
     fn from(e: ea_boveda::ErrorBoveda) -> Self {
-        ErrorWeb::from(ErrorAccion::from(e))
+        use ea_boveda::ErrorBoveda as B;
+        let m = e.to_string();
+        match e {
+            B::NoExiste(_) => Self::NoEncontrado(m),
+            B::YaExiste(_) | B::Cambio(_) | B::Ocupada => Self::Conflicto(m),
+            B::Ruta(_) | B::Argumentos(_) | B::Cabecera(_) => Self::Invalido(m),
+            B::Prohibida(_) | B::FueraDeLaBoveda(_) => Self::Prohibido(m),
+            B::Store(_) | B::Io(_) | B::EventoPerdido(..) => Self::Interno(m),
+        }
     }
 }
 
@@ -96,6 +115,7 @@ fn sistema(s: &AppState) -> SistemaReal {
         rutinas_dir: s.config.rutinas_dir.clone(),
         boveda: s.boveda.clone(),
         propio: Some("ea-web"),
+        temporizadores: s.config.temporizadores.clone(),
     }
 }
 

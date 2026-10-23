@@ -91,7 +91,31 @@ pub struct EventFilter {
     /// orquestador emite cada pocos segundos y ahogaría cualquier listado
     /// acotado por `limit`).
     pub exclude_action: Option<String>,
+    /// Solo los eventos con este resultado (`ok` o `error`).
+    pub outcome: Option<EventOutcome>,
+    /// Solo las acciones que empiezan por este prefijo (p. ej. `bus_` o
+    /// `propuesta_`), una familia de eventos. Los comodines de `LIKE` del
+    /// prefijo se escapan: se compara literalmente.
+    pub action_prefix: Option<String>,
+    /// Cursor de paginación: solo los eventos que van *después* del evento
+    /// con este id en el orden del listado (`ts DESC, id DESC`), es decir, los
+    /// más antiguos que él. Estable aunque lleguen eventos nuevos. Un id que
+    /// no existe no devuelve nada.
+    pub before_id: Option<i64>,
     pub limit: Option<i64>,
+}
+
+/// Escapa `%`, `_` y la propia barra para usar `texto` como literal en un
+/// `LIKE ... ESCAPE '\'`.
+fn escapar_like(texto: &str) -> String {
+    let mut s = String::with_capacity(texto.len());
+    for c in texto.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            s.push('\\');
+        }
+        s.push(c);
+    }
+    s
 }
 
 pub fn list_events(conn: &Connection, filter: &EventFilter) -> StoreResult<Vec<Event>> {
@@ -118,7 +142,21 @@ pub fn list_events(conn: &Connection, filter: &EventFilter) -> StoreResult<Vec<E
         sql.push_str(" AND action != ?");
         sql_params.push(Box::new(exclude_action.clone()));
     }
-    sql.push_str(" ORDER BY ts DESC");
+    if let Some(outcome) = filter.outcome {
+        sql.push_str(" AND outcome = ?");
+        sql_params.push(Box::new(outcome.as_str()));
+    }
+    if let Some(prefijo) = &filter.action_prefix {
+        sql.push_str(" AND action LIKE ? || '%' ESCAPE '\\'");
+        sql_params.push(Box::new(escapar_like(prefijo)));
+    }
+    if let Some(id) = filter.before_id {
+        sql.push_str(" AND (ts, id) < (SELECT ts, id FROM events WHERE id = ?)");
+        sql_params.push(Box::new(id));
+    }
+    // `id` desempata los eventos del mismo instante: el orden es total y el
+    // cursor `before_id` no salta ni repite filas.
+    sql.push_str(" ORDER BY ts DESC, id DESC");
     if let Some(limit) = filter.limit {
         sql.push_str(" LIMIT ?");
         sql_params.push(Box::new(limit));
@@ -143,4 +181,33 @@ pub fn list_events_by_trabajo(conn: &Connection, trabajo: &str) -> StoreResult<V
             ..Default::default()
         },
     )
+}
+
+/// Los eventos de una herramienta del catálogo (`ea_<x>`), del más reciente
+/// al más antiguo: sus invocaciones por MCP (`mcp_<x>`, `mcp_<x>_simulada`,
+/// `mcp_<x>_denegada`) y los `accion_*` y `propuesta_*` cuyo `detail` la
+/// nombra en `herramienta` o apunta a una propuesta suya (el rechazo de una
+/// propuesta solo trae su id). Sin tocar el esquema: el `detail` se lee con
+/// `json_extract`, y solo cuando es JSON válido.
+pub fn list_events_herramienta(conn: &Connection, herramienta: &str, limit: i64) -> StoreResult<Vec<Event>> {
+    let mcp = format!("mcp_{}", herramienta.strip_prefix("ea_").unwrap_or(herramienta));
+    let sql = format!(
+        "SELECT {SELECT_COLUMNS} FROM events
+         WHERE action IN (?1, ?1 || '_simulada', ?1 || '_denegada')
+            OR ((action LIKE 'accion\\_%' ESCAPE '\\' OR action LIKE 'propuesta\\_%' ESCAPE '\\')
+                AND CASE WHEN json_valid(detail) THEN
+                      json_extract(detail, '$.herramienta') = ?2
+                      OR json_extract(detail, '$.propuesta') IN
+                         (SELECT id FROM propuestas WHERE accion_herramienta = ?2)
+                    ELSE 0 END)
+         ORDER BY ts DESC, id DESC
+         LIMIT ?3"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params![mcp, herramienta, limit], map_row)?;
+    let mut events = Vec::new();
+    for row in rows {
+        events.push(to_event(row?)?);
+    }
+    Ok(events)
 }

@@ -114,7 +114,7 @@ pub struct ResumenSincronizacion {
     pub omitidas: usize,
 }
 
-struct Candado {
+pub(crate) struct Candado {
     _fichero: File,
 }
 
@@ -124,15 +124,15 @@ pub struct Boveda {
     espera: Duration,
 }
 
-fn existe(p: &Path) -> bool {
+pub(crate) fn existe(p: &Path) -> bool {
     fs::symlink_metadata(p).is_ok()
 }
 
-fn es_enlace(p: &Path) -> bool {
+pub(crate) fn es_enlace(p: &Path) -> bool {
     fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
 }
 
-fn mtime_ns(meta: &fs::Metadata) -> i64 {
+pub(crate) fn mtime_ns(meta: &fs::Metadata) -> i64 {
     meta.modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
@@ -143,7 +143,7 @@ fn mtime_ns(meta: &fs::Metadata) -> i64 {
 /// Escritura atómica: se escribe un temporal oculto en el mismo directorio,
 /// se sincroniza y se renombra sobre el destino. Un lector ve la nota
 /// anterior o la nueva entera, nunca una mitad.
-fn escribir_atomico(destino: &Path, contenido: &str) -> Resultado<()> {
+pub(crate) fn escribir_atomico(destino: &Path, contenido: &str) -> Resultado<()> {
     let dir = destino.parent().ok_or_else(|| ErrorBoveda::Io("ruta sin directorio".into()))?;
     let nombre = destino.file_name().and_then(|n| n.to_str()).unwrap_or("nota");
     let n = CONTADOR_TEMPORAL.fetch_add(1, Ordering::Relaxed);
@@ -164,7 +164,7 @@ fn escribir_atomico(destino: &Path, contenido: &str) -> Resultado<()> {
     Ok(())
 }
 
-fn evento(store: &Store, actor: &str, accion: &str, trabajo: Option<&str>, ok: bool, detalle: Value, inicio: Instant) -> Result<(), String> {
+pub(crate) fn evento(store: &Store, actor: &str, accion: &str, trabajo: Option<&str>, ok: bool, detalle: Value, inicio: Instant) -> Result<(), String> {
     store
         .append_event(NewEvent {
             actor: actor.to_string(),
@@ -178,7 +178,7 @@ fn evento(store: &Store, actor: &str, accion: &str, trabajo: Option<&str>, ok: b
         .map_err(|e| e.to_string())
 }
 
-fn entrada_de(ruta: &str, texto: &str, meta: &fs::Metadata) -> (EntradaIndice, String) {
+pub(crate) fn entrada_de(ruta: &str, texto: &str, meta: &fs::Metadata) -> (EntradaIndice, String) {
     let (cab, cuerpo) = cabecera::interpretar(texto);
     let region = region_de(ruta).to_string();
     let titulo_ajeno = || {
@@ -217,13 +217,23 @@ fn entrada_de(ruta: &str, texto: &str, meta: &fs::Metadata) -> (EntradaIndice, S
     (entrada, cuerpo.to_string())
 }
 
+/// Solo el usuario (sus interfaces) hace ciertas operaciones: promover y
+/// editar la bóveda a mano. Un agente, el orquestador o nadie, no.
+pub(crate) fn exigir_usuario(quien: &str, que: &str) -> Resultado<()> {
+    if region_de_agente(quien).is_some() || quien == "orquestador" || quien.trim().is_empty() {
+        return Err(ErrorBoveda::Prohibida(format!("'{quien}' no puede {que}")));
+    }
+    Ok(())
+}
+
 impl Boveda {
     /// Sobre una raíz explícita (el directorio no tiene por qué existir aún).
     pub fn en(raiz: impl Into<PathBuf>) -> Self {
         Self { raiz: raiz.into(), espera: ESPERA_POR_DEFECTO }
     }
 
-    /// Sobre la raíz configurada (`EA_BOVEDA_DIR`, `boveda.toml`, por defecto).
+    /// Sobre la raíz configurada (`rutas.boveda` de los ajustes: `EA_BOVEDA_DIR`,
+    /// `ajustes.toml`, `boveda.toml` heredado o por defecto).
     pub fn configurada() -> Self {
         Self::en(crate::config::raiz())
     }
@@ -244,8 +254,18 @@ impl Boveda {
     /// el disco que, resueltos los enlaces simbólicos, sigue dentro de la
     /// carpeta de su región (un enlace hacia fuera de la bóveda, o hacia otra
     /// región, se rechaza).
-    fn resolver(&self, ruta: &str) -> Resultado<PathBuf> {
+    pub(crate) fn resolver(&self, ruta: &str) -> Resultado<PathBuf> {
         let partes = validar_ruta(ruta)?;
+        self.resolver_partes(ruta, &partes)
+    }
+
+    /// Como [`Self::resolver`], para una carpeta (`region` o `region/…`).
+    pub(crate) fn resolver_carpeta(&self, ruta: &str) -> Resultado<PathBuf> {
+        let partes = ruta::validar_carpeta(ruta)?;
+        self.resolver_partes(ruta, &partes)
+    }
+
+    fn resolver_partes(&self, ruta: &str, partes: &[&str]) -> Resultado<PathBuf> {
         let raiz = fs::canonicalize(&self.raiz)
             .map_err(|e| ErrorBoveda::Io(format!("raíz de la bóveda {}: {e}", self.raiz.display())))?;
         let region = raiz.join(partes[0]);
@@ -266,7 +286,7 @@ impl Boveda {
         Ok(completa)
     }
 
-    fn candado(&self) -> Resultado<Candado> {
+    pub(crate) fn candado(&self) -> Resultado<Candado> {
         fs::create_dir_all(&self.raiz)?;
         let f = OpenOptions::new()
             .create(true)
@@ -288,7 +308,7 @@ impl Boveda {
         }
     }
 
-    fn leer_texto(&self, ruta: &str) -> Resultado<String> {
+    pub(crate) fn leer_texto(&self, ruta: &str) -> Resultado<String> {
         let p = self.resolver(ruta)?;
         let meta = fs::metadata(&p).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => ErrorBoveda::NoExiste(ruta.to_string()),
@@ -516,11 +536,7 @@ impl Boveda {
         canal: &str,
     ) -> Resultado<PlanPromocion> {
         let inicio = Instant::now();
-        if region_de_agente(quien).is_some() || quien == "orquestador" || quien.trim().is_empty() {
-            return Err(ErrorBoveda::Prohibida(format!(
-                "'{quien}' no puede promover: la promoción la decide el usuario (decisión 9)"
-            )));
-        }
+        exigir_usuario(quien, "promover: la promoción la decide el usuario (decisión 9)")?;
         let _candado = self.candado()?;
         let plan = self.planear_promocion(origen, destino)?;
         if plan.huella != huella_esperada {
@@ -645,6 +661,38 @@ impl Boveda {
     /// en la bóveda, solo en la caché de la base de datos. Ignora ficheros y
     /// carpetas ocultos, enlaces simbólicos y lo que no sea `.md`.
     pub fn sincronizar(&self, store: &mut Store, forzar: bool) -> Resultado<ResumenSincronizacion> {
+        self.recorrer(store, forzar, true)
+    }
+
+    /// Lo que `sincronizar` cambiaría ahora mismo, sin tocar el índice: notas
+    /// nuevas (`indexadas`), cambiadas por fecha o tamaño (`actualizadas`) y
+    /// borradas del disco (`eliminadas`). Todo a cero = el índice coincide.
+    pub fn diferencia_indice(&self, store: &mut Store) -> Resultado<ResumenSincronizacion> {
+        self.recorrer(store, false, false)
+    }
+
+    /// Reconstruye el índice entero desde los ficheros (`ea boveda reindexar`)
+    /// y deja el evento `boveda_reindexado` en el diario. No escribe en la
+    /// bóveda: el índice es una caché.
+    pub fn reindexar(&self, store: &mut Store, quien: &str) -> Resultado<ResumenSincronizacion> {
+        let inicio = Instant::now();
+        let r = self.recorrer(store, true, true)?;
+        let _ = evento(
+            store,
+            quien,
+            "boveda_reindexado",
+            None,
+            true,
+            serde_json::json!({
+                "indexadas": r.indexadas, "actualizadas": r.actualizadas,
+                "eliminadas": r.eliminadas, "omitidas": r.omitidas,
+            }),
+            inicio,
+        );
+        Ok(r)
+    }
+
+    fn recorrer(&self, store: &mut Store, forzar: bool, aplicar: bool) -> Resultado<ResumenSincronizacion> {
         let mut resumen = ResumenSincronizacion::default();
         let Ok(raiz) = fs::canonicalize(&self.raiz) else {
             return Ok(resumen);
@@ -692,6 +740,14 @@ impl Boveda {
                     if igual && !forzar {
                         continue;
                     }
+                    if !aplicar {
+                        if conocidas.contains_key(&ruta_rel) {
+                            resumen.actualizadas += 1;
+                        } else {
+                            resumen.indexadas += 1;
+                        }
+                        continue;
+                    }
                     let Ok(bytes) = fs::read(e.path()) else { continue };
                     let Ok(texto) = String::from_utf8(bytes) else { continue };
                     let (entrada, cuerpo) = entrada_de(&ruta_rel, &texto, &meta);
@@ -705,7 +761,9 @@ impl Boveda {
             }
         }
         for ruta_vieja in conocidas.keys().filter(|r| !vistas.contains(*r)) {
-            store.boveda_olvidar(ruta_vieja)?;
+            if aplicar {
+                store.boveda_olvidar(ruta_vieja)?;
+            }
             resumen.eliminadas += 1;
         }
         Ok(resumen)

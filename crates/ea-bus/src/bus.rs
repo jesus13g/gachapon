@@ -10,26 +10,27 @@ use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use crate::config::ConfigOrquestador;
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::{escribir_json, fnv};
-use crate::rutina::Rutina;
+use crate::rutina::{Rutina, MAX_DEFINICION};
+use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
-    transicion, Agente, Estado, EstadoTrabajo, Evento, Informe, Modo, Orden, ResultadoInforme,
+    transicion, EjecutadoPor, Estado, EstadoTrabajo, Evento, FaseInforme, Informe, Modo, Orden, ResultadoInforme, Rol, RolEquipo,
 };
 
 pub const ENV_ESTADO: &str = "EA_ESTADO_DIR";
 static CONTADOR_ID: AtomicU64 = AtomicU64::new(0);
 
-/// `$EA_ESTADO_DIR` o `~/.local/state/ecosistema-asistente/`.
+/// `$EA_ESTADO_DIR`, si no `rutas.estado` de los ajustes (por defecto
+/// `~/.local/state/ecosistema-asistente/`).
 pub fn raiz_estado() -> PathBuf {
     if let Ok(v) = std::env::var(ENV_ESTADO) {
         if !v.trim().is_empty() {
             return PathBuf::from(v.trim());
         }
     }
-    directories::ProjectDirs::from("", "", "ecosistema-asistente")
-        .map(|d| d.state_dir().unwrap_or_else(|| d.data_local_dir()).to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("estado"))
+    ea_ajustes::cargar().rutas.estado
 }
 
 pub(crate) fn ahora_rfc3339() -> String {
@@ -38,7 +39,7 @@ pub(crate) fn ahora_rfc3339() -> String {
 
 /// Id ordenable por tiempo: `20261014T193000-0003ab12`. El contador evita que
 /// dos ids del mismo segundo se ordenen al azar (las colas son FIFO).
-fn nuevo_id() -> String {
+pub(crate) fn nuevo_id() -> String {
     let t = OffsetDateTime::now_utc();
     let n = CONTADOR_ID.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
@@ -65,9 +66,12 @@ pub struct EntradaCola {
 }
 
 pub struct Bus {
-    raiz: PathBuf,
-    store: Option<Store>,
-    actor: String,
+    pub(crate) raiz: PathBuf,
+    pub(crate) store: Option<Store>,
+    pub(crate) actor: String,
+    /// Configuración de skills con la que se validan las órdenes al crear.
+    /// `None`: la de los ajustes efectivos, leída solo si la orden pide skills.
+    skills: Option<ConfigSkills>,
 }
 
 impl Bus {
@@ -77,10 +81,13 @@ impl Bus {
     }
 
     pub fn abrir_en(raiz: &Path) -> Resultado<Self> {
-        for d in ["colas/modelo-local", "colas/claude-code", "trabajos", "semaforos"] {
+        for rol in Rol::TODOS {
+            fs::create_dir_all(raiz.join("colas").join(rol.as_str()))?;
+        }
+        for d in ["trabajos", "semaforos", "equipos", "colas/agentes", "colas/revision"] {
             fs::create_dir_all(raiz.join(d))?;
         }
-        Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: "orquestador".into() })
+        Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: "orquestador".into(), skills: None })
     }
 
     /// Con historial y diario en SQLite.
@@ -95,15 +102,61 @@ impl Bus {
         self
     }
 
+    /// Valida las skills de las órdenes con esta configuración en vez de con
+    /// la de los ajustes (pruebas o un llamador que ya la tiene cargada).
+    pub fn con_skills(mut self, skills: ConfigSkills) -> Self {
+        self.skills = Some(skills);
+        self
+    }
+
     pub fn raiz(&self) -> &Path {
         &self.raiz
     }
 
-    fn dir_cola(&self, a: Agente) -> PathBuf {
+    fn dir_cola(&self, a: Rol) -> PathBuf {
         self.raiz.join("colas").join(a.as_str())
     }
 
-    fn dir_trabajo(&self, id: &str) -> Resultado<PathBuf> {
+    /// `colas/agentes/<agente>/`. El id tiene que ser del catálogo: así no se
+    /// abre ninguna ruta arbitraria (spec 019, RF-005).
+    pub(crate) fn dir_cola_agente(&self, agente: &str) -> Resultado<PathBuf> {
+        if ea_ajustes::ficha(agente).is_none() {
+            return Err(ErrorBus::Argumentos(format!("{agente:?} no es un agente del catálogo")));
+        }
+        Ok(self.raiz.join("colas").join("agentes").join(agente))
+    }
+
+    /// `colas/revision/<agente>/`: las entregas que un revisor tiene que mirar.
+    /// Va aparte de `colas/agentes/<agente>/` (órdenes asignadas) para que un
+    /// ejecutor que también sea revisor no tome una revisión como si fuera
+    /// trabajo (spec 019, RF-006).
+    fn dir_cola_revision(&self, agente: &str) -> Resultado<PathBuf> {
+        if ea_ajustes::ficha(agente).is_none() {
+            return Err(ErrorBus::Argumentos(format!("{agente:?} no es un agente del catálogo")));
+        }
+        Ok(self.raiz.join("colas").join("revision").join(agente))
+    }
+
+    /// Todas las colas: la de cada rol, la de cada agente y la de revisión de
+    /// cada agente que tenga carpeta.
+    fn dirs_colas(&self) -> Vec<(Option<String>, PathBuf)> {
+        let mut v: Vec<(Option<String>, PathBuf)> = Rol::TODOS.iter().map(|r| (None, self.dir_cola(*r))).collect();
+        for sub in ["agentes", "revision"] {
+            if let Ok(rd) = fs::read_dir(self.raiz.join("colas").join(sub)) {
+                let mut agentes: Vec<(String, PathBuf)> = rd
+                    .flatten()
+                    .filter(|e| e.path().is_dir())
+                    .filter_map(|e| e.file_name().into_string().ok().map(|n| (n, e.path())))
+                    .filter(|(n, _)| ea_ajustes::ficha(n).is_some())
+                    .collect();
+                agentes.sort();
+                v.extend(agentes.into_iter().map(|(n, p)| (Some(n), p)));
+            }
+        }
+        v
+    }
+
+    pub(crate) fn dir_trabajo(&self, id: &str) -> Resultado<PathBuf> {
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
             return Err(ErrorBus::Argumentos(format!("id de trabajo inválido: {id:?}")));
         }
@@ -113,9 +166,29 @@ impl Bus {
     // --- trabajos ----------------------------------------------------------
 
     /// Escribe `orden.json` y `estado.json` y encola en `modelo-local`. Si la
-    /// orden trae el id vacío se le asigna uno nuevo.
+    /// orden trae el id vacío se le asigna uno nuevo. Antes de escribir nada
+    /// valida los criterios y las skills (llave, existencia y topes), de modo
+    /// que cualquier punto de entrada (CLI, ea-web, rutinas) lo hereda.
+    ///
+    /// Con `equipo` (spec 019, RF-004) comprueba además que el equipo existe y
+    /// está despierto, que `asignado_a` es un ejecutor suyo, que `revisor` es
+    /// un revisor o planificador suyo y distinto de `asignado_a`. Con
+    /// `asignado_a` la orden entra en la cola de ese agente; si no, en la del
+    /// rol ejecutor. Los planificadores del equipo tienen la llave de las
+    /// skills; los revisores no.
     pub fn crear_trabajo(&self, mut orden: Orden) -> Resultado<String> {
         validar_criterios(&orden)?;
+        let equipo = self.validar_equipo_de_orden(&orden)?;
+        if pide_skills(&orden) {
+            let mut cfg = match &self.skills {
+                Some(cfg) => cfg.clone(),
+                None => ConfigOrquestador::cargar().skills,
+            };
+            if equipo.as_ref().is_some_and(|e| e.con_rol(&orden.creada_por, RolEquipo::Planificador)) {
+                cfg.pueden_elegir.push(orden.creada_por.clone());
+            }
+            cfg.validar_orden(&orden)?;
+        }
         if orden.id.is_empty() {
             orden.id = nuevo_id();
         }
@@ -134,6 +207,7 @@ impl Bus {
             iteracion: 0,
             actualizado_en: ahora_rfc3339(),
             detalle: None,
+            ejecutado_por: None,
         };
         escribir_json(&dir.join("estado.json"), &estado)?;
         self.historial(&id, "crear", &estado)?;
@@ -162,7 +236,13 @@ impl Bus {
             }
             self.diario(s, &id, "bus_crear", true, serde_json::json!({ "modo": orden.modo.as_str(), "titulo": orden.titulo }));
         }
-        self.encolar(Agente::ModeloLocal, &id, "orden nueva")?;
+        match &orden.asignado_a {
+            Some(agente) => self.encolar_agente(agente, &id, "orden nueva")?,
+            None => self.encolar(Rol::Ejecutor, &id, "orden nueva")?,
+        };
+        if let Some(e) = &orden.equipo {
+            self.anotar_trabajo_en_equipo(e, &id)?;
+        }
         Ok(id)
     }
 
@@ -213,62 +293,59 @@ impl Bus {
 
     // --- colas -------------------------------------------------------------
 
-    pub fn encolar(&self, agente: Agente, trabajo: &str, motivo: &str) -> Resultado<String> {
-        let entrada = EntradaCola {
-            id: nuevo_id(),
-            trabajo: trabajo.into(),
-            motivo: motivo.into(),
-            encolado_en: ahora_rfc3339(),
-        };
-        escribir_json(&self.dir_cola(agente).join(format!("{}.json", entrada.id)), &entrada)?;
-        Ok(entrada.id)
+    pub fn encolar(&self, agente: Rol, trabajo: &str, motivo: &str) -> Resultado<String> {
+        encolar_en(&self.dir_cola(agente), trabajo, motivo)
+    }
+
+    /// Como [`Bus::encolar`] en la cola de un agente concreto
+    /// (`colas/agentes/<agente>/`, spec 019, RF-005).
+    pub fn encolar_agente(&self, agente: &str, trabajo: &str, motivo: &str) -> Resultado<String> {
+        encolar_en(&self.dir_cola_agente(agente)?, trabajo, motivo)
+    }
+
+    /// Encola una entrega para que la revise `agente` (`colas/revision/<agente>/`).
+    pub fn encolar_revision(&self, agente: &str, trabajo: &str, motivo: &str) -> Resultado<String> {
+        encolar_en(&self.dir_cola_revision(agente)?, trabajo, motivo)
+    }
+
+    /// Entregas pendientes de revisar por `agente`; vacía si no hay ninguna.
+    pub fn listar_cola_revision(&self, agente: &str) -> Resultado<Vec<EntradaCola>> {
+        listar_en(&self.dir_cola_revision(agente)?)
     }
 
     /// Entradas visibles de la cola, de la más antigua a la más nueva.
-    pub fn listar_cola(&self, agente: Agente) -> Resultado<Vec<EntradaCola>> {
-        let mut nombres: Vec<PathBuf> = fs::read_dir(self.dir_cola(agente))?
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                !n.starts_with('.') && n.ends_with(".json")
-            })
-            .collect();
-        nombres.sort();
-        Ok(nombres
-            .iter()
-            .filter_map(|p| fs::read(p).ok())
-            .filter_map(|b| serde_json::from_slice(&b).ok())
-            .collect())
+    pub fn listar_cola(&self, agente: Rol) -> Resultado<Vec<EntradaCola>> {
+        listar_en(&self.dir_cola(agente))
+    }
+
+    /// Entradas de la cola de un agente; vacía si nunca se le encoló nada.
+    pub fn listar_cola_agente(&self, agente: &str) -> Resultado<Vec<EntradaCola>> {
+        listar_en(&self.dir_cola_agente(agente)?)
     }
 
     /// Toma el trabajo más antiguo de la cola. Reclama la entrada
     /// renombrándola (atómico): de dos procesos, solo uno lo consigue. No
     /// cambia el estado del trabajo; para eso, [`Bus::aplicar`] con `Tomar`.
-    pub fn tomar(&self, agente: Agente) -> Resultado<Option<String>> {
-        let dir = self.dir_cola(agente);
-        let mut candidatas: Vec<PathBuf> = fs::read_dir(&dir)?
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                !n.starts_with('.') && n.ends_with(".json")
-            })
-            .collect();
-        candidatas.sort();
-        for p in candidatas {
-            let nombre = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-            let reclamada = dir.join(format!(".{nombre}.tomada-{}", std::process::id()));
-            if fs::rename(&p, &reclamada).is_err() {
-                continue; // otro proceso se adelantó
-            }
-            let entrada: Option<EntradaCola> = fs::read(&reclamada).ok().and_then(|b| serde_json::from_slice(&b).ok());
-            let _ = fs::remove_file(&reclamada);
-            if let Some(e) = entrada {
-                return Ok(Some(e.trabajo));
-            }
+    pub fn tomar(&self, agente: Rol) -> Resultado<Option<String>> {
+        tomar_en(&self.dir_cola(agente), &|_| true)
+    }
+
+    /// Lo que toma un trabajador de un agente ejecutor: primero la cola de su
+    /// agente y, si está vacía, la del rol `modelo-local`. Mismo reclamo por
+    /// `rename` que [`Bus::tomar`] (spec 019, RF-005).
+    pub fn tomar_para(&self, agente: &str) -> Resultado<Option<String>> {
+        self.tomar_para_con(agente, &|_| true)
+    }
+
+    /// Como [`Bus::tomar_para`], pero de la cola de rol solo toma las órdenes
+    /// que pasan `filtro`; las demás se quedan donde estaban (se lee la orden
+    /// antes de reclamar la entrada). La cola propia del agente se toma
+    /// entera. Una orden ilegible pasa el filtro, para que se descarte.
+    pub fn tomar_para_con(&self, agente: &str, filtro: &dyn Fn(&Orden) -> bool) -> Resultado<Option<String>> {
+        if let Some(t) = tomar_en(&self.dir_cola_agente(agente)?, &|_| true)? {
+            return Ok(Some(t));
         }
-        Ok(None)
+        tomar_en(&self.dir_cola(Rol::Ejecutor), &|id| self.leer_orden(id).map(|o| filtro(&o)).unwrap_or(true))
     }
 
     // --- transiciones ------------------------------------------------------
@@ -276,18 +353,52 @@ impl Bus {
     /// Valida la transición, escribe `estado.json`, añade una línea a
     /// `historial.jsonl` y registra el evento en SQLite (si hay `Store`).
     /// `Entregar` guarda además el informe.
+    ///
+    /// La lectura, la validación y la escritura van bajo el bloqueo del
+    /// trabajo ([`Bus::bloquear_estado`]): una cancelación que llegue a la vez
+    /// que el ejecutor escribe no se pierde.
     pub fn aplicar(&self, id: &str, evento: Evento) -> Resultado<Estado> {
+        let _bloqueo = self.bloquear_estado(id)?;
+        self.aplicar_bloqueado(id, evento, None, None)
+    }
+
+    /// `Tomar` anotando quién lo ejecuta (spec 017, RF-008): el agente y el
+    /// modelo quedan en `estado.json` y en el historial, y la entrega los
+    /// copia al informe. El trabajo conserva ese ejecutor hasta que se
+    /// vuelva a tomar, aunque cambie `roles.ejecutor` mientras corre.
+    pub fn tomar_con(&self, id: &str, por: EjecutadoPor) -> Resultado<Estado> {
+        let _bloqueo = self.bloquear_estado(id)?;
+        self.aplicar_bloqueado(id, Evento::Tomar, None, Some(por))
+    }
+
+    /// [`Bus::aplicar`] para quien ya tiene el bloqueo del trabajo. Con
+    /// `Reformular`, `fase` es la fase de obra desde la que se rehace.
+    fn aplicar_bloqueado(&self, id: &str, evento: Evento, fase: Option<u32>, por: Option<EjecutadoPor>) -> Resultado<Estado> {
         let actual = self.leer_estado(id)?;
         let nuevo_estado = transicion(actual.estado, &evento)?;
         let mut nuevo = Estado { estado: nuevo_estado, actualizado_en: ahora_rfc3339(), ..actual };
         match &evento {
+            Evento::Tomar if por.is_some() => nuevo.ejecutado_por = por,
             Evento::Entregar(inf) => {
-                self.escribir_informe(id, inf)?;
+                // El informe dice quién lo hizo aunque el ejecutor no lo anote.
+                let mut inf = inf.clone();
+                if inf.ejecutado_por.is_none() {
+                    inf.ejecutado_por = nuevo.ejecutado_por.clone();
+                }
+                // El revisor es quien lo ejecutó: no se le encola la revisión
+                // (más abajo) y el informe lo deja dicho.
+                if let (Some(r), Some(por)) = (self.leer_orden(id)?.revisor, &inf.ejecutado_por)
+                    && r == por.agente
+                {
+                    inf.aviso = Some(format!("el revisor {r} es quien ejecutó el trabajo: sin revisión independiente"));
+                }
+                self.escribir_informe(id, &inf)?;
                 if inf.fases_hechas > 0 {
                     nuevo.fase_actual = Some(inf.fases_hechas + 1);
                 }
                 nuevo.detalle = inf.motivo.clone();
             }
+            Evento::Reformular if fase.is_some() => nuevo.fase_actual = fase,
             _ => {}
         }
         let dir = self.dir_trabajo(id)?;
@@ -301,12 +412,21 @@ impl Bus {
                 };
                 // Una rutina vuelve a Claude Code solo si falla y el usuario lo
                 // confirma (`Confirmar`); su informe no pasa por la cola.
-                if self.leer_orden(id)?.modo != Modo::Rutina {
-                    self.encolar(Agente::ClaudeCode, id, motivo)?;
+                let orden = self.leer_orden(id)?;
+                if orden.modo != Modo::Rutina {
+                    self.encolar(Rol::Planificador, id, motivo)?;
+                    // El revisor del equipo la recibe además, salvo que sea
+                    // quien la ejecutó: nadie se revisa a sí mismo (RF-006).
+                    if let Some(r) = &orden.revisor {
+                        let ejecutor = nuevo.ejecutado_por.as_ref().map(|p| p.agente.as_str());
+                        if ejecutor != Some(r.as_str()) {
+                            self.encolar_revision(r, id, motivo)?;
+                        }
+                    }
                 }
             }
             Evento::Confirmar => {
-                self.encolar(Agente::ClaudeCode, id, "corrección de rutina")?;
+                self.encolar(Rol::Planificador, id, "corrección de rutina")?;
             }
             Evento::Cerrar | Evento::Cancelar => {
                 self.retirar_de_colas(id)?;
@@ -315,32 +435,81 @@ impl Bus {
                 // Sin entradas rancias (p. ej. el «terminado» en claude-code si
                 // se reformula sin haberlo tomado, como hace el panel web).
                 self.retirar_de_colas(id)?;
-                self.encolar(Agente::ModeloLocal, id, "reformulado")?;
+                let orden = self.leer_orden(id)?;
+                match self.asignado_vigente(&orden) {
+                    Some(agente) => self.encolar_agente(&agente, id, "reformulado")?,
+                    None => self.encolar(Rol::Ejecutor, id, "reformulado")?,
+                };
             }
             _ => {}
         }
         if let Some(s) = &self.store {
             s.actualizar_estado_trabajo(id, nuevo.estado.as_str(), &nuevo.actualizado_en)?;
             self.sincronizar_fases(s, id, &evento, &nuevo)?;
-            self.diario(s, id, &format!("bus_{}", evento.nombre()), true, serde_json::json!({ "estado": nuevo.estado.as_str() }));
+            let mut detalle = serde_json::json!({ "estado": nuevo.estado.as_str() });
+            if let Some(n) = fase {
+                detalle["fase"] = n.into();
+            }
+            self.diario(s, id, &format!("bus_{}", evento.nombre()), true, detalle);
         }
         Ok(nuevo)
     }
 
-    /// Sube el contador de iteraciones (una por llamada al agente).
-    pub fn anotar_iteracion(&self, id: &str) -> Resultado<u32> {
+    /// `flock` exclusivo sobre `trabajos/<id>/.estado.lock`, que se suelta al
+    /// soltar el fichero devuelto. Ordena entre procesos (CLI, ea-web, el
+    /// ejecutor) toda lectura-modificación-escritura de `estado.json`; la
+    /// escritura en sí sigue siendo atómica (`fs_atomico`), así que quien solo
+    /// lee no necesita el bloqueo. No es reentrante: quien lo tiene no debe
+    /// llamar a otra función que lo pida.
+    fn bloquear_estado(&self, id: &str) -> Resultado<fs::File> {
+        let dir = self.dir_trabajo(id)?;
+        if !dir.is_dir() {
+            return Err(ErrorBus::NoExiste(id.into()));
+        }
+        let f = fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".estado.lock"))?;
+        f.lock()?;
+        Ok(f)
+    }
+
+    /// Sube el contador de iteraciones (una por llamada al agente). Solo si
+    /// el trabajo sigue `Ejecutando`: si no (p. ej. se canceló), no escribe
+    /// nada y devuelve `None`, para no devolver a la vida lo cancelado.
+    pub fn anotar_iteracion(&self, id: &str) -> Resultado<Option<u32>> {
+        let _bloqueo = self.bloquear_estado(id)?;
         let mut e = self.leer_estado(id)?;
+        if e.estado != EstadoTrabajo::Ejecutando {
+            return Ok(None);
+        }
         e.iteracion += 1;
         e.actualizado_en = ahora_rfc3339();
         escribir_json(&self.dir_trabajo(id)?.join("estado.json"), &e)?;
-        Ok(e.iteracion)
+        Ok(Some(e.iteracion))
+    }
+
+    /// `true` si el trabajo está `Cancelado` (un fallo al leer cuenta como
+    /// no cancelado: el ejecutor sigue y la entrega dirá lo que haya).
+    pub fn esta_cancelado(&self, id: &str) -> bool {
+        self.leer_estado(id).is_ok_and(|e| e.estado == EstadoTrabajo::Cancelado)
+    }
+
+    /// El ejecutor dejó de trabajar en un trabajo cancelado mientras corría:
+    /// una línea `cancelado_en_curso` en `historial.jsonl` y el evento
+    /// `bus_cancelado_en_curso` en el diario, con la iteración y la fase en
+    /// que se cortó. No cambia el estado (ya es `Cancelado`).
+    pub fn anotar_cancelacion_en_curso(&self, id: &str, iteracion: u32, fase: Option<u32>) -> Resultado<()> {
+        let estado = self.leer_estado(id)?;
+        self.historial(id, "cancelado_en_curso", &Estado { actualizado_en: ahora_rfc3339(), iteracion, ..estado })?;
+        if let Some(s) = &self.store {
+            self.diario(s, id, "bus_cancelado_en_curso", true, serde_json::json!({ "iteracion": iteracion, "fase": fase }));
+        }
+        Ok(())
     }
 
     /// Quita de TODAS las colas las entradas de un trabajo.
     pub fn retirar_de_colas(&self, id: &str) -> Resultado<usize> {
         let mut n = 0;
-        for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
-            for e in fs::read_dir(self.dir_cola(a))?.flatten() {
+        for (_, dir) in self.dirs_colas() {
+            for e in fs::read_dir(dir)?.flatten() {
                 let p = e.path();
                 let nombre = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if nombre.starts_with('.') || !nombre.ends_with(".json") {
@@ -390,19 +559,14 @@ impl Bus {
         self.store.as_ref().ok_or_else(|| ErrorBus::Argumentos("las rutinas necesitan la base de datos".into()))
     }
 
-    /// Valida y registra una rutina; la versión debe ser mayor que la última
-    /// registrada. Copia el fichero a `dir` (`<slug>.toml`).
+    /// Valida y registra una rutina con [`comprobar_registro`] (tamaño,
+    /// formato y versión mayor que la última registrada). Guarda la versión
+    /// en SQLite y copia el fichero a `dir` (`<slug>.toml`). Si la rutina
+    /// estaba retirada, registrarla la vuelve a poner en uso: la copia vieja
+    /// de la papelera se borra (sus versiones siguen en SQLite).
     pub fn registrar_rutina(&self, texto: &str, dir: &Path) -> Resultado<Rutina> {
-        let r = Rutina::parsear(texto)?;
         let s = self.store_rutinas()?;
-        if let Some(ult) = s.ultima_rutina(&r.rutina.slug)? {
-            if i64::from(r.rutina.version) <= ult.version {
-                return Err(ErrorBus::Argumentos(format!(
-                    "la rutina {} ya está en la versión {}; la nueva debe ser mayor (es la {})",
-                    r.rutina.slug, ult.version, r.rutina.version
-                )));
-            }
-        }
+        let (r, _) = comprobar_registro(s, texto)?;
         s.guardar_rutina(&FilaRutina {
             slug: r.rutina.slug.clone(),
             version: i64::from(r.rutina.version),
@@ -412,6 +576,7 @@ impl Bus {
         })?;
         fs::create_dir_all(dir)?;
         crate::fs_atomico::escribir_atomico(&dir.join(format!("{}.toml", r.rutina.slug)), texto.as_bytes())?;
+        crate::papelera::quitar_de_papelera(dir, &r.rutina.slug)?;
         Ok(r)
     }
 
@@ -437,6 +602,15 @@ impl Bus {
     /// Crea un trabajo de modo rutina con la última versión registrada.
     pub fn lanzar_rutina(&self, slug: &str, entradas: &[(String, String)]) -> Resultado<String> {
         self.crear_trabajo(self.rutina(slug)?.a_orden(entradas)?)
+    }
+
+    /// Como [`Bus::lanzar_rutina`], pero antes mira el fichero en
+    /// `rutinas_dir` ([`crate::comprobar_lanzable`]): una rutina retirada o
+    /// sin fichero no se lanza. Es lo que usan la CLI (y con ella el timer)
+    /// y la web; `ea_encolar_rutina` lo comprueba al simular.
+    pub fn lanzar_rutina_en(&self, dir: &Path, slug: &str, entradas: &[(String, String)]) -> Resultado<String> {
+        crate::papelera::comprobar_lanzable(dir, slug)?;
+        self.lanzar_rutina(slug, entradas)
     }
 
     /// Trabajos de una rutina que aún no han terminado.
@@ -466,15 +640,51 @@ impl Bus {
     /// Reformula un trabajo en revisión: añade las notas de la revisión a
     /// `orden.json` (`notas_revision`) y aplica `Reformular`, que lo vuelve
     /// a encolar en `modelo-local`.
-    pub fn reformular(&self, id: &str, notas: &str) -> Resultado<Estado> {
+    ///
+    /// En una obra, `fase` es la fase desde la que se rehace; sin ella, la
+    /// pendiente (`fase_actual`; en una obra completa, la última). Esa fase y
+    /// las siguientes vuelven a quedar pendientes: `fase_actual` apunta a
+    /// ella y se recortan `fases-informe.json` y las filas de fase de SQLite.
+    /// Una fase que no existe en la obra, o una fase en una misión o rutina,
+    /// es un error de argumentos y no escribe nada. Todo va bajo el bloqueo
+    /// del trabajo.
+    pub fn reformular(&self, id: &str, notas: &str, fase: Option<u32>) -> Resultado<Estado> {
+        let _bloqueo = self.bloquear_estado(id)?;
         let estado = self.leer_estado(id)?;
         transicion(estado.estado, &Evento::Reformular)?; // validar antes de tocar la orden
         let mut orden = self.leer_orden(id)?;
+        let rehacer = fase_a_rehacer(&orden, &estado, fase)?;
         if !notas.trim().is_empty() {
             orden.notas_revision.push(notas.trim().into());
             escribir_json(&self.dir_trabajo(id)?.join("orden.json"), &orden)?;
         }
-        self.aplicar(id, Evento::Reformular)
+        if let Some(n) = rehacer {
+            self.recortar_fases(id, n)?;
+        }
+        self.aplicar_bloqueado(id, Evento::Reformular, rehacer, None)
+    }
+
+    /// Deja pendientes la fase `desde` y las siguientes: las quita de
+    /// `fases-informe.json` (si existe) y devuelve sus filas de SQLite a
+    /// `pendiente`, sin informe (que llevaba el árbol de la fase).
+    fn recortar_fases(&self, id: &str, desde: u32) -> Resultado<()> {
+        let p = self.dir_trabajo(id)?.join("fases-informe.json");
+        if let Ok(b) = fs::read(&p) {
+            let mut v: Vec<FaseInforme> = serde_json::from_slice(&b).unwrap_or_default();
+            v.retain(|f| f.numero < desde);
+            escribir_json(&p, &v)?;
+        }
+        if let Some(s) = &self.store {
+            for mut f in s.listar_fases(id)?.into_iter().filter(|f| f.numero >= i64::from(desde)) {
+                if f.estado != "pendiente" || f.informe.is_some() {
+                    f.estado = "pendiente".into();
+                    f.informe = None;
+                    f.cerrado_en = None;
+                    s.guardar_fase(&f)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Para llamar al arrancar. Devuelve a la cola los reclamos `.tomada-*`
@@ -483,8 +693,7 @@ impl Bus {
     /// recuperados.
     pub fn recuperar(&self) -> Resultado<Vec<String>> {
         let mut recuperados = Vec::new();
-        for agente in [Agente::ModeloLocal, Agente::ClaudeCode] {
-            let dir = self.dir_cola(agente);
+        for (_, dir) in self.dirs_colas() {
             for e in fs::read_dir(&dir)?.flatten() {
                 let p = e.path();
                 let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
@@ -493,10 +702,13 @@ impl Bus {
                 }
                 let entrada: Option<EntradaCola> = fs::read(&p).ok().and_then(|b| serde_json::from_slice(&b).ok());
                 if let Some(en) = entrada {
-                    let en_cola = self.leer_estado(&en.trabajo).is_ok_and(|s| s.estado == EstadoTrabajo::EnCola);
-                    let ya_en_cola = self.listar_cola(agente)?.iter().any(|x| x.trabajo == en.trabajo);
+                    // En colas/revision lo pendiente es una entrega, no una orden.
+                    let esperado =
+                        if dir.starts_with(self.raiz.join("colas").join("revision")) { EstadoTrabajo::EnRevision } else { EstadoTrabajo::EnCola };
+                    let en_cola = self.leer_estado(&en.trabajo).is_ok_and(|s| s.estado == esperado);
+                    let ya_en_cola = listar_en(&dir)?.iter().any(|x| x.trabajo == en.trabajo);
                     if en_cola && !ya_en_cola {
-                        self.encolar(agente, &en.trabajo, "recuperado")?;
+                        encolar_en(&dir, &en.trabajo, "recuperado")?;
                         recuperados.push(en.trabajo);
                     }
                 }
@@ -548,12 +760,15 @@ impl Bus {
 
     fn historial(&self, id: &str, evento: &str, estado: &Estado) -> Resultado<()> {
         use std::io::Write;
-        let linea = serde_json::json!({
+        let mut linea = serde_json::json!({
             "ts": estado.actualizado_en,
             "evento": evento,
             "estado": estado.estado.as_str(),
             "iteracion": estado.iteracion,
         });
+        if let Some(por) = &estado.ejecutado_por {
+            linea["ejecutado_por"] = serde_json::json!(por);
+        }
         let mut f = fs::OpenOptions::new().create(true).append(true).open(self.dir_trabajo(id)?.join("historial.jsonl"))?;
         writeln!(f, "{linea}")?;
         f.sync_all()?;
@@ -561,17 +776,154 @@ impl Bus {
     }
 
     /// El diario es secundario: un fallo de SQLite no deshace el bus.
-    fn diario(&self, s: &Store, _id: &str, accion: &str, ok: bool, detalle: serde_json::Value) {
+    fn diario(&self, s: &Store, id: &str, accion: &str, ok: bool, detalle: serde_json::Value) {
         let mut detalle = detalle;
-        detalle["trabajo"] = serde_json::Value::String(_id.into());
+        detalle["trabajo"] = serde_json::Value::String(id.into());
         let _ = s.append_event(NewEvent {
             actor: self.actor.clone(),
             action: accion.into(),
-            trabajo: None,
+            // En la columna, no solo en el detalle: así `--trabajo` y el
+            // filtro del diario encuentran los `bus_*` del trabajo.
+            trabajo: Some(id.into()),
             outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
             duration_ms: None,
             detail: Some(detalle.to_string()),
         });
+    }
+}
+
+fn encolar_en(dir: &Path, trabajo: &str, motivo: &str) -> Resultado<String> {
+    let entrada = EntradaCola { id: nuevo_id(), trabajo: trabajo.into(), motivo: motivo.into(), encolado_en: ahora_rfc3339() };
+    escribir_json(&dir.join(format!("{}.json", entrada.id)), &entrada)?;
+    Ok(entrada.id)
+}
+
+fn listar_en(dir: &Path) -> Resultado<Vec<EntradaCola>> {
+    let rd = match fs::read_dir(dir) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => return Err(e.into()),
+    };
+    let mut nombres: Vec<PathBuf> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            !n.starts_with('.') && n.ends_with(".json")
+        })
+        .collect();
+    nombres.sort();
+    Ok(nombres.iter().filter_map(|p| fs::read(p).ok()).filter_map(|b| serde_json::from_slice(&b).ok()).collect())
+}
+
+pub(crate) fn tomar_en(dir: &Path, admite: &dyn Fn(&str) -> bool) -> Resultado<Option<String>> {
+    fn listar(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+        let mut v: Vec<PathBuf> = fs::read_dir(dir)?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                !n.starts_with('.') && n.ends_with(".json")
+            })
+            .collect();
+        v.sort();
+        Ok(v)
+    }
+    // Sondeo barato: con la cola vacía (o sin directorio) no se crea ni se
+    // abre el cerrojo.
+    match listar(dir) {
+        Ok(v) if v.is_empty() => return Ok(None),
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    }
+    // Un solo reclamante a la vez en esta cola (entre hilos y procesos): el
+    // `rename` basta en Unix, pero en Windows dos reclamos simultáneos del
+    // mismo fichero no son fiables.
+    let _cerrojo = {
+        let f = fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".tomar.lock"))?;
+        f.lock()?;
+        f
+    };
+    // Dentro del cerrojo se vuelve a listar: otro pudo llevarse las candidatas.
+    let candidatas = match listar(dir) {
+        Ok(v) => v,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    for p in candidatas {
+        // Con filtro, se mira la entrada antes de reclamarla; si no pasa, se queda.
+        if let Some(e) = fs::read(&p).ok().and_then(|b| serde_json::from_slice::<EntradaCola>(&b).ok())
+            && !admite(&e.trabajo)
+        {
+            continue;
+        }
+        let nombre = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        // Único por reclamo: dos hilos del mismo proceso no pueden pisarse.
+        static RECLAMOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = RECLAMOS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let reclamada = dir.join(format!(".{nombre}.tomada-{}-{n}", std::process::id()));
+        if fs::rename(&p, &reclamada).is_err() {
+            continue; // otro proceso se adelantó
+        }
+        let entrada: Option<EntradaCola> = fs::read(&reclamada).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        let _ = fs::remove_file(&reclamada);
+        if let Some(e) = entrada {
+            return Ok(Some(e.trabajo));
+        }
+    }
+    Ok(None)
+}
+
+/// Lo que comprueba registrar una rutina, sin escribir nada: la política
+/// única de la CLI, la web y `ea_registrar_rutina`. La definición no pasa de
+/// [`MAX_DEFINICION`] bytes, es una rutina válida ([`Rutina::parsear`]) y su
+/// versión es mayor que la última registrada. Devuelve la rutina y la última
+/// versión registrada, si la hay.
+pub fn comprobar_registro(store: &Store, texto: &str) -> Resultado<(Rutina, Option<FilaRutina>)> {
+    if texto.len() > MAX_DEFINICION {
+        return Err(ErrorBus::Argumentos(format!(
+            "la definición es demasiado larga ({} bytes; como mucho {MAX_DEFINICION})",
+            texto.len()
+        )));
+    }
+    let r = Rutina::parsear(texto)?;
+    let anterior = store.ultima_rutina(&r.rutina.slug)?;
+    if let Some(ult) = &anterior {
+        if i64::from(r.rutina.version) <= ult.version {
+            return Err(ErrorBus::Argumentos(format!(
+                "la rutina {} ya está en la versión {}; la nueva debe ser mayor (es la {})",
+                r.rutina.slug, ult.version, r.rutina.version
+            )));
+        }
+    }
+    Ok((r, anterior))
+}
+
+/// La fase de obra desde la que se rehace al reformular. Solo una obra con
+/// fases tiene una: la pedida, si existe en la obra; si no se pide, la
+/// pendiente (`fase_actual`), y en una obra completa (`fase_actual` pasada
+/// de la última) la última. Pedir fase en una misión o rutina, o una que la
+/// obra no tiene (0, más allá de la última), es un error de argumentos.
+fn fase_a_rehacer(orden: &Orden, estado: &Estado, pedida: Option<u32>) -> Resultado<Option<u32>> {
+    let numeros: Vec<u32> = orden.fases.iter().map(|f| f.numero).collect();
+    let extremos = numeros.iter().min().zip(numeros.iter().max());
+    let (primera, ultima) = match (orden.modo, extremos) {
+        (Modo::Obra, Some((&p, &u))) => (p, u),
+        _ if pedida.is_some() => {
+            return Err(ErrorBus::Argumentos(format!(
+                "solo una obra con fases se reformula desde una fase; este trabajo es una {}",
+                orden.modo.as_str()
+            )));
+        }
+        _ => return Ok(None),
+    };
+    match pedida {
+        Some(n) if !numeros.contains(&n) => {
+            Err(ErrorBus::Argumentos(format!("la fase {n} está fuera de rango: la obra va de la fase {primera} a la {ultima}")))
+        }
+        Some(n) => Ok(Some(n)),
+        None => Ok(Some(estado.fase_actual.filter(|n| numeros.contains(n)).unwrap_or(ultima))),
     }
 }
 

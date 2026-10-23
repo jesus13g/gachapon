@@ -1,0 +1,6 @@
+# Fin de línea LF en todos los sistemas: los scripts, las skills y las
+# pruebas que leen ficheros del repo no deben recibir CRLF en Windows.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.woff2 binary

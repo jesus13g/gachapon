@@ -8,6 +8,7 @@ use crate::models::{
 };
 use crate::repository::boveda;
 use crate::repository::events::{self, EventFilter};
+use crate::repository::notas::{self, NuevaNota};
 use crate::repository::propuestas::{self, PropuestaFilter};
 use crate::repository::trabajos::{self, FilaFase, FilaRutina, FilaTrabajo};
 
@@ -81,6 +82,11 @@ impl Store {
         trabajos::listar_rutinas(&self.conn)
     }
 
+    /// Todas las versiones de una rutina, la más reciente primero.
+    pub fn listar_versiones_rutina(&self, slug: &str) -> StoreResult<Vec<FilaRutina>> {
+        trabajos::listar_versiones_rutina(&self.conn, slug)
+    }
+
     pub fn append_event(&self, new_event: NewEvent) -> StoreResult<Event> {
         events::append_event(&self.conn, new_event)
     }
@@ -95,6 +101,23 @@ impl Store {
 
     pub fn list_events_by_trabajo(&self, trabajo: &str) -> StoreResult<Vec<Event>> {
         events::list_events_by_trabajo(&self.conn, trabajo)
+    }
+
+    /// Los últimos `limit` eventos de una herramienta del catálogo: sus
+    /// invocaciones por MCP y los `accion_*`/`propuesta_*` que la nombran.
+    pub fn list_events_herramienta(&self, herramienta: &str, limit: i64) -> StoreResult<Vec<Event>> {
+        events::list_events_herramienta(&self.conn, herramienta, limit)
+    }
+
+    /// Añade una nota del usuario (`usuario_nota`), que puede corregir otro
+    /// evento; valida antes y no escribe nada si algo falla.
+    pub fn anotar_diario(&self, nota: NuevaNota) -> StoreResult<Event> {
+        notas::anotar(&self.conn, nota)
+    }
+
+    /// Las notas que corrigen cada uno de `ids` (solo los que tienen alguna).
+    pub fn correcciones_diario(&self, ids: &[i64]) -> StoreResult<std::collections::BTreeMap<i64, Vec<i64>>> {
+        notas::correcciones(&self.conn, ids)
     }
 
     /// Encola una propuesta (de texto libre o con acción estructurada).
@@ -155,6 +178,11 @@ impl Store {
 
     pub fn boveda_recientes(&self, region: Option<&str>, limite: i64) -> StoreResult<Vec<ResultadoBusqueda>> {
         boveda::recientes(&self.conn, region, limite)
+    }
+
+    /// Todas las notas indexadas, ordenadas por ruta.
+    pub fn boveda_todas(&self) -> StoreResult<Vec<ResultadoBusqueda>> {
+        boveda::todas(&self.conn)
     }
 
     pub fn boveda_contar_por_region(&self) -> StoreResult<Vec<(String, i64)>> {

@@ -3,9 +3,10 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda'];
+const GL_AJUSTES = '<svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 5.4L10.9 3.1L13.1 3.1L13.5 5.4L15.7 6.3L17.5 4.9L19.1 6.5L17.7 8.3L18.6 10.5L20.9 10.9L20.9 13.1L18.6 13.5L17.7 15.7L19.1 17.5L17.5 19.1L15.7 17.7L13.5 18.6L13.1 20.9L10.9 20.9L10.5 18.6L8.3 17.7L6.5 19.1L4.9 17.5L6.3 15.7L5.4 13.5L3.1 13.1L3.1 10.9L5.4 10.5L6.3 8.3L4.9 6.5L6.5 4.9L8.3 6.3Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'biblioteca', 'equipos', 'ajustes'];
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
-const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', boveda: 'b' };
+const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm', equipos: 'q' };
 const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
 // Estados de un trabajo: glifo y palabra. El orden es el del recorrido.
 const EST = {
@@ -20,7 +21,14 @@ const COLOR = { mision: '#e5484d', obra: '#3e8ed0', rutina: '#f2c94c', propuesta
 const IC = { ejecutando: 'run', en_espera: 'hot', cerrado: 'cerrada', cancelado: 'cancelada' };
 const CLAUDE = '#d97757'; // el color de Claude Code (placa de la escena)
 const ACTIVOS = ['en_cola', 'ejecutando', 'en_revision', 'en_espera'];
-const NOMBRE = { 'modelo-local': 'modelo local', 'claude-code': 'Claude Code', orquestador: 'orquestador', usuario: 'tú' };
+// Las colas, regiones y actores del diario van por rol (spec 017): `claude-code`
+// es el planificador y `modelo-local` el ejecutor, los ocupe el agente que los
+// ocupe. Los demás son ids del catálogo (el semáforo lleva el del ejecutor).
+const NOMBRE = {
+  'modelo-local': 'ejecutor', 'claude-code': 'planificador', orquestador: 'orquestador', usuario: 'tú',
+  'qwen-code': 'Qwen Code', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity',
+  'sin-rol': 'agente sin rol', desconocido: 'cliente desconocido',
+};
 const TITULOS = {
   inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
   trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su premio (el informe), el diff y lo que admite.'],
@@ -28,15 +36,22 @@ const TITULOS = {
   rutinas: ['Rutinas', 'Máquinas de cápsulas amarillas, versionadas y registradas. Echa una ficha para lanzar una ahora sin esperar a su hora.'],
   propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
   acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
-  sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y los agentes que trabajan en él.'],
-  boveda: ['Bóveda', 'Las notas de los agentes y las compartidas. El buscador busca dentro de su contenido.'],
+  sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y qué agente ocupa cada rol. Despliega un rol para cambiar de agente.'],
+  boveda: ['Bóveda', 'Las notas de los agentes y las tuyas, como en Obsidian. Elige una en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto. El buscador busca también dentro del contenido.'],
+  memoria: ['Memoria', 'Lo que Claude Code recuerda de cada proyecto. Elige una nota en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto.'],
+  biblioteca: ['Biblioteca', 'Las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, con su estado y quién los usa. Ábrela para activar o desactivar, o lanza una sesión con solo las que elijas.'],
+  equipos: ['Equipos', 'Grupos de agentes despertados para una tarea: quién es planificador, ejecutor o revisor, quién está despierto, en qué trabaja y qué ha entregado. Despierta uno con ＋ despertar; dormirlo devuelve lo pendiente a la cola.'],
+  ajustes: ['Ajustes', 'Cómo se comporta el ecosistema. Lo marcado ⌨ se cambia en una terminal con `ea ajustes`.'],
 };
 const VACIO = {
-  trabajos: 'No hay trabajos. Se lanzan desde Claude Code con /mision, /obra o /rutina.',
+  trabajos: 'No hay trabajos. Encarga una misión con ＋ misión, o desde el planificador con /mision, /obra o /rutina.',
   diario: 'El diario está vacío.',
   rutinas: 'No hay rutinas registradas (ea rutina registrar).',
   propuestas: 'Nada espera tu decisión.',
   boveda: 'No hay notas.',
+  memoria: 'Ningún proyecto tiene memoria (~/.claude/projects/*/memory).',
+  equipos: 'No hay equipos. Despierta uno con ＋ despertar, o con ea equipo despertar.',
+  biblioteca: 'La biblioteca está vacía: ningún agente tiene herramientas en disco (o los filtros no dejan ninguna).',
 };
 
 const st = {
@@ -51,18 +66,59 @@ const st = {
   datos: null,         // datos de la sección visible
   detalle: {},         // detalle cargado de las filas abiertas
   diffs: {},           // diff de los trabajos con el diff desplegado (id -> respuesta)
+  faseDiff: {},        // diff de las fases desplegadas ('<id>:<n>' -> respuesta)
+  fasePlan: new Set(), // fases con el plan desplegado ('<id>:<n>')
   abiertos: new Set(), // claves abiertas (j<id>, r<slug>, …)
   sel: null,           // clave seleccionada
+  enlace: null,        // clave de la fila que va en el hash (#seccion/<fila>)
+  irA: null,           // clave de la fila que hay que enseñar al pintarla
   vis: [],             // claves visibles, en orden
   html: '',
   q: '',
   filtroEstado: null,
+  nueva: null,         // formulario «＋ misión» abierto: { v: valores, form: ea.nuevoTrabajo(), err }
   propTodas: false,
   latidos: false,
-  armado: null,        // { n, hasta }: reinicio de servicio pendiente de confirmar
+  // Filtros del diario (van al servidor y al hash, ver PARAMS.diario).
+  dActor: null,
+  dResultado: null,    // 'ok' | 'error'
+  dAccion: null,       // prefijo de la familia: 'bus_', 'mcp_'…
+  dDesde: null,        // 'hoy' | 'ayer' | '24h' | '7d' | AAAA-MM-DD
+  dHasta: null,        // AAAA-MM-DD (incluido)
+  dTrabajo: null,
+  dFechas: false,      // se eligió «fechas…» en el rango (aún sin fecha)
+  // «↓ más antiguos»: ver fundeDiario().
+  dLista: null,        // lo cargado del diario, sin el filtro de proyecto
+  dMas: false,         // hay páginas antiguas cargadas además de la primera
+  dFin: false,         // no quedan eventos más antiguos
+  dFirma: '',          // los filtros con los que se cargó dLista
+  dCargando: false,
+  anota: null,         // formulario «✎ anotar» del diario: { v: { texto, trabajo }, corrige: id | null, err }
+  armado: null,       // { n, hasta }: reinicio de servicio pendiente de confirmar
   ocupado: false,
   otra: false,         // hay que repetir el sondeo al terminar el actual
   consola: {},         // por herramienta: { v: valores, sim, res, err }
+  propRes: null,       // la propuesta recién aceptada con su `resultado` (A1): ver filasPropuestas()
+  rutEnt: {},          // por rutina: { v: entradas escritas, previa, err }
+  rutEd: null,         // editor de TOML abierto: ver editorRutina()
+  rutVer: {},          // por rutina: { abierto, lista, err, txt: { n: TOML } }: ver versionesHtml()
+  rutVerSel: null,     // versión elegida: { slug (null: la fila del enlace), n, diff }
+  rutHor: {},          // por rutina: { v: OnCalendar escrito, sim, quitar, err }: ver horarioRutina()
+  wtLimp: {},          // por trabajo: { sim, err }: limpiar su worktree propio, ver worktreeHtml()
+  rutRet: {},          // por rutina: { herr, sim, err }: retirar o restaurar, ver retiroRutina()
+  rutRetiradas: false, // la barra de Rutinas enseña las retiradas en vez de las activas
+  ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
+  bAgente: null, bTipo: null, bCat: null, bEstado: null, // filtros de la biblioteca (van al hash)
+  bibUso: null,        // uso de la biblioteca: { mapa: id -> uso, en, cargando }
+  bibCambio: {},       // por elemento: { sim, res, err } de activar o desactivar
+  bibSes: null,        // formulario «▶ sesión con…»: { agente, ids, sim, res, err }
+  eqNuevo: null,       // formulario «＋ despertar» de Equipos: ver formEquipo()
+  bibCat: null,        // categoría en edición: { id, v, err }
+  ajBorrador: {},      // clave -> lo escrito en el control de un ajuste, sin guardar
+  rfBorrador: {},      // trabajo -> { nota, fase }: lo escrito para reformularlo, sin enviar
+  sondeoMs: null,      // web.sondeo_ms de los ajustes (null: 3000)
+  diarioLimite: null,  // web.diario_limite de los ajustes (null: 300)
+  relojTick: null,     // el intervalo del sondeo
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -128,7 +184,7 @@ function fila(k, cls, row, txt, det = '', extra = '') {
   return {
     k,
     txt: txt.toLowerCase(),
-    html: `<article class="f${abierto ? ' o' : ''}${st.sel === k ? ' s' : ''}${extra}" data-k="${esc(k)}">` +
+    html: `<article class="f${abierto ? ' o' : ''}${st.sel === k ? ' s' : ''}${extra}" data-k="${esc(k)}" tabindex="0">` +
       `<div class="r ${cls}">${row}</div>${abierto && det ? `<div class="det">${det}</div>` : ''}</article>`,
   };
 }
@@ -160,7 +216,9 @@ function eventos(lista) {
 
 // ------------------------------------------------------------------- trabajos
 
-const estadoJ = t => `<span class="est ${t.estado}">${capsulaJ(t)}${EST[t.estado][1]}</span>`;
+// «cancelando…»: cancelado, pero el ejecutor aún tiene su worktree (parando al agente).
+const estadoJ = t => `<span class="est ${t.estado}">${capsulaJ(t)}${t.cancelando ? 'cancelando…' : EST[t.estado][1]}</span>`;
+const NO_SE_DESHACE = 'lo que el agente ya escribió en el worktree no se deshace';
 
 // «fase 2/5» o «iteración 3», lo que diga más del avance.
 function avance(t) {
@@ -173,6 +231,7 @@ function avance(t) {
 function premio(t, largo = false) {
   const av = avance(t);
   const con = (...xs) => xs.filter(Boolean).join(' · ');
+  if (t.cancelando) return ['⊘ cancelando…', 'hot'];
   if (t.estado === 'cancelado') return ['⊘ sin premio', ''];
   if (t.resultado === 'bloqueado' || t.estado === 'en_espera') {
     const roto = t.estado === 'cerrado' ? '✕ premio roto' : '✕ bloqueado';
@@ -191,16 +250,44 @@ function accionesTrabajo(t, i, mas = '') {
   if (t.estado === 'en_revision') {
     h += b('cerrar', '★ canjear <span>cerrar</span>', 'cerrar: darlo por bueno', 'coin');
     if (i && !i.obra_completa) h += b('continuar', '▶ seguir girando <span class="dd">continuar</span>', 'la obra sigue con las fases que quedan');
-    h += `<input class="nota" placeholder="nota para volver a girar" aria-label="Nota para reformular" maxlength="10000">` +
-      b('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al modelo local con esta nota (obligatoria)');
+    h += reformularHtml(t);
   } else if (t.estado === 'en_espera') {
     h += `<textarea class="nota" rows="2" placeholder="contexto que se añade al paquete (opcional)" aria-label="Contexto" maxlength="10000"></textarea>` +
-      b('confirmar', '✓ desatascar', 'pasa el paquete de corrección a Claude Code', 'coin hot');
+      b('confirmar', '✓ desatascar', 'pasa el paquete de corrección al planificador', 'coin hot');
   }
   h += mas;
-  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', 'cancelar el trabajo (segundo clic para confirmar)', 'hot');
+  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
   return h ? `<div class="acc" data-j="${id}">${h}</div>` : '';
 }
+
+// Reformular: encima, las notas de las revisiones anteriores (solo lectura);
+// debajo, la nota nueva y, en una obra, desde qué fase se rehace: la
+// pendiente por defecto (en una obra completa, la última). Esa fase y las
+// siguientes vuelven a quedar pendientes. Lo escrito vive en st.rfBorrador.
+function reformularHtml(t) {
+  const o = st.detalle['j' + t.id]?.orden;
+  const bo = st.rfBorrador[t.id] ?? {};
+  const id = esc(t.id);
+  let h = '<div class="rf">';
+  if (o?.notas_revision?.length) {
+    h += '<p class="et">notas anteriores</p>' +
+      o.notas_revision.map((n, i) => `<p class="tx"><span class="dd">${i + 1}.</span> ${esc(n)}</p>`).join('');
+  }
+  h += `<textarea class="nota" data-rf="${id}" rows="3" placeholder="nota para volver a girar: qué falla y qué cambiar" aria-label="Nota para reformular" maxlength="10000">${esc(bo.nota ?? '')}</textarea></div>`;
+  if (t.modo === 'obra' && t.fases_total) {
+    const fases = o?.fases?.length ? o.fases : Array.from({ length: t.fases_total }, (_, i) => ({ numero: i + 1 }));
+    const nums = fases.map(f => f.numero);
+    const pend = nums.includes(t.fase_actual) ? t.fase_actual : Math.max(...nums);
+    const elegida = bo.fase ?? pend;
+    h += `<select data-rff="${id}" aria-label="Fase desde la que se rehace" title="esa fase y las siguientes vuelven a quedar pendientes">` +
+      fases.map(f => `<option value="${f.numero}"${f.numero === elegida ? ' selected' : ''}>rehacer desde la fase ${f.numero}` +
+        `${f.titulo ? ': ' + esc(f.titulo) : ''}${f.numero === pend ? ' · pendiente' : ''}</option>`).join('') + '</select>';
+  }
+  return h + btn('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al ejecutor con esta nota (obligatoria)', { id: t.id });
+}
+
+// «qwen-code (qwen3-coder-30b)»: con qué agente y modelo se ejecutó (spec 017).
+const porQuien = e => e ? `${esc(e.agente)} (${esc(e.modelo)})` : '';
 
 function informeHtml(d) {
   const i = d.informe;
@@ -212,11 +299,11 @@ function informeHtml(d) {
   if (i.diff_stat) h += `<p class="et">diff stat</p><pre class="tx">${esc(i.diff_stat)}</pre>`;
   if (i.fases?.length) {
     h += '<p class="et">fases</p>' + i.fases.map(f =>
-      `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="dd">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}</span></p>`).join('');
+      `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="dd">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}${f.ejecutado_por ? ' · ' + porQuien(f.ejecutado_por) : ''}</span></p>`).join('');
   }
   return `<div class="caja-premio"><div class="cab-p"><span class="premio">★ PREMIO</span>` +
     `<span class="${bloq ? 'hot' : 'x'}">${bloq ? '✕ bloqueado' : '✓ terminado'}</span>` +
-    `<span class="m">· obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s</span></div>` +
+    `<span class="m">· obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s${i.ejecutado_por ? ' · ' + porQuien(i.ejecutado_por) : ''}</span></div>` +
     `<div class="cuerpo-p">${h}</div></div>`;
 }
 
@@ -226,6 +313,103 @@ function diffHtml(id) {
   const x = st.diffs[id];
   if (x) h += x.error ? `<p class="hot">${esc(x.error)}</p>` : `<pre class="diff">${colorDiff(x.diff || '(sin cambios)')}${x.truncado ? '\n… (recortado)' : ''}</pre>`;
   return h;
+}
+
+// Ficha completa (H16): metadatos de la orden, el plan de la obra con el
+// estado y el diff de cada fase, y el resumen del agente. Solo lectura.
+function metaTrabajo(o, w = null) {
+  const t = o.topes || {};
+  const sk = o.skills?.length ? 'skills: ' + o.skills.map(esc).join(', ') : 'sin skills';
+  const topes = `topes: ${t.iteraciones} it. · ${Math.round((t.tiempo_s || 0) / 60)} min · ${t.turnos} turnos · ${t.llamadas_herramienta} llamadas`;
+  const rut = o.rutina ? ` · rutina ${esc(o.rutina.slug)} v${o.rutina.version}` : '';
+  const eq = o.equipo
+    ? `<p class="m">equipo ${btn('ir-equipo', esc(o.equipo.slice(9, 15) || o.equipo), 'abrir el equipo ' + o.equipo + ' en ◎ Equipos', { id: o.equipo }, 'l')}` +
+      `${o.asignado_a ? ' · asignado a ' + esc(o.asignado_a) : ''}${o.revisor ? ' · revisor ' + esc(o.revisor) : ''}${o.worktree_propio ? ' · worktree propio' : ''}</p>`
+    : o.worktree_propio ? '<p class="m">worktree propio</p>' : '';
+  return `<p class="m">${sk} · ${topes} · creada por ${esc(o.creada_por || '—')}${rut}</p>` + eq + (o.worktree_propio ? worktreeHtml(o.id ?? w?.trabajo, w, o) : '');
+}
+
+// ------------------------------------- worktree propio de un trabajo (#7)
+//
+// Ruta, rama ea/<id> y si está limpio. Quitarlo es ea_limpiar_worktree
+// (reversible: la rama se conserva): el primer clic simula, el segundo ejecuta
+// lo simulado, con la clave de sesión. Solo con el trabajo cerrado o
+// cancelado y el worktree limpio; fusionar la rama o descartar cambios es del
+// usuario, con git (nunca --force).
+const LIMPIEZA = { true: ['limpio', 'ok'], false: ['con cambios sin guardar', 'hot'] };
+function worktreeHtml(id, w, o = {}) {
+  if (!w) {
+    return `<p class="m">worktree propio: sin directorio (aún no se ha creado o ya se limpió; la rama ea/${esc(id ?? o.id ?? '')} se conserva)</p>`;
+  }
+  const [txt, cls] = LIMPIEZA[w.limpio] ?? ['estado desconocido', 'hot'];
+  const L = st.wtLimp[w.trabajo] || {};
+  const puede = w.estado_trabajo === 'cerrado' || w.estado_trabajo === 'cancelado';
+  let h = `<p class="m">worktree propio: <code>${esc(w.ruta)}</code> · rama <code>${esc(w.rama)}</code> · <span class="${cls}">${txt}</span>${w.ocupado ? ' · en uso' : ''}`;
+  h += puede && !w.ocupado
+    ? ' ' + btn('wtlimpiar', L.sim ? '✓ confirmar' : '▣ limpiar worktree',
+      L.sim ? 'segundo clic: hace lo que dice la simulación' : 'simula quitar el worktree (git worktree remove, sin --force); la rama se conserva', { id: w.trabajo }, L.sim ? 'hot' : 'l')
+    : '</p><p class="m">se podrá limpiar cuando el trabajo esté cerrado o cancelado y el ejecutor lo haya soltado';
+  h += '</p>';
+  if (L.sim) h += `<p class="tx sal">${esc(L.sim.texto)}</p>`;
+  if (L.err) h += `<p class="hot sal">✕ ${esc(L.err)}</p>`;
+  return h;
+}
+
+async function accionWorktree(id) {
+  const L = (st.wtLimp[id] ??= {});
+  if (L.sim) {
+    let r;
+    try {
+      r = await ea.ejecutar('ea_limpiar_worktree', L.sim.argumentos, L.sim.precondicion);
+    } catch (e) {
+      if (e.status === 403) throw e;
+      L.sim = null;
+      L.err = e.message;
+    }
+    if (r) {
+      delete st.wtLimp[id];
+      avisa('✓ ' + r.texto, true);
+      if (st.datos?.worktrees) st.datos.worktrees = await ea.worktrees().catch(() => st.datos.worktrees);
+    }
+    return;
+  }
+  Object.assign(L, { sim: null, err: null });
+  try {
+    L.sim = await ea.simular('ea_limpiar_worktree', { trabajo: id });
+  } catch (e) {
+    if (e.status === 403) throw e;
+    L.err = e.message;
+  }
+}
+
+const FASE_IC = { hecha: ['✓', ''], pendiente: ['·', 'm'], bloqueada: ['✕', 'hot'], cancelada: ['⊘', 'm'], 'en curso': ['▶', ''] };
+
+function planObra(id, d) {
+  const fs = d.orden.fases || [];
+  if (!fs.length) return '';
+  const est = Object.fromEntries((d.fases || []).map(f => [f.numero, f]));
+  const actual = d.estado?.estado === 'ejecutando' ? d.estado.fase_actual : null;
+  return '<p class="et">plan de la obra</p><div class="fo">' + fs.map(f => {
+    const e = { ...est[f.numero] };
+    if (f.numero === actual && e.estado === 'pendiente') e.estado = 'en curso';
+    const k = id + ':' + f.numero;
+    const [ic, cls] = FASE_IC[e.estado] ?? ['◌', 'hot'];
+    const plan = st.fasePlan.has(k), dif = st.faseDiff[k];
+    let h = `<i class="${cls}">${ic}</i><span class="x">${f.numero}. ${esc(f.titulo)}</span>` +
+      `<span class="m">${esc(e.estado || '—')}${e.cerrado_en ? ' · ' + hora(e.cerrado_en) : ''}${e.diff_stat ? ' · ' + esc(e.diff_stat.trim().split('\n').pop()) : ''}</span>` +
+      `<span>${btn('plan-fase', (plan ? '▾' : '▸') + ' plan', 'instrucciones, entregable y criterio de la fase', { id, v: f.numero }, 'l')}` +
+      (e.instantanea ? ' ' + btn('diff-fase', (dif !== undefined ? '▾' : '▸') + ' diff', 'lo que cambió en esta fase (instantáneas de árbol)', { id, v: f.numero }, 'l') : '') + '</span>';
+    if (plan) h += `<div class="ex"><p class="et">instrucciones</p><pre class="tx">${esc(f.instrucciones)}</pre>` +
+      `<p class="et">entregable</p><p class="tx">${esc(f.entregable)}</p><p class="et">criterio</p><pre class="tx">${esc(f.criterio)}</pre>` +
+      (f.skills?.length ? `<p class="m">skills: ${f.skills.map(esc).join(', ')}</p>` : '') + '</div>';
+    if (dif) h += '<div class="ex">' + (dif.error ? `<p class="hot">${esc(dif.error)}</p>`
+      : `<pre class="diff">${colorDiff(dif.diff || '(sin cambios)')}${dif.truncado ? '\n… (recortado)' : ''}</pre>`) + '</div>';
+    return h;
+  }).join('') + '</div>';
+}
+
+function resumenAgente(d) {
+  return d.resumen_agente ? `<p class="et">resumen del agente</p><pre class="tx">${esc(d.resumen_agente)}</pre>` : '';
 }
 
 // Cada línea del diff con su color: cabeceras y stat apagados, hunks en el
@@ -247,24 +431,240 @@ function filasTrabajos(ts) {
       `<span class="m ${pzCls}">${esc(pz || '—')}</span><span class="m">${reloj(t.actualizado)}</span>`;
     const d = st.detalle[k];
     let det = `<p class="m">${esc(t.id)} · creado ${hora(t.creado)}${t.detalle ? ' · ' + esc(t.detalle) : ''}</p>`;
+    if (t.cancelando) det += `<p class="m hot">cancelando…: el ejecutor está parando al agente y soltará el worktree; ${NO_SE_DESHACE}.</p>`;
     if (d) {
       const o = d.orden;
       det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
         `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
-        (o.notas_revision?.length ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
+        (d.estado?.ejecutado_por ? `<p class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</p>` : '') +
+        metaTrabajo(o, d.worktree) +
+        (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
         informeHtml(d) +
+        resumenAgente(d) +
+        planObra(t.id, d) +
         (d.paquete ? `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>` : '') +
         (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
-        `<p class="et">historial</p><div class="evs">` + d.historial.map(h =>
-          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span>${esc(h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}</span></div>`).join('') + '</div>' +
+        `<p class="et">historial ${btn('ir-diario', '→ diario', 'los eventos de este trabajo en el diario', { id: t.id }, 'l')}</p><div class="evs">` + d.historial.map(h =>
+          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span>${esc(h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}${h.ejecutado_por ? ' · ' + esc(h.ejecutado_por.agente) : ''}</span></div>`).join('') + '</div>' +
         accionesTrabajo(t, d.informe);
     } else {
       det += accionesTrabajo(t, null);
     }
+    if (d && FINAL.includes(t.estado)) det += botonClonar(t);
     return fila(k, 'j', row, `${t.titulo} ${t.modo} ${t.id} ${EST[t.estado][1]} ${t.resultado ?? ''}`, det, FINAL.includes(t.estado) ? ' fin' : '');
   });
 }
 
+
+// El formulario «＋ misión», en línea encima de la lista. Lo escrito vive en
+// st.nueva.v (el sondeo repinta). El criterio solo se envía: lo ejecuta el
+// sistema al final de cada iteración, nunca esta página.
+function formMision() {
+  const n = st.nueva;
+  if (!n) return [];
+  const v = n.v, t = n.form.techo, obra = n.modo === 'obra';
+  const min = Math.max(1, Math.floor(t.tiempo_s / 60));
+  const campo = (c, ph, extra = '') =>
+    `<input data-nm="${c}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" value="${esc(v[c] ?? '')}"${extra}>`;
+  const tope = (c, et, max) =>
+    `<label>${et} <input data-nm="${c}" type="number" inputmode="numeric" min="1" max="${max}" value="${esc(v[c] ?? '')}" aria-label="${et} (como mucho ${max})"></label>`;
+  const det = '<div class="nm">' + modosNueva(n) +
+    '<div class="fm">' + campo('titulo', 'título', ' maxlength="200"') +
+    campo('worktree', 'worktree: ruta absoluta del repo', ' class="wt" list="nm-wt" spellcheck="false"') +
+    `<datalist id="nm-wt">${n.form.worktrees.map(w => `<option value="${esc(w)}"></option>`).join('')}</datalist></div>` +
+    (obra
+      ? `<textarea data-nm="objetivo" rows="3" maxlength="20000" placeholder="objetivo general: el contexto que reciben todas las fases" aria-label="Objetivo general">${esc(v.objetivo ?? '')}</textarea>` +
+        fasesObra(n) + '<div class="fm">' + revisarCada(n) + tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
+        `<p class="m">Cada fase pasa cuando su criterio pasa; lo ejecuta el sistema, nunca esta página. Cada cuántas fases revisa el planificador lo eliges tú. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`
+      : `<textarea data-nm="objetivo" rows="4" maxlength="20000" placeholder="objetivo: qué tiene que conseguir el ejecutor" aria-label="Objetivo">${esc(v.objetivo ?? '')}</textarea>` +
+        '<div class="fm">' + campo('criterio', 'criterio: comando que decide si está hecho (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') +
+        tope('iteraciones', 'iteraciones', t.iteraciones) + tope('minutos', 'minutos', min) + '</div>' +
+        `<p class="m">El criterio lo ejecuta el sistema al final de cada iteración, nunca esta página. Topes como mucho: ${t.iteraciones} iteraciones y ${min} min (techo de ajustes.toml).</p>`) +
+    equipoMision(n) +
+    (n.aviso ? `<p class="m">⧉ ${esc(n.aviso)}</p>` : '') +
+    (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
+    '<div class="acc">' + (obra
+      ? btn('crear-mision', '▶ encolar obra', 'crear la obra y ponerla en la cola del ejecutor', {}, 'coin')
+      : btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del ejecutor', {}, 'coin')) +
+    btn('nueva-mision', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
+  const nombre = obra ? 'obra' : 'misión';
+  const row = `<span class="est">${capsula(obra ? COLOR.obra : COLOR.mision)}nueva</span><span class="n">—</span>` +
+    `<span class="x">${esc(v.titulo || nombre + ' sin título')}</span><span class="m w">${nombre}</span>` +
+    `<span class="m">${obra ? `${n.fases.length} ${n.fases.length === 1 ? 'fase' : 'fases'}` : 'para el ejecutor'}</span><span class="m"></span>`;
+  return [suelto(`<article class="f o nueva"><div class="r j">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+// Lo opcional del formulario que toca a los equipos (spec 019): el servidor
+// valida que el equipo esté despierto y que asignado y revisor sean suyos.
+function deEquipo(v) {
+  const o = {};
+  for (const [c, campo] of [['equipo', 'equipo'], ['asignado', 'asignado_a'], ['revisor', 'revisor']]) if (v[c]) o[campo] = v[c];
+  if (v.wprop) o.worktree_propio = true;
+  return o;
+}
+
+// «◎ equipo…» de ＋ misión, plegado: el equipo despierto al que va, el
+// ejecutor que la toma, quien revisa la entrega y si trabaja en su propio
+// `git worktree`. Sin equipos despiertos solo ofrece el worktree propio.
+function equipoMision(n) {
+  const abierto = n.eqAbierto || n.v.equipo || n.v.asignado || n.v.revisor || n.v.wprop;
+  const boton = btn('nm-equipo', abierto ? '◎ equipo ▾' : '◎ equipo…', 'elegir equipo, ejecutor asignado, revisor y worktree propio (opcional)');
+  if (!abierto) return `<div class="acc">${boton}</div>`;
+  const despiertos = (n.equipos ?? []).filter(e => e.estado === 'despierto');
+  const elegido = despiertos.find(e => e.id === n.v.equipo);
+  const op = (valor, texto, actual) => `<option value="${esc(valor)}"${valor === (actual ?? '') ? ' selected' : ''}>${esc(texto)}</option>`;
+  const sel = (c, et, ops, actual) =>
+    `<label>${et} <select data-nm="${c}" aria-label="${et}">${op('', '— ninguno —', actual)}${ops.map(([v, t]) => op(v, t, actual)).join('')}</select></label>`;
+  const de = roles => (elegido?.miembros ?? []).filter(m => roles.includes(m.rol)).map(m => [m.agente, `${m.agente} (${m.rol})`]);
+  return `<div class="acc">${boton}</div><div class="fm">` +
+    sel('equipo', 'equipo', despiertos.map(e => [e.id, e.titulo]), n.v.equipo) +
+    (elegido ? sel('asignado', 'asignado a', de(['ejecutor']), n.v.asignado) + sel('revisor', 'revisor', de(['revisor', 'planificador']), n.v.revisor) : '') +
+    `<label><input type="checkbox" data-nm="wprop"${n.v.wprop ? ' checked' : ''}> worktree propio</label></div>` +
+    '<p class="m">Sin asignado la toma cualquier ejecutor despierto. Con worktree propio el sistema crea un <code>git worktree</code> aparte para este trabajo.</p>';
+}
+
+async function creaMision() {
+  const n = st.nueva, v = n.v;
+  const num = c => (String(v[c] ?? '').trim() ? Number(v[c]) : undefined);
+  const iteraciones = num('iteraciones'), minutos = num('minutos');
+  for (const [x, nombre] of [[iteraciones, 'iteraciones'], [minutos, 'minutos']]) {
+    if (x !== undefined && !(Number.isInteger(x) && x >= 1)) throw new Error(`'${nombre}' debe ser un número entero mayor que 0`);
+  }
+  const topes = { iteraciones, tiempo_s: minutos === undefined ? undefined : minutos * 60 };
+  const obra = n.modo === 'obra';
+  if (obra && !v.revisar) throw new Error('elige cada cuántas fases revisa el planificador');
+  const t = await ea.crearTrabajo(obra
+    ? {
+      modo: 'obra', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', topes,
+      fases: n.fases.map(f => ({ titulo: f.titulo ?? '', instrucciones: f.instrucciones ?? '', entregable: f.entregable ?? '', criterio: f.criterio ?? '' })),
+      revisar_cada: v.revisar === 'fin' ? null : Number(v.revisar), ...deEquipo(v),
+    }
+    : { modo: 'mision', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', criterio: v.criterio ?? '', topes, ...deEquipo(v) });
+  st.nueva = null;
+  st.filtroEstado = null;
+  avisa(`✓ ${obra ? 'obra' : 'misión'} ${t.id.slice(9, 15)} en la cola del ejecutor`, true);
+  abre('trabajos', 'j' + t.id);
+}
+
+// ----------------------------------------------- «＋ misión» en modo obra
+// Lo escrito en las fases vive en st.nueva.fases (el sondeo repinta); el
+// número de cada fase es su posición. Las fases se añaden, quitan y
+// reordenan con botones; cada una lleva su criterio, que solo se envía.
+
+const FASES_MAX = 20;
+const faseVacia = () => ({ titulo: '', instrucciones: '', entregable: '', criterio: '' });
+
+// Misión u obra, si el servidor anuncia las obras en `modos`.
+function modosNueva(n) {
+  if (!n.form.modos.includes('obra')) return '';
+  const m = (modo, et, titulo) =>
+    `<button class="b${n.modo === modo ? ' on' : ''}" data-a="nm-modo" data-v="${modo}" title="${esc(titulo)}" aria-pressed="${n.modo === modo}">${et}</button>`;
+  return '<div class="seg" role="group" aria-label="Modo">' +
+    m('mision', '● misión', 'un objetivo y un criterio') + m('obra', '◎ obra', 'un plan por fases, cada una con su criterio') + '</div>';
+}
+
+function fasesObra(n) {
+  const total = n.fases.length;
+  return '<ol class="fases">' + n.fases.map((f, i) => {
+    const c = (campo, ph, extra = '') =>
+      `<input data-nf="${i}" data-nc="${campo}" placeholder="${esc(ph)}" aria-label="Fase ${i + 1}: ${esc(ph)}" value="${esc(f[campo] ?? '')}"${extra}>`;
+    return `<li class="fase"><div class="fm"><b class="nf">${i + 1}</b>` + c('titulo', 'título de la fase', ' maxlength="200"') +
+      (i > 0 ? btn('nf-subir', '↑', `subir la fase ${i + 1}`, { n: i }) : '') +
+      (i < total - 1 ? btn('nf-bajar', '↓', `bajar la fase ${i + 1}`, { n: i }) : '') +
+      (total > 1 ? btn('nf-quitar', '✕', `quitar la fase ${i + 1}`, { n: i }, 'hot') : '') + '</div>' +
+      `<textarea data-nf="${i}" data-nc="instrucciones" rows="2" maxlength="20000" placeholder="instrucciones: qué hacer en esta fase" aria-label="Fase ${i + 1}: instrucciones">${esc(f.instrucciones ?? '')}</textarea>` +
+      '<div class="fm">' + c('entregable', 'entregable: qué queda hecho', ' maxlength="2000"') +
+      c('criterio', 'criterio: comando que decide si la fase está hecha (obligatorio)', ' class="cr" maxlength="2000" spellcheck="false"') + '</div></li>';
+  }).join('') + '</ol>' +
+    (total < FASES_MAX ? '<div class="acc">' + btn('nf-mas', '＋ fase', 'añadir una fase al final') + '</div>' : '');
+}
+
+// Cada cuántas fases revisa el planificador (art. IV.4): sin valor por defecto;
+// hasta que se elige, el formulario no se envía.
+function revisarCada(n) {
+  const total = n.fases.length, v = n.v.revisar ?? '';
+  const op = (valor, et) => `<option value="${valor}"${v === valor ? ' selected' : ''}>${et}</option>`;
+  return `<label>revisión <select data-nm="revisar" aria-label="Cada cuántas fases revisa el planificador"${v ? '' : ' class="falta"'}>` +
+    op('', '— elige —') + op('fin', 'solo al final') +
+    Array.from({ length: total }, (_, i) => op(String(i + 1), i ? `cada ${i + 1} fases` : 'tras cada fase')).join('') + '</select></label>';
+}
+
+// Las acciones de los botones del modo obra; true si era una de ellas.
+function accionFase(a, i) {
+  const n = st.nueva;
+  if (!n || !['nm-modo', 'nf-mas', 'nf-subir', 'nf-bajar', 'nf-quitar'].includes(a)) return false;
+  const f = n.fases;
+  if (a === 'nm-modo') n.modo = i;
+  else if (a === 'nf-mas' && f.length < FASES_MAX) f.push(faseVacia());
+  else if (a === 'nf-quitar' && f.length > 1) f.splice(Number(i), 1);
+  else if (a === 'nf-subir' || a === 'nf-bajar') {
+    const j = Number(i), k = a === 'nf-subir' ? j - 1 : j + 1;
+    if (k >= 0 && k < f.length) [f[j], f[k]] = [f[k], f[j]];
+  }
+  // Una revisión que ya no cabe en el número de fases se vuelve a elegir.
+  if (Number(n.v.revisar) > f.length) n.v.revisar = '';
+  n.err = null;
+  st.html = '';
+  document.activeElement?.blur(); // con un campo enfocado, pintar() no repinta
+  pintar();
+  if (a === 'nf-mas') $(`[data-nf="${f.length - 1}"][data-nc="titulo"]`)?.focus();
+  return true;
+}
+
+// ------------------------------------- «⧉ lanzar de nuevo» (clonar, T7)
+// Un trabajo cerrado o cancelado se vuelve a encargar desde «＋ misión»,
+// relleno con su orden: título, worktree, objetivo, criterio, topes y, en
+// una obra, fases y revisar_cada. No se copian el id, las notas de revisión,
+// el informe ni las skills (desde la web no se eligen); una rutina vuelve
+// como misión normal. Nada se envía solo: el usuario lo revisa y lo encola,
+// y POST /api/trabajos le da un id nuevo.
+
+function botonClonar(t) {
+  const armado = st.armado?.n === 'k' + t.id && st.armado.hasta > Date.now();
+  return '<div class="acc">' + (armado
+    ? btn('clonar', '⧉ reemplazar el formulario abierto', 'segundo clic: lo escrito en «＋ misión» se pierde', { id: t.id }, 'hot')
+    : btn('clonar', '⧉ lanzar de nuevo', 'abrir «＋ misión» relleno con esta orden para revisarla y encolarla', { id: t.id })) + '</div>';
+}
+
+async function clonaTrabajo(id) {
+  const o = st.detalle['j' + id]?.orden;
+  if (!o) throw new Error('la ficha del trabajo aún no ha cargado');
+  // Con el formulario ya abierto, un segundo clic confirma que se reemplaza.
+  if (st.nueva && !(st.armado && st.armado.n === 'k' + id && st.armado.hasta > Date.now())) {
+    st.armado = { n: 'k' + id, hasta: Date.now() + 3000 };
+    st.html = '';
+    pintar();
+    setTimeout(() => { st.armado = null; st.html = ''; pintar(); }, 3100);
+    return;
+  }
+  st.armado = null;
+  const form = await ea.nuevoTrabajo();
+  const techo = form.techo, minTecho = Math.max(1, Math.floor(techo.tiempo_s / 60));
+  const it = o.topes?.iteraciones ?? form.defecto.iteraciones;
+  const min = Math.max(1, Math.round((o.topes?.tiempo_s ?? form.defecto.tiempo_s) / 60));
+  const obra = o.modo === 'obra' && o.fases?.length > 0;
+  const fases = obra
+    ? o.fases.map(f => ({ titulo: f.titulo ?? '', instrucciones: f.instrucciones ?? '', entregable: f.entregable ?? '', criterio: f.criterio ?? '' }))
+    : [faseVacia()];
+  const revisar = !obra ? '' : o.revisar_cada == null ? 'fin' : o.revisar_cada <= fases.length ? String(o.revisar_cada) : '';
+  const avisos = [`copia de ${id.slice(9, 15)}: revísala antes de encolar; tendrá un id nuevo`];
+  if (o.modo === 'rutina') avisos.push(`viene de la rutina ${o.rutina?.slug ?? ''}: se lanza como misión normal, no como rutina`);
+  if (o.skills?.length || o.fases?.some(f => f.skills?.length)) avisos.push('las skills de la orden original no se copian (desde la web no se eligen)');
+  if (it > techo.iteraciones || min > minTecho) avisos.push('los topes se han recortado al techo de ajustes.toml');
+  if (st.sec !== 'trabajos' && ir('trabajos') === false) return;
+  st.nueva = {
+    form, err: null, modo: obra ? 'obra' : 'mision', fases, aviso: avisos.join(' · '),
+    v: {
+      titulo: o.titulo ?? '', worktree: o.worktree ?? '', objetivo: o.objetivo ?? '', criterio: obra ? '' : o.criterio_exito ?? '',
+      iteraciones: Math.min(it, techo.iteraciones), minutos: Math.min(min, minTecho), revisar,
+    },
+  };
+  st.html = '';
+  document.activeElement?.blur();
+  pintar();
+  $('#lista').scrollTop = 0;
+  $('[data-nm="titulo"]')?.focus();
+}
 
 function pretty(txt) {
   if (!txt) return '';
@@ -277,6 +677,84 @@ function trabajoDe(e) {
   try { return JSON.parse(e.detalle)?.trabajo || null; } catch { return null; }
 }
 
+// Adónde lleva un evento del diario, además de a su trabajo: lo que traiga
+// su `detail` (también dentro de `argumentos`, `args` y `resultado`). Cada
+// destino es { sec, fila, glifo, titulo }; la fila es la clave sin prefijo
+// y el glifo va ya escapado (btn no lo escapa).
+// Las claves salen de quien emite cada familia: `propuesta` y `herramienta`
+// (ea-acciones), `ruta` (ea-boveda; al renombrar, `a`; al promover,
+// `destino`), `rutina` (rutina_registrada) o `slug` (argumentos de las
+// herramientas de rutinas), `cambios[].clave` (ajustes_cambiados),
+// `proyecto` y `fichero` (memoria_*). Un `mcp_<x>` es la herramienta `ea_<x>`.
+function destinosEvento(e) {
+  let d = {};
+  try { d = JSON.parse(e.detalle) ?? {}; } catch { /* sin detalle o no es JSON */ }
+  const obj = x => x && typeof x === 'object' && !Array.isArray(x);
+  const capas = [d, d.argumentos, d.args, d.resultado].filter(obj);
+  const de = (n, vale) => {
+    for (const c of capas) {
+      const v = c[n];
+      if ((typeof v === 'string' || typeof v === 'number') && vale.test(String(v))) return String(v);
+    }
+    return null;
+  };
+  const out = [];
+  const pon = (sec, fila, glifo, titulo) => {
+    if (fila && !out.some(o => o.sec === sec && o.fila === fila)) out.push({ sec, fila, glifo, titulo });
+  };
+  const ac = e.accion ?? '';
+  const prop = de('propuesta', /^\d+$/);
+  pon('propuestas', prop, '→ propuesta #' + prop, 'ver la propuesta en ◇ Propuestas');
+  const mcp = /^mcp_([a-z_]+?)(_simulada|_denegada)?$/.exec(ac);
+  const h = de('herramienta', /^ea_[a-z_]+$/) ?? (mcp ? 'ea_' + mcp[1] : null);
+  pon('acciones', h, '→ ' + esc(h), 'ver la herramienta en ▶ Acciones');
+  const rut = de('rutina', /^[\w.-]{1,128}$/) ?? de('slug', /^[\w.-]{1,128}$/);
+  pon('rutinas', rut, '→ rutina ' + esc(rut), 'ver la rutina en ↻ Rutinas');
+  // La ruta de una nota que sigue en su sitio: no la que se fue a la
+  // papelera, ni una carpeta, ni la ruta relativa a su región que lleva
+  // ea_escribir_nota (la de verdad viene en su boveda_escritura).
+  if (!/^(boveda_papelera|boveda_carpeta|mcp_escribir_nota)/.test(ac)) {
+    const md = /^[^/]+\/.+\.md$/;
+    const ruta = ac === 'boveda_renombrado' ? de('a', md) : ac === 'boveda_promocion' ? de('destino', md) : de('ruta', md);
+    pon('boveda', ruta, '→ nota', 'abrir la nota en ▥ Bóveda');
+  }
+  if (ac.startsWith('memoria_') && ac !== 'memoria_eliminada') {
+    const p = de('proyecto', /^[\w.-]+$/), f = ac === 'memoria_renombrada' ? de('a', /^[^/]+\.md$/) : de('fichero', /^[^/]+\.md$/);
+    if (p && f) pon('memoria', p + '/' + f, '→ memoria', 'abrir la memoria en ✎ Memoria');
+  }
+  const claves = Array.isArray(d.cambios) ? d.cambios.map(c => c?.clave) : [d.clave];
+  for (const c of claves) {
+    if (typeof c === 'string' && /^[\w.-]{1,128}$/.test(c)) pon('ajustes', c, '→ ' + esc(c), 'ver el ajuste en ⚙ Ajustes');
+  }
+  return out;
+}
+
+// Los botones de los destinos de un evento (ver destinosEvento). Los datos
+// van en data-dsec y data-dfila: data-f ya es el filtro de estado de Trabajos.
+function enlacesEvento(e) {
+  const ds = destinosEvento(e);
+  if (!ds.length) return '';
+  return '<p>' + ds.map(x => x.sec === 'propuestas'
+    ? btn('ir-prop', x.glifo, x.titulo, { id: x.fila }, 'l')
+    : btn('ir-a', x.glifo, x.titulo, { dsec: x.sec, dfila: x.fila }, 'l')).join(' ') + '</p>';
+}
+
+// Abre la fila `f` (clave sin prefijo) de la sección `sec`. En Bóveda y
+// Memoria, la fila es la nota abierta del editor; si ya no existe, el
+// editor la suelta al pintar.
+function irAFila(sec, f) {
+  if (EDITOR[sec]) {
+    if (!cierraBorrador(sec)) return;
+    const E = ed(sec), k = (sec === 'boveda' ? 'b' : 'm') + f;
+    Object.assign(E, { sel: k, menu: false, renombrando: null, creando: null, papelera: false });
+    EDITOR[sec].desplegar?.(E, k);
+    guardaEditor(sec);
+    ir(sec);
+    return;
+  }
+  if (FILA[sec]) abre(sec, FILA[sec] + f);
+}
+
 function filasDiario(evs) {
   return evs.map(e => {
     const k = 'e' + e.id;
@@ -286,9 +764,72 @@ function filasDiario(evs) {
       `<span class="n" title="${esc(e.trabajo ?? '')}">${e.trabajo ? esc(e.trabajo.slice(-8)) : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
     const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${new Date(e.ts).toLocaleString()}</p>` +
       (e.detalle ? `<pre>${esc(pretty(e.detalle))}</pre>` : '') +
-      (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '');
+      (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '') +
+      correccionesDiario(e) +
+      enlacesEvento(e);
     return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
   });
+}
+
+// Las correcciones de un evento: «corrige #m» en una nota del usuario,
+// «corregido por #n» en el evento corregido y «✎ corregir» para añadir otra.
+// El diario es append-only: corregir no toca el evento, añade una nota.
+function correccionesDiario(e) {
+  let corrige = null;
+  if (e.accion === 'usuario_nota') try { corrige = JSON.parse(e.detalle)?.corrige ?? null; } catch { /* detalle no JSON */ }
+  const a = n => btn('ir-evento', '#' + n, 'ir al evento #' + n, { id: n }, 'l');
+  return (corrige != null ? `<p class="m">corrige ${a(corrige)}</p>` : '') +
+    (e.corregido_por?.length ? `<p class="hot">corregido por ${e.corregido_por.map(a).join(' ')}</p>` : '') +
+    `<p>${btn('d-corregir', '✎ corregir', 'añadir una nota que corrige este evento; el evento queda tal cual', { id: e.id, v: trabajoDe(e) ?? '' }, 'l')}</p>`;
+}
+
+// El formulario «✎ anotar» del diario, en línea encima de la lista: una nota
+// del usuario (usuario_nota) que deja constancia de algo o corrige un evento.
+// Lo escrito vive en st.anota.v (el sondeo repinta).
+function formAnotar() {
+  const n = st.anota;
+  if (!n) return [];
+  const v = n.v, corrige = n.corrige != null;
+  const det = '<div class="nm">' +
+    (corrige ? `<p class="m">corrige el evento ${btn('ir-evento', '#' + n.corrige, 'ver el evento que se corrige', { id: n.corrige }, 'l')}, que queda tal cual: la nota lo enlaza.</p>` : '') +
+    `<textarea data-an="texto" rows="3" maxlength="10000" placeholder="${corrige ? 'qué estaba mal y qué pasó de verdad' : 'qué quieres que conste (p. ej. «he reiniciado llama-server a mano»)'}" aria-label="Texto de la nota">${esc(v.texto ?? '')}</textarea>` +
+    `<div class="fm"><input data-an="trabajo" class="wt" maxlength="128" spellcheck="false" placeholder="trabajo (opcional): id del bus" aria-label="Trabajo (opcional)" value="${esc(v.trabajo ?? '')}"></div>` +
+    '<p class="m">Queda en el diario como usuario_nota, con actor usuario, y no se puede editar ni borrar: un error se corrige con otra nota.</p>' +
+    (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
+    '<div class="acc">' + btn('d-anotar-enviar', '✎ anotar', 'añadir la nota al diario', {}, 'coin') +
+    btn(corrige ? 'd-corregir' : 'd-anotar', '✕ descartar', 'cerrar el formulario sin anotar nada', corrige ? { id: n.corrige } : {}) + '</div></div>';
+  const row = '<span class="m">ahora</span><i class="m">✎</i><span class="m w">usuario</span>' +
+    `<span class="x">${corrige ? 'corrección de #' + esc(n.corrige) : 'nota'}</span><span class="n"></span><span class="m"></span>`;
+  return [suelto(`<article class="f o nueva"><div class="r d">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+async function anotaDiario() {
+  const n = st.anota, texto = (n.v.texto ?? '').trim(), trabajo = (n.v.trabajo ?? '').trim();
+  if (!texto) throw new Error('escribe el texto de la nota');
+  const cuerpo = { texto };
+  if (n.corrige != null) cuerpo.corrige = n.corrige;
+  if (trabajo) cuerpo.trabajo = trabajo;
+  const e = await ea.anotarDiario(cuerpo);
+  st.anota = null;
+  avisa(`✓ anotado en el diario: #${e.id}`, true);
+}
+
+// Las entradas de una rutina (con su valor por defecto) y la vista previa de
+// la orden que recibirá el agente. Lo de .sal caduca al cambiar un campo.
+function formEntradas(r) {
+  if (r.error) return '';
+  const re = st.rutEnt[r.slug] || {};
+  const ents = Object.entries(r.entradas ?? {});
+  let h = '<div class="fm">' + (ents.length ? ents.map(([k, def]) =>
+    `<label class="m">${esc(k)} <input data-rent="${esc(r.slug)}" data-ent="${esc(k)}" value="${esc(re.v?.[k] ?? def)}" ` +
+    `title="entrada ${esc(k)} (por defecto: ${esc(def)})" aria-label="entrada ${esc(k)}"></label>`).join('') : '<span class="m">sin entradas</span>') +
+    btn('rprevia', '◌ vista previa', 'muestra el objetivo y el criterio que recibirá el agente, sin lanzar nada', { slug: r.slug }) + '</div>';
+  if (re.previa) {
+    h += `<p class="tx sal">criterio: <b>${esc(re.previa.criterio)}</b></p><pre class="toml sal">${esc(re.previa.objetivo)}</pre>` +
+      `<div class="acc sal">${btn('lanzar', '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha', 'lanzar con estas entradas', { slug: r.slug }, 'coin')}</div>`;
+  }
+  if (re.err) h += `<p class="hot sal">✕ ${esc(re.err)}</p>`;
+  return h;
 }
 
 function filasRutinas(rs) {
@@ -297,23 +838,338 @@ function filasRutinas(rs) {
     // Una máquina de cápsulas amarillas: con halo si la última se atascó,
     // apagada si su rutina.toml no se puede leer.
     const suyos = st.trabajos.filter(t => t.rutina?.slug === r.slug);
-    const atascada = suyos.some(t => t.estado === 'en_espera');
+    const atascada = suyos.some(t => t.estado === 'en_espera') || r.ultima?.estado === 'en_espera';
     const enCola = suyos.some(t => t.estado === 'en_cola');
-    const desc = r.error ?? (r.descripcion ?? '') + (atascada ? ' · la última se atascó' : '');
+    const retirada = r.ubicacion && r.ubicacion !== 'activa';
+    const desc = retirada ? (r.ubicacion === 'retirada' ? 'retirada · en la papelera' : 'sin fichero en rutinas_dir')
+      : r.error ?? (r.descripcion ?? '') + (atascada ? ' · la última se atascó' : '');
     const row = capsula(COLOR.rutina, r.error ? 'averiada' : atascada ? 'hot' : '') +
       `<span class="x">${esc(r.slug)}</span><span class="m">v${r.version}</span>` +
       `<span class="m ${r.error || atascada ? 'hot' : ''}">${esc(desc)}</span>` +
-      `<span class="m">${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
-      (r.error ? '<span class="hot fuera">fuera de servicio</span>'
+      `<span class="m"${r.calendario ? ` title="${esc('OnCalendar=' + r.calendario)}"` : ''}>${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
+      ultimaRutina(r.ultima) +
+      (retirada ? '<span class="m fuera">retirada</span>'
+        : r.error ? '<span class="hot fuera">fuera de servicio</span>'
         : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
-          `Lanzar ahora la rutina ${r.slug}: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
+          `Lanzar ahora la rutina ${r.slug} con las entradas de su ficha: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
     const d = st.detalle[k];
-    const det = d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p><pre class="toml">${esc(d.contenido ?? '')}</pre>` : '';
+    const editando = st.rutEd?.slug === r.slug;
+    const det = d && retirada ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}</p>` +
+      retiroRutina(r) + ejecucionesRutina(d.ejecuciones) + `<pre class="toml">${esc(d.contenido ?? '')}</pre>` + versionesHtml(r.slug)
+      : d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
+      ejecucionesRutina(d.ejecuciones) +
+      formEntradas(r) +
+      horarioRutina(r) +
+      (editando ? editorRutina()
+        : `<div class="acc">${btn('red', '✎ nueva versión', 'edita el TOML y registra una versión nueva (la versión ya va subida en uno)', { slug: r.slug })}</div>` +
+          `<pre class="toml">${esc(d.contenido ?? '')}</pre>`) +
+      versionesHtml(r.slug) + retiroRutina(r) : '';
     return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
   });
 }
 
+// ------------------------------------------- horario de una rutina (R4)
+//
+// El timer de systemd de la rutina (`ea-rutina@<slug>.timer`): su OnCalendar,
+// si está activo y un campo para cambiarlo. «◷ guardar» simula primero
+// (systemd-analyze valida y da las próximas 3 ejecuciones) y el segundo clic
+// ejecuta lo simulado con su precondición: si el timer cambió entre medias,
+// la revalidación lo para. «✕ desprogramar», igual. Lo de .sal caduca al
+// cambiar el campo.
+function horarioRutina(r) {
+  if (r.error) return '';
+  const H = st.rutHor[r.slug] || {};
+  const act = r.timer === 'active' ? 'activo' : r.timer ? esc(r.timer) : '';
+  const ahora = r.calendario ? `<b>${esc(r.calendario)}</b>${act ? ' · ' + act : ''}${r.proxima ? ' · próxima ' + en(r.proxima) : ''}`
+    : r.timer === 'active' ? 'activo con el horario de la plantilla' : 'sin programar';
+  const listo = q => H.sim && !!H.quitar === q;
+  let h = `<div class="hor"><p class="et">horario</p><p class="m">${ahora}</p><div class="fm">` +
+    `<label class="m">OnCalendar <input data-rhor="${esc(r.slug)}" value="${esc(H.v ?? r.calendario ?? '')}" placeholder="*-*-* 08:00:00" spellcheck="false" ` +
+    `title="expresión OnCalendar de systemd: *-*-* 08:00:00 (cada día a las 8), Mon *-*-* 09:00 (los lunes), daily…" aria-label="OnCalendar de ${esc(r.slug)}"></label>` +
+    btn('rhguardar', listo(false) ? '✓ confirmar' : '◷ guardar',
+      listo(false) ? 'segundo clic: programa el timer como dice la simulación' : 'simula el horario (systemd lo valida y da las próximas 3 ejecuciones); el segundo clic lo guarda', { slug: r.slug }) +
+    (r.calendario || r.timer === 'active'
+      ? btn('rhquitar', listo(true) ? '✓ confirmar' : '✕ desprogramar',
+        listo(true) ? 'segundo clic: desactiva y borra el timer' : 'simula quitar el timer (la rutina sigue registrada); el segundo clic lo quita', { slug: r.slug })
+      : '') + '</div>';
+  if (H.sim) h += `<p class="tx sal">${esc(H.sim.texto)}</p>`;
+  if (H.err) h += `<p class="hot sal">✕ ${esc(H.err)}</p>`;
+  return h + '</div>';
+}
+
+async function accionHorario(a, slug, b) {
+  const H = (st.rutHor[slug] ??= {});
+  const quitar = a === 'rhquitar';
+  const herr = quitar ? 'ea_desprogramar_rutina' : 'ea_programar_rutina';
+  if (H.sim && !!H.quitar === quitar) {
+    let r;
+    try {
+      r = await ea.ejecutar(herr, H.sim.argumentos, H.sim.precondicion);
+    } catch (e) {
+      if (e.status === 403) throw e;
+      H.sim = null;
+      H.err = e.message;
+    }
+    if (r) {
+      delete st.rutHor[slug];
+      avisa('✓ ' + r.texto, true);
+    }
+    return;
+  }
+  const campo = b.closest('.hor')?.querySelector('[data-rhor]');
+  if (campo) H.v = campo.value;
+  H.sim = H.err = null;
+  H.quitar = quitar;
+  try {
+    H.sim = await ea.simular(herr, quitar ? { slug } : { slug, calendario: H.v ?? '' });
+  } catch (e) {
+    if (e.status === 403) throw e;
+    H.err = e.message;
+  }
+}
+
+// ------------------------------------- retirar y restaurar una rutina (R6)
+//
+// Retirar manda el TOML de la rutina a la papelera de rutinas_dir y quita su
+// timer; restaurar lo devuelve (sin volver a programar el timer). Las dos son
+// reversibles, así que se confirman aquí, como la papelera de la bóveda: el
+// primer clic simula (ea_retirar_rutina / ea_restaurar_rutina) y el segundo
+// ejecuta lo simulado con su precondición. Borrar para siempre una retirada
+// es irreversible y queda en la terminal.
+function retiroRutina(r) {
+  if (r.ubicacion === 'sin_fichero') {
+    return '<div class="ret"><p class="m">sin fichero en rutinas_dir: registra una versión nueva (✎) para volver a usarla</p></div>';
+  }
+  const herr = r.ubicacion === 'retirada' ? 'ea_restaurar_rutina' : 'ea_retirar_rutina';
+  const R = st.rutRet[r.slug] || {};
+  const listo = R.sim && R.herr === herr;
+  const [txt, ayuda] = herr === 'ea_retirar_rutina'
+    ? ['▣ retirar', 'simula retirar la rutina (su TOML va a la papelera y se quita su timer); el segundo clic la retira. Se restaura']
+    : ['↺ restaurar', 'simula devolver la rutina a rutinas_dir (sin volver a programar su timer); el segundo clic la restaura'];
+  let h = `<div class="ret acc">${btn('rretiro', listo ? '✓ confirmar' : txt, listo ? 'segundo clic: hace lo que dice la simulación' : ayuda, { slug: r.slug, v: herr })}</div>`;
+  if (listo) h += `<p class="tx sal">${esc(R.sim.texto)}</p>`;
+  if (R.err) h += `<p class="hot sal">✕ ${esc(R.err)}</p>`;
+  return h;
+}
+
+async function accionRetiro(slug, herr) {
+  const R = (st.rutRet[slug] ??= {});
+  if (R.sim && R.herr === herr) {
+    let r;
+    try {
+      r = await ea.ejecutar(herr, R.sim.argumentos, R.sim.precondicion);
+    } catch (e) {
+      if (e.status === 403) throw e;
+      R.sim = null;
+      R.err = e.message;
+    }
+    if (r) {
+      delete st.rutRet[slug];
+      delete st.rutHor[slug];
+      avisa('✓ ' + r.texto, true);
+    }
+    return;
+  }
+  Object.assign(R, { herr, sim: null, err: null });
+  try {
+    R.sim = await ea.simular(herr, { slug });
+  } catch (e) {
+    if (e.status === 403) throw e;
+    R.err = e.message;
+  }
+}
+
+// --------------------------------------- ejecuciones de una rutina (R2)
+//
+// La columna «última» de la fila (estado y hace cuánto) y, en la ficha, las
+// últimas ejecuciones que da el servidor (`ultima` y `ejecuciones`, del bus),
+// cada una con su botón a la ficha del trabajo. Solo lectura.
+
+// Una ejecución «pinta mal» si espera la confirmación de su paquete o se
+// bloqueó.
+const ejMal = e => e.estado === 'en_espera' || e.resultado === 'bloqueado';
+
+function ultimaRutina(e) {
+  if (!e) return '<span class="m">—</span>';
+  return `<span class="m${ejMal(e) ? ' hot' : ''}" title="${esc(`trabajo ${e.trabajo} · v${e.version}${e.detalle ? ' · ' + e.detalle : ''}`)}">` +
+    `${EST[e.estado]?.[0] ?? ''} ${esc(EST[e.estado]?.[1] ?? e.estado)} · ${reloj(e.actualizado)}</span>`;
+}
+
+function ejecucionesRutina(es) {
+  if (!es) return '';
+  if (!es.length) return '<p class="et">últimas ejecuciones</p><p class="m">sin ejecuciones todavía</p>';
+  return `<p class="et">últimas ${es.length} ejecuciones</p><div class="evs">` + es.map(e =>
+    `<div class="ev"><span title="${esc(e.creado)}">${hora(e.creado)}</span><span class="${ejMal(e) ? 'hot' : ''}">${EST[e.estado]?.[0] ?? ''}</span>` +
+    `<span class="${ejMal(e) ? 'hot' : ''}">${btn('ir-trabajo', esc(e.trabajo.slice(9, 15)), `abrir la ficha del trabajo ${e.trabajo}`, { id: e.trabajo }, 'l')} ` +
+    `${esc(EST[e.estado]?.[1] ?? e.estado)}${e.resultado ? ' · ' + e.resultado : ''}${e.detalle ? ' · ' + esc(e.detalle) : ''}</span>` +
+    `<span class="m">v${e.version}</span><span class="m">${e.duracion_s != null ? dur(e.duracion_s * 1000) : ''}</span></div>`).join('') + '</div>';
+}
+
+// ------------------------------------------------ editor de rutinas (TOML)
+//
+// «✎ nueva versión» en la ficha y «＋ rutina» en la barra abren el mismo
+// editor (st.rutEd: { slug, texto, base, val, err, armado }; slug '' es una
+// rutina nueva). «◌ validar» pregunta al servidor sin escribir nada;
+// «✓ registrar» pide un segundo clic. Lo de .sal caduca al teclear.
+
+const PLANTILLA_RUTINA = `# Una rutina: el agente local la ejecuta; el sistema corre el criterio.
+[rutina]
+slug = "mi-rutina"                 # [A-Za-z0-9_-], 64 como mucho
+version = 1                        # solo puede subir
+descripcion = "Qué hace, en una línea"
+worktree = "/ruta/absoluta/al/repo" # repo git donde trabaja
+criterio_exito = "test -s {salida}" # shell; lo ejecuta el sistema, nunca el agente
+salida_esperada = "Qué debe quedar hecho y dónde"
+
+[entradas]                         # clave = valor por defecto; {clave} se sustituye
+salida = "resumen.md"
+
+[[pasos]]
+texto = "Primer paso, concreto, con rutas y comandos; escribe {salida}."
+
+[[pasos]]
+texto = "Comprueba que {salida} no esté vacío."
+`;
+
+// El TOML con la versión de [rutina] subida en uno (la primera línea
+// «version = N» del fichero, que es la de la cabecera).
+function subeVersion(toml) {
+  return toml.replace(/^(\s*version\s*=\s*)(\d+)/m, (_, pre, n) => pre + (Number(n) + 1));
+}
+
+// Diff de líneas mínimo (subsecuencia común más larga), con el mismo formato
+// que el de las simulaciones: solo lo que cambia, dos líneas de contexto y
+// @@ entre trozos. Vacío si son iguales.
+function diffLineas(antes, despues) {
+  const a = antes.replace(/\n$/, '').split('\n'), b = despues.replace(/\n$/, '').split('\n');
+  if (!antes) a.length = 0;
+  const n = a.length, m = b.length;
+  let ops;
+  if (n * m > 4e6) ops = [...a.map(l => ['-', l]), ...b.map(l => ['+', l])];
+  else {
+    const L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+      L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    ops = [];
+    let i = 0, j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && a[i] === b[j]) { ops.push([' ', a[i]]); i++; j++; }
+      else if (i < n && (j === m || L[i + 1][j] >= L[i][j + 1])) ops.push(['-', a[i++]]);
+      else ops.push(['+', b[j++]]);
+    }
+  }
+  const cambia = ops.map((o, k) => (o[0] === ' ' ? -1 : k)).filter(k => k >= 0);
+  if (!cambia.length) return '';
+  let out = '', prev = null;
+  ops.forEach(([s, l], k) => {
+    if (!cambia.some(c => Math.abs(c - k) <= 2)) return;
+    if ((prev !== null && prev + 1 !== k) || (prev === null && k > 0)) out += '@@\n';
+    prev = k;
+    out += s + l + '\n';
+  });
+  return out;
+}
+
+function editorRutina() {
+  const E = st.rutEd;
+  const nueva = E.slug === '';
+  const lineas = Math.min(32, Math.max(10, E.texto.split('\n').length + 1));
+  const armada = E.armado && E.armado > Date.now();
+  let h = `<p class="et">${nueva ? '＋ rutina nueva' : `✎ nueva versión de ${esc(E.slug)}`} · TOML</p>` +
+    `<textarea class="toml-ed" data-red rows="${lineas}" spellcheck="false" aria-label="definición TOML de la rutina">${esc(E.texto)}</textarea>` +
+    '<div class="acc">' +
+    btn('rvalidar', '◌ validar', 'comprueba la definición como al registrar y muestra la orden y los cambios, sin escribir nada') +
+    btn('rregistrar', armada ? '✓ confirmar registro' : '✓ registrar', armada ? 'confirmar: registra esta versión' : 'registra esta versión (pide confirmar)', {}, armada ? 'coin hot' : 'coin') +
+    btn('rdescartar', '✕ descartar', 'cierra el editor sin registrar nada') + '</div>';
+  if (E.val) {
+    const v = E.val;
+    const base = v.anterior ? v.anterior.definicion : '';
+    const d = diffLineas(base, E.texto);
+    h += `<p class="tx sal">✓ válida: <b>${esc(v.rutina)}</b> v${v.version}${v.anterior ? ` (registrada: v${v.anterior.version})` : ' · rutina nueva'} · criterio: <b>${esc(v.previa.criterio)}</b></p>` +
+      `<p class="et sal">${v.anterior ? `cambios frente a la v${v.anterior.version}` : 'definición completa'}</p>` +
+      `<pre class="diff sal">${colorDiff(d || '(sin cambios)')}</pre>` +
+      `<p class="et sal">orden con las entradas por defecto</p><pre class="toml sal">${esc(v.previa.objetivo)}</pre>`;
+  }
+  if (E.err) h += `<p class="hot sal">✕ ${esc(E.err)}</p>`;
+  return h;
+}
+
+// Abre el editor: con la versión registrada (y la versión subida) o con la plantilla.
+function abreEditorRutina(slug) {
+  if (st.rutEd && st.rutEd.slug === slug) { st.rutEd = null; return; }
+  const base = slug ? st.detalle['r' + slug]?.contenido ?? '' : '';
+  st.rutEd = { slug, base, texto: slug ? subeVersion(base) : PLANTILLA_RUTINA, val: null, err: null, armado: null };
+}
+
+// ------------------------------------------- versiones de una rutina (R3)
+//
+// «▸ versiones» en la ficha lista las registradas (la más reciente primero)
+// con «ver» (su TOML) y «diff» (frente a la versión anterior de la lista, con
+// diffLineas y colorDiff, como el editor). Solo lectura. La versión elegida
+// va al hash: #rutinas/<slug>?version=N[&diff=1].
+
+// La versión elegida de `slug`, si la hay ({ n, diff }).
+function selVersion(slug) {
+  const s = st.rutVerSel;
+  if (!s) return null;
+  // La de un enlace se queda con la fila del enlace en cuanto la hay.
+  if (s.slug == null && st.enlace?.startsWith('r')) s.slug = st.enlace.slice(1);
+  return s.slug === slug ? s : null;
+}
+
+// La lista de versiones y los TOML que hacen falta para lo elegido. Los TOML
+// no cambian: se piden una vez.
+async function cargaVersiones(slug) {
+  const V = (st.rutVer[slug] ??= { abierto: false, lista: null, err: null, txt: {} });
+  const sel = selVersion(slug);
+  if (sel) V.abierto = true;
+  if (!V.abierto) return;
+  try {
+    V.lista = await ea.versionesRutina(slug);
+    V.err = null;
+    if (!sel) return;
+    const i = V.lista.findIndex(v => v.version === sel.n);
+    if (i < 0) { V.err = `la rutina '${slug}' no tiene versión ${sel.n}`; return; }
+    const hacen = [sel.n, ...(sel.diff && V.lista[i + 1] ? [V.lista[i + 1].version] : [])];
+    for (const n of hacen) V.txt[n] ??= (await ea.versionRutina(slug, n)).contenido;
+  } catch (e) {
+    if (e.status === 403) throw e;
+    V.err = e.message;
+  }
+}
+
+function versionesHtml(slug) {
+  const V = st.rutVer[slug], abierto = !!V?.abierto;
+  let h = `<p class="et">${btn('rversiones', (abierto ? '▾' : '▸') + ' versiones', 'las versiones registradas: su TOML y qué cambió frente a la anterior', { slug }, 'l')}</p>`;
+  if (!abierto) return h;
+  if (V.err) h += `<p class="hot">✕ ${esc(V.err)}</p>`;
+  if (!V.lista) return h + (V.err ? '' : '<p class="m">cargando…</p>');
+  const sel = selVersion(slug);
+  h += '<div class="evs">' + V.lista.map((v, i) => {
+    const ant = V.lista[i + 1];
+    const es = m => sel?.n === v.version && !!sel.diff === m;
+    return `<div class="ev rv"><span class="${sel?.n === v.version ? '' : 'm'}">v${v.version}</span>` +
+      `<span title="${esc(v.creada_en)}">${hora(v.creada_en)}</span><span class="m">${esc(v.creada_por)}</span><span>` +
+      btn('rver', es(false) ? '▾ ver' : 'ver', `el TOML de la versión ${v.version}`, { slug, n: v.version }, 'l') +
+      (ant ? ' ' + btn('rvdiff', es(true) ? '▾ diff' : 'diff', `qué cambió de la v${ant.version} a la v${v.version}`, { slug, n: v.version }, 'l') : '') +
+      '</span></div>';
+  }).join('') + '</div>';
+  const i = sel ? V.lista.findIndex(v => v.version === sel.n) : -1;
+  if (i < 0) return h;
+  const txt = V.txt[sel.n], ant = V.lista[i + 1];
+  if (txt === undefined) return h + '<p class="m">cargando…</p>';
+  if (!sel.diff) return h + `<p class="et">v${sel.n} · TOML</p><pre class="toml">${esc(txt)}</pre>`;
+  if (!ant) return h + '<p class="m">es la primera versión: no hay anterior con la que comparar</p>';
+  if (V.txt[ant.version] === undefined) return h + '<p class="m">cargando…</p>';
+  return h + `<p class="et">cambios de la v${ant.version} a la v${sel.n}</p>` +
+    `<pre class="diff">${colorDiff(diffLineas(V.txt[ant.version], txt) || '(sin cambios)')}</pre>`;
+}
+
 function filasPropuestas(ps) {
+  // La recién aceptada (A1) sigue a la vista con lo que produjo, aunque ya no
+  // esté entre las pendientes, hasta que se cambia de sección.
+  const r = st.propRes;
+  if (r && !ps.some(p => p.id === r.id)) ps = [r, ...ps];
   return ps.map(p => {
     const k = 'p' + p.id;
     const pend = p.estado === 'pendiente';
@@ -326,7 +1182,8 @@ function filasPropuestas(ps) {
     const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
     let acc = '';
     if (pend) {
-      if (irrev) acc += `<span class="m" title="irreversible: solo desde la terminal (ea propuestas decidir ${p.id})">⌨ terminal</span>`;
+      // Irreversible: la web solo abre la terminal; la frase se escribe allí.
+      if (irrev) acc += btn('terminal', '⌨ terminal', `irreversible: abre una terminal con ea propuestas decidir ${p.id}; allí se confirma escribiendo «confirmo ${p.id}»`, { id: p.id }, 'hot');
       else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
       else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' }, 'coin');
       acc += btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
@@ -334,62 +1191,971 @@ function filasPropuestas(ps) {
     const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : '';
     const row = `<span title="${glifo} ${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${capsula(COLOR.propuesta, falla ? 'hot' : pend ? '' : 'cerrada', 18, true)}</span><span class="n">#${p.id}</span>` +
       `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${reloj(p.creada)}</span><span class="bs">${acc}</span>`;
-    let det = `<p class="tx">${esc(p.descripcion)}</p>`;
+    // Registrar una rutina lleva el TOML entero: su simulación ya trae el diff.
+    const conToml = typeof ac?.argumentos?.toml === 'string';
+    let det = conToml && p.descripcion === ac.simulacion ? '' : `<p class="tx">${esc(p.descripcion)}</p>`;
     if (ac) {
       det += `<p class="m">${esc(ac.herramienta)} · riesgo ${esc(ac.riesgo)} · propuesta por ${esc(p.proponente ?? '?')}</p>` +
-        `<p class="m">${esc(JSON.stringify(ac.argumentos))}</p><p class="tx">Simulación: ${esc(ac.simulacion)}</p>`;
-      if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>.</p>`;
+        (conToml ? `<p class="m">toml: ${ac.argumentos.toml.length} caracteres</p><p class="et">simulación</p><pre class="diff">${colorDiff(ac.simulacion)}</pre>`
+          : `<p class="m">${esc(JSON.stringify(ac.argumentos))}</p><p class="tx">Simulación: ${esc(ac.simulacion)}</p>`);
+      if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>, o pulsa ⌨ terminal y escribe allí «confirmo ${p.id}».</p>`;
     }
     if (p.ejecutada) det += `<p class="${falla ? 'hot' : 'tx'}">Ejecución ${esc(p.ejecutada.estado)}: ${esc(p.ejecutada.detalle ?? '')}</p>`;
+    if (r && r.id === p.id && ac) det += enlacesResultado(ac.herramienta, r.resultado);
     if (p.decidida) det += `<p class="m">${hora(p.decidida)}</p>`;
     return fila(k, 'p', row, `${p.descripcion} ${quien} ${p.estado}`, det, pend ? '' : ' fin');
   });
 }
 
-function filasBoveda(d) {
-  return d.notas.map(n => {
-    const k = 'b' + n.ruta;
-    const promovida = n.promocion === 'promovida';
-    const row = `<i class="m" title="${esc(n.region)}">${n.region === 'compartida' ? '◆' : '◇'}</i>` +
-      `<span class="x">${esc(n.titulo)}</span><span class="m w">${esc(n.ruta)}</span>` +
-      `<span class="m">${esc(n.autor ?? '')}</span><span class="m">${reloj(n.actualizada)}</span>`;
-    const x = st.detalle[k];
-    let det = '';
-    if (x) {
-      const c = x.cabecera;
-      det = (c ? `<p class="m">${esc(c.autor)} · ${esc(c.origen)} · ${promovida ? 'promovida' : 'sin promover'}` +
-        `${c.tags.length ? ' · ' + esc(c.tags.join(', ')) : ''}${c.promovida_de ? ' · de ' + esc(c.promovida_de) : ''}` +
-        `${c.promovida_a ? ' · a ' + esc(c.promovida_a) : ''}</p>` : `<p class="m">${esc(x.aviso_cabecera ?? '')}</p>`) +
-        `<pre>${esc(x.contenido)}${x.truncado ? '\n…' : ''}</pre>`;
-    }
-    // Promover es decisión del usuario: segundo clic para confirmar.
-    if (n.region !== 'compartida') {
-      const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
-      det += `<div class="acc">${btn('promover', armada ? '⇧ confirmar' : '⇧ promover a compartida', armada ? 'confirmar: copia a la región compartida' : 'promover a la región compartida', { ruta: n.ruta }, armada ? 'hot' : '')}</div>`;
-    }
-    return fila(k, 'b', row, `${n.titulo} ${n.ruta}`, det, '');
+// ------------------------------------------------------------------- markdown
+
+// Markdown mínimo, propio y sin dependencias: todo el texto se escapa antes
+// de formatear y solo los enlaces http(s) y los internos llegan a ser enlaces.
+// `ctx`: { wiki(destino), md(url) } devuelven la clave de la nota enlazada (o
+// null si no hay ninguna), y `roto` es el título de un enlace sin destino.
+function mdEnLinea(txt, ctx) {
+  const guardados = [];
+  const guarda = html => `\u0001${guardados.push(html) - 1}\u0002`;
+  let s = esc(txt.replace(/[\u0001\u0002]/g, ''));
+  s = s.replace(/`([^`]+)`/g, (_, c) => guarda(`<code>${c}</code>`));
+  s = s.replace(/\[\[([^\[\]\n]+)\]\]/g, (_, n) => {
+    const [destino, alias] = n.split('|');
+    const k = ctx.wiki?.(destino.split('#')[0].trim());
+    const txt = alias?.trim() || `[[${n}]]`; // con alias, como en Obsidian, solo el alias
+    return guarda(k ? `<a href="#" class="ml" data-ml="${esc(k)}">${txt}</a>` : `<span class="roto" title="${esc(ctx.roto ?? 'no hay esa nota')}">${txt}</span>`);
   });
+  const enfasis = t => t
+    .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*(?=[^*\s])(.+?)(?<=[^*\s])\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/(^|[^\w])_(?=[^_\s])(.+?)(?<=[^_\s])_(?!\w)/g, '$1<em>$2</em>');
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, etiqueta, url) => {
+    const t = enfasis(etiqueta);
+    if (/^https?:\/\//i.test(url)) return guarda(`<a href="${url}" target="_blank" rel="noopener noreferrer">${t}</a>`);
+    const k = ctx.md?.(url);
+    if (k) return guarda(`<a href="#" class="ml" data-ml="${esc(k)}">${t}</a>`);
+    return guarda(`<span class="roto" title="${url}">${t}</span>`); // relativo a otra cosa, javascript:… → sin enlace
+  });
+  s = enfasis(s);
+  for (let i = 0; i < 4 && s.includes('\u0001'); i++) s = s.replace(/\u0001(\d+)\u0002/g, (_, n) => guardados[n]);
+  return s;
 }
-function filasSistema(e, plano = false) {
+
+function md(texto, ctx = {}) {
+  const lineas = texto.replace(/\r\n?/g, '\n').replace(/^---\n[\s\S]*?\n---[ \t]*(\n|$)/, '').split('\n');
+  const enLinea = t => mdEnLinea(t, ctx);
+  const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  const FENCE = /^\s*```/;
+  const HR = /^\s*([-*_])(\s*\1){2,}\s*$/;
+  const SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+  const celdas = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  const inicio = l => FENCE.test(l) || /^#{1,6}\s/.test(l) || HR.test(l) || /^\s*>/.test(l) || ITEM.test(l);
+  let out = '';
+  let i = 0;
+  while (i < lineas.length) {
+    const l = lineas[i];
+    if (!l.trim()) { i++; continue; }
+    if (FENCE.test(l)) {
+      const cod = [];
+      for (i++; i < lineas.length && !FENCE.test(lineas[i]); i++) cod.push(lineas[i]);
+      i++;
+      out += `<pre><code>${esc(cod.join('\n'))}</code></pre>`;
+    } else if (/^#{1,6}\s/.test(l)) {
+      const [, almohadillas, t] = /^(#+)\s+(.*?)\s*#*\s*$/.exec(l);
+      out += `<h${almohadillas.length}>${enLinea(t)}</h${almohadillas.length}>`;
+      i++;
+    } else if (HR.test(l)) {
+      out += '<hr>';
+      i++;
+    } else if (/^\s*>/.test(l)) {
+      const q = [];
+      for (; i < lineas.length && /^\s*>/.test(lineas[i]); i++) q.push(lineas[i].replace(/^\s*> ?/, ''));
+      out += `<blockquote>${md(q.join('\n'), ctx)}</blockquote>`;
+    } else if (l.includes('|') && i + 1 < lineas.length && SEP.test(lineas[i + 1])) {
+      const cab = celdas(l);
+      i += 2;
+      let cuerpo = '';
+      for (; i < lineas.length && lineas[i].trim() && lineas[i].includes('|'); i++) {
+        cuerpo += '<tr>' + celdas(lineas[i]).map(c => `<td>${enLinea(c)}</td>`).join('') + '</tr>';
+      }
+      out += `<table><thead><tr>${cab.map(c => `<th>${enLinea(c)}</th>`).join('')}</tr></thead><tbody>${cuerpo}</tbody></table>`;
+    } else if (ITEM.test(l)) {
+      // Lista: un nivel de anidamiento por sangría (lo más hondo se aplana).
+      const items = [];
+      const base = ITEM.exec(l)[1].length;
+      while (i < lineas.length) {
+        const m = ITEM.exec(lineas[i]);
+        if (m) {
+          const hijo = m[1].length >= base + 2 && items.length > 0;
+          const it = { ol: /^\d/.test(m[2]), txt: m[3] };
+          if (!hijo && items.length && it.ol !== items[0].ol) break; // otro tipo de lista: empieza una nueva
+          if (hijo) (items.at(-1).hijos ??= []).push(it); else items.push(it);
+        } else if (!lineas[i].trim()) {
+          // una línea en blanco no corta la lista si sigue otro elemento
+          if (!ITEM.test(lineas[i + 1] ?? '')) break;
+        } else if (/^\s+\S/.test(lineas[i]) && items.length && !inicio(lineas[i])) {
+          const it = items.at(-1).hijos?.at(-1) ?? items.at(-1);
+          it.txt += ' ' + lineas[i].trim();
+        } else break;
+        i++;
+      }
+      const lista = (xs, cuerpo) => `<${xs[0].ol ? 'ol' : 'ul'}>${xs.map(cuerpo).join('')}</${xs[0].ol ? 'ol' : 'ul'}>`;
+      out += lista(items, it => `<li>${enLinea(it.txt)}${it.hijos ? lista(it.hijos, h => `<li>${enLinea(h.txt)}</li>`) : ''}</li>`);
+    } else {
+      const p = [];
+      for (; i < lineas.length && lineas[i].trim() && (p.length === 0 || !inicio(lineas[i])); i++) p.push(lineas[i].trim());
+      out += `<p>${enLinea(p.join(' '))}</p>`;
+    }
+  }
+  return out;
+}
+
+// --------------------------------------------------------------------- editor
+//
+// Memoria y Bóveda comparten el editor de dos columnas, árbol y nota. Cada
+// una aporta un adaptador (`EDITOR[sec]`) que sabe leer sus datos, pintar su
+// árbol y hablar con su API; el estado de cada editor vive en `st.ed[sec]`.
+
+const sucio = e => !!e && e.texto !== e.original;
+const EDITOR = {};
+
+// El estado del editor de una sección.
+const ed = (sec = st.sec) => (st.ed[sec] ??= {
+  sel: null,           // clave de la nota abierta
+  modo: 'lectura',     // 'lectura' | 'edicion'
+  borrador: null,      // { k, texto, original, version, error, conflicto } de la nota abierta
+  plegados: new Set(), // carpetas plegadas en el árbol
+  menu: false,         // el menú ⋯ de la nota, abierto
+  renombrando: null,   // clave de la nota que se está renombrando
+  creando: null,       // 'nota' | 'carpeta': el campo de crear, abierto
+  papelera: false,     // la papelera, abierta en lugar de la nota
+  menuCarpeta: null,   // la carpeta cuyo menú ⋯ está abierto (bóveda)
+});
+
+// Descarta el borrador de la nota abierta; con cambios, antes pregunta.
+function cierraBorrador(sec = st.sec) {
+  const A = EDITOR[sec];
+  if (!A) return true;
+  const E = ed(sec);
+  if (sucio(E.borrador) && !confirm(`Esta ${A.cosa} tiene cambios sin guardar. ¿Descartarlos?`)) return false;
+  E.borrador = null;
+  return true;
+}
+const sueltaBorradores = () => cierraBorrador(); // al salir de la sección
+
+// El borrador de la nota abierta, si se está editando. Uno sin cambios sigue
+// a la versión del disco.
+function asegurarBorrador(E) {
+  const k = E.sel, x = k && st.detalle[k];
+  if (E.borrador && E.borrador.k !== k) E.borrador = null;
+  if (!x || E.modo !== 'edicion') return;
+  if (!E.borrador || (!sucio(E.borrador) && E.borrador.version !== x.version && !E.borrador.error))
+    E.borrador = { k, texto: x.contenido, original: x.contenido, version: x.version, error: null, conflicto: false };
+}
+
+function eligeNota(k) {
+  const A = EDITOR[st.sec], E = ed();
+  if (!A || k === E.sel) return;
+  if (!cierraBorrador()) return;
+  E.sel = k;
+  E.menu = false;
+  E.renombrando = null;
+  E.papelera = false;
+  A.desplegar?.(E, k);
+  guardaEditor();
+  pintar();
+  return tick();
+}
+
+// La nota abierta y las carpetas plegadas se recuerdan en el navegador.
+function guardaEditor(sec = st.sec) {
+  const E = ed(sec);
+  try {
+    localStorage.setItem(`ea-${sec}-plegados`, JSON.stringify([...E.plegados]));
+    if (E.sel) localStorage.setItem(`ea-${sec}-sel`, E.sel); else localStorage.removeItem(`ea-${sec}-sel`);
+  } catch { /* sin almacenamiento */ }
+}
+
+function plegar(id) {
+  const E = ed();
+  if (!E.plegados.delete(id)) E.plegados.add(id);
+  guardaEditor();
+  pintar();
+}
+
+// Nodos del árbol: carpetas { d, etiqueta, titulo, cuenta, hijos } y notas
+// { k, nombre, icono, iconoTitulo, titulo }. Con filtro, todo desplegado.
+const plegada = (E, n) => !st.q.trim() && E.plegados.has(n.d);
+
+// Las claves de las notas que se ven, en orden (para j/k).
+const clavesVisibles = (E, nodos) =>
+  nodos.flatMap(n => (n.hijos ? (plegada(E, n) ? [] : clavesVisibles(E, n.hijos)) : [n.k]));
+
+function arbolNotas(A, E, nodos, prof = 0) {
+  return nodos.map(n => {
+    if (n.hijos) {
+      const pl = plegada(E, n);
+      return `<div class="ad" data-ad="${esc(n.d)}" role="treeitem" tabindex="0" aria-expanded="${!pl}" title="${esc(n.titulo)}" style="--n:${prof}">` +
+        `<i>${pl ? '▸' : '▾'}</i><span class="n">${esc(n.etiqueta)}</span><span class="m">${n.cuenta ?? ''}</span>${A.menuCarpeta?.(E, n) ?? ''}</div>` +
+        (pl ? '' : `<div role="group">${arbolNotas(A, E, n.hijos, prof + 1)}</div>`);
+    }
+    const sel = n.k === E.sel;
+    const nombre = E.renombrando === n.k
+      ? `<input class="ren" data-ren="${esc(n.k)}" value="${esc(A.nombreEditable(n.k))}" spellcheck="false" aria-label="Nombre nuevo de ${esc(n.nombre)}">`
+      : `<span class="n">${esc(n.nombre)}</span>`;
+    const punto = sel && sucio(E.borrador) ? '<b class="sin-guardar" title="sin guardar">●</b>' : '';
+    return `<div class="af${sel ? ' sel' : ''}" data-af="${esc(n.k)}" role="treeitem" tabindex="0" aria-selected="${sel}" style="--n:${prof}"` +
+      ` title="${esc(n.titulo)}"><i title="${esc(n.iconoTitulo)}">${n.icono}</i>${nombre}${punto}</div>`;
+  }).join('');
+}
+
+function notaEditor(A, E, d) {
+  const panel = A.panel?.(d, E);
+  if (panel) return panel;
+  const k = E.sel;
+  if (!k) return `<p class="vacio">Elige una ${A.cosa} del árbol.</p>`;
+  const x = st.detalle[k], e = E.borrador?.k === k ? E.borrador : null;
+  if (!x && !e) return '<p class="vacio">Cargando…</p>';
+  const edita = E.modo === 'edicion' && e;
+  const modo = edita ? 'pasar a lectura (Ctrl+E)' : 'pasar a edición (Ctrl+E)';
+  const opcion = o =>
+    `<button role="menuitem" class="${o.cls ?? ''}" data-a="${o.a}"${o.off ? ` disabled title="${esc(o.off)}"` : ''}>${o.txt}</button>`;
+  let h = '<header class="nota-cab">' +
+    `<div class="miga">${A.miga(d, k)}` +
+    `<span class="sin-guardar"${sucio(e) ? '' : ' hidden'}>● sin guardar</span></div><span class="grow"></span>` +
+    `<button class="ico${edita ? ' on' : ''}" data-a="modo-nota" title="${modo}" aria-label="${modo}" aria-pressed="${!!edita}">${edita ? '◉' : '✎'}</button>` +
+    `<span class="menu-anc"><button class="ico" data-a="menu-nota" title="Más acciones" aria-label="Más acciones" aria-haspopup="menu" aria-expanded="${E.menu}">⋯</button>` +
+    (E.menu ? `<div class="menu" role="menu">${A.menu(d, k, x).map(opcion).join('')}</div>` : '') +
+    '</span></header>';
+  h += A.meta(d, k, x);
+  if (e?.error) h += `<p class="hot">✕ ${esc(e.error)}</p>`;
+  else if (e && x && x.version !== e.version) h += `<p class="hot">La ${A.cosa} cambió en disco mientras la editabas: si guardas, se te pedirá recargarla.</p>`;
+  if (e) {
+    const recargar = e.conflicto || (x && x.version !== e.version);
+    h += `<div class="acc"${sucio(e) || recargar ? '' : ' hidden'} data-si-sucio>` +
+      btn('guardar-nota', '✓ guardar', `escribir la ${A.cosa} en disco (Ctrl+S)`, {}, 'coin') +
+      btn('descartar-nota', '✕ descartar', 'tirar el borrador', {}, 'hot') +
+      (recargar ? btn('recargar-nota', '↺ recargar', 'descartar el borrador y leer la versión del disco') : '') + '</div>';
+  }
+  h += edita
+    ? `<textarea class="editor" data-ed="${esc(k)}" spellcheck="false" aria-label="Contenido de ${esc(A.nombre(k))}">\n${esc(e.texto)}</textarea>`
+    : `<div class="md">${md(e ? e.texto : x.contenido, A.ctx(d, k))}</div>`;
+  return h;
+}
+
+// El editor no son filas: el árbol y la nota se pintan por separado para que
+// el sondeo no les reinicie el scroll.
+function pintaEditor() {
+  const A = EDITOR[st.sec], E = ed(), d = st.datos;
+  if (E.sel && !A.existe(d, E.sel) && !sucio(E.borrador)) {
+    E.sel = null; // la borraron o la movieron fuera
+    E.borrador = null;
+  }
+  asegurarBorrador(E);
+  const nodos = A.arbol(d, st.q.trim().toLowerCase());
+  st.vis = clavesVisibles(E, nodos);
+  if (A.vacio(d)) {
+    st.html = '';
+    $('#filas').innerHTML = `<p class="vacio">${VACIO[st.sec]}</p>`;
+    return;
+  }
+  if ($('#filas > .mem-vista')?.dataset.sec !== st.sec)
+    $('#filas').innerHTML = `<div class="mem-vista" data-sec="${st.sec}"><div class="arbol-col"><div class="arbol-acc"></div>` +
+      `<nav class="arbol" role="tree" aria-label="${A.aria}"></nav></div><article class="nota"></article></div>`;
+  // st.html vacío pide repintar: se rehace el contenido, no las columnas (ni su scroll).
+  if (st.html !== 'ed') $$('#filas .mem-vista [data-h]').forEach(el => { el.dataset.h = ''; });
+  st.html = 'ed';
+  const pon = (el, html) => { if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; } };
+  pon($('#filas .arbol-acc'), A.barraArbol?.(d, E) ?? '');
+  pon($('#filas .arbol'), nodos.length ? arbolNotas(A, E, nodos) : `<p class="vacio">Nada coincide con «${esc(st.q.trim())}».</p>`);
+  const nota = $('#filas .nota');
+  pon(nota, notaEditor(A, E, d));
+  nota.classList.toggle('ed', !!$('textarea', nota));
+}
+
+// -------------------------------------------------------------------- memoria
+
+const INDICE = 'MEMORY.md';
+const claveMem = (proyecto, fichero) => 'm' + proyecto + '/' + fichero;
+// m<proyecto>/<fichero> → [proyecto, fichero]
+const partesMem = k => { const i = k.indexOf('/'); return [k.slice(1, i), k.slice(i + 1)]; };
+
+// Etiqueta corta de cada proyecto: el último tramo de su cwd (dos si se repite).
+function etiquetasMem(ps) {
+  const partes = p => (p.cwd ?? '').split('/').filter(Boolean);
+  const e = new Map(ps.map(p => [p.id, partes(p).pop() || p.id]));
+  for (const p of ps) {
+    if (ps.some(o => o.id !== p.id && e.get(o.id) === e.get(p.id)) && p.cwd) e.set(p.id, partes(p).slice(-2).join('/'));
+  }
+  return e;
+}
+
+// El proyecto de la memoria nueva: el de la nota abierta, si no el primero.
+function memProyectoPorDefecto(d, E) {
+  const abierto = E.sel && partesMem(E.sel)[0];
+  return d.proyectos.find(p => p.id === abierto)?.id ?? d.proyectos[0]?.id ?? '';
+}
+
+// Lo escrito en el formulario de la memoria nueva.
+const leeFormMem = () => Object.fromEntries($$('[data-mc]').map(el => [el.dataset.mc, el.value]));
+
+EDITOR.memoria = {
+  cosa: 'memoria',
+  aria: 'Memorias por proyecto',
+  async datos() {
+    const datos = await ea.memoria();
+    if (st.proyecto) {
+      const id = st.proyecto.replace(/[^A-Za-z0-9]/g, '-');
+      datos.proyectos = datos.proyectos.filter(p => p.cwd === st.proyecto || p.id === id);
+    }
+    return datos;
+  },
+  carga: k => ea.memoriaFichero(...partesMem(k)),
+  vacio: d => !d.proyectos.length,
+  existe: (d, k) => { const [pid, f] = partesMem(k); return d.proyectos.some(p => p.id === pid && p.ficheros.some(x => x.nombre === f)); },
+  desplegar: (E, k) => E.plegados.delete(partesMem(k)[0]),
+  // Un directorio por proyecto y, dentro, sus memorias; el filtro mira el
+  // proyecto y el nombre, título y descripción de cada memoria.
+  arbol(d, q) {
+    const et = etiquetasMem(d.proyectos);
+    return d.proyectos.map(p => {
+      const deProy = q && `${et.get(p.id)} ${p.cwd ?? ''} ${p.id}`.toLowerCase().includes(q);
+      const fs = p.ficheros.filter(f => !q || deProy || `${f.nombre} ${f.titulo ?? ''} ${f.descripcion ?? ''}`.toLowerCase().includes(q));
+      return {
+        d: p.id, etiqueta: et.get(p.id), titulo: p.cwd ?? p.id, cuenta: p.ficheros.length,
+        hijos: fs.map(f => ({
+          k: claveMem(p.id, f.nombre), nombre: f.nombre.replace(/\.md$/, ''), titulo: f.descripcion ?? f.titulo ?? f.nombre,
+          icono: f.nombre === INDICE ? '≡' : '◇', iconoTitulo: f.nombre === INDICE ? 'índice de las memorias' : 'memoria',
+        })),
+      };
+    }).filter(g => g.hijos.length);
+  },
+  nombre: k => partesMem(k)[1],
+  nombreEditable: k => partesMem(k)[1].replace(/\.md$/, ''),
+  miga(d, k) {
+    const [pid, nombre] = partesMem(k);
+    const p = d.proyectos.find(x => x.id === pid);
+    return `<span class="m" title="${esc(p?.cwd ?? pid)}">${esc(etiquetasMem(d.proyectos).get(pid) ?? pid)}</span><span class="m">/</span><b>${esc(nombre)}</b>`;
+  },
+  meta(d, k) {
+    const [pid, nombre] = partesMem(k);
+    const f = d.proyectos.find(x => x.id === pid)?.ficheros.find(x => x.nombre === nombre);
+    const meta = [f?.titulo, f?.tipo, f?.descripcion].filter(Boolean).join(' · ');
+    return `<p class="m">${f ? f.bytes + ' bytes · modificada hace ' + reloj(f.modificada) : 'ya no está en disco'}${meta ? ' · ' + esc(meta) : ''}</p>`;
+  },
+  menu(d, k) {
+    const off = partesMem(k)[1] === INDICE && 'el índice de Claude Code no se renombra ni se borra';
+    return [
+      { a: 'renombrar-nota', txt: '✎ Renombrar', off },
+      { a: 'copiar-ruta-nota', txt: '⧉ Copiar la ruta' },
+      { a: 'mostrar-nota', txt: '▤ Mostrar en el explorador de archivos' },
+      { a: 'eliminar-nota', txt: '✕ Eliminar archivo', cls: 'hot', off },
+    ];
+  },
+  // Enlaces entre memorias del mismo proyecto: por nombre de fichero.
+  ctx(d, k) {
+    const [pid] = partesMem(k);
+    const p = d.proyectos.find(x => x.id === pid);
+    const clave = f => (p?.ficheros.some(y => y.nombre === f) ? claveMem(pid, f) : null);
+    return {
+      wiki: destino => clave(destino.trim().replace(/\.md$/, '') + '.md'),
+      md: url => { const m = /^(?:\.\/)?([\w.-]+\.md)(?:#.*)?$/.exec(url); return m ? clave(m[1]) : null; },
+      roto: 'no hay esa memoria',
+    };
+  },
+  // La barra de la columna del árbol: ＋ memoria y su formulario (spec 014, H5).
+  barraArbol(d, E) {
+    let h = '<div class="arbol-bar">' +
+      btn('nueva-memoria-nota', '＋ memoria', 'memoria nueva en uno de los proyectos', {}, E.creando === 'memoria' ? 'on' : '') +
+      '</div>';
+    if (E.creando !== 'memoria') return h;
+    const f = E.form ?? {}, et = etiquetasMem(d.proyectos);
+    const proyecto = d.proyectos.some(p => p.id === f.proyecto) ? f.proyecto : memProyectoPorDefecto(d, E);
+    const campo = (c, ph, extra = '') =>
+      `<input data-mc="${c}" value="${esc(f[c] ?? '')}" placeholder="${ph}" aria-label="${ph}" title="${ph}" spellcheck="false" autocomplete="off"${extra}>`;
+    h += '<div class="mem-nueva">' +
+      '<select data-mc="proyecto" aria-label="Proyecto" title="Proyecto de la memoria nueva">' +
+      d.proyectos.map(p => `<option value="${esc(p.id)}"${p.id === proyecto ? ' selected' : ''} title="${esc(p.cwd ?? p.id)}">${esc(et.get(p.id))}</option>`).join('') +
+      '</select>' +
+      campo('fichero', 'nombre-del-fichero (kebab-case)') +
+      campo('titulo', 'Título (name)') +
+      campo('descripcion', 'Descripción: una línea, es el gancho del índice') +
+      '<select data-mc="tipo" aria-label="Tipo" title="Tipo de memoria (metadata.type)">' +
+      ['user', 'feedback', 'project', 'reference'].map(t => `<option${t === (f.tipo ?? 'project') ? ' selected' : ''}>${t}</option>`).join('') +
+      '</select>' +
+      `<textarea data-mc="cuerpo" rows="4" placeholder="Cuerpo (opcional)" aria-label="Cuerpo" spellcheck="false">${esc(f.cuerpo ?? '')}</textarea>` +
+      (E.formError ? `<p class="m err" role="alert">${esc(E.formError)}</p>` : '') +
+      '<div class="arbol-bar">' +
+      btn('confirmar-memoria-nota', '✓ crear', 'crear la memoria y apuntarla en MEMORY.md (Enter)', {}, 'coin') +
+      btn('cancelar-memoria-nota', 'cancelar', 'cerrar el formulario (Esc)') +
+      '</div></div>';
+    return h;
+  },
+  // Acciones propias; null = no es suya, false = ya repintó, true = sondear.
+  async accion(a, E) {
+    if (a === 'nueva-memoria-nota') {
+      E.creando = E.creando === 'memoria' ? null : 'memoria';
+      E.formError = null;
+      pintar();
+      $('input[data-mc="fichero"]')?.focus();
+      return false;
+    }
+    if (a === 'cancelar-memoria-nota') {
+      E.creando = null;
+      E.form = null;
+      E.formError = null;
+      pintar();
+      return false;
+    }
+    if (a === 'confirmar-memoria-nota') {
+      const f = E.form = leeFormMem();
+      try {
+        const { proyecto, ...datos } = f;
+        const m = await ea.crearMemoria(proyecto, datos);
+        if (!cierraBorrador('memoria')) { pintar(); return false; }
+        const k = claveMem(proyecto, m.nombre);
+        st.detalle[k] = m;
+        Object.assign(E, { creando: null, form: null, formError: null, sel: k, modo: 'edicion', borrador: null });
+        EDITOR.memoria.desplegar(E, k);
+        guardaEditor('memoria');
+        avisa('✓ creada ' + m.nombre, true);
+        return true;
+      } catch (err) {
+        E.formError = err.message;
+        pintar();
+        return false;
+      }
+    }
+    return null;
+  },
+  rutaAbs: x => x.ruta,
+  guardar: (k, texto, version) => ea.guardarMemoria(...partesMem(k), texto, version),
+  mostrar: k => ea.mostrarMemoria(...partesMem(k)),
+  confirmaEliminar: (k, aviso) => `¿Eliminar definitivamente ${partesMem(k)[1]}? No se puede deshacer.${aviso}`,
+  async eliminar(k, x) {
+    await ea.eliminarMemoria(...partesMem(k), x.version);
+    return '✓ ' + partesMem(k)[1] + ' eliminada';
+  },
+  async renombrar(k, nuevo, x) {
+    const [pid, nombre] = partesMem(k);
+    const n = nuevo.trim().replace(/\.md$/, '') + '.md';
+    if (n === '.md' || n === nombre) return null;
+    const r = await ea.renombrarMemoria(pid, nombre, n, x.version);
+    const m = r.actualizadas.length;
+    return {
+      k: claveMem(pid, n), detalle: r.memoria,
+      aviso: `✓ renombrada a ${n}` + (m ? ` · enlaces al día en ${m} ${m === 1 ? 'memoria' : 'memorias'}` : ''),
+    };
+  },
+};
+
+// --------------------------------------------------------------------- bóveda
+//
+// La bóveda como un editor tipo Obsidian: las tres regiones son las raíces del
+// árbol. El usuario edita notas de cualquier región (la firma de la cabecera
+// no cambia), crea notas solo en compartida/ y carpetas en cualquiera, mueve
+// dentro de la región y borra a la papelera (se restaura).
+
+const carpetaDe = r => (r.includes('/') ? r.slice(0, r.lastIndexOf('/')) : '');
+const conMd = d => (d.endsWith('.md') ? d : d + '.md');
+const regionDe = r => r.split('/')[0];
+
+// Une y normaliza (`.` y `..`); null si sube por encima de la raíz.
+function unirRuta(base, rel) {
+  const p = base.split('/').filter(Boolean);
+  for (const x of rel.split('/')) {
+    if (!x || x === '.') continue;
+    if (x === '..') { if (!p.length) return null; p.pop(); } else p.push(x);
+  }
+  return p.length ? p.join('/') : null;
+}
+
+// Como ea-boveda (enlaces.rs): ruta exacta o que acaba en /destino; si hay
+// varias, la de la misma carpeta; si no, ambiguo (null).
+function resolverWiki(destino, desde, todas) {
+  const d = destino.trim();
+  if (!d) return null;
+  if (d.startsWith('./') || d.startsWith('../')) {
+    const r = unirRuta(carpetaDe(desde), conMd(d));
+    return r && todas.includes(r) ? r : null;
+  }
+  const x = conMd(d.replace(/^\/+/, '')), suf = '/' + x;
+  const c = todas.filter(t => t === x || t.endsWith(suf));
+  if (c.length === 1) return c[0];
+  const aqui = c.filter(t => carpetaDe(t) === carpetaDe(desde));
+  return aqui.length === 1 ? aqui[0] : null;
+}
+
+// Un enlace markdown: relativo a la carpeta de la nota, o a la raíz con `/`.
+function resolverMd(url, desde) {
+  if (!url || /^[^/]*:/.test(url)) return null;
+  let u;
+  try { u = decodeURIComponent(url); } catch { return null; }
+  const r = u.startsWith('/') ? unirRuta('', u.slice(1)) : unirRuta(carpetaDe(desde), u);
+  return r && r.endsWith('.md') ? r : null;
+}
+
+const rutaB = k => k.slice(1);
+const nombreB = k => rutaB(k).split('/').pop().replace(/\.md$/, '');
+
+// La carpeta en la que se crea: la de la nota abierta (si vale) o compartida/.
+function baseCreacion(E, tipo) {
+  const r = E.sel && rutaB(E.sel);
+  if (r && (tipo === 'carpeta' || regionDe(r) === 'compartida')) return carpetaDe(r) + '/';
+  return 'compartida/';
+}
+
+async function creaEnBoveda(valor) {
+  const E = ed('boveda');
+  const tipo = E.creando;
+  E.creando = null;
+  document.activeElement?.blur(); // con el campo enfocado, pintar() no repinta
+  const v = valor.trim().replace(/\/+$/, '');
+  if (!tipo || !v || v + '/' === baseCreacion(E, tipo)) { pintar(); return; }
+  try {
+    if (tipo === 'nota') {
+      if (!cierraBorrador('boveda')) { pintar(); return; }
+      const n = await ea.crearNota(v);
+      const k = 'b' + n.ruta;
+      st.detalle[k] = n;
+      Object.assign(E, { sel: k, modo: 'edicion', borrador: null, papelera: false });
+      EDITOR.boveda.desplegar(E, k);
+      guardaEditor('boveda');
+      avisa('✓ creada ' + n.ruta, true);
+    } else {
+      await ea.crearCarpeta(v);
+      EDITOR.boveda.desplegar(E, 'b' + v + '/x');
+      E.plegados.delete(v);
+      guardaEditor('boveda');
+      avisa('✓ carpeta ' + v, true);
+    }
+  } catch (err) {
+    avisa(err.message);
+  }
+  st.html = '';
+  await tick();
+}
+
+EDITOR.boveda = {
+  cosa: 'nota',
+  aria: 'Notas de la bóveda por región',
+  async datos() {
+    const q = st.q.trim(), E = ed('boveda');
+    // Antes del árbol (que pone el índice al día): así el aviso ve el desfase.
+    const indice = await ea.bovedaIndice().catch(() => null);
+    const [d, busca, papelera] = await Promise.all([
+      ea.bovedaArbol(),
+      q ? ea.boveda(q).catch(() => null) : null,
+      E.papelera ? ea.papelera() : null,
+    ]);
+    d.rutas = d.notas.map(n => n.ruta);
+    d.rutasSet = new Set(d.rutas);
+    d.fts = busca ? new Set(busca.notas.map(n => n.ruta)) : null;
+    d.papelera = papelera;
+    d.indice = indice;
+    return d;
+  },
+  carga: k => ea.bovedaFichero(rutaB(k)),
+  vacio: () => false, // las regiones siempre están, para poder crear
+  existe: (d, k) => d.rutasSet.has(rutaB(k)),
+  desplegar(E, k) {
+    let c = carpetaDe(rutaB(k));
+    while (c) { E.plegados.delete(c); c = carpetaDe(c); }
+  },
+  // Regiones, carpetas (también vacías) y notas; primero las carpetas. El
+  // filtro mira nombre, ruta y título y, con el índice, también el contenido.
+  arbol(d, q) {
+    const dirs = new Map();
+    const dir = ruta => {
+      if (dirs.has(ruta)) return dirs.get(ruta);
+      const n = { d: ruta, etiqueta: ruta.split('/').pop(), titulo: ruta, hijos: [], cuenta: 0 };
+      dirs.set(ruta, n);
+      const padre = carpetaDe(ruta);
+      if (padre) dir(padre).hijos.push(n);
+      return n;
+    };
+    d.regiones.forEach(dir);
+    if (!q) d.carpetas.forEach(dir);
+    for (const n of d.notas) {
+      if (q && !`${n.ruta} ${n.titulo}`.toLowerCase().includes(q) && !d.fts?.has(n.ruta)) continue;
+      const promovida = n.promocion === 'promovida';
+      dir(carpetaDe(n.ruta)).hijos.push({
+        k: 'b' + n.ruta, nombre: n.ruta.split('/').pop().replace(/\.md$/, ''),
+        titulo: n.titulo + (n.autor ? ' · ' + (NOMBRE[n.autor] ?? n.autor) : ''),
+        icono: n.region === 'compartida' ? '◆' : promovida ? '◈' : '◇',
+        iconoTitulo: n.region + (promovida ? ' · promovida' : ''),
+      });
+    }
+    const ordena = n => {
+      n.hijos.sort((a, b) => (!!b.hijos - !!a.hijos) || (a.etiqueta ?? a.nombre).localeCompare(b.etiqueta ?? b.nombre, 'es'));
+      n.hijos.forEach(h => h.hijos && ordena(h));
+      n.cuenta = n.hijos.reduce((s, h) => s + (h.hijos ? h.cuenta : 1), 0);
+    };
+    const raices = d.regiones.map(r => dirs.get(r));
+    raices.forEach(ordena);
+    const poda = ns => ns.filter(n => !n.hijos || n.cuenta > 0).map(n => (n.hijos ? { ...n, hijos: poda(n.hijos) } : n));
+    return q ? poda(raices) : raices;
+  },
+  nombre: k => rutaB(k).split('/').pop(),
+  // Lo que se escribe al renombrar: la ruta dentro de la región, sin .md.
+  nombreEditable: k => rutaB(k).split('/').slice(1).join('/').replace(/\.md$/, ''),
+  miga(d, k) {
+    const partes = rutaB(k).split('/');
+    const ultima = partes.pop();
+    return partes.map(p => `<span class="m">${esc(p)}</span><span class="m">/</span>`).join('') + `<b>${esc(ultima)}</b>`;
+  },
+  meta(d, k, x) {
+    if (!x) return '<p class="m">ya no está en disco</p>';
+    const c = x.cabecera;
+    const partes = [`${x.bytes} bytes · modificada hace ${reloj(x.modificada)}`];
+    if (c) {
+      partes.push(
+        'de ' + esc(NOMBRE[c.autor] ?? c.autor), esc(c.origen),
+        c.promocion === 'promovida' ? 'promovida' : 'sin promover',
+        c.tags.length ? esc(c.tags.map(t => '#' + t).join(' ')) : '',
+        c.promovida_de ? 'copia de ' + esc(c.promovida_de) : '',
+        c.promovida_a ? 'promovida a ' + esc(c.promovida_a) : '');
+    } else partes.push(esc(x.aviso_cabecera ?? 'sin cabecera'));
+    return `<p class="m">${partes.filter(Boolean).join(' · ')}</p>`;
+  },
+  menu(d, k, x) {
+    const comp = regionDe(rutaB(k)) === 'compartida';
+    return [
+      { a: 'renombrar-nota', txt: '✎ Renombrar o mover' },
+      ...(comp ? [] : [{ a: 'promover-nota', txt: '⇧ Promover a compartida', off: x?.cabecera?.promocion === 'promovida' && 'ya está promovida' }]),
+      { a: 'copiar-ruta-nota', txt: '⧉ Copiar la ruta' },
+      { a: 'mostrar-nota', txt: '▤ Mostrar en el explorador de archivos' },
+      { a: 'eliminar-nota', txt: '✕ Mover a la papelera', cls: 'hot' },
+    ];
+  },
+  ctx(d, k) {
+    const desde = rutaB(k);
+    return {
+      wiki: destino => { const r = resolverWiki(destino, desde, d.rutas); return r ? 'b' + r : null; },
+      md: url => { const r = resolverMd(url.split('#')[0], desde); return r && d.rutasSet.has(r) ? 'b' + r : null; },
+      roto: 'no hay esa nota (o el enlace es ambiguo)',
+    };
+  },
+  // La barra de la columna del árbol: crear, carpeta y papelera.
+  barraArbol(d, E) {
+    const n = d.en_papelera;
+    let h = '<div class="arbol-bar">' +
+      btn('crear-nota', '＋ nota', 'nota nueva (solo en la región compartida)', {}, E.creando === 'nota' ? 'on' : '') +
+      btn('carpeta-nota', '＋ carpeta', 'carpeta nueva, en cualquier región', {}, E.creando === 'carpeta' ? 'on' : '') +
+      btn('papelera-nota', 'papelera' + (n ? ` (${n})` : ''), 'las notas borradas: se pueden restaurar', {}, E.papelera ? 'on' : '') +
+      btn('reindexar-boveda', '↻ reindexar', 'reconstruye el índice de búsqueda desde los ficheros (no toca las notas)') +
+      '</div>';
+    const i = d.indice;
+    if (i && i.desfasado) {
+      h += `<p class="m aviso-indice" title="El índice se pone al día solo al buscar; ↻ reindexar lo reconstruye entero">índice desfasado: ${i.nuevas} nuevas, ${i.cambiadas} cambiadas, ${i.eliminadas} borradas en disco</p>`;
+    }
+    if (E.creando) {
+      const que = E.creando === 'nota' ? 'Ruta de la nota nueva (compartida/…)' : 'Ruta de la carpeta nueva (región/…)';
+      h += `<input class="ren nueva" data-crear="${E.creando}" value="${esc(baseCreacion(E, E.creando))}" spellcheck="false" aria-label="${que}" title="${que}: Enter crea, Esc cancela">`;
+    }
+    return h;
+  },
+  // La papelera ocupa la columna de la nota mientras está abierta.
+  panel(d, E) {
+    if (!E.papelera) return null;
+    const l = d.papelera;
+    let h = '<header class="nota-cab"><div class="miga"><b>Papelera</b></div><span class="grow"></span>' +
+      '<button class="ico" data-a="papelera-nota" title="Cerrar la papelera" aria-label="Cerrar la papelera">✕</button></header>' +
+      '<p class="m">Lo borrado desde aquí (notas y carpetas). Restaurar devuelve todo lo de esa entrada a su sitio, si no hay otra nota con la misma ruta.</p>';
+    if (!l) return h + '<p class="vacio">Cargando…</p>';
+    if (!l.length) return h + '<p class="vacio">La papelera está vacía.</p>';
+    const grupos = new Map();
+    l.forEach(p => { if (!grupos.has(p.id)) grupos.set(p.id, []); grupos.get(p.id).push(p); });
+    return h + '<div class="pap">' + [...grupos.values()].map(g => {
+      const p = g[0], bytes = g.reduce((s, x) => s + x.bytes, 0);
+      const nombre = g.length > 1 ? `${p.ruta} y ${g.length - 1} más` : p.ruta;
+      return `<div class="pap-f"><span class="n" title="${esc(g.map(x => x.ruta).join('\n'))}">${esc(nombre)}</span><span class="m">${bytes} bytes · hace ${reloj(p.borrada)}</span>` +
+        btn('restaurar-nota', '↺ restaurar', 'devolver ' + nombre + ' a su sitio', { id: p.id }) + '</div>';
+    }).join('') + '</div>' +
+      '<p class="m">Vaciar la papelera borra todo para siempre y no se puede deshacer: se confirma en una terminal, no aquí.</p>' +
+      '<p>' + btn('vaciar-papelera', '⌨ vaciar en la terminal', 'abre una terminal con ea boveda vaciar-papelera, que pide confirmación', {}, 'hot') + '</p>';
+  },
+  // El menú ⋯ de una carpeta (no de una región): renombrar o mover, y la papelera.
+  menuCarpeta(E, n) {
+    if (!n.d.includes('/')) return '';
+    const abierto = E.menuCarpeta === n.d;
+    return '<span class="menu-anc">' +
+      `<button class="ico" data-a="carpeta-menu" data-d="${esc(n.d)}" title="Más acciones de la carpeta" aria-label="Más acciones de ${esc(n.d)}" aria-haspopup="menu" aria-expanded="${abierto}">⋯</button>` +
+      (abierto ? '<div class="menu" role="menu">' +
+        `<button role="menuitem" data-a="carpeta-renombrar" data-d="${esc(n.d)}">✎ Renombrar o mover</button>` +
+        `<button role="menuitem" class="hot" data-a="carpeta-eliminar" data-d="${esc(n.d)}">✕ Mover a la papelera</button></div>` : '') +
+      '</span>';
+  },
+  // Acciones propias; null = no es suya, false = ya repintó, true = sondear.
+  async accion(a, E, datos) {
+    if (a === 'carpeta-menu') {
+      E.menuCarpeta = E.menuCarpeta === datos.d ? null : datos.d;
+      pintar();
+      return false;
+    }
+    if (a === 'carpeta-renombrar' || a === 'carpeta-eliminar') {
+      const d = datos.d, bajo = k => k.startsWith('b' + d + '/');
+      const region = regionDe(d);
+      if (!cierraBorrador('boveda')) { pintar(); return false; }
+      let nueva = null;
+      if (a === 'carpeta-renombrar') {
+        let v = prompt('Ruta nueva de la carpeta (dentro de la misma región; las notas y sus enlaces se actualizan):', d);
+        if (v === null) { pintar(); return false; }
+        v = v.trim().replace(/^\/+|\/+$/g, '');
+        if (!v || v === d) { pintar(); return false; }
+        if (!v.startsWith(region + '/')) {
+          if (['modelo-local', 'claude-code', 'compartida'].includes(v.split('/')[0]))
+            throw new Error('solo se mueve dentro de la misma región (a la compartida se llega promoviendo)');
+          v = region + '/' + v;
+        }
+        const r = await ea.renombrarCarpeta(d, v);
+        nueva = r.carpeta;
+        const m = r.actualizadas.length, amb = r.ambiguas.length;
+        avisa(`✓ carpeta movida a ${nueva}` + (m ? ` · enlaces al día en ${m} ${m === 1 ? 'nota' : 'notas'}` : '') +
+          (amb ? ` · enlaces ambiguos sin tocar en: ${r.ambiguas.join(', ')}` : ''), true);
+      } else {
+        if (!confirm(`¿Mover la carpeta ${d} y todo lo que contiene a la papelera? Se puede restaurar.`)) { pintar(); return false; }
+        const r = await ea.eliminarCarpeta(d);
+        avisa(r.vacia ? `✓ carpeta ${d} quitada (estaba vacía)` : `✓ ${d} en la papelera (${r.notas.length} ${r.notas.length === 1 ? 'nota' : 'notas'})`, true);
+      }
+      if (E.sel && bajo(E.sel)) E.sel = nueva ? 'b' + nueva + E.sel.slice(1 + d.length) : null;
+      Object.keys(st.detalle).filter(bajo).forEach(k => delete st.detalle[k]);
+      E.borrador = null;
+      E.plegados.delete(d);
+      if (nueva) E.plegados.delete(nueva);
+      guardaEditor('boveda');
+      return true;
+    }
+    if (a === 'vaciar-papelera') {
+      // Irreversible (art. IV.2): la web solo abre la terminal; la frase de
+      // confirmación se escribe allí.
+      const r = await ea.abrirTerminal({ boveda: 'vaciar-papelera' });
+      avisa(`⌨ terminal abierta: confírmalo allí (${r.comando})`, true);
+      return false;
+    }
+    if (a === 'crear-nota' || a === 'carpeta-nota') {
+      const tipo = a === 'crear-nota' ? 'nota' : 'carpeta';
+      E.creando = E.creando === tipo ? null : tipo;
+      pintar();
+      const i = $('input[data-crear]');
+      if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+      return false;
+    }
+    if (a === 'reindexar-boveda') {
+      const r = await ea.reindexarBoveda();
+      avisa(`✓ índice reconstruido: ${r.nuevas} nuevas, ${r.cambiadas} actualizadas, ${r.eliminadas} eliminadas` +
+        (r.omitidas ? `, ${r.omitidas} omitidas por tamaño` : ''), true);
+      return true;
+    }
+    if (a === 'papelera-nota') {
+      E.papelera = !E.papelera;
+      return true;
+    }
+    if (a === 'restaurar-nota') {
+      const n = await ea.restaurarNota(datos.id);
+      avisa('✓ restaurada en ' + n.ruta, true);
+      if (cierraBorrador('boveda')) {
+        const k = 'b' + n.ruta;
+        st.detalle[k] = n;
+        Object.assign(E, { sel: k, papelera: false });
+        EDITOR.boveda.desplegar(E, k);
+        guardaEditor('boveda');
+      }
+      return true;
+    }
+    if (a === 'promover-nota') {
+      if (!E.sel) return false;
+      const r = rutaB(E.sel);
+      if (!confirm(`¿Promover ${r} a la región compartida?\n\nSe copia a compartida/; el original se queda, marcado como promovido.`)) { pintar(); return false; }
+      const p = await ea.promover(r);
+      avisa(p.texto, true);
+      return true;
+    }
+    return null;
+  },
+  rutaAbs: x => x.absoluta,
+  guardar: (k, texto, version) => ea.guardarNota(rutaB(k), texto, version),
+  mostrar: k => ea.mostrarNota(rutaB(k)),
+  confirmaEliminar: (k, aviso) => `¿Mover ${rutaB(k)} a la papelera? Se puede restaurar.${aviso}`,
+  async eliminar(k, x) {
+    await ea.eliminarNota(rutaB(k), x.version);
+    return `✓ ${nombreB(k)} en la papelera`;
+  },
+  async renombrar(k, nuevo, x) {
+    const ruta = rutaB(k), region = regionDe(ruta);
+    let v = nuevo.trim().replace(/^\/+/, '').replace(/\.md$/, '');
+    if (!v) return null;
+    const primera = v.split('/')[0];
+    if (primera === region) v = v.slice(region.length + 1);
+    else if (['modelo-local', 'claude-code', 'compartida'].includes(primera))
+      throw new Error('solo se mueve dentro de la misma región (a la compartida se llega con ⋯ → Promover)');
+    const n = `${region}/${v}.md`;
+    if (n === ruta) return null;
+    const r = await ea.renombrarNota(ruta, n, x.version);
+    const m = r.actualizadas.length, a = r.ambiguas.length;
+    return {
+      k: 'b' + r.nota.ruta, detalle: r.nota,
+      aviso: `✓ ${carpetaDe(ruta) === carpetaDe(r.nota.ruta) ? 'renombrada' : 'movida'} a ${r.nota.ruta}` +
+        (m ? ` · enlaces al día en ${m} ${m === 1 ? 'nota' : 'notas'}` : '') +
+        (a ? ` · enlaces ambiguos sin tocar en: ${r.ambiguas.join(', ')}` : ''),
+    };
+  },
+};
+
+function filasSistema(e, plano = false, ag = null) {
   const out = [];
   e.servicios.forEach(s => {
     const activo = s.activo === 'active';
     const g = s.activo === 'desconocido' ? '◌' : activo || s.activo === 'failed' ? '●' : '○';
     const armado = st.armado && st.armado.n === s.nombre && st.armado.hasta > Date.now();
-    const row = `<i class="${s.activo === 'failed' ? 'hot' : activo ? 'm' : 'n'}" title="${esc(s.activo)}">${g}</i>` +
-      `<span class="x">${s.nombre}</span><span class="${s.activo === 'failed' ? 'hot' : 'm'}">${activo ? '' : esc(s.activo)}</span>` +
+    const row = `<i class="${s.activo === 'failed' ? 'hot' : activo ? 'ok' : 'n'}" title="${esc(s.activo)}">${g}</i>` +
+      `<span class="x">${esc(s.nombre)}</span><span class="${s.activo === 'failed' ? 'hot' : 'm'}">${activo ? 'en marcha' : esc(s.activo)}</span>` +
       `<span class="m">${s.activo_s != null ? unidades(s.activo_s) : ''}</span>` +
       btn('reiniciar', armado ? '↻ confirmar' : '↻ reiniciar', armado ? 'confirmar reinicio' : 'reiniciar (pide confirmar)', { n: s.nombre }, armado ? 'hot' : '');
     out.push(fila('s' + s.nombre, 's', row, s.nombre + ' ' + s.activo));
   });
   const o = e.orquestador;
   out.push(fila('sorq', 's', `<i class="${o.vivo ? 'm' : 'hot'}">♥</i><span class="x">orquestador</span><span class="${o.vivo ? 'm' : 'hot'}">${o.vivo ? 'con latido' : 'sin latido: no se ejecutará nada'}</span><span class="m">${reloj(o.ultimo_latido)}</span><span></span>`, 'orquestador latido', '', plano ? '' : ' g'));
+  if (o.sandbox) {
+    const b = o.sandbox;
+    const dice = b.disponible
+      ? (b.sandbox === 'ninguno' ? 'sin aislamiento (agente.sandbox = false)' : b.sandbox)
+      : 'no disponible: ' + (b.motivo ?? 'sin motivo');
+    out.push(fila('ssbx', 's', `<i class="${b.disponible ? 'm' : 'hot'}">▣</i><span class="x">sandbox del ejecutor</span><span class="${b.disponible ? 'm' : 'hot'}">${esc(dice)}</span><span class="m">${esc(b.sistema)}</span><span></span>`, 'sandbox aislamiento ' + b.sistema + ' ' + b.sandbox, '', plano ? '' : ' g'));
+  }
+  if (!plano) out.push(filaServicios(ag?.plan));
   e.agentes.forEach((a, i) => {
-    const row = `<i class="n">◈</i><span class="x">${esc(NOMBRE[a.nombre] ?? a.nombre)}</span><span class="m">${a.ultimo ? esc(a.ultimo.accion) : 'sin actividad'}</span>` +
+    const modelo = a.modelo ?? 'su modelo propio';
+    const hizo = a.ultimo ? esc(a.ultimo.accion) + (a.ultimo_agente && a.ultimo_agente !== a.agente ? ` (${esc(a.ultimo_agente)})` : '') : 'sin actividad';
+    const row = `<i class="n">◈</i><span class="x">${esc(a.rol)}</span>` +
+      `<span class="m" title="${esc(a.agente)} con ${esc(modelo)}"><b class="ag">${esc(a.agente_nombre || a.agente)}</b> · ${esc(modelo)} · ${hizo}</span>` +
       `<span class="m" title="${esc(a.ultimo?.accion ?? '')}">${reloj(a.ultimo?.ts)}</span><span></span>`;
-    out.push(fila('s' + a.nombre, 's', row, a.nombre + ' ' + (a.ultimo?.accion ?? ''), '', i === 0 && !plano ? ' g' : ''));
+    out.push(fila('s' + a.nombre, 's', row, `${a.nombre} ${a.rol} ${a.agente} ${modelo} ${a.ultimo?.accion ?? ''}`,
+      plano ? '' : detalleRol(a, ag), i === 0 && !plano ? ' g' : ''));
   });
   return out;
+}
+
+// El bloque «servicios residentes» de ▦ Sistema (spec 020, H4): lo que
+// `ea servicios ver` cuenta, por gestor. Instalar y desinstalar no se hacen
+// aquí: «⌨» abre una terminal real y se confirman allí.
+function filaServicios(p) {
+  if (!p) return fila('ssvc', 's', '<i class="n">◌</i><span class="x">servicios residentes</span><span class="m">consultando el gestor…</span><span></span><span></span>', 'servicios residentes gestor instalar');
+  const puestos = p.servicios.filter(x => x.instalado).length;
+  const row = `<i class="${puestos === p.servicios.length ? 'ok' : 'n'}">${GL_AJUSTES}</i><span class="x">servicios residentes</span>` +
+    `<span class="m" title="${esc(p.gestor)}">${esc(p.sistema)} · ${esc(p.backend)}</span>` +
+    `<span class="m">${puestos}/${p.servicios.length} instalados</span><span></span>`;
+  let det = `<p class="m ayuda">${esc(p.gestor)}. Binarios en <code>${esc(p.binarios)}</code>` +
+    (p.unidades ? `; unidades en <code>${esc(p.unidades)}</code>` : '') + '.' +
+    (p.path_fijo ? ' launchd arranca con un PATH mínimo: se fija el de quien instala.' : '') + '</p>';
+  if (p.faltan.length) det += `<p class="hot ayuda">Faltan binarios (compílalos con <code>cargo build --release</code>): ${p.faltan.map(esc).join(', ')}</p>`;
+  det += '<div class="agentes">' + p.servicios.map(x => {
+    const estado = x.instalado === true ? (x.activo === 'active' ? '<span class="ok">en marcha</span>' : esc(x.activo))
+      : x.instalado === false ? 'no instalado' : 'desconocido';
+    return `<p><span class="x">${esc(x.nombre)}</span><span class="m">${estado}</span>` +
+      `<span class="md" title="${esc(x.unidad)} · ${esc(x.binario)}">${esc(x.unidad)} · ${esc(x.binario)}</span>` +
+      (x.existe ? '<span class="ok">● binario</span>' : '<span class="hot">✕ falta</span>') + '</p>';
+  }).join('') + '</div>';
+  det += '<details><summary class="m">▸ pasos de instalar</summary><ul class="m">' + p.pasos.map(x => `<li>${esc(x)}</li>`).join('') + '</ul></details>';
+  det += '<p class="m ayuda">ea-web no se reinicia a sí mismo, y instalar o desinstalar lo para también a él: se confirma en la terminal.</p>';
+  det += '<div class="acc">' +
+    btn('terminal', '⌨ instalar', 'abre una terminal con «ea servicios instalar»; allí se enseñan los pasos y se confirma', { sv: 'instalar' }, 'hot') +
+    btn('terminal', '⌨ desinstalar', 'abre una terminal con «ea servicios desinstalar»; allí se enseñan los pasos y se confirma', { sv: 'desinstalar' }, 'hot') + '</div>';
+  return fila('ssvc', 's', row, 'servicios residentes gestor instalar desinstalar ' + p.backend + ' ' + p.sistema, det);
+}
+
+// Los worktrees propios vivos en ▦ Sistema (#7): una fila por trabajo con su
+// rama y si está limpio; el detalle trae la ficha y el botón de limpiar.
+function filasWorktrees(lista) {
+  if (!lista?.length) return [];
+  const out = [grupo('▦', 'worktrees propios', lista.length, 'git worktrees de trabajos, en <estado>/worktrees')];
+  for (const w of lista) {
+    const k = 'w' + w.trabajo, [txt, cls] = LIMPIEZA[w.limpio] ?? ['desconocido', 'hot'];
+    const row = `<i class="n">⎇</i><span class="x" title="${esc(w.ruta)}">${esc(w.rama)}</span>` +
+      `<span class="m">${esc(w.estado_trabajo ?? 'sin trabajo')}${w.ocupado ? ' · en uso' : ''}</span><span class="${cls}">${txt}</span><span></span>`;
+    out.push(fila(k, 's', row, `${w.trabajo} ${w.rama} ${w.titulo ?? ''} ${w.ruta}`,
+      (w.titulo ? `<p class="tx">${esc(w.titulo)}</p>` : '') + worktreeHtml(w.trabajo, w) +
+      `<p>${btn('ir-trabajo', '→ trabajo', 'abrir la ficha del trabajo', { id: w.trabajo }, 'l')}</p>`));
+  }
+  return out;
+}
+
+// El detalle de un rol en ▦ Sistema: los agentes del catálogo que pueden
+// ocuparlo, con su binario y su modelo (/api/agentes), y el cambio (spec
+// 017). Va por POST /api/ajustes (`roles.<rol>`), con segundo clic para
+// confirmar y su evento ajustes_cambiados en el diario. El ejecutor cambia
+// para el siguiente trabajo: el que está en curso termina con el suyo.
+function detalleRol(a, ag) {
+  if (!ag) return '<p class="m">cargando los agentes…</p>';
+  const otro = ag.agentes.find(x => x.rol && x.rol !== a.rol);
+  const fijado = ag.fijados?.[a.rol];
+  let h = `<p class="m ayuda">${a.rol === 'ejecutor'
+    ? 'Ejecuta desatendido en bwrap, sin herramientas web y siempre con un modelo local. El cambio vale para el siguiente trabajo que se tome; el que está en curso termina con el agente con que se tomó.'
+    : 'Formaliza y revisa en una sesión interactiva; su modelo puede ser remoto. No puede ser el mismo agente que el ejecutor.'}` +
+    (fijado ? ` <span class="hot">Lo fija ${esc(fijado)}: no se cambia desde aquí.</span>` : '') + '</p>';
+  h += '<div class="agentes">' + ag.agentes.filter(x => x.admite.includes(a.rol)).map(x => {
+    const m = x.modelo;
+    const modelo = !m ? 'su modelo propio'
+      : `${esc(m.nombre)} <span class="dd">${m.remoto ? 'remoto' : esc(m.base_url)}</span>` +
+        (x.modelo_accesible === true ? ' <span class="ok">responde</span>' : x.modelo_accesible === false ? ' <span class="hot">no responde</span>' : '');
+    const bin = x.ruta ? `<span class="ok" title="${esc(x.ruta)}">● ${esc(x.bin)}</span>` : `<span class="hot" title="no está en el PATH">✕ ${esc(x.bin)}</span>`;
+    let accion;
+    if (x.id === a.agente) accion = '<span class="m">ocupa el rol</span>';
+    else if (fijado) accion = '';
+    else if (otro && x.id === otro.id) accion = `<span class="m" title="un agente no ocupa los dos roles">es el ${esc(otro.rol)}</span>`;
+    else if (!x.ruta) accion = '<span class="m">falta el binario</span>';
+    else {
+      const n = `rol:${a.rol}:${x.id}`;
+      const armado = st.armado && st.armado.n === n && st.armado.hasta > Date.now();
+      accion = btn('poner-rol', armado ? '⇄ confirmar' : `⇄ poner de ${a.rol}`, armado ? 'confirmar el cambio' : `poner a ${x.nombre} de ${a.rol} (pide confirmar)`,
+        { rol: a.rol, agente: x.id }, armado ? 'hot' : '');
+    }
+    const desp = x.presencia?.viva ? ` · <span class="ok">despierto${x.presencia.equipo ? ' en un equipo' : ''}</span>` : '';
+    return `<p><b>${esc(x.nombre)}</b>${bin}<span class="md">${modelo}${desp} · <span class="dd">topes: ${esc(x.topes)}</span></span><span class="acc">${accion}</span></p>`;
+  }).join('') + '</div>';
+  return h + `<p class="m ayuda">También desde la terminal: <code>ea agentes</code> y <code>ea agentes rol ${esc(a.rol)} &lt;agente&gt;</code>.</p>`;
+}
+
+// ------------------------------------------- lo que produjo una acción (A1)
+//
+// Tras ejecutar una acción (en ▶ Acciones o al aceptar su propuesta), enlaces
+// a lo que produjo, con la navegación de siempre: el trabajo (ir-trabajo), la
+// nota promovida, el servicio reiniciado o la rutina registrada (ir-a) y, si
+// lo hay, su evento accion_ejecutada en el diario (ir-evento, sin filtros).
+// `r` es { texto, trabajo, datos, evento } de /api/acciones/ejecutar.
+function enlacesResultado(h, r) {
+  if (!r) return '';
+  const d = r.datos && typeof r.datos === 'object' ? r.datos : {};
+  const out = [];
+  if (r.trabajo) out.push(btn('ir-trabajo', '→ trabajo', 'abrir la ficha del trabajo ' + r.trabajo, { id: r.trabajo }, 'l'));
+  if (h === 'ea_promover_nota' && typeof d.destino === 'string') {
+    out.push(btn('ir-a', '→ nota en compartida', 'abrir ' + d.destino + ' en ▥ Bóveda', { dsec: 'boveda', dfila: d.destino }, 'l'));
+  }
+  if (h === 'ea_reiniciar_servicio' && typeof d.servicio === 'string') {
+    const activo = d.activo === 'active';
+    out.push(`<span class="${activo ? 'ok' : 'hot'}" title="estado tras reiniciar: ${esc(d.activo ?? '?')}">● ${activo ? 'en marcha' : esc(d.activo ?? '?')}</span>`,
+      btn('ir-a', '→ Sistema', 'ver ' + d.servicio + ' en ▦ Sistema', { dsec: 'sistema', dfila: d.servicio }, 'l'));
+  }
+  if (h === 'ea_registrar_rutina' && typeof d.rutina === 'string') {
+    out.push(btn('ir-a', '→ rutina ' + esc(d.rutina), 'ver la rutina en ↻ Rutinas', { dsec: 'rutinas', dfila: d.rutina }, 'l'));
+  }
+  if (r.evento != null) out.push(btn('ir-evento', '≡ en el diario', 'ver el evento #' + r.evento + ' en ≡ Diario', { id: r.evento }, 'l'));
+  return out.length ? `<p class="sal">${out.join(' ')}</p>` : '';
+}
+
+// Formularios guiados de la consola: pasado este tiempo, la simulación se
+// avisa como vieja (ejecutar sigue revalidando contra el mundo de ahora).
+const SIM_CADUCA_S = 60;
+const ESTADO_OPCION = { active: 'en marcha', inactive: 'parado', failed: 'fallido', activating: 'arrancando', deactivating: 'parando' };
+const estadoOpcion = e => ESTADO_OPCION[e] ?? e;
+// La precondición en un renglón: «huella 3f9a1c2b…, bytes 120».
+function textoPrecondicion(p) {
+  if (!p || typeof p !== 'object') return '';
+  return Object.entries(p).map(([k, v]) => {
+    let t = v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    if (k === 'huella' && t.length > 12) t = t.slice(0, 12) + '…';
+    else if (t.length > 60) t = t.slice(0, 60) + '…';
+    return `${k.replace(/_/g, ' ')} ${t}`;
+  }).join(', ');
 }
 
 function filasAcciones(hs) {
@@ -406,26 +2172,554 @@ function filasAcciones(hs) {
       det = '<div class="fm">' + h.campos.map(f => {
         const val = v[f.nombre] ?? '';
         if (f.opciones.length) {
+          // Cada opción con lo que se sabe de ella ahora (el estado de un servicio).
+          const estados = f.estados || {};
           return `<select ${attrs(f)}><option value="">${esc(f.nombre)}</option>` +
-            f.opciones.map(o => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('') + '</select>';
+            f.opciones.map(o => `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(o)}${estados[o] ? ' · ' + esc(estadoOpcion(estados[o])) : ''}</option>`).join('') + '</select>';
         }
-        return `<input ${attrs(f)} placeholder="${esc(f.ayuda)}" value="${esc(val)}"${f.entero ? ' inputmode="numeric" size="8"' : ''}>`;
+        if (f.largo) return `<textarea ${attrs(f)} placeholder="${esc(f.ayuda)}" spellcheck="false" rows="8">${esc(val)}</textarea>`;
+        // Un campo libre con sugerencias: se elige de la lista o se escribe otro.
+        const dl = f.sugerencias?.length ? `ac-${h.nombre}-${f.nombre}` : '';
+        return `<input ${attrs(f)} placeholder="${esc(f.ayuda)}" value="${esc(val)}"${f.entero ? ' inputmode="numeric" size="8"' : ''}${dl ? ` list="${esc(dl)}" autocomplete="off"` : ''}>` +
+          (dl ? `<datalist id="${esc(dl)}">${f.sugerencias.map(o => `<option value="${esc(o)}"></option>`).join('')}</datalist>` : '');
       }).join('') + btn('simular', '◌ simular', 'describe lo que haría, sin hacer nada', { h: h.nombre }) + '</div>';
       // Lo que sale de simular o ejecutar (.sal) caduca en cuanto cambia un argumento.
       if (c.sim) {
-        det += `<p class="tx sal">Simulación: ${esc(c.sim.texto)}</p>` + (c.sim.confirmable
+        const pre = textoPrecondicion(c.sim.precondicion);
+        const edad = c.simEn ? Math.floor((Date.now() - c.simEn) / 1000) : 0;
+        det += `<p class="tx sal">Simulación: ${esc(c.sim.texto)}</p>` +
+          (pre ? `<p class="m sal" title="lo que se revalida al ejecutar; si ha cambiado, no se hace nada">se comprobará: ${esc(pre)}</p>` : '') +
+          (edad > SIM_CADUCA_S ? `<p class="hot sal">La simulación es de hace ${unidades(edad)}: el sistema puede haber cambiado. Vuelve a simular; al ejecutar se revalida igualmente.</p>` : '') +
+          (c.sim.confirmable
           ? `<div class="acc sal">${btn('ejecutar', '▶ ejecutar', 'ejecutar lo simulado', { h: h.nombre }, 'hot')}</div>`
-          : `<p class="hot sal">Irreversible: solo desde la terminal, con <b>ea acciones ejecutar ${esc(h.nombre)} --args '${esc(JSON.stringify(c.sim.argumentos))}'</b>.</p>`);
+          : `<p class="hot sal">Irreversible: solo desde la terminal, con <b>ea acciones ejecutar ${esc(h.nombre)} --args '${esc(JSON.stringify(c.sim.argumentos))}'</b>.</p>` +
+            `<div class="acc sal">${btn('terminal', '⌨ abrir en la terminal', `abre una terminal con ese comando; allí se confirma escribiendo «confirmo ${h.nombre}»`, { h: h.nombre }, 'hot')}</div>`);
       }
-      if (c.res) {
-        det += `<p class="tx sal">✓ ${esc(c.res.texto)}` +
-          '' + '</p>';
-      }
+      if (c.res) det += `<p class="tx sal">✓ ${esc(c.res.texto)}</p>` + enlacesResultado(h.nombre, c.res);
       if (c.err) det += `<p class="hot sal">✕ ${esc(c.err)}</p>`;
     }
+    det += historialHerramienta(st.detalle['a' + h.nombre]);
     return fila('a' + h.nombre, 'a', row, `${h.nombre} ${h.resumen} ${h.riesgo}`, det, h.supervisada ? '' : ' fin');
   });
 }
+
+// ------------------------------------------ historial de una herramienta (A3)
+//
+// En la ficha de cada herramienta, también de las directas, sus últimos
+// eventos del diario (GET /api/acciones/<nombre>/historial): ejecuciones y
+// fallos, propuestas y sus decisiones, invocaciones por MCP (también
+// simuladas y denegadas), con actor y canal. Cada uno lleva al evento en el
+// diario (ir-evento) y, si viene de una propuesta, a ella. Solo lectura.
+
+function historialHerramienta(hs) {
+  if (!hs) return '';
+  if (!hs.length) return '<p class="et">historial</p><p class="m">sin eventos en el diario todavía</p>';
+  const tit = hs.length === 1 ? 'último evento' : `últimos ${hs.length} eventos`;
+  return `<p class="et">${tit}</p><div class="evs">` + hs.map(e => {
+    const mal = e.resultado === 'error';
+    const extra = (e.canal ? ' · ' + esc(e.canal) : '') + (e.proponente ? ' · propuesta por ' + esc(e.proponente) : '') +
+      (e.propuesta != null ? ' ' + btn('ir-prop', '◇ ' + e.propuesta, 'ver la propuesta #' + e.propuesta, { id: e.propuesta }, 'l') : '') +
+      (e.trabajo ? ' ' + btn('ir-trabajo', esc(e.trabajo.slice(9, 15)), 'abrir la ficha del trabajo ' + e.trabajo, { id: e.trabajo }, 'l') : '') +
+      (e.error ? ` · <span class="hot">${esc(e.error)}</span>` : '');
+    return `<div class="ev"><span title="${esc(e.ts)}">${hora(e.ts)}</span>` +
+      `<span class="${mal ? 'hot' : 'm'}" title="${esc(e.resultado ?? '')}">${mal ? '✕' : e.resultado === 'ok' ? '✓' : '·'}</span>` +
+      `<span>${btn('ir-evento', '#' + e.id, 'ir al evento #' + e.id + ' en el diario', { id: e.id }, 'l')} ${esc(e.accion)}${extra}</span>` +
+      `<span class="m" title="${esc(e.actor)}">${esc(e.actor)}</span>` +
+      `<span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span></div>`;
+  }).join('') + '</div>';
+}
+// ----------------------------------------------------------------- biblioteca
+//
+// ◫ Biblioteca (spec 018): lo que cada agente tiene (skills, plugins,
+// subagentes, MCP, comandos, extensiones) con su estado y su uso. Todo lo que
+// llega ya viene redactado por el servidor (de un MCP, solo los nombres de
+// sus variables y cabeceras). Activar o desactivar y abrir una sesión pasan
+// por simular → aceptar, como en ▶ Acciones: el segundo clic es del usuario.
+// La categoría propia es `biblioteca.categorias` de los ajustes.
+
+const AGENTE_BIB = {
+  'claude-code': 'Claude Code', 'qwen-code': 'Qwen Code', codex: 'Codex', opencode: 'OpenCode',
+  antigravity: 'Antigravity', ecosistema: 'ecosistema', ejecutor: 'ejecutor',
+};
+const nombreAgenteBib = a => AGENTE_BIB[a] ?? a;
+const TIPOS_BIB = [['skill', 'skills'], ['plugin', 'plugins'], ['subagente', 'subagentes'], ['mcp', 'servidores MCP'], ['comando', 'comandos'], ['extension', 'extensiones']];
+const ESTADO_BIB = { si: ['●', 'ok', 'activado'], no: ['○', 'm', 'desactivado'], desconocido: ['?', 'm', 'no se sabe si está activado'] };
+const MECANISMO_BIB = {
+  'comando-oficial': 'con el comando oficial del agente', campo: 'editando su campo «enabled» (con copia previa)',
+  mover: 'moviéndolo al almacén del ecosistema', ajustes: 'por ajustes.toml (solo desde una terminal)',
+  'solo-sesion': 'solo se acota en una sesión', no: 'no se puede cambiar',
+};
+
+// Pide el informe de uso en segundo plano (la primera vez tarda ~1 s): la
+// lista sale al momento y los usos aparecen cuando llegan.
+function cargaUsoBib(forzar = false) {
+  const U = st.bibUso;
+  if (U?.cargando || (!forzar && U && Date.now() - U.en < 30000)) return;
+  st.bibUso = { ...(U ?? {}), cargando: true, en: U?.en ?? 0 };
+  ea.bibliotecaUso().then(inf => {
+    st.bibUso = { en: Date.now(), mapa: new Map(inf.usos.map(u => [u.id, u])), avisos: inf.avisos };
+  }).catch(e => {
+    st.bibUso = { en: Date.now(), mapa: new Map(), error: e.message };
+  }).finally(() => {
+    if (st.sec === 'biblioteca') { st.html = ''; pintar(); }
+  });
+}
+
+const usoBib = id => st.bibUso?.mapa?.get(id);
+
+function filtraBib(d) {
+  return d.elementos.filter(e =>
+    (!st.bAgente || e.agente === st.bAgente) && (!st.bTipo || e.tipo === st.bTipo) &&
+    (!st.bCat || e.categoria === st.bCat) && (!st.bEstado || e.activado === st.bEstado));
+}
+
+// La definición de un MCP, ya sin secretos: de env y cabeceras, solo los nombres.
+function defMcp(m) {
+  if (!m) return '';
+  const linea = [m.comando && [m.comando, ...(m.args ?? [])].join(' '), m.url].filter(Boolean).join(' · ');
+  return `<p class="et">definición del servidor</p><p class="m">${esc(m.transporte)}${linea ? ' · ' + esc(linea) : ''}</p>` +
+    (m.env?.length ? `<p class="m">variables de entorno: ${esc(m.env.join(', '))} (los valores no salen del servidor)</p>` : '') +
+    (m.headers?.length ? `<p class="m">cabeceras: ${esc(m.headers.join(', '))} (los valores no salen del servidor)</p>` : '');
+}
+
+function usoFicha(id) {
+  const U = st.bibUso;
+  if (!U?.mapa) return U?.error ? `<p class="hot">no se pudo calcular el uso: ${esc(U.error)}</p>` : '<p class="m">calculando el uso…</p>';
+  const u = U.mapa.get(id);
+  if (!u) return '<p class="m">sin usos registrados</p>';
+  return `<p class="m">${u.total} ${u.total === 1 ? 'uso' : 'usos'}${u.ultimo ? ' · el último, hace ' + esc(hace(u.ultimo)) : ''}</p>` +
+    u.por.map(p => `<p class="m bib-uso"><b>${esc(nombreAgenteBib(p.actor))}</b> · ${p.usos} ${p.usos === 1 ? 'uso' : 'usos'}${p.ultimo ? ' · hace ' + esc(hace(p.ultimo)) : ''}</p>`).join('');
+}
+
+function cambioFicha(e) {
+  const c = st.bibCambio[e.id] ?? {};
+  if (!e.cambio.posible) return `<p class="m">No se activa ni desactiva desde aquí: ${esc(e.cambio.motivo)}.</p>`;
+  const activar = e.activado !== 'si';
+  const cuando = activar ? 'activar' : 'desactivar';
+  let h = '';
+  if (c.sim) {
+    const edad = c.simEn ? Math.floor((Date.now() - c.simEn) / 1000) : 0;
+    h += `<p class="tx sal">Simulación: ${esc(c.sim.texto)}</p>` +
+      (edad > SIM_CADUCA_S ? `<p class="hot sal">La simulación es de hace ${unidades(edad)}: al aceptar se revalida contra el estado de ahora.</p>` : '') +
+      `<div class="acc sal">${btn('bib-ejecutar', '✓ aceptar y ' + cuando, 'hacer exactamente lo simulado (se revalida; queda en el diario)', { id: e.id }, 'hot')}` +
+      `${btn('bib-cancelar', '✕ no', 'descartar la simulación', { id: e.id })}</div>`;
+  } else {
+    h += `<div class="acc">${btn('bib-simular', '⏻ ' + cuando, `simular: qué se cambiaría (${MECANISMO_BIB[e.mecanismo] ?? e.mecanismo}) antes de aceptar`, { id: e.id, v: cuando })}`;
+  }
+  return h + (c.sim ? '' : '</div>') +
+    (c.res ? `<p class="tx sal">✓ ${esc(c.res.texto)}</p>` + (c.res.evento != null ? `<p class="sal">${btn('ir-evento', '≡ en el diario', 'ver el evento #' + c.res.evento + ' en ≡ Diario', { id: c.res.evento }, 'l')}</p>` : '') : '') +
+    (c.err ? `<p class="hot sal">✕ ${esc(c.err)}</p>` : '');
+}
+
+function categoriaFicha(e) {
+  const C = st.bibCat;
+  if (C?.id !== e.id) return '';
+  const cats = (st.datos?.categorias ?? []).map(c => `<option value="${esc(c)}"></option>`).join('');
+  return `<div class="fm bib-cat"><input data-bcat="${esc(e.id)}" value="${esc(C.v)}" list="bib-cats" maxlength="64" placeholder="categoría" aria-label="Categoría de ${esc(e.nombre)}" autocomplete="off" spellcheck="false">` +
+    `<datalist id="bib-cats">${cats}</datalist>` +
+    btn('bib-cat-guardar', '✓ guardar', 'guardar la categoría en ajustes.toml (biblioteca.categorias)', { id: e.id }) +
+    btn('bib-cat-quitar', '↺ origen', 'quitar la categoría propia: vuelve a la de su origen', { id: e.id }) +
+    btn('bib-cat', '✕', 'cerrar', { id: e.id }) + '</div>' +
+    (C.err ? `<p class="hot">✕ ${esc(C.err)}</p>` : '') +
+    '<p class="m">También con <b>ea ajustes establecer biblioteca.categorias=…</b>.</p>';
+}
+
+function filaBib(e) {
+  const [glifo, cls, tit] = ESTADO_BIB[e.activado] ?? ESTADO_BIB.desconocido;
+  const u = usoBib(e.id);
+  const usos = u ? `${u.total}` : st.bibUso?.mapa ? '—' : '…';
+  const row = `<i class="${cls}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(e.nombre)}">${esc(e.nombre)}</span>` +
+    `<span class="m">${esc(nombreAgenteBib(e.agente))}</span><span class="m" title="${esc(e.ambito)}">${esc(e.ambito)}</span>` +
+    `<span class="m" title="${u ? 'último uso hace ' + esc(hace(u.ultimo)) : ''}">${usos}</span>`;
+  const sesionOk = e.sesion.length > 0;
+  const det = `<p class="tx">${esc(e.descripcion || '(sin descripción)')}</p>` +
+    `<p class="m">${esc(e.id)}</p>` +
+    `<p class="m">${esc(e.tipo)} de ${esc(nombreAgenteBib(e.agente))} · ámbito ${esc(e.ambito)} · categoría <b>${esc(e.categoria)}</b> · ${esc(tit)}</p>` +
+    `<p class="m">origen: ${esc(e.ruta)}</p>` +
+    `<p class="m">se cambia: ${esc(MECANISMO_BIB[e.mecanismo] ?? e.mecanismo)}${e.version_formato ? ' · formato comprobado con la versión ' + esc(e.version_formato) : ''}</p>` +
+    (e.nota ? `<p class="m">⧉ ${esc(e.nota)}</p>` : '') +
+    defMcp(e.def_mcp) +
+    '<p class="et">uso</p>' + usoFicha(e.id) +
+    '<p class="et">acciones</p>' + cambioFicha(e) +
+    `<div class="acc">${btn('bib-sesion', '▶ sesión con…', sesionOk ? 'abrir una sesión de un agente en una terminal con solo las herramientas que elijas' : 'este elemento no tiene sentido en una sesión', { id: e.id }, sesionOk ? '' : 'off')}` +
+    `${btn('bib-cat', '✎ categoría', 'asignarle una categoría propia', { id: e.id })}</div>` + categoriaFicha(e);
+  return fila('l' + e.id, 'l', row, `${e.id} ${e.nombre} ${e.descripcion} ${e.agente} ${e.tipo} ${e.categoria} ${e.ambito}`, det, e.activado === 'no' ? ' fin' : '');
+}
+
+// El formulario «▶ sesión con…»: el agente, las herramientas compatibles con
+// él y, tras simular, el comando sin secretos. Lo escrito vive en st.bibSes.
+function formSesionBib(d) {
+  const S = st.bibSes;
+  if (!S) return [];
+  const compat = d.elementos.filter(e => e.sesion.includes(S.agente));
+  const lista = compat.map(e => `<label class="bs-el"><input type="checkbox" data-bs-el="${esc(e.id)}"${S.ids.includes(e.id) ? ' checked' : ''}> ` +
+    `<span class="x">${esc(e.nombre)}</span> <span class="m">${esc(e.tipo)} · ${esc(nombreAgenteBib(e.agente))} · ${esc(e.ambito)}</span></label>`).join('');
+  const det = '<div class="nm"><div class="fm">' +
+    `<select data-bs-agente title="el agente que se abre" aria-label="Agente">${d.agentes_sesion.map(a => `<option value="${esc(a)}"${a === S.agente ? ' selected' : ''}>${esc(nombreAgenteBib(a))}</option>`).join('')}</select>` +
+    `<span class="m">${S.ids.length} ${S.ids.length === 1 ? 'herramienta elegida' : 'herramientas elegidas'}</span></div>` +
+    `<div class="bs-lista">${lista || '<p class="m">Este agente no tiene herramientas compatibles en la biblioteca.</p>'}</div>` +
+    '<p class="m">Se abre en una terminal real, solo con lo elegido; no cambia la configuración de ningún agente y al cerrarla no queda nada activado. Los secretos de un MCP van solo a un fichero temporal (0600), nunca al comando.</p>' +
+    (S.sim ? `<p class="tx sal">Simulación: ${esc(S.sim.texto)}</p>` : '') +
+    (S.res ? `<p class="tx sal">✓ ${esc(S.res.texto)}</p>` : '') +
+    (S.err ? `<p class="hot sal">✕ ${esc(S.err)}</p>` : '') +
+    '<div class="acc">' + btn('bib-ses-simular', '◌ simular', 'ver el comando y los ficheros, sin abrir nada', {}, S.ids.length ? '' : 'off') +
+    (S.sim ? btn('bib-ses-ejecutar', '▶ abrir la terminal', 'abrir la terminal con exactamente lo simulado (se revalida)', {}, 'coin') : '') +
+    btn('bib-sesion', '✕ cerrar', 'cerrar el formulario') + '</div></div>';
+  const row = `<i>▶</i><span class="x">sesión de ${esc(nombreAgenteBib(S.agente))}</span><span class="m">con solo lo elegido</span><span class="m"></span><span class="m"></span>`;
+  return [suelto(`<article class="f o nueva"><div class="r l">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+function filasBiblioteca(d) {
+  const els = filtraBib(d);
+  const out = [...formSesionBib(d)];
+  if (d.avisos.length) {
+    out.push(suelto(`<p class="aj-cab m" title="${esc(d.avisos.join('\n'))}">${d.avisos.length} ${d.avisos.length === 1 ? 'aviso' : 'avisos'} al leer: ${esc(d.avisos[0])}${d.avisos.length > 1 ? ' …' : ''}</p>`, true));
+  }
+  if (!els.length) return out;
+  out.push(columnas('l', '', 'nombre', 'agente', 'ámbito', 'usos'));
+  const cats = [...new Set(els.map(e => e.categoria))].sort((a, b) => a.localeCompare(b));
+  for (const c of cats) {
+    const deC = els.filter(e => e.categoria === c);
+    out.push(grupo('◫', esc(c), deC.length));
+    for (const [t, plural] of TIPOS_BIB) {
+      const deT = deC.filter(e => e.tipo === t);
+      if (!deT.length) continue;
+      out.push(suelto(`<p class="bib-tipo m">${esc(plural)} · ${deT.length}</p>`));
+      out.push(...deT.map(filaBib));
+    }
+  }
+  return out;
+}
+
+// La barra: «▶ sesión con…» primero y los filtros, que se aplican aquí mismo.
+function barraBiblioteca() {
+  const d = st.datos;
+  const opcion = (v, t, actual) => `<option value="${esc(v)}"${v === (actual ?? '') ? ' selected' : ''}>${esc(t)}</option>`;
+  const sel = (campo, titulo, ops, actual) =>
+    `<select class="c${actual ? ' on' : ''}" data-bf="${campo}" title="${titulo}" aria-label="${titulo}">${ops.map(([v, t]) => opcion(v, t, actual)).join('')}</select>`;
+  const agentes = [...new Set([...(d?.elementos ?? []).map(e => e.agente), st.bAgente].filter(Boolean))];
+  const cats = [...new Set([...(d?.categorias ?? []), st.bCat].filter(Boolean))];
+  return `<button class="c${st.bibSes ? ' on' : ''}" data-a="bib-sesion" title="abrir una sesión de un agente con solo las herramientas que elijas" aria-pressed="${!!st.bibSes}">▶ sesión con…</button>` +
+    sel('agente', 'agente', [['', 'agente: todos'], ...agentes.map(a => [a, nombreAgenteBib(a)])], st.bAgente) +
+    sel('tipo', 'tipo', [['', 'tipo: todos'], ...TIPOS_BIB.map(([t, p]) => [t, p])], st.bTipo) +
+    sel('categoria', 'categoría', [['', 'categoría: todas'], ...cats.map(c => [c, c])], st.bCat) +
+    sel('estado', 'estado', [['', 'estado: todos'], ['si', '● activados'], ['no', '○ desactivados'], ['desconocido', '? desconocido']], st.bEstado);
+}
+
+// «▶ sesión con…»: abre el formulario (con `id` preelegido) o lo cierra.
+function abreSesionBib(id) {
+  if (!id && st.bibSes) { st.bibSes = null; return; }
+  const e = id && st.datos?.elementos.find(x => x.id === id);
+  const agente = e ? (e.sesion.includes(e.agente) ? e.agente : e.sesion[0]) : st.bibSes?.agente ?? st.datos?.agentes_sesion?.[0];
+  if (id && !e?.sesion.length) throw new Error('este elemento no tiene sentido en una sesión');
+  st.bibSes = { agente, ids: e ? [e.id] : [], sim: null, res: null, err: null, simEn: 0 };
+  $('#lista').scrollTop = 0;
+}
+
+async function accionBiblioteca(a, b) {
+  const { id } = b.dataset;
+  if (a === 'bib-sesion') { abreSesionBib(b.dataset.id); return; }
+  if (a === 'bib-simular' || a === 'bib-ejecutar' || a === 'bib-cancelar') {
+    const c = (st.bibCambio[id] ??= {});
+    const prev = c.sim;
+    c.sim = c.res = c.err = null;
+    if (a === 'bib-cancelar') return;
+    try {
+      if (a === 'bib-simular') {
+        c.sim = await ea.simularBiblioteca(b.dataset.v === 'activar' ? 'ea_activar_herramienta' : 'ea_desactivar_herramienta', { elemento: id });
+        c.simEn = Date.now();
+      } else if (prev) {
+        c.res = await ea.ejecutarBiblioteca(prev.herramienta, prev.argumentos, prev.precondicion);
+        st.bibUso = null;
+      }
+    } catch (e) {
+      c.err = e.message;
+    }
+    return;
+  }
+  if (a === 'bib-ses-simular' || a === 'bib-ses-ejecutar') {
+    const S = st.bibSes;
+    if (!S) return;
+    const prev = S.sim;
+    S.sim = S.res = S.err = null;
+    try {
+      if (a === 'bib-ses-simular') {
+        S.sim = await ea.simularBiblioteca('ea_lanzar_sesion', { agente: S.agente, herramientas: S.ids });
+        S.simEn = Date.now();
+      } else if (prev) {
+        S.res = await ea.ejecutarBiblioteca(prev.herramienta, prev.argumentos, prev.precondicion);
+        avisa('▶ sesión abierta en una terminal', true);
+      }
+    } catch (e) {
+      S.err = e.message;
+    }
+    return;
+  }
+  if (a === 'bib-cat') {
+    if (st.bibCat?.id === id) { st.bibCat = null; return; }
+    const e = st.datos?.elementos.find(x => x.id === id);
+    st.bibCat = { id, v: e?.categoria ?? '', err: null };
+    return;
+  }
+  if (a === 'bib-cat-guardar' || a === 'bib-cat-quitar') {
+    const C = st.bibCat;
+    if (!C || C.id !== id) return;
+    const nueva = a === 'bib-cat-quitar' ? '' : ($(`[data-bcat="${CSS.escape(id)}"]`)?.value ?? C.v).trim();
+    if (a === 'bib-cat-guardar' && !nueva) { C.err = 'escribe la categoría (o usa ↺ origen)'; return; }
+    try {
+      // El mapa de ahora, con la huella de ajustes.toml que se leyó.
+      const aj = await ea.ajustes();
+      const clave = aj.secciones.flatMap(s => s.claves).find(c => c.clave === 'biblioteca.categorias');
+      const mapa = { ...(clave?.valor ?? {}) };
+      if (nueva) mapa[id] = nueva; else delete mapa[id];
+      await ea.cambiarAjustes(aj.version, { 'biblioteca.categorias': Object.keys(mapa).length ? mapa : null });
+      st.bibCat = null;
+      avisa(nueva ? `✓ categoría «${nueva}»` : '✓ vuelve a la categoría de su origen', true);
+    } catch (e) {
+      C.err = e.message;
+    }
+  }
+}
+
+// ------------------------------------------------------------------- ajustes
+
+const ORIGEN_AJ = { defecto: () => 'por defecto', ajustes: () => 'ajustes.toml', heredado: o => 'heredado: ' + o.fichero, entorno: o => 'entorno: ' + o.variable };
+const origenAj = o => (ORIGEN_AJ[o.tipo] ?? (() => o.tipo))(o);
+// Un valor para leerlo y tal como se escribiría en la terminal.
+const esMapaAj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+const valorAj = v => (esMapaAj(v) ? (Object.keys(v).length ? Object.entries(v).map(([k, x]) => `${k} → ${x}`).join(', ') : '(ninguna)') : Array.isArray(v) ? (v.length ? v.join(', ') : '(ninguna)') : typeof v === 'boolean' ? (v ? 'sí' : 'no') : String(v ?? ''));
+const crudoAj = v => (esMapaAj(v) ? JSON.stringify(v) : Array.isArray(v) ? v.join(',') : String(v ?? ''));
+const armadoAj = n => !!(st.armado && st.armado.n === n && st.armado.hasta > Date.now());
+
+// ------------------------------------------------------------------ equipos
+//
+// ◎ Equipos (spec 019): los grupos de agentes despertados para una tarea. La
+// fila resume (miembros con punto despierto o dormido, nº de trabajos); el
+// detalle (GET /api/equipos/<id>) enseña la presencia, la cola y las entregas
+// de cada miembro. Despertar y dormir son gestos del usuario con la clave de
+// sesión; dormir pide un segundo clic. Los ejecutores empiezan a trabajar
+// cuando el orquestador los recoge; planificadores y revisores, en la
+// terminal que abre «＋ despertar» si se pide.
+
+const ROL_EQ = { planificador: 'planificador', ejecutor: 'ejecutor', revisor: 'revisor' };
+const nombreAg = a => NOMBRE[a] ?? a;
+
+// Los miembros de la fila: un punto por agente (● despierto, ○ no) y su rol.
+const miembrosFila = e => e.miembros.map(m =>
+  `<span class="${m.viva ? 'ok' : 'm'}" title="${esc(m.agente)} · ${esc(m.rol)} · ${m.viva ? 'despierto' : 'dormido'}">${m.viva ? '●' : '○'} ${esc(nombreAg(m.agente))}</span>`).join(' ');
+
+function presenciaMiembro(m) {
+  if (m.viva) return m.trabajo_actual ? `despierto, en <b>${esc(m.trabajo_actual.slice(9, 15))}</b>` : 'despierto, libre';
+  if (m.presencia) return `<span class="hot">presencia caducada</span> (último latido hace ${hace(m.presencia.latido)})`;
+  return 'sin presencia';
+}
+
+function detalleEquipo(e, d) {
+  if (!d) return '<p class="m">cargando el equipo…</p>';
+  const colaDe = m => (m.pendientes
+    ? ` · ${m.rol === 'ejecutor' ? 'órdenes' : 'revisión'} en cola: ${m.pendientes}${m.cola.length ? ' (' + m.cola.map(t => esc(t.slice(9, 15))).join(', ') + ')' : ''}`
+    : '');
+  let h = `<p class="m">${esc(d.id)} · ${esc(d.worktree_base)} · creado ${hora(d.creado_en)} por ${esc(nombreAg(d.creado_por))}</p>` +
+    `<p class="et">objetivo</p><p class="tx">${esc(d.objetivo)}</p><p class="et">miembros</p><div class="agentes">` +
+    d.miembros.map(m => `<p><b>${esc(nombreAg(m.agente))}</b><span>${esc(ROL_EQ[m.rol] ?? m.rol)}</span>` +
+      `<span class="md">${presenciaMiembro(m)}${colaDe(m)}</span><span></span></p>`).join('') + '</div>' +
+    `<p class="et">trabajos (${d.trabajos.length} de ${d.trabajos_total})</p>`;
+  h += d.trabajos.length ? '<div class="agentes">' + d.trabajos.map(t => {
+    const [g] = EST[t.estado] ?? ['·'];
+    const reparto = [t.asignado_a && '→ ' + nombreAg(t.asignado_a), t.revisor && 'revisa ' + nombreAg(t.revisor),
+      t.ejecutado_por && 'ejecutó ' + nombreAg(t.ejecutado_por.agente)].filter(Boolean).join(' · ');
+    const inf = t.informe ? ` · ${t.informe.resultado}${t.informe.resumen ? ': ' + t.informe.resumen : ''}` : '';
+    return `<p><span>${g} ${esc(EST[t.estado]?.[1] ?? t.estado)}</span><span>${esc(t.id.slice(9, 15))}</span>` +
+      `<span class="md" title="${esc(t.titulo + inf)}">${esc(t.titulo)}${reparto ? ' · ' + esc(reparto) : ''}${esc(inf)}</span>` +
+      `<span class="acc">${btn('ir-trabajo', '→ trabajo', 'abrir la ficha de ' + t.id, { id: t.id }, 'l')}</span></p>`;
+  }).join('') + '</div>' : '<p class="m">Ningún trabajo todavía: reparte con <code>ea trabajo crear --equipo ' + esc(d.id) + ' --asignar &lt;ejecutor&gt;</code> o con ＋ misión.</p>';
+  if (d.estado === 'despierto') {
+    const n = 'dormir:' + d.id, armado = armadoAj(n);
+    h += '<div class="acc">' + btn('eq-dormir', armado ? '◌ confirmar: dormir' : '◌ dormir', armado ? 'segundo clic: lo pendiente de sus ejecutores vuelve a la cola del ejecutor' : 'dormir el equipo (pide confirmar)', { id: d.id }, armado ? 'hot' : '') + '</div>';
+    if (armado) h += '<p class="m hot">Lo pendiente de sus ejecutores vuelve a la cola del ejecutor; los trabajos en curso terminan. Las terminales abiertas siguen, sin presencia.</p>';
+  }
+  return h;
+}
+
+function filasEquipos(lista) {
+  const out = [...formEquipo()];
+  if (!lista.length) return out;
+  out.push(columnas('q', '', 'equipo', 'estado', 'miembros (● despierto)', 'trabajos'));
+  for (const e of lista) {
+    const k = 'q' + e.id, despierto = e.estado === 'despierto';
+    const row = `<i class="${despierto ? 'ok' : 'n'}">◎</i><span class="x" title="${esc(e.objetivo)}">${esc(e.titulo)}</span>` +
+      `<span class="${despierto ? 'ok' : 'm'}">${despierto ? 'despierto' : 'dormido'}</span><span class="m miem">${miembrosFila(e)}</span>` +
+      `<span class="m">${e.trabajos}</span>`;
+    out.push(fila(k, 'q', row, `${e.titulo} ${e.objetivo} ${e.estado} ${e.miembros.map(m => m.agente + ' ' + m.rol).join(' ')}`,
+      detalleEquipo(e, st.detalle[k])));
+  }
+  return out;
+}
+
+// Los roles que admite un agente del catálogo en un equipo.
+const rolesEq = a => [...(a.admite.includes('ejecutor') ? ['ejecutor'] : []), ...(a.admite.includes('planificador') ? ['planificador', 'revisor'] : [])];
+
+// El formulario «＋ despertar». Lo escrito vive en st.eqNuevo (el sondeo
+// repinta). El servidor valida igual que `ea equipo despertar`: roles que
+// admite cada agente, sin repetir, un ejecutor con modelo local, un
+// planificador como mínimo, el tope orquestador.paralelo y un agente en un
+// solo equipo despierto.
+function formEquipo() {
+  const n = st.eqNuevo;
+  if (!n) return [];
+  const campo = (c, ph, extra = '') =>
+    `<input data-eq="${c}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" value="${esc(n.v[c] ?? '')}"${extra}>`;
+  const lista = n.cat.agentes.map(a => {
+    const roles = rolesEq(a), falta = !a.ruta;
+    const rol = n.rol[a.id] ?? roles[0];
+    return `<label class="bs-el"><input type="checkbox" data-eqm="${esc(a.id)}"${n.marca.has(a.id) ? ' checked' : ''}${falta || n.todos ? ' disabled' : ''}> ` +
+      `<span class="x">${esc(a.nombre)}</span> ` +
+      `<select data-eqr="${esc(a.id)}" aria-label="Rol de ${esc(a.nombre)}"${n.todos ? ' disabled' : ''}>${roles.map(r => `<option value="${r}"${r === rol ? ' selected' : ''}>${r}</option>`).join('')}</select> ` +
+      `<span class="m">${falta ? `<span class="hot">falta el binario ${esc(a.bin)}</span>` : esc(a.modelo ? a.modelo.nombre + (a.modelo.remoto ? ' (remoto)' : '') : 'su modelo propio')}</span></label>`;
+  }).join('');
+  const det = '<div class="nm"><div class="fm">' + campo('titulo', 'título del equipo', ' maxlength="200"') +
+    campo('worktree', 'worktree: ruta absoluta del repo', ' class="wt" list="eq-wt" spellcheck="false"') +
+    `<datalist id="eq-wt">${n.worktrees.map(w => `<option value="${esc(w)}"></option>`).join('')}</datalist></div>` +
+    `<textarea data-eq="objetivo" rows="3" maxlength="4000" placeholder="objetivo: para qué se despierta el equipo" aria-label="Objetivo">${esc(n.v.objetivo ?? '')}</textarea>` +
+    `<div class="fm"><label><input type="checkbox" data-eq-todos${n.todos ? ' checked' : ''}> despertar a todos los disponibles</label>` +
+    `<label><input type="checkbox" data-eq-term${n.terminal ? ' checked' : ''}> abrir terminales (planificadores y revisores)</label></div>` +
+    `<div class="bs-lista">${lista}</div>` +
+    '<p class="m">Un equipo necesita al menos un ejecutor (modelo local) y un planificador; el revisor es opcional. «Todos» reparte según lo que admite cada agente. Un agente solo está en un equipo despierto y los ejecutores caben en <code>orquestador.paralelo</code>.</p>' +
+    (n.err ? `<p class="hot">✕ ${esc(n.err)}</p>` : '') +
+    '<div class="acc">' + btn('eq-despertar', '▶ despertar', 'despertar el equipo con estos miembros', {}, 'coin') + btn('eq-nuevo', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
+  const row = `<i>◎</i><span class="x">${esc(n.v.titulo || 'equipo sin título')}</span><span class="m">nuevo</span><span class="m"></span><span class="m"></span>`;
+  return [suelto(`<article class="f o nueva"><div class="r q">${row}</div><div class="det">${det}</div></article>`, true)];
+}
+
+async function accionEquipo(a, b) {
+  const { id } = b.dataset;
+  if (a === 'eq-nuevo') {
+    if (st.eqNuevo) { st.eqNuevo = null; return; }
+    const [cat, form] = await Promise.all([ea.agentes(), ea.nuevoTrabajo().catch(() => ({ worktrees: [] }))]);
+    st.eqNuevo = { cat, worktrees: form.worktrees ?? [], v: { worktree: st.proyecto ?? '' }, marca: new Set(), rol: {}, todos: false, terminal: true, err: null };
+    $('#lista').scrollTop = 0;
+  } else if (a === 'eq-despertar') {
+    const n = st.eqNuevo, v = n.v;
+    const cuerpo = { titulo: v.titulo ?? '', objetivo: v.objetivo ?? '', worktree: v.worktree ?? '', terminal: n.terminal };
+    if (n.todos) cuerpo.todos = true;
+    else {
+      cuerpo.miembros = n.cat.agentes.filter(x => n.marca.has(x.id)).map(x => ({ agente: x.id, rol: n.rol[x.id] ?? rolesEq(x)[0] }));
+      if (!cuerpo.miembros.length) { n.err = 'elige a los miembros o marca «todos»'; return; }
+    }
+    try {
+      const r = await ea.despertarEquipo(cuerpo);
+      st.eqNuevo = null;
+      avisa(`✓ equipo ${r.equipo.titulo} despierto`, true);
+      for (const x of r.sesiones.filter(x => x.error)) avisa(`${x.agente}: no se pudo abrir la terminal (${x.error}); ábrela con: ${x.comando}`);
+      abre('equipos', 'q' + r.equipo.id);
+    } catch (e) {
+      if (e.status === 403) throw e;
+      n.err = e.message;
+    }
+  } else if (a === 'eq-dormir') {
+    // Segundo clic para confirmar, como reiniciar un servicio.
+    const clave = 'dormir:' + id;
+    if (!armadoAj(clave)) {
+      st.armado = { n: clave, hasta: Date.now() + 4000 };
+      st.html = '';
+      pintar();
+      setTimeout(() => { st.html = ''; pintar(); }, 4100);
+      return;
+    }
+    st.armado = null;
+    await ea.dormirEquipo(id);
+    delete st.detalle['q' + id];
+    avisa('◌ equipo dormido: lo pendiente volvió a la cola del ejecutor', true);
+  }
+}
+
+function filaAjuste(c) {
+  const fijada = !!c.fijada_por;
+  const web = c.edicion === 'web' && !fijada;
+  const [glifo, tit] = fijada ? ['⊘', `la fija la variable ${c.fijada_por}`] : web ? ['◐', 'se cambia desde aquí'] : ['⌨', 'solo desde una terminal (ea ajustes)'];
+  const reinicia = c.aplica === 'reinicio';
+  const row = `<i class="${fijada ? 'n' : 'm'}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(c.clave)}">${esc(c.titulo)}</span>` +
+    `<span class="${c.origen.tipo === 'defecto' ? 'm' : 'x'}" title="${esc(valorAj(c.valor))}">${esc(valorAj(c.valor))}</span>` +
+    `<span class="m">${esc(origenAj(c.origen))}</span>` +
+    `<span class="${reinicia ? 'hot' : 'm'}" title="${reinicia ? esc('reiniciar ' + c.reinicio.join(', ')) : 'sin reiniciar nada'}">${reinicia ? 'requiere reinicio' : 'en caliente'}</span>`;
+  const rango = c.min != null ? ` · de ${c.min} a ${c.max}` : c.permitidos ? ` · solo ${c.permitidos.join(', ') || 'nada'}` : '';
+  let det = `<p class="tx">${esc(c.descripcion)}</p>` +
+    `<p class="m">${esc(c.clave)} · por defecto ${esc(valorAj(c.defecto))}${esc(rango)}${reinicia ? esc(' · al cambiarlo, reinicia ' + c.reinicio.join(', ')) : ''}</p>`;
+  if (fijada) {
+    det += `<p class="hot">La fija la variable ${esc(c.fijada_por)}: no se cambia desde ningún sitio mientras esté definida.</p>`;
+  } else if (web) {
+    const actual = st.ajBorrador[c.clave] ?? crudoAj(c.valor);
+    const attrs = `data-aj="${esc(c.clave)}" title="${esc(c.titulo)}" aria-label="${esc(c.titulo)}"`;
+    const control = c.tipo === 'booleano'
+      ? `<select ${attrs}>${[['true', 'sí'], ['false', 'no']].map(([v, t]) => `<option value="${v}"${v === actual ? ' selected' : ''}>${t}</option>`).join('')}</select>`
+      : `<input ${attrs} value="${esc(actual)}"${c.tipo === 'entero' ? ' inputmode="numeric" size="8"' : ''} spellcheck="false">`;
+    const g = armadoAj('g' + c.clave), d = armadoAj('d' + c.clave);
+    det += '<div class="fm">' + control +
+      btn('ajuste-guardar', g ? '✓ confirmar' : '✓ guardar', g ? 'confirmar el cambio' : 'guardar en ajustes.toml (pide confirmar)', { c: c.clave }, g ? 'hot' : '') +
+      (c.origen.tipo === 'ajustes'
+        ? btn('ajuste-defecto', d ? '↺ confirmar' : '↺ por defecto', d ? 'confirmar: quitarlo de ajustes.toml' : 'quitarlo de ajustes.toml: vuelve al heredado o al valor por defecto (pide confirmar)', { c: c.clave }, d ? 'hot' : '')
+        : '') + '</div>';
+    if (c.endurecible) det += `<p class="m">Desde aquí solo puede bajar; para subirlo: <b>ea ajustes establecer ${esc(c.clave)}=…</b> en una terminal.</p>`;
+  } else {
+    det += `<p class="m">Solo desde una terminal: <b>ea ajustes establecer ${esc(c.clave)}=${esc(crudoAj(c.valor))}</b>` +
+      (c.origen.tipo === 'ajustes' ? ` (o <b>ea ajustes establecer --quitar ${esc(c.clave)}</b> para volver al heredado o al valor por defecto)` : '') + '.</p>';
+  }
+  return fila('g' + c.clave, 'aj', row, `${c.clave} ${c.titulo} ${valorAj(c.valor)} ${origenAj(c.origen)}`, det);
+}
+
+function filasAjustes(d) {
+  const out = [suelto(`<p class="aj-cab m">${esc(d.fichero)}${d.existe ? '' : ' · aún no existe: todo sale de otras capas'}</p>` +
+    d.avisos.map(a => `<p class="aj-cab hot">! ${esc(a)}</p>`).join(''), true)];
+  out.push(columnas('aj', '', 'ajuste', 'valor', 'origen', 'aplica'));
+  d.secciones.forEach(s => {
+    if (!s.claves.length) return;
+    out.push(grupo(GL_AJUSTES, esc(s.titulo), 0), ...s.claves.map(filaAjuste));
+  });
+  return out;
+}
+
+// Lo que la página toma de los ajustes para sí misma.
+function aplicaCliente(cl) {
+  if (!cl) return;
+  const antes = st.sondeoMs;
+  st.sondeoMs = cl.sondeo_ms;
+  st.diarioLimite = cl.diario_limite;
+  if (st.relojTick && antes !== st.sondeoMs) programaSondeo();
+}
+
+function programaSondeo() {
+  clearInterval(st.relojTick);
+  st.relojTick = setInterval(tick, st.sondeoMs ?? 3000);
+}
+
+// Guarda (o quita, con `defecto`) un ajuste con la versión que se leyó.
+async function guardaAjuste(clave, defecto) {
+  const d = st.datos;
+  const c = d?.secciones?.flatMap(s => s.claves).find(x => x.clave === clave);
+  if (!c) throw new Error('ajuste desconocido');
+  let valor = null;
+  if (!defecto) {
+    const crudo = ($(`[data-aj="${CSS.escape(clave)}"]`)?.value ?? st.ajBorrador[clave] ?? crudoAj(c.valor)).trim();
+    if (c.tipo === 'booleano') valor = crudo === 'true';
+    else if (c.tipo === 'entero') {
+      if (!/^\d+$/.test(crudo)) throw new Error(`'${c.titulo}' debe ser un número`);
+      valor = Number(crudo);
+    } else if (c.tipo === 'lista') valor = crudo.split(',').map(x => x.trim()).filter(Boolean);
+    else if (c.tipo === 'mapa') {
+      try { valor = JSON.parse(crudo || '{}'); } catch { throw new Error(`'${c.titulo}' debe ser JSON de texto a texto, p. ej. {"id": "categoría"}`); }
+      if (!esMapaAj(valor)) throw new Error(`'${c.titulo}' debe ser un objeto JSON`);
+    }
+    else valor = crudo;
+  }
+  const r = await ea.cambiarAjustes(d.version, { [clave]: valor });
+  delete st.ajBorrador[clave];
+  st.datos = r.ajustes;
+  aplicaCliente(r.ajustes.cliente);
+  for (const ap of r.aplicados) {
+    avisa(`✓ ${ap.clave}: ${valorAj(ap.antes)} → ${valorAj(ap.despues)}` + (ap.reinicio.length ? ` · requiere reiniciar ${ap.reinicio.join(', ')}` : ''), true);
+  }
+}
+
 const suelto = (html, fijo = false) => ({ k: null, txt: '', html, fijo });
 const grupo = (glifo, titulo, n, ayuda = '') =>
   suelto(`<h2 class="gr"><i>${glifo}</i>${titulo}${n ? `<b>${n}</b>` : ''}${ayuda ? `<span>${ayuda}</span>` : ''}</h2>`);
@@ -439,6 +2733,13 @@ const barraViva = '<div class="bar" role="progressbar" aria-label="en marcha"><i
 
 // Una columna de la portada: la máquina de un agente, con su placa y la
 // pegatina COLA, o el semáforo del worktree.
+// La placa de una cola: el rol y el agente que lo ocupa ahora
+// («EJECUTOR · QWEN CODE»), de /api/estado.
+function rotulo(rol) {
+  const a = st.estado?.agentes?.find(x => x.rol === rol);
+  return esc((a?.agente_nombre ? `${rol} · ${a.agente_nombre}` : rol).toUpperCase());
+}
+
 function cajaCola(placa, cls, rol, entradas) {
   return `<div class="actor"><h3><span class="placa ${cls}">${placa}</span><span class="grow"></span>` +
     `<span class="pegatina">COLA <b>${entradas.length}</b></span></h3><p class="rol">${rol}</p>` +
@@ -465,7 +2766,7 @@ function tarjetaJ(t) {
   const k = 'j' + t.id;
   const run = t.estado === 'ejecutando';
   const [res, resCls] = premio(t, true);
-  return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" title="pulsa para ver la ficha">` +
+  return `<article class="card ${t.estado}${st.abiertos.has(k) ? ' o' : ''}${st.sel === k ? ' s' : ''}" data-k="${k}" tabindex="0" title="pulsa para ver la ficha">` +
     `<header><span>${capsulaJ(t, 16)}${MODO[t.modo] ?? t.modo}</span><span>${reloj(t.actualizado)}</span></header>` +
     `<p class="tit">${esc(t.titulo)}</p>` + (run ? barraViva : '') +
     (res ? `<p class="res ${resCls}">${esc(res)}</p>` : '') + '</article>';
@@ -479,9 +2780,9 @@ function tableroJ() {
     `<section class="col"><h3>${titulo}<b>${ts.length || ''}</b></h3><p class="ay">${ayuda}</p>` +
     (ts.length ? ts.map(tarjetaJ).join('') : '<p class="nada">nada</p>') + '</section>';
   return suelto('<div class="tablero t5">' +
-    col('○ En cola', 'esperan al modelo local', por('en_cola')) +
-    col('◐ Ejecutando', 'el modelo local trabaja', por('ejecutando')) +
-    col('◇ En revisión', 'esperan a Claude Code', por('en_revision')) +
+    col('○ En cola', 'esperan al ejecutor', por('en_cola')) +
+    col('◐ Ejecutando', 'el ejecutor trabaja', por('ejecutando')) +
+    col('◇ En revisión', 'esperan al planificador', por('en_revision')) +
     col('! En espera', 'esperan tu confirmación', por('en_espera')) +
     col('● Cerrados', 'los últimos, con su premio', cerrados) + '</div>');
 }
@@ -504,7 +2805,7 @@ function tableroCC(ss) {
 function avisoPaquete(t) {
   const motivo = (t.detalle ?? 'La rutina falló').replace(/[.\s]*$/, '.');
   return suelto(`<div class="paq"><h3>${capsulaJ(t)}${esc(t.rutina ? t.rutina.slug : t.titulo)} <span class="m">${t.rutina ? 'v' + t.rutina.version + ' ' : ''}falló · hace ${reloj(t.actualizado)}</span></h3>` +
-    `<p class="m">${esc(motivo)} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa a Claude Code.</p>` +
+    `<p class="m">${esc(motivo)} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa al planificador.</p>` +
     accionesTrabajo(t, null, btn('ir-trabajo', '▸ ver paquete', 'abrir la ficha', { id: t.id })) + '</div>');
 }
 
@@ -512,15 +2813,15 @@ function avisoPaquete(t) {
 // trabajos (con la ficha de los abiertos debajo).
 function filasInicio(d) {
   const out = [
-    grupo('⇄', 'Colas', 0, 'modelo local → Claude Code'),
+    grupo('⇄', 'Colas', 0, 'ejecutor → planificador'),
     suelto('<div class="actores">' +
-      cajaCola('MODELO LOCAL', 'ml', 'cápsulas que esperan para ejecutarse', d.colas['modelo-local']) +
-      cajaCola('CLAUDE CODE', 'cc', 'cápsulas que esperan a que alguien las abra', d.colas['claude-code']) +
+      cajaCola(rotulo('ejecutor'), 'ml', 'cápsulas que esperan para ejecutarse', d.colas['modelo-local']) +
+      cajaCola(rotulo('planificador'), 'cc', 'cápsulas que esperan a que alguien las abra', d.colas['claude-code']) +
       cajaSemaforo(d.semaforos) + '</div>'),
   ];
   const paq = st.trabajos.filter(t => t.estado === 'en_espera' && t.modo === 'rutina');
-  if (paq.length) out.push(grupo('!', 'Cápsulas atascadas', paq.length, 'una rutina falló; nada pasa a Claude Code sin tu confirmación'), ...paq.map(avisoPaquete));
-  if (d.propuestas.length) {
+  if (paq.length) out.push(grupo('!', 'Cápsulas atascadas', paq.length, 'una rutina falló; nada pasa al planificador sin tu confirmación'), ...paq.map(avisoPaquete));
+  if (d.propuestas.length || st.propRes) {
     out.push(grupo('◇', 'Esperan tu decisión', d.propuestas.length, 'acepta o rechaza; aceptar ejecuta la acción'), ...filasPropuestas(d.propuestas));
   }
   const e = st.estado;
@@ -529,7 +2830,7 @@ function filasInicio(d) {
     if (mal.size) out.push(grupo('▦', 'Servicios parados'), ...filasSistema(e, true).filter(f => mal.has(f.k)));
   }
   const ss = st.sesiones.filter(s => !st.proyecto || s.cwd === st.proyecto);
-  if (ss.length) out.push(grupo('◆', 'Claude Code', ss.length, 'sesiones abiertas y sus subagentes'), tableroCC(ss));
+  if (ss.length) out.push(grupo('◆', 'Claude Code', ss.length, ss.length === 1 ? 'sesión abierta y sus subagentes' : 'sesiones abiertas y sus subagentes'), tableroCC(ss));
   out.push(grupo('▤', 'Trabajos', st.trabajos.length, 'las cápsulas pasan de izquierda a derecha'), tableroJ());
   const abiertos = st.trabajos.filter(t => st.abiertos.has('j' + t.id));
   if (abiertos.length) out.push(grupo('▸', 'Ficha', 0, 'pulsa la fila para cerrarla'), ...filasTrabajos(abiertos));
@@ -542,13 +2843,16 @@ function construir() {
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
-    case 'trabajos': return d ? con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
-      filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d)) : [];
-    case 'diario': return d ? con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)) : [];
-    case 'rutinas': return d ? con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', ''), filasRutinas(d)) : [];
+    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
+      filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
+    case 'diario': return d ? [...formAnotar(), ...con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)), ...pieDiario(d)] : [];
+    case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
+      ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', 'última', ''), filasRutinas(d))] : [];
     case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
-    case 'boveda': return d ? con(columnas('b', '', 'nota', 'ruta', 'autor', 'hace'), filasBoveda(d)) : [];
-    default: return st.estado ? [columnas('s', '', 'servicio o agente', 'qué hace', 'desde', ''), ...filasSistema(st.estado)] : [];
+    case 'biblioteca': return d ? filasBiblioteca(d) : [];
+    case 'equipos': return d ? filasEquipos(d) : [];
+    case 'ajustes': return d ? filasAjustes(d) : [];
+    default: return st.estado ? [columnas('s', '', 'servicio o rol', 'qué hace', 'desde', ''), ...filasSistema(st.estado, false, d), ...filasWorktrees(d?.worktrees)] : [];
   }
 }
 
@@ -557,18 +2861,135 @@ function construir() {
 // La cápsula de cada filtro de estado: el color solo la distingue de sus vecinas.
 const FILTRO = { en_cola: COLOR.mision, ejecutando: COLOR.obra, en_revision: COLOR.obra, en_espera: COLOR.rutina, cerrado: COLOR.obra, cancelado: COLOR.mision };
 
+// Los filtros del diario, que se aplican en el servidor. Los actores y las
+// familias son los que escribe el código (spec 009, «Familias de eventos»).
+const ACTORES = ['usuario', 'claude-code', 'modelo-local', 'orquestador', 'ea-cli', 'sin-rol', 'desconocido'];
+const FAMILIAS = { bus_: 'bus', mcp_: 'mcp', propuesta_: 'propuestas', accion_: 'acciones', boveda_: 'bóveda', memoria_: 'memoria', ajustes_: 'ajustes', usuario_: 'notas' };
+const RANGOS = { hoy: 'hoy', ayer: 'ayer', '24h': '24 h', '7d': '7 días' };
+const FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+// desde/hasta en RFC 3339 para la API. Los rangos se resuelven en cada
+// petición (la ventana avanza con el sondeo); las fechas son días locales y
+// `hasta` incluye el suyo entero.
+function ventanaDiario() {
+  const dia = (s, mas = 0) => { const [a, m, d] = s.split('-').map(Number); return new Date(a, m - 1, d + mas); };
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const ayer = new Date(hoy); ayer.setDate(ayer.getDate() - 1);
+  const v = st.dDesde;
+  let desde = null, hasta = null;
+  if (v === 'hoy') desde = hoy;
+  else if (v === 'ayer') { desde = ayer; hasta = new Date(hoy - 1); }
+  else if (v === '24h') desde = new Date(Date.now() - 864e5);
+  else if (v === '7d') desde = new Date(Date.now() - 7 * 864e5);
+  else if (v && FECHA.test(v)) desde = dia(v);
+  if (st.dHasta) hasta = new Date(dia(st.dHasta, 1) - 1);
+  return { desde: desde?.toISOString() ?? null, hasta: hasta?.toISOString() ?? null };
+}
+
+// Paginación «↓ más antiguos» (spec 010). El sondeo solo pide la primera
+// página; si ya se cargaron otras, la funde con ellas por id (sin duplicar).
+// Unos filtros nuevos, o un hueco entre la primera página y lo cargado (más
+// eventos nuevos que el límite, p. ej. con la pestaña oculta), vuelven a
+// empezar por la primera página.
+const ordenDiario = (a, b) => (ms(b.ts) - ms(a.ts)) || (b.id - a.id);
+const firmaDiario = () => JSON.stringify([st.dActor, st.dResultado, st.dAccion, st.dTrabajo, st.dDesde, st.dHasta, st.latidos]);
+const limiteDiario = () => st.diarioLimite ?? 300;
+const filtrosDiario = () => ({
+  limite: limiteDiario(), latidos: st.latidos,
+  actor: st.dActor, resultado: st.dResultado, accion: st.dAccion, trabajo: st.dTrabajo, ...ventanaDiario(),
+});
+
+// `L`: el límite con el que se pidió `primera` (los ajustes pueden llegar a medias).
+function fundeDiario(primera, L) {
+  const firma = firmaDiario(), prev = st.dLista, ult = primera[primera.length - 1];
+  const enlaza = st.dMas && prev?.length && (primera.length < L || ordenDiario(ult, prev[0]) >= 0);
+  if (firma !== st.dFirma || !enlaza) {
+    st.dFirma = firma;
+    st.dMas = false;
+    st.dFin = primera.length < L;
+    st.dLista = primera;
+  } else {
+    const ids = new Set(primera.map(e => e.id));
+    st.dLista = [...primera, ...prev.filter(e => !ids.has(e.id))].sort(ordenDiario);
+  }
+  return st.dLista;
+}
+
+// Pide la página anterior al evento más antiguo cargado, con los mismos filtros.
+async function masDiario() {
+  const lista = st.dLista ?? [], ult = lista[lista.length - 1];
+  if (!ult || st.dFin || st.dCargando) return;
+  const firma = st.dFirma, filtros = filtrosDiario();
+  st.dCargando = true;
+  st.html = '';
+  pintar();
+  try {
+    const mas = await ea.diario({ ...filtros, antes_de: ult.id });
+    if (firma !== st.dFirma) return; // cambiaron los filtros mientras tanto
+    const ids = new Set();
+    st.dLista = [...(st.dLista ?? []), ...lista, ...mas].filter(e => !ids.has(e.id) && ids.add(e.id)).sort(ordenDiario);
+    st.dMas = true;
+    st.dFin = mas.length < filtros.limite;
+  } finally {
+    st.dCargando = false;
+  }
+}
+
+// El pie de la lista: el botón de la página siguiente, mientras quede algo.
+function pieDiario(d) {
+  if (st.dFin || !st.dLista?.length) return [];
+  const nada = d.length ? '' : '<span class="m">nada de este proyecto en lo cargado</span>';
+  return [suelto(`<div class="mas">${nada}${btn('d-mas', st.dCargando ? '… cargando' : '↓ más antiguos',
+    'cargar los eventos anteriores, con los mismos filtros', {}, 'c')}</div>`, true)];
+}
+
+function barraDiario() {
+  const opcion = (v, t, actual) => `<option value="${esc(v)}"${v === (actual ?? '') ? ' selected' : ''}>${esc(t)}</option>`;
+  const sel = (campo, titulo, ops, actual) =>
+    `<select class="c${actual ? ' on' : ''}" data-df="${campo}" title="${titulo}" aria-label="${titulo}">${ops.map(([v, t]) => opcion(v, t, actual)).join('')}</select>`;
+  const actores = st.dActor && !ACTORES.includes(st.dActor) ? [...ACTORES, st.dActor] : ACTORES;
+  const fechas = st.dFechas || FECHA.test(st.dDesde ?? '') || !!st.dHasta;
+  const rango = fechas ? 'fechas' : st.dDesde;
+  const res = (v, g, t) => `<button class="c${st.dResultado === v ? ' on' : ''}" data-a="d-resultado" data-v="${v}" title="${t}" aria-pressed="${st.dResultado === v}">${g}</button>`;
+  let h = sel('actor', 'quién', [['', 'quién: todos'], ...actores.map(a => [a, a])], st.dActor) +
+    res('ok', '✓', 'solo lo que salió bien') + res('error', '✕', 'solo los errores') +
+    sel('accion', 'familia de eventos', [['', 'qué: todo'], ...Object.entries(FAMILIAS)], st.dAccion) +
+    sel('rango', 'cuándo', [['', 'cuándo: siempre'], ...Object.entries(RANGOS), ['fechas', 'fechas…']], rango);
+  if (fechas) {
+    const d = FECHA.test(st.dDesde ?? '') ? st.dDesde : '';
+    h += `<input type="date" class="c${d ? ' on' : ''}" data-df="desde" value="${esc(d)}" title="desde (incluido)" aria-label="Desde">` +
+      `<input type="date" class="c${st.dHasta ? ' on' : ''}" data-df="hasta" value="${esc(st.dHasta ?? '')}" title="hasta (incluido)" aria-label="Hasta">`;
+  }
+  if (st.dTrabajo) h += `<button class="c on" data-a="d-trabajo" title="solo los eventos del trabajo ${esc(st.dTrabajo)}; pulsa para quitarlo" aria-pressed="true">▣ ${esc(st.dTrabajo.slice(-8))} ✕</button>`;
+  h += `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
+  return h;
+}
+
 function barra() {
   const fb = $('#fb');
   let h = '';
   if (st.sec === 'trabajos') {
-    h = Object.keys(EST).map(e =>
-      `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-label="${EST[e][1]}">` +
-      `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
+    // «＋ misión» va primero: los filtros pueden desbordar la barra.
+    h = `<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al ejecutor" aria-pressed="${!!st.nueva}">＋ misión</button>` +
+      Object.keys(EST).map(e =>
+        `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
+        `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
   } else if (st.sec === 'diario') {
-    h = `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="latidos" aria-label="Latidos">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
+    // «✎ anotar» va primero, como «＋ misión»: los filtros pueden desbordar.
+    const on = !!st.anota && st.anota.corrige == null;
+    h = `<button class="c${on ? ' on' : ''}" data-a="d-anotar" title="anotar en el diario: dejar constancia de algo con actor usuario" aria-pressed="${on}">✎ anotar</button>` +
+      barraDiario();
+  } else if (st.sec === 'rutinas') {
+    const on = st.rutEd?.slug === '';
+    h = `<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>` +
+      `<button class="c${st.rutRetiradas ? ' on' : ''}" data-a="rretiradas" title="las rutinas retiradas (en la papelera): se restauran desde su ficha" aria-pressed="${st.rutRetiradas}">▣ retiradas</button>`;
   } else if (st.sec === 'propuestas') {
-    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-label="Pendientes">◇ pendientes</button>` +
-        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-label="Todas">∗ todas</button>`;
+    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
+        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
+  }
+  else if (st.sec === 'biblioteca') h = barraBiblioteca();
+  else if (st.sec === 'equipos') {
+    h = `<button class="c${st.eqNuevo ? ' on' : ''}" data-a="eq-nuevo" title="despertar un equipo de agentes" aria-pressed="${!!st.eqNuevo}">＋ despertar</button>`;
   }
   if (fb.dataset.h !== h) { fb.dataset.h = h; fb.innerHTML = h; }
 }
@@ -584,16 +3005,20 @@ function cabecera() {
   const caidos = e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => s.nombre);
   const salud = $('#salud');
   salud.textContent = caidos.length ? 'parado: ' + caidos.join(', ')
-    : !e.orquestador.vivo ? 'orquestador sin latido'
+    : !e.orquestador.vivo ? 'sin latido'
       : e.servicios.every(s => s.activo === 'active') ? 'todo en marcha' : '';
+  salud.title = caidos.length ? 'servicios parados: ' + caidos.join(', ')
+    : !e.orquestador.vivo ? 'el orquestador no da latido: no se ejecutará nada' : '';
   salud.className = caidos.length || !e.orquestador.vivo ? 'hot' : '';
   const o = $('#orq');
   o.classList.toggle('hot', !e.orquestador.vivo);
-  const latido = e.orquestador.ultimo_latido ? 'orquestador: latido hace ' + hace(e.orquestador.ultimo_latido) : 'orquestador sin latido';
+  let latido = e.orquestador.ultimo_latido ? 'orquestador: latido hace ' + hace(e.orquestador.ultimo_latido) : 'orquestador sin latido';
+  const sb = e.orquestador.sandbox;
+  if (sb) latido += sb.disponible ? ` · sandbox: ${sb.sandbox} (${sb.sistema})` : ` · sandbox no disponible: ${sb.motivo ?? ''}`;
   $('title', o).textContent = latido;
   o.setAttribute('aria-label', latido);
 
-  // Trabajos que esperan a alguien: revisión de Claude Code o tu confirmación.
+  // Trabajos que esperan a alguien: revisión del planificador o tu confirmación.
   const atentos = st.trabajos.filter(t => t.estado === 'en_revision' || t.estado === 'en_espera').length;
   const esperan = st.trabajos.filter(t => t.estado === 'en_espera').length;
   const bt = $('[data-s=trabajos] b'), bp = $('[data-s=propuestas] b');
@@ -702,6 +3127,7 @@ function proyectos(cambiar = false) {
 }
 
 function pintar() {
+  escribeHash(false); // el hash sigue a la vista (filtros, fila abierta)
   // No pisar lo que se está escribiendo dentro de un detalle.
   const foco = document.activeElement;
   if (foco && foco.matches('input, select, textarea') && foco.closest('#lista')) return relojes();
@@ -714,6 +3140,13 @@ function pintar() {
     return;
   }
 
+  if (EDITOR[st.sec]) {
+    pintaEditor();
+    relojes();
+    barra();
+    return;
+  }
+
   const q = st.q.trim().toLowerCase();
   const todas = construir();
   // En la bóveda el filtro es una búsqueda de texto completo en el servidor.
@@ -722,14 +3155,22 @@ function pintar() {
   if (st.sel && !st.vis.includes(st.sel)) st.sel = null;
 
   const vacio = q ? `Nada coincide con «${esc(st.q.trim())}».`
-    : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
-  const html = st.vis.length || st.sec === 'inicio' ? vis.map(f => f.html).join('') : `<p class="vacio">${vacio}</p>`;
+    : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.'
+      : st.sec === 'rutinas' && st.rutRetiradas ? 'No hay rutinas retiradas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
+  const html = st.vis.length || st.sec === 'inicio' || vis.some(f => f.fijo) ? vis.map(f => f.html).join('') : `<p class="vacio">${vacio}</p>`;
   if (html !== st.html) {
     const lista = $('#lista');
     const y = lista.scrollTop;
+    const foco = document.activeElement?.matches('#filas [data-k]') ? document.activeElement.dataset.k : null;
     st.html = html;
     $('#filas').innerHTML = html; // la escena, encima, no se repinta
     lista.scrollTop = y;
+    if (foco) $(`#filas [data-k="${CSS.escape(foco)}"]`)?.focus({ preventScroll: true });
+  }
+  // La fila de un enlace profundo: que se vea en cuanto llega.
+  if (st.irA) {
+    const f = $(`#filas .f[data-k="${CSS.escape(st.irA)}"]`);
+    if (f) { st.irA = null; f.scrollIntoView({ block: 'nearest' }); }
   }
   relojes();
   barra();
@@ -739,23 +3180,47 @@ function pintar() {
 
 async function cargaDetalle(k) {
   if (!(DETALLE[st.sec] || '').includes(k[0])) return;
-  const carga = { j: ea.trabajo, r: ea.rutina, b: ea.nota }[k[0]];
+  if (EDITOR[st.sec]) {
+    try { st.detalle[k] = await EDITOR[st.sec].carga(k); } catch { delete st.detalle[k]; }
+    return;
+  }
+  const carga = { j: ea.trabajo, r: ea.rutina, a: ea.historialAccion, b: ea.nota, q: ea.equipo }[k[0]];
   try { st.detalle[k] = await carga(k.slice(1)); } catch { delete st.detalle[k]; }
+  if (k[0] === 'r' && (st.rutVer[k.slice(1)]?.abierto || selVersion(k.slice(1)))) await cargaVersiones(k.slice(1)).catch(() => {});
 }
 
 async function cargaSeccion() {
   const sec = st.sec;
   let datos = null;
   if (sec === 'inicio') {
-    const [propuestas, colas, semaforos, diario] = await Promise.all([
-      ea.propuestas({ pendientes: true }), ea.colas(), ea.semaforos(), ea.diario({ limite: 30 })]);
-    datos = { propuestas, colas, semaforos, diario, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
+    const [propuestas, colas, semaforos, diario, ecosistema] = await Promise.all([
+      ea.propuestas({ pendientes: true }), ea.colas(), ea.semaforos(), ea.diario({ limite: 30 }), ea.ecosistema()]);
+    datos = { propuestas, colas, semaforos, diario, ecosistema, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
   } else if (sec === 'trabajos') datos = st.trabajos;
   else if (sec === 'acciones') datos = await ea.acciones();
-  else if (sec === 'diario') datos = await ea.diario({ limite: 300, latidos: st.latidos });
-  else if (sec === 'rutinas') datos = await ea.rutinas();
+  else if (sec === 'sistema') {
+    const [ag, plan, ws] = await Promise.all([ea.agentes(), ea.serviciosPlan().catch(() => null), ea.worktrees().catch(() => [])]);
+    datos = { ...ag, plan, worktrees: ws };
+  }
+  else if (sec === 'diario') {
+    const filtros = filtrosDiario();
+    datos = fundeDiario(await ea.diario(filtros), filtros.limite);
+  }
+  else if (sec === 'equipos') datos = await ea.equipos();
+  else if (sec === 'biblioteca') {
+    datos = await ea.biblioteca();
+    cargaUsoBib();
+  }
+  else if (sec === 'ajustes') {
+    datos = await ea.ajustes();
+    aplicaCliente(datos.cliente);
+  }
+  else if (sec === 'rutinas') datos = await ea.rutinas(st.rutRetiradas);
   else if (sec === 'propuestas') datos = await ea.propuestas({ pendientes: !st.propTodas });
-  else if (sec === 'boveda') datos = await ea.boveda(st.q.trim());
+  else if (EDITOR[sec]) {
+    datos = await EDITOR[sec].datos();
+    if (ed(sec).sel) await cargaDetalle(ed(sec).sel);
+  }
   if (st.proyecto) {
     const ids = new Set(st.trabajos.map(t => t.id));
     const suyo = e => ids.has(trabajoDe(e));
@@ -792,25 +3257,141 @@ async function tick() {
 
 // ------------------------------------------------------------------ acciones
 
-// Lo que cambia con la sección fuera de la lista: título, guía y cuadros.
+// Lo que cambia con la sección fuera de la lista: título y cuadros.
 function marco() {
-  const [nombre, guia] = TITULOS[st.sec];
-  $('#titulo h1').textContent = nombre;
-  $('#titulo p').textContent = guia;
-  $('#q').placeholder = st.sec === 'boveda' ? 'buscar en las notas ( / )' : 'filtrar ( / )';
-  $$('#rail button[data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === st.sec));
+  const [nombre] = TITULOS[st.sec];
+  $('#seccion').textContent = nombre;
+  const q = $('#q'), busca = st.sec === 'boveda';
+  q.placeholder = (busca ? 'buscar en las notas' : 'filtrar') + (matchMedia('(pointer: coarse)').matches ? '' : ' ( / )');
+  q.setAttribute('aria-label', busca ? 'Buscar en las notas' : 'Filtrar la lista');
+  $$('#rail button[data-s]').forEach(b => {
+    b.classList.toggle('on', b.dataset.s === st.sec);
+    if (b.dataset.s === st.sec) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
   $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
   $('#escena').hidden = st.sec !== 'inicio';
+  $('#lista').classList.toggle('vista-mem', !!EDITOR[st.sec]);
+  for (const E of Object.values(st.ed)) {
+    E.menu = false;
+    E.renombrando = null;
+    E.creando = null;
+  }
 }
 
-function ir(sec) {
+// ------------------------------------------------------- enlaces profundos
+//
+// El hash dice la sección, la fila desplegada y los filtros (la gramática,
+// en enlaces.js): #trabajos/<id>, #diario?latidos=1&q=texto. Al cargar y al
+// cambiar el hash (atrás, adelante, un enlace) se aplica; al navegar se
+// reescribe: cambiar de sección o abrir una fila crea una entrada del
+// historial, lo demás la reemplaza (pintar() lo mantiene al día).
+
+// Prefijo de la clave de las filas que se pueden enlazar, por sección. Bóveda
+// y Memoria no llevan fila: su nota abierta la recuerda el navegador.
+const FILA = { inicio: 'j', trabajos: 'j', diario: 'e', rutinas: 'r', propuestas: 'p', acciones: 'a', sistema: 's', biblioteca: 'l', equipos: 'q', ajustes: 'g' };
+
+// Los parámetros de cada sección en el hash: nombre -> { lee(valor), escribe() }.
+// `lee` recibe el texto del hash (undefined si no está: el valor por
+// defecto) y lo deja en el estado; `escribe` da el texto del hash o null.
+// Un filtro nuevo se añade aquí y, al cambiarlo, basta con repintar.
+// `q` (el cuadro de filtrar) vale en todas las secciones.
+const bandera = campo => ({ lee: v => { st[campo] = v === '1'; }, escribe: () => (st[campo] ? '1' : null) });
+const texto = (campo, vale = () => true) => ({
+  lee: v => { st[campo] = v && vale(v) ? v : null; },
+  escribe: () => st[campo] || null,
+});
+const PARAMS = {
+  trabajos: { estado: texto('filtroEstado', v => v in EST) },
+  diario: {
+    actor: texto('dActor', v => /^[a-z0-9_-]{1,64}$/.test(v)),
+    resultado: texto('dResultado', v => v === 'ok' || v === 'error'),
+    accion: texto('dAccion', v => /^[a-z_]{1,64}$/.test(v)),
+    // Un rango (hoy, ayer, 24h, 7d) o un día; al llegar de un enlace, el
+    // «fechas…» sin fecha que hubiera elegido se olvida.
+    desde: { ...texto('dDesde'), lee: v => { st.dDesde = v && (Object.hasOwn(RANGOS, v) || FECHA.test(v)) ? v : null; st.dFechas = false; } },
+    hasta: texto('dHasta', v => FECHA.test(v)),
+    trabajo: texto('dTrabajo', v => /^[\w.-]{1,128}$/.test(v)),
+    latidos: bandera('latidos'),
+  },
+  propuestas: { todas: bandera('propTodas') },
+  biblioteca: {
+    agente: texto('bAgente', v => /^[a-z0-9-]{1,32}$/.test(v)),
+    tipo: texto('bTipo', v => TIPOS_BIB.some(([t]) => t === v)),
+    categoria: texto('bCat', v => v.length <= 64),
+    estado: texto('bEstado', v => v === 'si' || v === 'no' || v === 'desconocido'),
+  },
+  // La versión elegida en la ficha enlazada (ver versionesHtml); diff=1, su
+  // diff con la anterior. Solo se escribe si es de la fila del enlace.
+  rutinas: {
+    retiradas: bandera('rutRetiradas'),
+    version: {
+      lee: v => { st.rutVerSel = /^[1-9]\d{0,8}$/.test(v ?? '') ? { slug: null, n: Number(v), diff: false } : null; },
+      escribe: () => { const s = st.rutVerSel, f = st.enlace?.startsWith('r') ? st.enlace.slice(1) : null; return s && f && selVersion(f) === s ? String(s.n) : null; },
+    },
+    diff: {
+      lee: v => { if (st.rutVerSel) st.rutVerSel.diff = v === '1'; },
+      escribe: () => { const s = st.rutVerSel, f = st.enlace?.startsWith('r') ? st.enlace.slice(1) : null; return s?.diff && f && selVersion(f) === s ? '1' : null; },
+    },
+  },
+};
+const Q = { lee: v => { st.q = v ?? ''; }, escribe: () => st.q || null };
+const paramsDe = sec => ({ ...PARAMS[sec], q: Q });
+
+// El hash de la vista actual, sin '#'.
+function hashActual() {
+  const params = {};
+  for (const [n, p] of Object.entries(paramsDe(st.sec))) params[n] = p.escribe();
+  const pre = FILA[st.sec];
+  const fila = pre && st.enlace?.startsWith(pre) && st.abiertos.has(st.enlace) ? st.enlace.slice(pre.length) : null;
+  return enlaces.escribir({ sec: st.sec, fila, params });
+}
+
+// Lleva la vista al hash: push crea una entrada del historial.
+function escribeHash(push) {
+  const h = hashActual();
+  if (location.hash.slice(1) === h) return;
+  history[push ? 'pushState' : 'replaceState'](null, '', location.pathname + location.search + '#' + h);
+}
+
+// Pone en la sección actual los filtros y la fila de un enlace ({ fila, params }).
+function aplicaEnlace({ fila, params }) {
+  for (const [n, p] of Object.entries(paramsDe(st.sec))) p.lee(params[n]);
+  $('#q').value = st.q;
+  const pre = FILA[st.sec];
+  const k = pre && fila != null ? pre + fila : null;
+  if (st.enlace && st.enlace !== k) st.abiertos.delete(st.enlace);
+  if (k) { st.abiertos.add(k); st.sel = k; st.irA = k; }
+  st.enlace = k;
+}
+
+// El hash cambió desde fuera (atrás, adelante, un enlace, la barra de direcciones).
+function alCambiarHash(hash) {
+  if (hash.replace(/^#/, '') === hashActual()) return;
+  const e = enlaces.leer(hash);
+  const sec = SECCIONES.includes(e.sec) ? e.sec : st.sec;
+  if (sec !== st.sec) { ir(sec, e); return; }
+  aplicaEnlace(e);
+  escribeHash(false);
+  st.html = '';
+  pintar();
+  tick();
+}
+
+// Cambia de sección. Con `enlace` ({ fila, params }), la abre así y reemplaza
+// la entrada del historial; sin él, conserva los filtros y crea una.
+function ir(sec, enlace = null) {
+  if (sec !== st.sec && !sueltaBorradores()) { escribeHash(false); return false; }
+  const cambia = sec !== st.sec;
+  if (cambia) st.propRes = null;
   st.sec = sec;
   st.datos = null;
   st.html = '';
   st.sel = null;
   st.q = '';
   $('#q').value = '';
-  location.hash = sec;
+  st.enlace = null;
+  if (enlace) aplicaEnlace(enlace);
+  escribeHash(cambia && !enlace);
   marco();
   $('#lista').scrollTop = 0;
   pintar();
@@ -818,8 +3399,17 @@ function ir(sec) {
 }
 
 async function alterna(k) {
-  if (st.abiertos.has(k)) st.abiertos.delete(k);
-  else { st.abiertos.add(k); await cargaDetalle(k); }
+  // Abrir una fila enlazable crea una entrada del historial (atrás la cierra).
+  const enlazable = FILA[st.sec] && k.startsWith(FILA[st.sec]);
+  if (st.abiertos.has(k)) {
+    st.abiertos.delete(k);
+    if (st.enlace === k) st.enlace = null;
+    escribeHash(false);
+  } else {
+    st.abiertos.add(k);
+    if (enlazable) { st.enlace = k; escribeHash(true); }
+    await cargaDetalle(k);
+  }
   pintar();
   // Desde una tarjeta del tablero la ficha se abre más abajo: que se vea.
   if (st.abiertos.has(k)) $(`.f[data-k="${CSS.escape(k)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -829,8 +3419,11 @@ function mover(d) {
   if (!st.vis.length) return;
   const i = st.vis.indexOf(st.sel);
   st.sel = st.vis[Math.min(st.vis.length - 1, Math.max(0, i < 0 ? (d > 0 ? 0 : st.vis.length - 1) : i + d))];
+  const conFoco = document.activeElement?.matches('#filas [data-k]');
   pintar();
-  $(`.f[data-k="${CSS.escape(st.sel)}"]`)?.scrollIntoView({ block: 'nearest' });
+  const f = $(`.f[data-k="${CSS.escape(st.sel)}"]`);
+  f?.scrollIntoView({ block: 'nearest' });
+  if (conFoco) f?.focus({ preventScroll: true });
 }
 
 // Argumentos de la consola tal como los espera la herramienta: tipos y
@@ -853,14 +3446,15 @@ function argumentos(h) {
 }
 
 function abre(sec, k) {
-  ir(sec);
+  if (ir(sec) === false) return;
   st.abiertos.add(k);
   st.sel = k;
+  if (FILA[sec] && k.startsWith(FILA[sec])) { st.enlace = k; st.irA = k; escribeHash(false); }
 }
 
 
 async function accion(b) {
-  const { a, id, v, slug, n, ruta, h } = b.dataset;
+  const { a, id, v, slug, n, h, k: clave } = b.dataset;
   try {
     if (['cerrar', 'cancelar', 'continuar', 'reformular', 'confirmar'].includes(a)) {
       const caja = b.closest('[data-j]');
@@ -874,11 +3468,42 @@ async function accion(b) {
       }
       st.armado = null;
       const cuerpo = a === 'reformular' ? { nota: texto } : a === 'confirmar' ? { contexto: texto } : {};
+      const fase = a === 'reformular' ? $('[data-rff]', caja) : null;
+      if (fase) cuerpo.fase = Number(fase.value);
       await ea.accionTrabajo(id, a, cuerpo);
-      avisa(`${id.slice(9, 15)}: ${a}`, true);
+      if (a === 'reformular') delete st.rfBorrador[id];
+      const enCurso = a === 'cancelar' && st.trabajos.some(t => t.id === id && t.estado === 'ejecutando');
+      avisa(`${id.slice(9, 15)}: ${a}${enCurso ? ' · ' + NO_SE_DESHACE : ''}`, true);
+    } else if (a === 'clonar') {
+      await clonaTrabajo(id);
+      return;
+    } else if (a === 'nueva-mision') {
+      if (st.nueva) st.nueva = null;
+      else {
+        const form = await ea.nuevoTrabajo();
+        const equipos = await ea.equipos().catch(() => []);
+        st.nueva = { form, equipos, err: null, modo: 'mision', fases: [faseVacia()], v: { worktree: st.proyecto ?? '', iteraciones: form.defecto.iteraciones, minutos: Math.max(1, Math.round(form.defecto.tiempo_s / 60)) } };
+      }
+      st.html = '';
+      pintar();
+      $('[data-nm="titulo"]')?.focus();
+      return;
+    } else if (a === 'nm-equipo') {
+      if (st.nueva) st.nueva.eqAbierto = !st.nueva.eqAbierto;
+    } else if (accionFase(a, a === 'nm-modo' ? v : n)) {
+      return;
+    } else if (a === 'crear-mision') {
+      try { await creaMision(); } catch (e) { if (st.nueva) st.nueva.err = e.message; }
     } else if (a === 'diff') {
       if (st.diffs[id] !== undefined) delete st.diffs[id];
       else st.diffs[id] = await ea.diff(id).catch(e => ({ error: e.message }));
+    } else if (a === 'diff-fase') {
+      const k = id + ':' + v;
+      if (st.faseDiff[k] !== undefined) delete st.faseDiff[k];
+      else st.faseDiff[k] = await ea.diff(id, Number(v)).catch(e => ({ error: e.message }));
+    } else if (a === 'plan-fase') {
+      const k = id + ':' + v;
+      if (st.fasePlan.has(k)) st.fasePlan.delete(k); else st.fasePlan.add(k);
     } else if (a === 'decidir') {
       const k = 'p' + id;
       if (v === 'aceptar' && b.dataset.ac && !(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
@@ -889,22 +3514,93 @@ async function accion(b) {
       }
       st.armado = null;
       const p = await ea.decidir(id, v);
+      // Con lo que produjo (A1): la fila se queda abierta con sus enlaces.
+      st.propRes = p.resultado ? p : null;
+      if (p.resultado) st.abiertos.add(k);
       if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
-    } else if (a === 'promover') {
-      const k = 'b' + ruta;
-      if (!(st.armado && st.armado.n === k && st.armado.hasta > Date.now())) {
-        st.armado = { n: k, hasta: Date.now() + 4000 };
+    } else if (a === 'lanzar') {
+      // Con lo escrito en la ficha; los fallos se quedan junto al formulario.
+      const re = st.rutEnt[slug];
+      let t;
+      try {
+        t = await ea.lanzarRutina(slug, re?.v ?? {});
+      } catch (e) {
+        if (!re || e.status === 403) throw e;
+        re.previa = null;
+        re.err = e.message;
+      }
+      if (t) {
+        delete st.rutEnt[slug];
+        avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del ejecutor`, true);
+        st.abiertos.add('j' + t.trabajo);
+      }
+    } else if (a === 'rprevia') {
+      const re = (st.rutEnt[slug] ??= {});
+      re.previa = re.err = null;
+      try {
+        re.previa = await ea.previaRutina(slug, re.v ?? {});
+      } catch (e) {
+        if (e.status === 403) throw e;
+        re.err = e.message;
+      }
+    } else if (a === 'red' || a === 'rnueva') {
+      abreEditorRutina(a === 'red' ? slug : '');
+    } else if (a === 'rversiones') {
+      const V = (st.rutVer[slug] ??= { abierto: false, lista: null, err: null, txt: {} });
+      V.abierto = !V.abierto;
+      if (!V.abierto && selVersion(slug)) { st.rutVerSel = null; escribeHash(false); }
+      if (V.abierto) await cargaVersiones(slug);
+    } else if (a === 'rver' || a === 'rvdiff') {
+      // Otra vez sobre lo mismo lo pliega. Va al hash si es la fila del enlace.
+      const diff = a === 'rvdiff', s = selVersion(slug);
+      st.rutVerSel = s && s.n === Number(n) && s.diff === diff ? null : { slug, n: Number(n), diff };
+      escribeHash(false);
+      await cargaVersiones(slug);
+    } else if (a === 'rdescartar') {
+      st.rutEd = null;
+    } else if (a === 'rvalidar' && st.rutEd) {
+      const E = st.rutEd;
+      E.val = E.err = E.armado = null;
+      try {
+        E.val = await ea.validarRutina(E.texto);
+      } catch (e) {
+        if (e.status === 403) throw e;
+        E.err = e.message;
+      }
+    } else if (a === 'rregistrar' && st.rutEd) {
+      // Segundo clic para confirmar, como aceptar una propuesta.
+      const E = st.rutEd;
+      if (!(E.armado && E.armado > Date.now())) {
+        E.armado = Date.now() + 4000;
+        st.html = '';
         pintar();
-        setTimeout(pintar, 4100);
+        setTimeout(() => { st.html = ''; pintar(); }, 4100);
         return;
       }
-      st.armado = null;
-      const r = await ea.promover(ruta);
-      avisa(r.texto, true);
-    } else if (a === 'lanzar') {
-      const t = await ea.lanzarRutina(slug);
-      avisa(`✓ ${slug}: cápsula ${t.trabajo.slice(9, 15)} en la cola del modelo local`, true);
-      st.abiertos.add('j' + t.trabajo);
+      E.armado = null;
+      let r;
+      try {
+        r = await ea.registrarRutina(E.texto);
+      } catch (e) {
+        if (e.status === 403) throw e;
+        E.val = null;
+        E.err = e.message;
+      }
+      if (r) {
+        st.rutEd = null;
+        delete st.rutEnt[r.rutina];
+        avisa(`✓ ${r.rutina}: registrada la versión ${r.version}`, true);
+        st.abiertos.add('r' + r.rutina);
+        st.sel = 'r' + r.rutina;
+      }
+    } else if (a === 'rhguardar' || a === 'rhquitar') {
+      await accionHorario(a, slug, b);
+    } else if (a === 'wtlimpiar') {
+      await accionWorktree(id);
+    } else if (a === 'rretiro') {
+      await accionRetiro(slug, v);
+    } else if (a === 'rretiradas') {
+      st.rutRetiradas = !st.rutRetiradas;
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;
@@ -916,13 +3612,64 @@ async function accion(b) {
         setTimeout(pintar, 3100);
         return;
       }
+    } else if (a === 'poner-rol') {
+      // Segundo clic para confirmar, como reiniciar un servicio.
+      const { rol, agente } = b.dataset, n = `rol:${rol}:${agente}`;
+      if (!(st.armado && st.armado.n === n && st.armado.hasta > Date.now())) {
+        st.armado = { n, hasta: Date.now() + 3000 };
+        st.html = '';
+        pintar();
+        setTimeout(() => { st.html = ''; pintar(); }, 3100);
+        return;
+      }
+      st.armado = null;
+      const r = await ea.cambiarAjustes(st.datos.version, { ['roles.' + rol]: agente });
+      for (const ap of r.aplicados) avisa(`✓ ${rol}: ${valorAj(ap.antes)} → ${valorAj(ap.despues)}`, true);
+    } else if (a === 'ajuste-guardar' || a === 'ajuste-defecto') {
+      // Segundo clic para confirmar, como reiniciar un servicio.
+      const n = (a === 'ajuste-guardar' ? 'g' : 'd') + b.dataset.c;
+      if (!armadoAj(n)) {
+        if (a === 'ajuste-guardar') {
+          const el = $(`[data-aj="${CSS.escape(b.dataset.c)}"]`);
+          if (el) st.ajBorrador[b.dataset.c] = el.value;
+        }
+        st.armado = { n, hasta: Date.now() + 3000 };
+        st.html = '';
+        pintar();
+        setTimeout(() => { st.html = ''; pintar(); }, 3100);
+        return;
+      }
+      st.armado = null;
+      await guardaAjuste(b.dataset.c, a === 'ajuste-defecto');
+    } else if (a.startsWith('bib-')) {
+      await accionBiblioteca(a, b);
+    } else if (a === 'ir-equipo') {
+      abre('equipos', 'q' + id);
+      return;
+    } else if (a.startsWith('eq-')) {
+      await accionEquipo(a, b);
     } else if (a === 'ir-trabajo') {
       st.filtroEstado = null;
       abre('trabajos', 'j' + id);
       return;
+    } else if (a === 'ir-diario') {
+      ir('diario', { fila: null, params: { trabajo: id } });
+      return;
     } else if (a === 'ir-prop') {
       st.propTodas = true;
       abre('propuestas', 'p' + id);
+      return;
+    } else if (a === 'terminal') {
+      // Solo abre la ventana con el comando de la CLI; la confirmación
+      // (la frase «confirmo …») se escribe en esa terminal, nunca aquí.
+      const sv = b.dataset.sv;
+      const sim = h && st.consola[h]?.sim;
+      if (h && !sim) throw new Error('simula primero');
+      const r = await ea.abrirTerminal(sv ? { servicios: sv } : h ? { herramienta: h, argumentos: sim.argumentos } : { propuesta: Number(id) });
+      avisa(`⌨ terminal abierta: confírmalo allí (${r.comando})`, true);
+      return;
+    } else if (a === 'ir-a') {
+      irAFila(b.dataset.dsec, b.dataset.dfila);
       return;
     } else if (a === 'simular' || a === 'ejecutar') {
       // Los fallos se quedan junto al formulario, no en un aviso pasajero.
@@ -932,14 +3679,37 @@ async function accion(b) {
       try {
         if (a === 'simular') {
           c.sim = await ea.simular(h, argumentos(h));
+          c.simEn = Date.now();
         } else if (sim) {
           c.res = await ea.ejecutar(h, sim.argumentos, sim.precondicion);
         }
       } catch (e) {
         c.err = e.message;
       }
+    } else if (a.endsWith('-nota')) {
+      if (await accionNota(a, b.dataset) === false) return;
     } else if (a === 'latidos') {
       st.latidos = !st.latidos;
+    } else if (a === 'd-resultado') {
+      st.dResultado = st.dResultado === v ? null : v;
+    } else if (a === 'd-trabajo') {
+      st.dTrabajo = null;
+    } else if (a === 'd-mas') {
+      await masDiario();
+    } else if (a === 'd-anotar' || a === 'd-corregir') {
+      // Anotar o corregir un evento: el mismo formulario, con `corrige` fijado.
+      const corrige = a === 'd-corregir' ? Number(id) : null;
+      if (st.anota && st.anota.corrige === corrige) st.anota = null;
+      else st.anota = { corrige, err: null, v: { texto: '', trabajo: (a === 'd-corregir' ? v : st.dTrabajo) || '' } };
+      st.html = '';
+      pintar();
+      $('[data-an="texto"]')?.focus();
+      return;
+    } else if (a === 'd-anotar-enviar') {
+      try { await anotaDiario(); } catch (e) { if (st.anota) st.anota.err = e.message; }
+    } else if (a === 'ir-evento') {
+      ir('diario', { fila: String(id), params: {} });
+      return;
     } else if (a === 'prop') {
       st.propTodas = v === '1';
     }
@@ -949,6 +3719,109 @@ async function accion(b) {
   // La acción da por terminado lo que se escribía: sin soltar el campo, el
   // repintado seguiría en pausa y la lista se quedaría desactualizada.
   if (document.activeElement?.closest('#lista')) document.activeElement.blur();
+  st.html = '';
+  await tick();
+}
+
+// Las acciones del editor. `false`: ya repintó y no hace falta sondear.
+async function accionNota(a, datos = {}) {
+  const A = EDITOR[st.sec];
+  if (!A) return false;
+  const E = ed();
+  const local = () => { pintar(); return false; };
+  if (a !== 'menu-nota') E.menu = false;
+  if (a !== 'carpeta-menu') E.menuCarpeta = null;
+  // Las acciones propias del adaptador: null = no es suya, false = ya
+  // repintó, true = hecho (se sondea).
+  const propia = await A.accion?.(a, E, datos) ?? null;
+  if (propia === false) return false;
+  if (propia === true) return;
+  const k = E.sel;
+  if (!k) return false;
+  const x = st.detalle[k], e = E.borrador;
+  if (a === 'menu-nota') {
+    E.menu = !E.menu;
+    return local();
+  } else if (a === 'modo-nota') {
+    E.modo = E.modo === 'edicion' ? 'lectura' : 'edicion';
+    if (E.modo === 'lectura' && !sucio(e) && !e?.conflicto) E.borrador = null;
+    pintar();
+    if (E.modo === 'edicion') $('#filas .nota textarea')?.focus();
+    return false;
+  } else if (a === 'descartar-nota') {
+    cierraBorrador();
+  } else if (a === 'recargar-nota') {
+    E.borrador = null;
+  } else if (a === 'guardar-nota') {
+    if (!e) return false;
+    try {
+      st.detalle[k] = await A.guardar(k, e.texto, e.version);
+      E.borrador = null;
+      avisa(`✓ ${A.cosa} guardada`, true);
+    } catch (err) {
+      // El borrador se queda intacto; si el disco cambió, se ofrece recargar.
+      e.error = err.message;
+      e.conflicto = err.status === 409;
+    }
+  } else if (a === 'copiar-ruta-nota') {
+    if (!x) return local();
+    const ruta = A.rutaAbs(x);
+    try { await navigator.clipboard.writeText(ruta); } catch {
+      const ta = Object.assign(document.createElement('textarea'), { value: ruta });
+      document.body.append(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    avisa('✓ ruta copiada: ' + ruta, true);
+    return local();
+  } else if (a === 'mostrar-nota') {
+    await A.mostrar(k);
+    avisa('✓ abierta en el explorador de archivos', true);
+    return local();
+  } else if (a === 'renombrar-nota') {
+    if (sucio(e)) throw new Error('guarda o descarta los cambios antes de renombrar');
+    E.renombrando = k;
+    pintar();
+    const i = $(`input[data-ren="${CSS.escape(k)}"]`);
+    i?.focus();
+    i?.select();
+    return false;
+  } else if (a === 'eliminar-nota') {
+    if (!x) return local();
+    const aviso = sucio(e) ? '\n\nLos cambios sin guardar también se perderán.' : '';
+    if (!confirm(A.confirmaEliminar(k, aviso))) return local();
+    const msg = await A.eliminar(k, x);
+    delete st.detalle[k];
+    E.sel = null;
+    E.borrador = null;
+    guardaEditor();
+    avisa(msg, true);
+  }
+}
+
+// Termina el renombrado en línea: con `nuevo` lo pide al servidor.
+async function renombra(nuevo) {
+  const A = EDITOR[st.sec], E = ed();
+  const k = E.renombrando;
+  E.renombrando = null;
+  if (!k || !A) return;
+  document.activeElement?.blur(); // con el campo enfocado, pintar() no repinta
+  const x = st.detalle[k];
+  if (!x) { pintar(); return; }
+  try {
+    const r = await A.renombrar(k, nuevo, x);
+    if (!r) { pintar(); return; }
+    delete st.detalle[k];
+    st.detalle[r.k] = r.detalle;
+    E.sel = r.k;
+    E.borrador = null;
+    A.desplegar?.(E, r.k);
+    guardaEditor();
+    avisa(r.aviso, true);
+  } catch (err) {
+    avisa(err.message);
+  }
   st.html = '';
   await tick();
 }
@@ -964,13 +3837,17 @@ function tema(cambiar = false) {
   }
   const claro = raiz.classList.contains('claro');
   const b = $('#btema');
-  b.innerHTML = (claro ? SOL : LUNA) + (claro ? 'claro' : 'oscuro');
+  b.innerHTML = claro ? SOL : LUNA;
   b.title = claro ? 'Modo claro (pulsa para oscuro)' : 'Modo oscuro (pulsa para claro)';
   b.setAttribute('aria-label', b.title);
 }
 
 function ayuda(mostrar) {
-  $('#ayuda').hidden = !mostrar;
+  const a = $('#ayuda');
+  const dentro = a.contains(document.activeElement);
+  a.hidden = !mostrar;
+  if (mostrar) $('[data-cerrar]', a).focus();
+  else if (dentro) $('#bayuda').focus();
   try { localStorage.setItem('ea-ayuda-vista', '1'); } catch { /* sin almacenamiento */ }
 }
 
@@ -978,6 +3855,9 @@ function ayuda(mostrar) {
 
 document.addEventListener('click', ev => {
   const t = ev.target;
+  const E = EDITOR[st.sec] && ed();
+  if (E?.menu && !t.closest('.menu, [data-a="menu-nota"]')) { E.menu = false; pintar(); }
+  if (E?.menuCarpeta && !t.closest('.menu, [data-a="carpeta-menu"]')) { E.menuCarpeta = null; pintar(); }
   const rail = t.closest('#rail button[data-s]');
   if (rail) return ir(rail.dataset.s);
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
@@ -1000,7 +3880,17 @@ document.addEventListener('click', ev => {
   }
   const b = t.closest('button[data-a]');
   if (b) return accion(b);
-  if (t.closest('input, select, textarea, .acc')) return;
+  const enlace = t.closest('a.ml');
+  if (enlace) {
+    ev.preventDefault();
+    if (E) eligeNota(enlace.dataset.ml);
+    return;
+  }
+  if (t.closest('input, select, textarea, .acc, .nota')) return;
+  const ad = t.closest('[data-ad]');
+  if (ad) return plegar(ad.dataset.ad);
+  const af = t.closest('[data-af]');
+  if (af) return eligeNota(af.dataset.af);
   const fila = t.closest('#lista [data-k]');
   if (fila) { st.sel = fila.dataset.k; alterna(fila.dataset.k); }
 });
@@ -1008,6 +3898,117 @@ document.addEventListener('click', ev => {
 // La consola de acciones guarda lo escrito en el estado (la lista se repinta
 // entera) y da por caducada la simulación en cuanto cambia un argumento.
 $('#lista').addEventListener('input', ev => {
+  // Lo escrito en un ajuste sobrevive al repintado del sondeo.
+  const aj = ev.target.closest('[data-aj]');
+  if (aj) { st.ajBorrador[aj.dataset.aj] = aj.value; return; }
+  // El borrador de una nota vive en el estado: el sondeo no lo pierde. No se
+  // repinta al teclear; solo se actualiza el indicador «sin guardar».
+  const ta = ev.target.closest('textarea[data-ed]');
+  if (ta) {
+    const e = ed().borrador;
+    if (e && e.k === ta.dataset.ed) {
+      e.texto = ta.value;
+      const nota = ta.closest('.nota');
+      $('.sin-guardar', nota)?.toggleAttribute('hidden', !sucio(e));
+      if (!e.conflicto) $('[data-si-sucio]', nota)?.toggleAttribute('hidden', !sucio(e));
+    }
+    return;
+  }
+  // El editor de una rutina: lo validado deja de valer al cambiar el texto.
+  const rt = ev.target.closest('textarea[data-red]');
+  if (rt && st.rutEd) {
+    st.rutEd.texto = rt.value;
+    st.rutEd.val = st.rutEd.err = st.rutEd.armado = null;
+    st.html = '';
+    $$('.sal', rt.closest('.det')).forEach(n => n.remove());
+    return;
+  }
+  // El horario de una rutina: lo simulado deja de valer al cambiar el campo.
+  const rh = ev.target.closest('[data-rhor]');
+  if (rh) {
+    const H = (st.rutHor[rh.dataset.rhor] ??= {});
+    H.v = rh.value;
+    H.sim = H.err = null;
+    st.html = '';
+    const caja = rh.closest('.hor');
+    $$('.sal', caja).forEach(n => n.remove());
+    const g = $('[data-a="rhguardar"]', caja);
+    if (g) g.textContent = '◷ guardar';
+    const q = $('[data-a="rhquitar"]', caja);
+    if (q) q.textContent = '✕ desprogramar';
+    return;
+  }
+  // Las entradas de una rutina: la vista previa deja de valer.
+  const ri = ev.target.closest('[data-rent]');
+  if (ri) {
+    const re = (st.rutEnt[ri.dataset.rent] ??= {});
+    (re.v ??= {})[ri.dataset.ent] = ri.value;
+    re.previa = re.err = null;
+    st.html = '';
+    $$('.sal', ri.closest('.det')).forEach(n => n.remove());
+    return;
+  }
+  // La nota y la fase de reformular un trabajo sobreviven al sondeo.
+  const rf = ev.target.closest('[data-rf], [data-rff]');
+  if (rf) {
+    const bo = (st.rfBorrador[rf.dataset.rf ?? rf.dataset.rff] ??= {});
+    if (rf.dataset.rf !== undefined) bo.nota = rf.value; else bo.fase = Number(rf.value);
+    return;
+  }
+  // Lo escrito en el formulario «✎ anotar» del diario.
+  const an = ev.target.closest('[data-an]');
+  if (an && st.anota) { st.anota.v[an.dataset.an] = an.value; st.anota.err = null; return; }
+  // Lo escrito en el formulario «＋ misión».
+  const nm = ev.target.closest('[data-nm]');
+  if (nm && st.nueva) {
+    st.nueva.v[nm.dataset.nm] = nm.type === 'checkbox' ? nm.checked : nm.value;
+    st.nueva.err = null;
+    if (nm.dataset.nm === 'equipo') {
+      // Los ejecutores y revisores a elegir son los de ese equipo.
+      st.nueva.v.asignado = st.nueva.v.revisor = '';
+      nm.blur();
+      st.html = '';
+      pintar();
+    }
+    return;
+  }
+  // Lo escrito en una fase de la obra.
+  const nf = ev.target.closest('[data-nf]');
+  if (nf && st.nueva?.fases[nf.dataset.nf]) { st.nueva.fases[nf.dataset.nf][nf.dataset.nc] = nf.value; st.nueva.err = null; return; }
+  // El formulario «＋ despertar» de Equipos: lo escrito, los miembros y los dos interruptores.
+  const eqc = ev.target.closest('[data-eq], [data-eqm], [data-eqr], [data-eq-todos], [data-eq-term]');
+  if (eqc && st.eqNuevo) {
+    const E = st.eqNuevo, d = eqc.dataset;
+    if (d.eq !== undefined) E.v[d.eq] = eqc.value;
+    else if (d.eqm !== undefined) E.marca[eqc.checked ? 'add' : 'delete'](d.eqm);
+    else if (d.eqr !== undefined) { E.rol[d.eqr] = eqc.value; E.marca.add(d.eqr); const c = $(`input[data-eqm="${CSS.escape(d.eqr)}"]`); if (c && !c.disabled) c.checked = true; }
+    else if (d.eqTerm !== undefined) E.terminal = eqc.checked;
+    else if (d.eqTodos !== undefined) {
+      E.todos = eqc.checked;
+      $$('input[data-eqm], select[data-eqr]').forEach(x => { x.disabled = E.todos || (x.matches('input') && !E.cat.agentes.find(a => a.id === x.dataset.eqm)?.ruta); });
+    }
+    E.err = null;
+    st.html = '';
+    return;
+  }
+  // El formulario «▶ sesión con…» de la biblioteca: lo simulado deja de valer.
+  const bs = ev.target.closest('[data-bs-el], [data-bs-agente]');
+  if (bs && st.bibSes) {
+    const S = st.bibSes;
+    if (bs.dataset.bsEl !== undefined) {
+      S.ids = bs.checked ? [...new Set([...S.ids, bs.dataset.bsEl])] : S.ids.filter(x => x !== bs.dataset.bsEl);
+    } else {
+      S.agente = bs.value;
+      S.ids = S.ids.filter(i => st.datos?.elementos.find(e => e.id === i)?.sesion.includes(S.agente));
+      bs.blur();
+    }
+    S.sim = S.res = S.err = null;
+    st.html = '';
+    pintar();
+    return;
+  }
+  const bc = ev.target.closest('[data-bcat]');
+  if (bc && st.bibCat) { st.bibCat.v = bc.value; st.bibCat.err = null; return; }
   const el = ev.target.closest('[data-campo]');
   if (!el) return;
   const c = (st.consola[el.dataset.h] ??= {});
@@ -1015,6 +4016,48 @@ $('#lista').addEventListener('input', ev => {
   c.sim = c.res = c.err = null;
   st.html = '';
   $$('.sal', el.closest('.det')).forEach(n => n.remove());
+});
+
+// El formulario de la memoria nueva recuerda lo escrito entre repintados.
+for (const tipo of ['input', 'change']) {
+  $('#lista').addEventListener(tipo, ev => {
+    if (!ev.target.matches?.('[data-mc]') || st.sec !== 'memoria') return;
+    ed().form = leeFormMem();
+  });
+}
+
+$('#lista').addEventListener('focusout', ev => {
+  const E = EDITOR[st.sec] && ed();
+  if (ev.target.matches('input[data-ren]') && E?.renombrando) { E.renombrando = null; setTimeout(pintar); }
+  // Al salir del campo de crear se cierra, salvo hacia la propia barra.
+  if (ev.target.matches('input[data-crear]') && E?.creando && !ev.relatedTarget?.closest?.('.arbol-acc')) { E.creando = null; setTimeout(pintar); }
+});
+
+// Los desplegables y las fechas de la barra del diario: filtros del servidor.
+$('#fb').addEventListener('change', ev => {
+  const bf = ev.target.closest('[data-bf]');
+  if (bf && st.sec === 'biblioteca') {
+    st[{ agente: 'bAgente', tipo: 'bTipo', categoria: 'bCat', estado: 'bEstado' }[bf.dataset.bf]] = bf.value || null;
+    bf.blur();
+    st.html = '';
+    pintar();
+    return;
+  }
+  const c = ev.target.closest('[data-df]');
+  if (!c || st.sec !== 'diario') return;
+  const v = c.value || null;
+  if (c.dataset.df === 'actor') st.dActor = v;
+  else if (c.dataset.df === 'accion') st.dAccion = v;
+  else if (c.dataset.df === 'rango') {
+    st.dFechas = v === 'fechas';
+    st.dDesde = st.dFechas ? null : v;
+    st.dHasta = null;
+  } else if (c.dataset.df === 'desde') { st.dDesde = v; st.dFechas = true; }
+  else if (c.dataset.df === 'hasta') { st.dHasta = v; st.dFechas = true; }
+  c.blur();
+  st.html = '';
+  pintar();
+  tick();
 });
 
 let busqueda;
@@ -1030,12 +4073,73 @@ document.addEventListener('keydown', ev => {
   const t = ev.target;
   const enCampo = t.matches('input, textarea, select');
   if (ev.key === 'Escape' && !$('#ayuda').hidden) return ayuda(false);
+  if (EDITOR[st.sec]) {
+    const E = ed();
+    const tecla = ev.key.toLowerCase();
+    if (t.matches('input[data-ren]')) {
+      if (ev.key === 'Enter') { ev.preventDefault(); renombra(t.value); }
+      else if (ev.key === 'Escape') { E.renombrando = null; pintar(); }
+      return;
+    }
+    if (t.matches('[data-mc]')) {
+      if (ev.key === 'Enter' && t.tagName === 'INPUT') { ev.preventDefault(); accion({ dataset: { a: 'confirmar-memoria-nota' } }); }
+      else if (ev.key === 'Escape') { t.blur(); accion({ dataset: { a: 'cancelar-memoria-nota' } }); }
+      return;
+    }
+    if (t.matches('input[data-crear]')) {
+      if (ev.key === 'Enter') { ev.preventDefault(); creaEnBoveda(t.value); }
+      else if (ev.key === 'Escape') { E.creando = null; t.blur(); pintar(); }
+      return;
+    }
+    if (ev.key === 'Escape' && E.menu) { E.menu = false; pintar(); $('[data-a="menu-nota"]')?.focus(); return; }
+    if ((ev.ctrlKey || ev.metaKey) && (tecla === 's' || tecla === 'e') && E.sel) {
+      ev.preventDefault();
+      if (tecla === 'e' && enCampo) t.blur(); // con el editor enfocado, pintar() no repinta
+      accion({ dataset: { a: tecla === 's' ? 'guardar-nota' : 'modo-nota' } });
+      return;
+    }
+    if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-af]')) { ev.preventDefault(); eligeNota(t.dataset.af); return; }
+    if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-ad]')) { ev.preventDefault(); plegar(t.dataset.ad); return; }
+    if (!enCampo && !ev.ctrlKey && !ev.metaKey && !ev.altKey && (ev.key === 'j' || ev.key === 'k') && st.vis.length) {
+      const i = st.vis.indexOf(E.sel);
+      const d = ev.key === 'j' ? 1 : -1;
+      const k = st.vis[Math.min(st.vis.length - 1, Math.max(0, i < 0 ? (d > 0 ? 0 : st.vis.length - 1) : i + d))];
+      eligeNota(k);
+      $(`[data-af="${CSS.escape(k)}"]`)?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+  }
   if (ev.key === 'Escape') {
     if (t.id === 'q') { t.value = ''; st.q = ''; }
     if (enCampo) t.blur();
-    else { st.abiertos.clear(); st.sel = null; }
+    else {
+      st.abiertos.clear();
+      st.sel = null;
+      st.enlace = null;
+    }
     st.html = '';
     pintar();
+    return;
+  }
+  if (t.matches('textarea[data-ed]')) {
+    if (ev.key === 'Tab' && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+      ev.preventDefault();
+      t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end');
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+  }
+  if (ev.key === 'Enter' && t.matches('input[data-aj]')) {
+    ev.preventDefault();
+    const b = $(`button[data-a="ajuste-guardar"][data-c="${CSS.escape(t.dataset.aj)}"]`);
+    t.blur();
+    if (b) accion(b);
+    return;
+  }
+  if (ev.key === 'Enter' && t.matches('input[data-bcat]')) {
+    ev.preventDefault();
+    const b = $(`button[data-a="bib-cat-guardar"][data-id="${CSS.escape(t.dataset.bcat)}"]`);
+    if (b) accion(b);
     return;
   }
   if (ev.key === 'Enter' && t.matches('input[data-campo]')) {
@@ -1045,11 +4149,15 @@ document.addEventListener('keydown', ev => {
   }
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('trabajos', 'j' + t.dataset.pt); return; }
+  if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('#lista [data-k]')) { ev.preventDefault(); st.sel = t.dataset.k; alterna(t.dataset.k); return; }
+  if (ev.key === '0') { ir('ajustes'); return; }
   const n = Number(ev.key);
-  if (n >= 1 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
+  if (n >= 1 && n <= 9 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
   if (ev.key === 'p') proyectos(true);
   else if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
   else if (ev.key === 't') tour.iniciar();
+  else if (ev.key === 'b') ir('biblioteca');
+  else if (ev.key === 'e') ir('equipos');
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);
@@ -1057,16 +4165,33 @@ document.addEventListener('keydown', ev => {
 });
 
 document.addEventListener('visibilitychange', tick);
-addEventListener('hashchange', () => {
-  const h = location.hash.slice(1);
-  if (SECCIONES.includes(h) && h !== st.sec) ir(h);
+addEventListener('beforeunload', ev => {
+  if (Object.values(st.ed).some(E => sucio(E.borrador))) { ev.preventDefault(); ev.returnValue = ''; }
 });
+// popstate llega antes que un repintado pudiera pisar el hash nuevo; hashchange
+// trae la URL nueva en el propio evento. Aplicar dos veces no hace nada.
+addEventListener('popstate', () => alCambiarHash(location.hash));
+addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
 
 // -------------------------------------------------------------------- arranque
 
 {
-  const h = location.hash.slice(1);
-  if (SECCIONES.includes(h)) st.sec = h;
+  const enlace = enlaces.leer(location.hash);
+  if (SECCIONES.includes(enlace.sec)) st.sec = enlace.sec;
+  try {
+    // Las claves antiguas de la memoria (ea-mem-*) pasan a ea-memoria-*.
+    for (const [viejo, nuevo] of [['ea-mem-plegados', 'ea-memoria-plegados'], ['ea-mem-sel', 'ea-memoria-sel']]) {
+      const v = localStorage.getItem(viejo);
+      if (v !== null && localStorage.getItem(nuevo) === null) localStorage.setItem(nuevo, v);
+      localStorage.removeItem(viejo);
+    }
+    for (const sec of Object.keys(EDITOR)) {
+      const E = ed(sec);
+      E.plegados = new Set(JSON.parse(localStorage.getItem(`ea-${sec}-plegados`) ?? '[]'));
+      E.sel = localStorage.getItem(`ea-${sec}-sel`);
+    }
+  } catch { /* sin almacenamiento */ }
+  aplicaEnlace(enlace); // la fila y los filtros del hash (de otra sección, se ignoran por defecto)
   gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
   tour.montar({ ir, seccion: () => st.sec });
   marco();
@@ -1074,7 +4199,17 @@ addEventListener('hashchange', () => {
   proyectos();
   // La primera vez, el recorrido guiado.
   try { if (!localStorage.getItem('ea-tour-visto')) tour.iniciar(); } catch { /* sin almacenamiento */ }
+  // Sin clave de sesión válida, la cabecera lo dice y las escrituras avisan.
+  const lectura = () => {
+    const sin = !ea.escritura();
+    if (sin && $('#lectura').hidden) avisa(ea.avisoLectura);
+    $('#lectura').hidden = !sin;
+  };
+  // Una clave nueva (pegada en una página ya abierta) se comprueba antes de fiarse.
+  ea.alCambiarSesion(ok => (ok ? ea.sesion().catch(() => {}).finally(lectura) : lectura()));
+  ea.sesion().catch(() => {}).finally(lectura);
   tick();
-  setInterval(tick, 3000);
+  // El refresco sale de los ajustes (web.sondeo_ms); sin ellos, cada 3 s.
+  ea.ajustes().then(a => aplicaCliente(a.cliente)).catch(() => {}).finally(programaSondeo);
   setInterval(relojes, 1000);
 }

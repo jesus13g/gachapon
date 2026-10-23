@@ -5,6 +5,20 @@ use ea_acciones::*;
 use ea_store::{EstadoEjecucion, EstadoPropuesta, EventFilter, NuevaPropuesta, Store, StoreError};
 use serde_json::{json, Value};
 
+/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
+#[cfg(windows)]
+macro_rules! tmp {
+    () => {
+        "C:/Windows"
+    };
+}
+#[cfg(not(windows))]
+macro_rules! tmp {
+    () => {
+        "/tmp"
+    };
+}
+
 fn store() -> (Store, tempfile::TempDir) {
     // Una sola raíz de estado del bus para todo el proceso de pruebas.
     static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
@@ -17,22 +31,33 @@ fn store() -> (Store, tempfile::TempDir) {
             slug: slug.into(),
             version: 1,
             definicion: format!(
-                "[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+                concat!("[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"),
+                slug = slug
             ),
             creada_en: "2026-01-01T00:00:00Z".into(),
             creada_por: "test".into(),
         })
         .unwrap();
     }
+    s.guardar_rutina(&ea_store::FilaRutina {
+        slug: "con-entradas".into(),
+        version: 1,
+        definicion: concat!("[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n").into(),
+        creada_en: "2026-01-01T00:00:00Z".into(),
+        creada_por: "test".into(),
+    })
+    .unwrap();
     (s, dir)
 }
 
 fn sistema() -> SistemaSimulado {
     SistemaSimulado::default()
         .con_servicio("ea-mcp", "active")
-        .con_rutina("vieja", "[rutina]\ndescripcion = \"x\"\n")
+        // «vieja» está retirada: en la papelera, lo único que se borra para siempre.
+        .con_retirada("vieja", "[rutina]\ndescripcion = \"x\"\n")
         .con_rutina("revision-diaria", "[rutina]\ndescripcion = \"y\"\n")
         .con_rutina("nocturna", "[rutina]\ndescripcion = \"z\"\n")
+        .con_rutina("con-entradas", "[rutina]\ndescripcion = \"e\"\n")
 }
 
 fn acciones(s: &Store) -> Vec<String> {
@@ -61,6 +86,8 @@ fn todas_las_llamadas() -> Vec<(&'static str, Value)> {
         ("ea_encolar_rutina", json!({ "slug": "revision-diaria" })),
         ("ea_reiniciar_servicio", json!({ "servicio": "ea-mcp" })),
         ("ea_eliminar_rutina", json!({ "slug": "vieja" })),
+        ("ea_retirar_rutina", json!({ "slug": "nocturna" })),
+        ("ea_restaurar_rutina", json!({ "slug": "vieja" })),
     ]
 }
 
@@ -76,7 +103,8 @@ async fn simular_describe_sin_ningun_efecto() {
     }
     assert_eq!(acciones(&s).len(), eventos_antes, "simular no escribe en el diario ni en ningún sitio");
     assert!(sis.mutaciones().is_empty());
-    assert!(sis.rutina_contenido("vieja").unwrap().is_some());
+    assert!(sis.rutina_retirada("vieja").unwrap().is_some());
+    assert!(sis.rutina_contenido("nocturna").unwrap().is_some());
 }
 
 #[tokio::test]
@@ -125,7 +153,7 @@ async fn la_cola_de_propuestas_con_accion_tiene_tope() {
     let (s, _d) = store();
     let mut sis = sistema();
     for i in 0..=MAX_PEND {
-        sis = sis.con_rutina(&format!("r{i}"), "x");
+        sis = sis.con_retirada(&format!("r{i}"), "x");
     }
     for i in 0..MAX_PEND {
         proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": format!("r{i}") })).await
@@ -199,10 +227,10 @@ async fn revalida_antes_de_ejecutar_si_el_estado_cambio() {
     // Rutina que cambia de contenido entre la simulación y la ejecución.
     let (p, _) = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": "vieja" })).await
         .unwrap();
-    sis.rutinas.lock().unwrap().insert("vieja".into(), "otro contenido".into());
+    sis.retiradas.lock().unwrap().insert("vieja".into(), "otro contenido".into());
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
     assert_eq!(p.ejecucion.unwrap().estado, EstadoEjecucion::Fallida);
-    assert!(sis.rutina_contenido("vieja").unwrap().is_some());
+    assert!(sis.rutina_retirada("vieja").unwrap().is_some());
     assert!(sis.mutaciones().is_empty());
 
     // Servicio desinstalado.
@@ -237,7 +265,7 @@ async fn un_irreversible_no_se_confirma_desde_la_web_y_la_propuesta_sigue_pendie
     let e = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap_err();
     assert!(matches!(e, ErrorAccion::Prohibida(_)), "{e}");
     assert_eq!(s.get_propuesta(p.id).unwrap().estado, EstadoPropuesta::Pendiente);
-    assert!(sis.rutina_contenido("vieja").unwrap().is_some());
+    assert!(sis.rutina_retirada("vieja").unwrap().is_some());
     assert!(acciones(&s).contains(&"accion_fallida".to_string()), "el intento por la web queda en el diario");
 
     let e = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_eliminar_rutina", &json!({ "slug": "vieja" }))
@@ -250,7 +278,7 @@ async fn un_irreversible_no_se_confirma_desde_la_web_y_la_propuesta_sigue_pendie
     // Desde la terminal sí.
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
     assert_eq!(p.ejecucion.unwrap().estado, EstadoEjecucion::Ejecutada);
-    assert!(sis.rutina_contenido("vieja").unwrap().is_none());
+    assert!(sis.rutina_retirada("vieja").unwrap().is_none());
     assert_eq!(sis.mutaciones(), vec!["eliminar_rutina:vieja"]);
 }
 
@@ -274,6 +302,91 @@ async fn las_propuestas_de_texto_libre_siguen_siendo_constancia() {
 }
 
 #[tokio::test]
+async fn encolar_rutina_con_entradas_muestra_el_criterio_y_las_valida() {
+    let (mut s, _d) = store();
+    let sis = sistema();
+    let args = json!({ "slug": "con-entradas", "entradas": { "salida": "otro.md" } });
+    validar_argumentos("ea_encolar_rutina", &args).unwrap();
+    let sim = simular(&s, &sis, "ea_encolar_rutina", &args).await.unwrap();
+    assert!(sim.texto.contains("`test -f otro.md`"), "{}", sim.texto);
+    assert!(sim.texto.contains("salida = \"otro.md\""), "{}", sim.texto);
+    assert_eq!(sim.argumentos, args);
+    // Sin entradas, los argumentos normalizados no cambian y el criterio es el de por defecto.
+    let sim = simular(&s, &sis, "ea_encolar_rutina", &json!({ "slug": "con-entradas" })).await.unwrap();
+    assert_eq!(sim.argumentos, json!({ "slug": "con-entradas" }));
+    assert!(sim.texto.contains("`test -f informe.md`"));
+
+    let noexiste = json!({ "slug": "con-entradas", "entradas": { "noexiste": "1" } });
+    assert!(matches!(simular(&s, &sis, "ea_encolar_rutina", &noexiste).await, Err(ErrorAccion::Argumentos(_))));
+    let salto = json!({ "slug": "con-entradas", "entradas": { "salida": "a\nrm x" } });
+    assert!(matches!(validar_argumentos("ea_encolar_rutina", &salto), Err(ErrorAccion::Argumentos(_))));
+    assert!(matches!(proponer_(&s, &sis, "claude-code", "ea_encolar_rutina", &salto).await, Err(ErrorAccion::Argumentos(_))));
+
+    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &args).await.unwrap();
+    let orden = ea_bus::Bus::abrir().unwrap().leer_orden(r.trabajo.as_deref().unwrap()).unwrap();
+    assert_eq!(orden.criterio_exito.as_deref(), Some("test -f otro.md"));
+}
+
+#[tokio::test]
+async fn registrar_rutina_se_simula_con_el_diff_se_propone_y_al_aceptar_se_registra() {
+    let (mut s, _d) = store();
+    let sis = sistema();
+    let v1 = s.ultima_rutina("con-entradas").unwrap().unwrap().definicion;
+    let v2 = v1.replace("version = 1", "version = 2").replace("test -f {salida}", "test -s {salida}");
+    let args = json!({ "toml": v2 });
+    validar_argumentos("ea_registrar_rutina", &args).unwrap();
+
+    // Simular: el diff y el criterio resultante, sin escribir nada.
+    let eventos = acciones(&s).len();
+    let sim = simular(&s, &sis, "ea_registrar_rutina", &args).await.unwrap();
+    assert_eq!(sim.riesgo, Riesgo::Reversible);
+    assert!(sim.texto.contains("-criterio_exito = \"test -f {salida}\""), "{}", sim.texto);
+    assert!(sim.texto.contains("+criterio_exito = \"test -s {salida}\""), "{}", sim.texto);
+    assert!(sim.texto.contains("`test -s informe.md`"), "{}", sim.texto);
+    assert_eq!(sim.precondicion, json!({ "slug": "con-entradas", "version_registrada": 1 }));
+    assert_eq!(acciones(&s).len(), eventos);
+    assert_eq!(s.ultima_rutina("con-entradas").unwrap().unwrap().version, 1);
+
+    // Proponer (lo que hace Claude Code por MCP): encola, no registra.
+    let (p, nueva) = proponer_(&s, &sis, "claude-code", "ea_registrar_rutina", &args).await.unwrap();
+    assert!(nueva);
+    assert!(p.accion.as_ref().unwrap().simulacion.contains("test -s informe.md"));
+    assert!(sis.mutaciones().is_empty());
+    assert_eq!(s.ultima_rutina("con-entradas").unwrap().unwrap().version, 1);
+
+    // Aceptar (el usuario): registra la v2 con el actor del usuario.
+    let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
+    assert_eq!(p.ejecucion.as_ref().unwrap().estado, EstadoEjecucion::Ejecutada, "{:?}", p.ejecucion);
+    assert_eq!(sis.mutaciones(), vec!["registrar_rutina:con-entradas@2"]);
+    let fila = s.ultima_rutina("con-entradas").unwrap().unwrap();
+    assert_eq!((fila.version, fila.creada_por.as_str()), (2, "usuario"));
+    assert_eq!(fila.definicion, v2);
+    assert!(acciones(&s).contains(&"accion_ejecutada".to_string()));
+
+    // Ya registrada: la misma versión no aplica, y un TOML roto no es ni argumento válido.
+    assert!(matches!(simular(&s, &sis, "ea_registrar_rutina", &args).await, Err(ErrorAccion::NoAplica(_))));
+    let roto = json!({ "toml": "[rutina]\nslug = \"x\"\n" });
+    assert!(matches!(validar_argumentos("ea_registrar_rutina", &roto), Err(ErrorAccion::Argumentos(_))));
+    assert!(matches!(proponer_(&s, &sis, "claude-code", "ea_registrar_rutina", &roto).await, Err(ErrorAccion::Argumentos(_))));
+}
+
+#[tokio::test]
+async fn registrar_rutina_revalida_la_version_al_aceptar() {
+    let (mut s, _d) = store();
+    let sis = sistema();
+    let v1 = s.ultima_rutina("nocturna").unwrap().unwrap().definicion;
+    let args = json!({ "toml": v1.replace("version = 1", "version = 2") });
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_registrar_rutina", &args).await.unwrap();
+    // Mientras tanto, alguien registra la v3 por otro camino.
+    sis.rutina_registrar(&s, &v1.replace("version = 1", "version = 3"), "ea-cli").unwrap();
+    let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
+    let ej = p.ejecucion.unwrap();
+    assert_eq!(ej.estado, EstadoEjecucion::Fallida);
+    assert!(ej.detalle.unwrap().contains("el estado cambió"));
+    assert_eq!(s.ultima_rutina("nocturna").unwrap().unwrap().version, 3);
+}
+
+#[tokio::test]
 async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
     let (mut s, _d) = store();
     let sis = sistema();
@@ -290,7 +403,7 @@ async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
     let trabajo = r.datos["trabajo"].as_str().unwrap().to_string();
     let bus = ea_bus::Bus::abrir().unwrap();
     assert_eq!(bus.leer_orden(&trabajo).unwrap().rutina.unwrap().slug, "nocturna");
-    assert_eq!(bus.listar_cola(ea_bus::Agente::ModeloLocal).unwrap().iter().filter(|e| e.trabajo == trabajo).count(), 1);
+    assert_eq!(bus.listar_cola(ea_bus::Rol::Ejecutor).unwrap().iter().filter(|e| e.trabajo == trabajo).count(), 1);
     // No se lanza dos veces la misma rutina mientras la anterior no termina.
     assert!(ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" }))
         .await
@@ -336,10 +449,17 @@ fn autorizacion_por_actor() {
     assert!(autorizar_mcp("modelo-local", h("ea_status")).is_ok());
     assert!(autorizar_mcp("modelo-local", h("ea_ver_trabajo")).is_ok());
     assert!(autorizar_mcp("modelo-local", h("ea_promover_nota")).is_ok());
-    for n in ["ea_eliminar_rutina", "ea_reiniciar_servicio", "ea_encolar_rutina"] {
+    for n in ["ea_eliminar_rutina", "ea_reiniciar_servicio", "ea_encolar_rutina", "ea_registrar_rutina"] {
         assert!(autorizar_mcp("modelo-local", h(n)).is_err(), "{n}");
     }
     assert!(autorizar_mcp("claude-code", h("ea_eliminar_rutina")).is_ok());
+    // Un cliente desconocido o un agente sin rol solo lee (spec 017, RF-013).
+    for actor in ["desconocido", "sin-rol", "codex", ""] {
+        assert!(autorizar_mcp(actor, h("ea_status")).is_ok(), "{actor}");
+        for n in ["ea_escribir_nota", "ea_promover_nota", "ea_encolar_rutina", "ea_eliminar_rutina"] {
+            assert!(autorizar_mcp(actor, h(n)).is_err(), "{actor} {n}");
+        }
+    }
 }
 
 #[test]
@@ -358,8 +478,12 @@ fn los_campos_declarados_casan_con_los_argumentos_que_se_validan() {
         let valor = |c: &Campo| match (c.entero, c.opciones.first(), c.nombre) {
             (true, _, _) => json!(1),
             (_, Some(o), _) => json!(o),
+            (_, _, "elemento") => json!("codex/mcp/usuario/docs"),
             (_, _, "ruta") => json!("claude-code/tema/nota.md"),
             (_, _, "destino") => json!("tema/nota.md"),
+            (_, _, "toml") => json!(
+                concat!("[rutina]\nslug = \"x\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n")
+            ),
             _ => json!("revision-diaria"),
         };
         // Solo los obligatorios, y luego todos: ambas formas deben validar.

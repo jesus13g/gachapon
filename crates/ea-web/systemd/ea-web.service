@@ -1,3 +1,5 @@
+# Plantilla de referencia con la ruta del repo. `ea servicios instalar` genera la unidad
+# con la ruta real de los binarios (sin %h/Proyectos/... fijo).
 [Unit]
 Description=Interfaz web del ecosistema de asistente
 After=network.target ea-mcp.service

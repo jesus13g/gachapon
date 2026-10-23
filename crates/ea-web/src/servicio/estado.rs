@@ -1,11 +1,12 @@
 //! Vista general, portada y sesiones de Claude Code.
 
+use ea_ajustes::Rol;
 use ea_bus::Bus;
 use ea_store::{EstadoPropuesta, PropuestaFilter};
 use time::OffsetDateTime;
 
-use super::{propuestas::vista as propuesta_vista, ts, Resultado};
-use crate::vistas::{AgenteVista, EstadoGeneral, Inicio, Orquestador, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento};
+use super::{bus_lectura, propuestas::vista as propuesta_vista, ts, Resultado};
+use crate::vistas::{AgenteConPresencia, AgentesVista, AgenteVista, PresenciaVista, EstadoGeneral, Inicio, Orquestador, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento};
 use crate::AppState;
 
 pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
@@ -14,12 +15,24 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
     let store = s.store.lock().await;
     let orquestador = store.estado_orquestador(s.config.umbral_heartbeat_s)?;
 
+    let sandbox = store.sandbox_orquestador()?;
+
+    let ajustes = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
     let agentes = store
         .resumen_agentes()?
         .into_iter()
-        .map(|a| AgenteVista {
-            nombre: a.nombre,
-            ultimo: a.ultimo_evento.map(|e| UltimoEvento { ts: ts(e.ts), accion: e.action }),
+        .filter_map(|a| {
+            let rol = Rol::desde(a.nombre)?;
+            let (id, _) = ajustes.agente_de(rol);
+            Some(AgenteVista {
+                nombre: a.nombre,
+                rol: rol.nombre(),
+                agente: id.to_string(),
+                agente_nombre: ea_ajustes::ficha(id).map_or("", |f| f.nombre),
+                modelo: ajustes.modelo_de(id).map(|m| m.nombre.clone()),
+                ultimo: a.ultimo_evento.map(|e| UltimoEvento { ts: ts(e.ts), accion: e.action }),
+                ultimo_agente: a.agente,
+            })
         })
         .collect();
 
@@ -33,7 +46,7 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
             .into_iter()
             .map(|sv| ServicioVista { nombre: sv.nombre, activo: sv.activo, activo_s: sv.activo_s })
             .collect(),
-        orquestador: Orquestador { vivo: orquestador.vivo, ultimo_latido: orquestador.ultimo_latido.map(ts) },
+        orquestador: Orquestador { vivo: orquestador.vivo, ultimo_latido: orquestador.ultimo_latido.map(ts), sandbox },
         agentes,
         trabajos: trabajos_por_estado(s),
         propuestas_pendientes,
@@ -77,4 +90,34 @@ pub fn sesiones(s: &AppState) -> Sesiones {
     Sesiones {
         sesiones: s.config.sesiones_dir.as_deref().map(|d| crate::sesiones::vivas(d, subagentes)).unwrap_or_default(),
     }
+}
+
+/// El catálogo de agentes con su disponibilidad (spec 017). Los ajustes se
+/// releen en cada petición, como en `GET /api/ajustes`.
+pub async fn agentes(s: &AppState) -> AgentesVista {
+    let e = ea_ajustes::cargar_de(&s.config.ajustes);
+    let fijados = Rol::TODOS
+        .into_iter()
+        .filter_map(|r| match e.origenes.get(&format!("roles.{}", r.nombre())) {
+            Some(ea_ajustes::Origen::Entorno { variable }) => Some((r.nombre(), *variable)),
+            _ => None,
+        })
+        .collect();
+    let presencias = bus_lectura(s).map(|b| b.presencias()).unwrap_or_default();
+    let agentes = crate::agentes::disponibilidad(&e.ajustes)
+        .await
+        .into_iter()
+        .map(|agente| {
+            let presencia = presencias.iter().find(|(p, _)| p.agente == agente.vista.id).map(|(p, viva)| PresenciaVista {
+                viva: *viva,
+                rol: p.rol.as_str(),
+                equipo: p.equipo.clone(),
+                trabajo: p.trabajo.clone(),
+                desde: p.desde.clone(),
+                latido: p.latido.clone(),
+            });
+            AgenteConPresencia { agente, presencia }
+        })
+        .collect();
+    AgentesVista { version: e.version.clone(), fijados, agentes }
 }

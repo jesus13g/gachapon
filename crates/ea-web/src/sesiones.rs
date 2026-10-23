@@ -13,6 +13,8 @@ const TOPE_SUBAGENTES: usize = 8;
 #[derive(Serialize)]
 pub struct Sesion {
     pub pid: u32,
+    /// El `sessionId` de Claude Code (vacío en ficheros sin él).
+    pub sesion: String,
     pub nombre: String,
     pub cwd: String,
     pub ocupada: bool,
@@ -70,6 +72,10 @@ struct Meta {
     description: String,
     #[serde(default)]
     model: String,
+    /// Claude Code lo pone a `true` al acabar el subagente: sirve aunque el
+    /// hook `SubagentStop` no llegara a apuntarlo.
+    #[serde(default)]
+    finished: bool,
 }
 
 /// Las sesiones cuyo proceso sigue vivo, de la más antigua a la más reciente.
@@ -80,10 +86,11 @@ pub fn vivas(dir: &Path, subagentes_dir: Option<&Path>) -> Vec<Sesion> {
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
         .filter_map(|e| serde_json::from_slice::<Fichero>(&std::fs::read(e.path()).ok()?).ok())
-        .filter(|f| Path::new("/proc").join(f.pid.to_string()).exists())
+        .filter(|f| ea_plataforma::proceso::vive(f.pid))
         .map(|f| Sesion {
             pid: f.pid,
             subagentes: subagentes_dir.map(|d| subagentes(d, &f.session_id)).unwrap_or_default(),
+            sesion: f.session_id,
             nombre: f.name.unwrap_or_default(),
             cwd: f.cwd,
             ocupada: f.status == "busy",
@@ -98,7 +105,7 @@ pub fn vivas(dir: &Path, subagentes_dir: Option<&Path>) -> Vec<Sesion> {
 /// Los subagentes de una sesión: primero los que siguen en marcha (del más
 /// antiguo al más nuevo), luego los terminados más recientes.
 fn subagentes(dir: &Path, sesion: &str) -> Vec<Subagente> {
-    if sesion.is_empty() || sesion.contains('/') || sesion.contains("..") {
+    if sesion.is_empty() || sesion.contains(['/', '\\']) || sesion.contains("..") {
         return Vec::new();
     }
     let Ok(entradas) = std::fs::read_dir(dir.join(sesion)) else { return Vec::new() };
@@ -107,14 +114,16 @@ fn subagentes(dir: &Path, sesion: &str) -> Vec<Subagente> {
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
         .filter_map(|e| serde_json::from_slice::<Marca>(&std::fs::read(e.path()).ok()?).ok())
         .map(|m| {
-            let meta = meta(&m.transcript, &m.agente);
+            let (meta, acabado) = meta(&m.transcript, &m.agente);
+            // Sin marca de fin pero con `finished`, la hora del meta.json.
+            let hasta = m.hasta.or(if meta.finished { Some(acabado.unwrap_or(m.desde)) } else { None });
             Subagente {
                 descripcion: if meta.description.is_empty() { m.tipo.clone() } else { meta.description },
                 modelo: meta.model,
                 id: m.agente,
                 tipo: m.tipo,
                 desde: m.desde,
-                hasta: m.hasta,
+                hasta,
             }
         })
         .collect();
@@ -126,9 +135,40 @@ fn subagentes(dir: &Path, sesion: &str) -> Vec<Subagente> {
     v
 }
 
-/// `<transcripción del padre sin .jsonl>/subagents/agent-<id>.meta.json`.
-fn meta(transcript: &str, agente: &str) -> Meta {
-    let Some(base) = transcript.strip_suffix(".jsonl") else { return Meta::default() };
+/// `<transcripción del padre sin .jsonl>/subagents/agent-<id>.meta.json`, con
+/// la hora (ms) de su última escritura.
+fn meta(transcript: &str, agente: &str) -> (Meta, Option<u64>) {
+    let Some(base) = transcript.strip_suffix(".jsonl") else { return (Meta::default(), None) };
     let ruta = Path::new(base).join("subagents").join(format!("agent-{agente}.meta.json"));
-    std::fs::read(ruta).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    let meta = std::fs::read(&ruta).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let cuando = std::fs::metadata(&ruta)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64);
+    (meta, cuando)
+}
+
+/// El último modelo que aparece en la transcripción de una sesión
+/// (`<proyectos>/<cwd con lo no alfanumérico como '-'>/<sesión>.jsonl`). Solo
+/// se leen los últimos 64 KiB: la transcripción puede pesar megas.
+pub fn modelo_sesion(proyectos: &Path, cwd: &str, sesion: &str) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    if sesion.is_empty() || sesion.contains(['/', '\\']) || sesion.contains("..") {
+        return None;
+    }
+    let dir: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    let mut f = std::fs::File::open(proyectos.join(dir).join(format!("{sesion}.jsonl"))).ok()?;
+    let largo = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(largo.saturating_sub(64 * 1024))).ok()?;
+    let mut cola = Vec::new();
+    f.read_to_end(&mut cola).ok()?;
+    let texto = String::from_utf8_lossy(&cola);
+    const CLAVE: &str = "\"model\":\"";
+    // El último que sea un modelo: `<synthetic>` y similares no lo son.
+    texto.rmatch_indices(CLAVE).find_map(|(i, _)| {
+        let resto = &texto[i + CLAVE.len()..];
+        let modelo = &resto[..resto.find('"')?];
+        (!modelo.is_empty() && !modelo.starts_with('<')).then(|| modelo.to_string())
+    })
 }

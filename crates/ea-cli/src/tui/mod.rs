@@ -82,6 +82,7 @@ struct AppData {
     servicios: Vec<ServicioResumen>,
     orquestador: String,
     agentes: Vec<ResumenAgente>,
+    ajustes: ea_ajustes::Ajustes,
     boveda_raiz: String,
     boveda: Vec<ResultadoBusqueda>,
     orquestador_bus: orquestador_view::DatosOrquestador,
@@ -97,7 +98,9 @@ pub fn run(store: &mut Store) -> Result<()> {
         .unwrap_or_default();
     let store: &Store = store;
     let mut rutinas = Vec::new();
-    for r in store.listar_rutinas().unwrap_or_default() {
+    // Solo las que están en uso: las retiradas, con `ea rutina listar --retiradas`.
+    let dir = ea_ajustes::cargar().orquestador.rutinas_dir;
+    for (r, _) in crate::commands::rutinas::filtrar_por_ubicacion(store.listar_rutinas().unwrap_or_default(), &dir, false) {
         let ultima_ejecucion = crate::commands::rutinas::ultimo_trabajo(&r.slug)
             .map(|(_, e)| format!("{} ({})", e.actualizado_en, e.estado.as_str()));
         rutinas.push(RutinaResumen { slug: r.slug, version: r.version, ultima_ejecucion });
@@ -117,6 +120,7 @@ pub fn run(store: &mut Store) -> Result<()> {
         servicios,
         orquestador: crate::commands::status::estado_orquestador(store)?,
         agentes: store.resumen_agentes()?,
+        ajustes: ea_ajustes::cargar(),
         events: store.list_events(&EventFilter {
             limit: Some(200),
             ..Default::default()
@@ -152,7 +156,7 @@ pub fn run(store: &mut Store) -> Result<()> {
 
 /// Colas, semáforos y trabajos del bus; si no se puede leer, vacío.
 fn datos_bus() -> orquestador_view::DatosOrquestador {
-    use ea_bus::{Agente, Bus, EstadoTrabajo, ResultadoInforme};
+    use ea_bus::{Bus, Rol, EstadoTrabajo, ResultadoInforme};
     let mut d = orquestador_view::DatosOrquestador {
         cola_modelo_local: vec![],
         cola_claude_code: vec![],
@@ -161,7 +165,7 @@ fn datos_bus() -> orquestador_view::DatosOrquestador {
     };
     let Ok(bus) = Bus::abrir() else { return d };
     let titulo = |id: &str| bus.leer_orden(id).map(|o| o.titulo).unwrap_or_else(|_| id.to_string());
-    for (agente, destino) in [(Agente::ModeloLocal, &mut d.cola_modelo_local), (Agente::ClaudeCode, &mut d.cola_claude_code)] {
+    for (agente, destino) in [(Rol::Ejecutor, &mut d.cola_modelo_local), (Rol::Planificador, &mut d.cola_claude_code)] {
         *destino = bus
             .listar_cola(agente)
             .unwrap_or_default()
@@ -240,7 +244,7 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
                 Tab::Orquestador => orquestador_view::render(frame, chunks[1], &data.orquestador_bus, sel, detalle),
                 Tab::Diario => diario_view::render(frame, chunks[1], &data.events),
                 Tab::Servicios => servicios_view::render(frame, chunks[1], &data.servicios, &data.orquestador),
-                Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes),
+                Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes, &data.ajustes),
                 Tab::Rutinas => rutinas_view::render(frame, chunks[1], &data.rutinas),
                 Tab::Propuestas => propuestas_view::render(frame, chunks[1], &data.propuestas),
                 Tab::Boveda => boveda_view::render(frame, chunks[1], &data.boveda_raiz, &data.boveda),

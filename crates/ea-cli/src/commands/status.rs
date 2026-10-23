@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_bus::{Agente, Bus};
+use ea_bus::{Bus, Rol};
 use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 
 use super::fmt_ts;
@@ -12,7 +12,7 @@ use super::fmt_ts;
 /// contra un proceso que no responde: si no hay ninguno, dice que no hay
 /// señal, no que esté "caído".
 pub fn estado_orquestador(store: &Store) -> Result<String> {
-    let umbral_s = (ea_orchestrator::config::load().intervalo_heartbeat_s * 2) as i64;
+    let umbral_s = ea_ajustes::cargar().umbral_latido_s();
     let estado = store.estado_orquestador(umbral_s)?;
     Ok(match estado.ultimo_latido {
         None => "sin señal (ningún heartbeat registrado todavía)".to_string(),
@@ -32,6 +32,9 @@ pub fn mostrar(store: &Store) -> Result<()> {
         .len();
     println!("Propuestas pendientes: {pendientes}");
     println!("Base de datos: {}", ea_store::resolve_db_path()?.display());
+    for l in lineas_roles(&ea_ajustes::cargar()) {
+        println!("{l}");
+    }
     println!();
 
     mostrar_bus();
@@ -60,6 +63,20 @@ pub fn mostrar(store: &Store) -> Result<()> {
     Ok(())
 }
 
+/// «planificador: Claude Code (el suyo propio)», «ejecutor: Qwen Code
+/// (qwen3-coder-30b)»: quién ocupa cada rol ahora.
+pub fn lineas_roles(a: &ea_ajustes::Ajustes) -> Vec<String> {
+    Rol::TODOS
+        .into_iter()
+        .map(|r| {
+            let (id, _) = a.agente_de(r);
+            let nombre = ea_ajustes::ficha(id).map_or(id, |f| f.nombre);
+            let modelo = a.modelo_de(id).map_or("su modelo propio".to_string(), |m| m.nombre.clone());
+            format!("{}: {nombre} ({modelo})", r.nombre())
+        })
+        .collect()
+}
+
 /// Trabajos por estado, colas y semáforos del bus. Si el bus no se puede
 /// leer, lo dice en vez de fallar: `ea status` es un banner de login.
 fn mostrar_bus() {
@@ -82,15 +99,58 @@ fn mostrar_bus() {
     }
     println!("{table}");
 
-    for a in [Agente::ModeloLocal, Agente::ClaudeCode] {
+    for a in Rol::TODOS {
         let n = bus.listar_cola(a).map(|c| c.len()).unwrap_or(0);
-        println!("Cola {}: {n}", a.as_str());
+        println!("Cola {} ({}): {n}", a.nombre(), a.as_str());
     }
+    mostrar_presencias(&bus);
     let semaforos = ea_bus::listar_semaforos();
     if semaforos.is_empty() {
         println!("Semáforos: ningún worktree ocupado");
     }
     for (_, o) in semaforos {
         println!("Semáforo: {} ocupa un worktree con el trabajo {} (pid {}, desde {})", o.agente, o.trabajo, o.pid, o.desde);
+    }
+}
+
+/// Quién está despierto en los equipos y en qué trabaja; vacío si no hay
+/// presencias ni equipos despiertos.
+fn mostrar_presencias(bus: &Bus) {
+    for l in lineas_presencia(bus) {
+        println!("{l}");
+    }
+}
+
+/// Una línea por equipo despierto y por presencia anotada.
+pub fn lineas_presencia(bus: &Bus) -> Vec<String> {
+    let mut v = Vec::new();
+    let equipos = bus.resumen_equipos().unwrap_or_default();
+    for e in equipos.iter().filter(|e| e.estado == ea_bus::EstadoEquipo::Despierto) {
+        v.push(format!("Equipo {} ({}): {} trabajo(s)", e.id, e.titulo, e.trabajos));
+    }
+    for (p, viva) in bus.presencias() {
+        let donde = p.equipo.as_deref().map_or(String::new(), |e| format!(" en el equipo {e}"));
+        let estado = match (viva, &p.trabajo) {
+            (true, Some(t)) => format!("despierto, trabajando en {t}"),
+            (true, None) => "despierto, libre".into(),
+            (false, _) => format!("presencia caducada (último latido {})", p.latido),
+        };
+        v.push(format!("  {} ({}){donde}: {estado}", p.agente, p.rol.as_str()));
+    }
+    v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lineas_roles;
+    use ea_ajustes::{Ajustes, Fuentes};
+
+    #[test]
+    fn las_lineas_de_roles_dicen_agente_y_modelo() {
+        let d = tempfile::tempdir().unwrap();
+        let mut a = Ajustes::por_defecto(&Fuentes::aislada(d.path()));
+        assert_eq!(lineas_roles(&a), ["planificador: Claude Code (su modelo propio)", "ejecutor: Qwen Code (qwen3-coder-30b)"]);
+        a.roles.ejecutor = "codex".into();
+        assert_eq!(lineas_roles(&a)[1], "ejecutor: Codex (qwen3-coder-30b)");
     }
 }

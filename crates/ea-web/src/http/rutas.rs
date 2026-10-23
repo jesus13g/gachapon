@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -28,12 +29,21 @@ pub async fn estado_general(State(s): Estado) -> Api<EstadoGeneral> {
     ok(servicio::estado::general(&s).await)
 }
 
+pub async fn agentes(State(s): Estado) -> Json<AgentesVista> {
+    Json(servicio::estado::agentes(&s).await)
+}
+
 pub async fn inicio(State(s): Estado) -> Api<Inicio> {
     ok(servicio::estado::inicio(&s).await)
 }
 
 pub async fn sesiones(State(s): Estado) -> Json<Sesiones> {
     Json(servicio::estado::sesiones(&s))
+}
+
+/// Los agentes vivos y dónde está cada trabajo activo, para la escena.
+pub async fn ecosistema(State(s): Estado) -> Json<crate::ecosistema::Ecosistema> {
+    Json(servicio::ecosistema::vista(&s).await)
 }
 
 // ------------------------------------------------------------------ diario
@@ -44,8 +54,14 @@ pub struct DiarioQuery {
     actor: Option<String>,
     desde: Option<String>,
     hasta: Option<String>,
+    /// `ok` o `error`.
+    resultado: Option<String>,
+    /// Prefijo de la acción (`bus_`, `propuesta_`…): solo `[a-z_]+`.
+    accion: Option<String>,
     /// `1` incluye los heartbeats del orquestador (por defecto se omiten).
     latidos: Option<String>,
+    /// Cursor «cargar más»: id del último evento ya cargado.
+    antes_de: Option<String>,
     limite: Option<i64>,
 }
 
@@ -55,27 +71,130 @@ pub async fn diario(State(s): Estado, Query(q): Query<DiarioQuery>) -> Api<Vec<E
         actor: q.actor,
         desde: q.desde,
         hasta: q.hasta,
+        resultado: q.resultado,
+        accion: q.accion,
         latidos: q.latidos.as_deref() == Some("1"),
+        antes_de: q.antes_de,
         limite: q.limite,
     };
     ok(servicio::diario::listar(&s, filtro).await)
 }
 
+/// `{"texto": "…", "corrige": 12, "trabajo": "…"}`: solo `texto` es
+/// obligatorio; cualquier otro campo se rechaza.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnotarBody {
+    texto: String,
+    #[serde(default)]
+    corrige: Option<i64>,
+    #[serde(default)]
+    trabajo: Option<String>,
+}
+
+pub async fn diario_anotar(State(s): Estado, cuerpo: Bytes) -> Result<(StatusCode, Json<EventoVista>), ApiError> {
+    let b: AnotarBody = serde_json::from_slice(&cuerpo).map_err(|e| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("cuerpo inválido: se espera {{\"texto\": \"…\", \"corrige\"?: id, \"trabajo\"?: \"…\"}} ({e})"),
+        )
+    })?;
+    let nota = ea_store::NuevaNota { texto: b.texto, corrige: b.corrige, trabajo: b.trabajo };
+    Ok((StatusCode::CREATED, Json(servicio::diario::anotar(&s, nota).await?)))
+}
+
 // ----------------------------------------------------------------- rutinas
 
-pub async fn rutinas_listar(State(s): Estado) -> Api<Vec<RutinaFila>> {
-    ok(servicio::rutinas::listar(&s).await)
+/// `?retiradas=1`: las rutinas retiradas (en la papelera o sin fichero) en
+/// vez de las activas.
+#[derive(Deserialize)]
+pub struct RutinasQuery {
+    retiradas: Option<String>,
+}
+
+pub async fn rutinas_listar(State(s): Estado, Query(q): Query<RutinasQuery>) -> Api<Vec<RutinaFila>> {
+    ok(servicio::rutinas::listar(&s, q.retiradas.as_deref() == Some("1")).await)
 }
 
 pub async fn rutina_ver(State(s): Estado, Path(slug): Path<String>) -> Api<RutinaDetalle> {
     ok(servicio::rutinas::ver(&s, &slug).await)
 }
 
+/// `{"entradas": {"clave": "valor"}}`; un cuerpo vacío es lo mismo que `{}`.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct EntradasBody {
+    entradas: servicio::rutinas::Entradas,
+}
+
+fn entradas_de(cuerpo: &[u8]) -> Result<EntradasBody, ApiError> {
+    if cuerpo.iter().all(u8::is_ascii_whitespace) {
+        return Ok(EntradasBody::default());
+    }
+    serde_json::from_slice(cuerpo).map_err(|e| {
+        ApiError::new(StatusCode::BAD_REQUEST, format!("cuerpo inválido: se espera {{\"entradas\": {{\"clave\": \"valor\"}}}} ({e})"))
+    })
+}
+
 pub async fn rutina_lanzar(
     State(s): Estado,
     Path(slug): Path<String>,
+    cuerpo: Bytes,
 ) -> Result<(StatusCode, Json<RutinaLanzada>), ApiError> {
-    Ok((StatusCode::CREATED, Json(servicio::rutinas::lanzar(&s, &slug).await?)))
+    let b = entradas_de(&cuerpo)?;
+    Ok((StatusCode::CREATED, Json(servicio::rutinas::lanzar(&s, &slug, &b.entradas).await?)))
+}
+
+pub async fn rutina_previa(State(s): Estado, Path(slug): Path<String>, cuerpo: Bytes) -> Api<RutinaPrevia> {
+    let b = entradas_de(&cuerpo)?;
+    ok(servicio::rutinas::previa(&s, &slug, &b.entradas).await)
+}
+
+/// `{"toml": "…"}`: la definición entera de una rutina.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TomlBody {
+    toml: String,
+}
+
+fn toml_de(cuerpo: &[u8]) -> Result<String, ApiError> {
+    // Holgura para el escapado JSON; el límite de verdad lo pone el bus.
+    if cuerpo.len() > 4 * ea_bus::MAX_DEFINICION {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("cuerpo demasiado largo (la definición admite como mucho {} bytes)", ea_bus::MAX_DEFINICION),
+        ));
+    }
+    serde_json::from_slice::<TomlBody>(cuerpo)
+        .map(|b| b.toml)
+        .map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, format!("cuerpo inválido: se espera {{\"toml\": \"…\"}} ({e})")))
+}
+
+pub async fn rutina_validar(State(s): Estado, cuerpo: Bytes) -> Api<RutinaValidada> {
+    ok(servicio::rutinas::validar(&s, &toml_de(&cuerpo)?).await)
+}
+
+pub async fn rutina_registrar(State(s): Estado, cuerpo: Bytes) -> Result<(StatusCode, Json<RutinaRegistrada>), ApiError> {
+    let toml = toml_de(&cuerpo)?;
+    Ok((StatusCode::CREATED, Json(servicio::rutinas::registrar(&s, &toml).await?)))
+}
+
+/// `/api/rutinas/validar` y `/registrar` son rutas fijas que tapan las de
+/// una rutina con ese slug: su GET sigue siendo la ficha de la rutina.
+pub async fn rutina_ver_validar(s: Estado) -> Api<RutinaDetalle> {
+    rutina_ver(s, Path("validar".into())).await
+}
+
+pub async fn rutina_ver_registrar(s: Estado) -> Api<RutinaDetalle> {
+    rutina_ver(s, Path("registrar".into())).await
+}
+
+pub async fn rutina_versiones(State(s): Estado, Path(slug): Path<String>) -> Api<Vec<RutinaVersionFila>> {
+    ok(servicio::rutinas::versiones(&s, &slug).await)
+}
+
+pub async fn rutina_version(State(s): Estado, Path((slug, n)): Path<(String, String)>) -> Api<RutinaVersion> {
+    ok(servicio::rutinas::version(&s, &slug, &n).await)
 }
 
 // ---------------------------------------------------------------- trabajos
@@ -84,12 +203,42 @@ pub async fn trabajos_listar(State(s): Estado) -> Api<Vec<TrabajoResumen>> {
     ok(servicio::trabajos::listar(&s))
 }
 
-pub async fn trabajo_ver(State(s): Estado, Path(id): Path<String>) -> Api<TrabajoDetalle> {
-    ok(servicio::trabajos::ver(&s, &id))
+pub async fn trabajo_crear(State(s): Estado, Json(b): Json<Value>) -> Result<(StatusCode, Json<EstadoTrabajo>), ApiError> {
+    Ok((StatusCode::CREATED, Json(servicio::trabajos::crear(&s, b).await?)))
 }
 
-pub async fn trabajo_diff(State(s): Estado, Path(id): Path<String>) -> Api<Diff> {
-    ok(servicio::trabajos::diff(&s, &id).await)
+pub async fn trabajo_formulario(State(s): Estado) -> Api<FormularioTrabajo> {
+    ok(servicio::trabajos::formulario(&s))
+}
+
+pub async fn skills_catalogo(State(s): Estado) -> Api<CatalogoSkills> {
+    ok(servicio::trabajos::catalogo_skills(&s))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProbarSkills {
+    #[serde(default)]
+    skills: Vec<String>,
+    por: Option<String>,
+}
+
+pub async fn skills_probar(State(s): Estado, Json(b): Json<ProbarSkills>) -> Api<PruebaSkills> {
+    ok(servicio::trabajos::probar_skills(&s, &b.skills, b.por.as_deref()))
+}
+
+pub async fn trabajo_ver(State(s): Estado, Path(id): Path<String>) -> Api<TrabajoDetalle> {
+    ok(servicio::trabajos::ver(&s, &id).await)
+}
+
+/// `?fase=N`: el diff de esa fase de una obra (entero ≥ 1; si no, 400).
+#[derive(Deserialize)]
+pub struct DiffQuery {
+    fase: Option<u32>,
+}
+
+pub async fn trabajo_diff(State(s): Estado, Path(id): Path<String>, Query(q): Query<DiffQuery>) -> Api<Diff> {
+    ok(servicio::trabajos::diff(&s, &id, q.fase).await)
 }
 
 #[derive(Deserialize, Default)]
@@ -97,6 +246,8 @@ pub async fn trabajo_diff(State(s): Estado, Path(id): Path<String>) -> Api<Diff>
 pub struct NotaUsuario {
     nota: String,
     contexto: String,
+    /// Reformular una obra: fase desde la que se rehace.
+    fase: Option<u32>,
 }
 
 async fn decidir(s: &AppState, id: &str, d: Decision<'_>) -> Api<EstadoTrabajo> {
@@ -120,7 +271,7 @@ pub async fn trabajo_reformular(
     Path(id): Path<String>,
     Json(b): Json<NotaUsuario>,
 ) -> Api<EstadoTrabajo> {
-    decidir(&s, &id, Decision::Reformular { nota: &b.nota }).await
+    decidir(&s, &id, Decision::Reformular { nota: &b.nota, fase: b.fase }).await
 }
 
 pub async fn trabajo_confirmar(
@@ -137,6 +288,33 @@ pub async fn colas(State(s): Estado) -> Api<Colas> {
 
 pub async fn semaforos(State(s): Estado) -> Json<Vec<Semaforo>> {
     Json(servicio::trabajos::semaforos(&s))
+}
+
+// -------------------------------------------------------------- worktrees
+
+pub async fn worktrees_listar(State(s): Estado) -> Api<Vec<ea_bus::InfoWorktree>> {
+    ok(servicio::trabajos::worktrees(&s))
+}
+
+// ----------------------------------------------------------------- equipos
+
+pub async fn equipos_listar(State(s): Estado) -> Api<Vec<ea_bus::ResumenEquipo>> {
+    ok(servicio::equipos::listar(&s))
+}
+
+pub async fn equipo_ver(State(s): Estado, Path(id): Path<String>) -> Api<ea_bus::VistaEquipo> {
+    ok(servicio::equipos::ver(&s, &id))
+}
+
+pub async fn equipo_despertar(
+    State(s): Estado,
+    Json(b): Json<Value>,
+) -> Result<(StatusCode, Json<servicio::equipos::Despierto>), ApiError> {
+    Ok((StatusCode::CREATED, Json(servicio::equipos::despertar(&s, b).await?)))
+}
+
+pub async fn equipo_dormir(State(s): Estado, Path(id): Path<String>) -> Api<ea_bus::VistaEquipo> {
+    ok(servicio::equipos::dormir(&s, &id).await)
 }
 
 // -------------------------------------------------------------- propuestas
@@ -187,6 +365,20 @@ pub async fn accion_ejecutar(State(s): Estado, Json(b): Json<AccionBody>) -> Api
     ok(servicio::acciones::ejecutar(&s, &b.herramienta, &b.argumentos, &b.precondicion).await)
 }
 
+pub async fn accion_historial(State(s): Estado, Path(nombre): Path<String>) -> Api<Vec<EventoHerramienta>> {
+    ok(servicio::acciones::historial(&s, &nombre).await)
+}
+
+// ---------------------------------------------------------------- terminal
+
+/// `{propuesta}`, `{servicios}` o `{herramienta, argumentos}`; cualquier otra cosa (texto
+/// libre incluido) es un 400.
+pub async fn terminal_abrir(State(s): Estado, cuerpo: Bytes) -> Api<servicio::terminal::TerminalAbierta> {
+    let v: Value = serde_json::from_slice(&cuerpo)
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "se espera {propuesta}, {servicios} o {herramienta, argumentos}"))?;
+    ok(servicio::terminal::abrir(&s, &v).await)
+}
+
 // ------------------------------------------------------------------ bóveda
 
 #[derive(Deserialize)]
@@ -220,8 +412,254 @@ pub async fn boveda_promover(State(s): Estado, Json(b): Json<PromoverBody>) -> A
     ok(servicio::boveda::promover(&s, &b.ruta, b.destino.as_deref()).await)
 }
 
+pub async fn boveda_indice(State(s): Estado) -> Api<IndiceBoveda> {
+    ok(servicio::boveda::indice(&s).await)
+}
+
+pub async fn boveda_reindexar(State(s): Estado) -> Api<IndiceBoveda> {
+    ok(servicio::boveda::reindexar(&s).await)
+}
+
+pub async fn boveda_arbol(State(s): Estado) -> Api<ArbolBoveda> {
+    ok(servicio::boveda::arbol(&s).await)
+}
+
+#[derive(Deserialize)]
+pub struct RutaQuery {
+    ruta: String,
+}
+
+pub async fn boveda_fichero(State(s): Estado, Query(q): Query<RutaQuery>) -> Api<NotaFichero> {
+    ok(servicio::boveda::fichero(&s, &q.ruta))
+}
+
+#[derive(Deserialize)]
+pub struct GuardarNotaBody {
+    ruta: String,
+    contenido: String,
+    /// La versión con la que se abrió: si en disco ya es otra, 409.
+    version: String,
+}
+
+pub async fn boveda_guardar(State(s): Estado, Json(b): Json<GuardarNotaBody>) -> Api<NotaFichero> {
+    ok(servicio::boveda::guardar(&s, &b.ruta, &b.contenido, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct CrearNotaBody {
+    ruta: String,
+    #[serde(default)]
+    contenido: String,
+}
+
+pub async fn boveda_crear(State(s): Estado, Json(b): Json<CrearNotaBody>) -> Result<(StatusCode, Json<NotaFichero>), ApiError> {
+    Ok((StatusCode::CREATED, Json(servicio::boveda::crear(&s, &b.ruta, &b.contenido).await?)))
+}
+
+#[derive(Deserialize)]
+pub struct RenombrarNotaBody {
+    ruta: String,
+    nuevo: String,
+    version: String,
+}
+
+pub async fn boveda_renombrar(State(s): Estado, Json(b): Json<RenombrarNotaBody>) -> Api<RenombradoBoveda> {
+    ok(servicio::boveda::renombrar(&s, &b.ruta, &b.nuevo, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct EliminarNotaBody {
+    ruta: String,
+    version: String,
+}
+
+pub async fn boveda_eliminar(State(s): Estado, Json(b): Json<EliminarNotaBody>) -> Api<EnPapelera> {
+    ok(servicio::boveda::eliminar(&s, &b.ruta, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct RutaBody {
+    ruta: String,
+}
+
+pub async fn boveda_carpeta(State(s): Estado, Json(b): Json<RutaBody>) -> Result<(StatusCode, Json<Hecho>), ApiError> {
+    Ok((StatusCode::CREATED, Json(servicio::boveda::carpeta(&s, &b.ruta).await?)))
+}
+
+#[derive(Deserialize)]
+pub struct RenombrarCarpetaBody {
+    ruta: String,
+    nuevo: String,
+}
+
+pub async fn boveda_carpeta_renombrar(State(s): Estado, Json(b): Json<RenombrarCarpetaBody>) -> Api<CarpetaRenombradaVista> {
+    ok(servicio::boveda::renombrar_carpeta(&s, &b.ruta, &b.nuevo).await)
+}
+
+pub async fn boveda_carpeta_eliminar(State(s): Estado, Json(b): Json<RutaBody>) -> Api<CarpetaBorradaVista> {
+    ok(servicio::boveda::eliminar_carpeta(&s, &b.ruta).await)
+}
+
+pub async fn boveda_mostrar(State(s): Estado, Json(b): Json<RutaBody>) -> Api<Hecho> {
+    ok(servicio::boveda::mostrar(&s, &b.ruta).await)
+}
+
+pub async fn boveda_papelera(State(s): Estado) -> Api<Vec<EnPapelera>> {
+    ok(servicio::boveda::papelera(&s))
+}
+
+#[derive(Deserialize)]
+pub struct RestaurarBody {
+    id: String,
+}
+
+pub async fn boveda_restaurar(State(s): Estado, Json(b): Json<RestaurarBody>) -> Api<NotaFichero> {
+    ok(servicio::boveda::restaurar(&s, &b.id).await)
+}
+
+// ----------------------------------------------------------------- memoria
+
+pub async fn memoria_listar(State(s): Estado) -> Api<ListadoMemoria> {
+    ok(servicio::memoria::listar(&s))
+}
+
+pub async fn memoria_leer(State(s): Estado, Path((proyecto, fichero)): Path<(String, String)>) -> Api<Memoria> {
+    ok(servicio::memoria::leer(&s, &proyecto, &fichero))
+}
+
+#[derive(Deserialize)]
+pub struct MemoriaBody {
+    contenido: String,
+    /// La versión con la que se abrió: si en disco ya es otra, 409.
+    version: String,
+}
+
+pub async fn memoria_guardar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(b): Json<MemoriaBody>,
+) -> Api<Memoria> {
+    ok(servicio::memoria::guardar(&s, &proyecto, &fichero, &b.contenido, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct CrearMemoriaBody {
+    fichero: String,
+    titulo: String,
+    descripcion: String,
+    tipo: String,
+    #[serde(default)]
+    cuerpo: String,
+}
+
+pub async fn memoria_crear(
+    State(s): Estado,
+    Path(proyecto): Path<String>,
+    Json(b): Json<CrearMemoriaBody>,
+) -> Result<(StatusCode, Json<Memoria>), ApiError> {
+    let n = crate::memoria::NuevaMemoria {
+        fichero: &b.fichero,
+        titulo: &b.titulo,
+        descripcion: &b.descripcion,
+        tipo: &b.tipo,
+        cuerpo: &b.cuerpo,
+    };
+    Ok((StatusCode::CREATED, Json(servicio::memoria::crear(&s, &proyecto, &n).await?)))
+}
+
+#[derive(Deserialize)]
+pub struct VersionBody {
+    version: String,
+}
+
+pub async fn memoria_eliminar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(b): Json<VersionBody>,
+) -> Api<Hecho> {
+    ok(servicio::memoria::eliminar(&s, &proyecto, &fichero, &b.version).await)
+}
+
+#[derive(Deserialize)]
+pub struct RenombrarBody {
+    nuevo: String,
+    version: String,
+}
+
+pub async fn memoria_renombrar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(b): Json<RenombrarBody>,
+) -> Api<Renombrado> {
+    ok(servicio::memoria::renombrar(&s, &proyecto, &fichero, &b.nuevo, &b.version).await)
+}
+
+pub async fn memoria_mostrar(
+    State(s): Estado,
+    Path((proyecto, fichero)): Path<(String, String)>,
+    Json(_): Json<Value>,
+) -> Api<Hecho> {
+    ok(servicio::memoria::mostrar(&s, &proyecto, &fichero).await)
+}
+
 // --------------------------------------------------------------- servicios
+
+pub async fn servicios_plan(State(s): Estado) -> Api<servicio::servicios::PlanServicios> {
+    ok(servicio::servicios::plan(&s).await)
+}
 
 pub async fn servicio_reiniciar(State(s): Estado, Path(nombre): Path<String>) -> Api<Hecho> {
     ok(servicio::servicios::reiniciar(&s, &nombre).await)
+}
+
+// ----------------------------------------------------------------- ajustes
+
+pub async fn ajustes_ver(State(s): Estado) -> Api<AjustesVista> {
+    Ok(Json(servicio::ajustes::ver(&s)))
+}
+
+#[derive(Deserialize)]
+pub struct CuerpoAjustes {
+    /// Huella de `ajustes.toml` que se leyó ("" si no existía).
+    version: String,
+    /// Clave → valor nuevo; `null` la quita (vuelve a la capa siguiente).
+    cambios: std::collections::BTreeMap<String, Option<Value>>,
+}
+
+pub async fn ajustes_cambiar(State(s): Estado, Json(b): Json<CuerpoAjustes>) -> Api<AjustesCambiados> {
+    ok(servicio::ajustes::cambiar(&s, &b.version, b.cambios).await)
+}
+
+// -------------------------------------------------------------- biblioteca
+
+#[derive(Deserialize)]
+pub struct BibliotecaQuery {
+    agente: Option<String>,
+    tipo: Option<String>,
+    categoria: Option<String>,
+    activado: Option<String>,
+}
+
+pub async fn biblioteca_listar(
+    State(s): Estado,
+    Query(q): Query<BibliotecaQuery>,
+) -> Api<servicio::biblioteca::BibliotecaVista> {
+    let p = servicio::biblioteca::Peticion { agente: q.agente, tipo: q.tipo, categoria: q.categoria, activado: q.activado };
+    ok(servicio::biblioteca::listar(&s, &p).await)
+}
+
+pub async fn biblioteca_ficha(State(s): Estado, Path(id): Path<String>) -> Api<servicio::biblioteca::FichaVista> {
+    ok(servicio::biblioteca::ficha(&s, &id).await)
+}
+
+pub async fn biblioteca_uso(State(s): Estado) -> Api<ea_biblioteca::uso::InformeUso> {
+    Ok(Json((*servicio::biblioteca::uso(&s).await?).clone()))
+}
+
+pub async fn biblioteca_simular(State(s): Estado, Json(b): Json<AccionBody>) -> Api<Simulacion> {
+    ok(servicio::biblioteca::simular(&s, &b.herramienta, &b.argumentos).await)
+}
+
+pub async fn biblioteca_ejecutar(State(s): Estado, Json(b): Json<AccionBody>) -> Api<ResultadoAccion> {
+    ok(servicio::biblioteca::ejecutar(&s, &b.herramienta, &b.argumentos, &b.precondicion).await)
 }

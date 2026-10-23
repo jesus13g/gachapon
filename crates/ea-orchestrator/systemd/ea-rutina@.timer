@@ -6,6 +6,8 @@ Description=Disparador temporal de la rutina '%i' del ecosistema de asistente
 # fichero no se instala tal cual. Cópialo como
 # ~/.config/systemd/user/ea-rutina@<slug>.timer (systemd prioriza el
 # fichero de instancia concreta sobre esta plantilla) y ajusta OnCalendar=.
+# ea_programar_rutina (ficha de la rutina en ea-web, o propuesta por MCP)
+# escribe ese fichero con este mismo contenido y lo activa.
 # Ejemplo: todos los días a las 08:00.
 OnCalendar=*-*-* 08:00:00
 # Esta máquina alterna con Windows y rara vez está en Linux a esa hora, así

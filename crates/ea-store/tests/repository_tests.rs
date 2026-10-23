@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use ea_store::{
-    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, NewEvent, NuevaPropuesta,
+    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, EventOutcome, NewEvent, NuevaPropuesta,
     PropuestaFilter, Store, StoreError,
 };
 
@@ -63,6 +63,83 @@ fn list_events_can_exclude_an_action() {
         .unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].action, "voz_escucha_iniciada");
+}
+
+#[test]
+fn filtra_por_resultado_y_prefijo_de_accion() {
+    let store = open_test_store();
+    let con = |actor: &str, action: &str, outcome| NewEvent {
+        outcome: Some(outcome),
+        ..evento(actor, action, None)
+    };
+    store.append_event(con("usuario", "bus_crear", EventOutcome::Ok)).unwrap();
+    store.append_event(con("orquestador", "bus_entregar", EventOutcome::Error)).unwrap();
+    store.append_event(con("usuario", "propuesta_decidida", EventOutcome::Error)).unwrap();
+    // `busXcrear` casaría con `bus_` si el `_` no se escapase.
+    store.append_event(con("usuario", "busXcrear", EventOutcome::Error)).unwrap();
+
+    let lista = |f: EventFilter| -> Vec<String> {
+        store.list_events(&f).unwrap().into_iter().map(|e| e.action).collect()
+    };
+
+    let mut bus = lista(EventFilter { action_prefix: Some("bus_".into()), ..Default::default() });
+    bus.sort();
+    assert_eq!(bus, ["bus_crear", "bus_entregar"]);
+
+    let mut errores = lista(EventFilter { outcome: Some(EventOutcome::Error), ..Default::default() });
+    errores.sort();
+    assert_eq!(errores, ["busXcrear", "bus_entregar", "propuesta_decidida"]);
+
+    let ambos = lista(EventFilter {
+        outcome: Some(EventOutcome::Error),
+        action_prefix: Some("bus_".into()),
+        ..Default::default()
+    });
+    assert_eq!(ambos, ["bus_entregar"]);
+
+    // Un comodín en el prefijo se compara literalmente.
+    assert!(lista(EventFilter { action_prefix: Some("%".into()), ..Default::default() }).is_empty());
+}
+
+#[test]
+fn el_cursor_before_id_pagina_sin_huecos_ni_repetidos() {
+    let store = open_test_store();
+    // 7 eventos `bus_` intercalados con otros que el filtro descarta.
+    for i in 0..7 {
+        store.append_event(evento("usuario", "bus_crear", Some(&format!("m-{i}")))).unwrap();
+        store.append_event(evento("usuario", "propuesta_decidida", None)).unwrap();
+    }
+    let filtro = |antes: Option<i64>| EventFilter {
+        action_prefix: Some("bus_".into()),
+        before_id: antes,
+        limit: Some(3),
+        ..Default::default()
+    };
+
+    let mut vistos: Vec<i64> = Vec::new();
+    let mut antes = None;
+    let mut paginas = 0;
+    loop {
+        let pagina = store.list_events(&filtro(antes)).unwrap();
+        if pagina.is_empty() {
+            break;
+        }
+        paginas += 1;
+        if paginas == 2 {
+            // Un evento nuevo entre página y página no se cuela ni desplaza.
+            store.append_event(evento("usuario", "bus_crear", Some("m-nuevo"))).unwrap();
+        }
+        assert!(pagina.iter().all(|e| e.action == "bus_crear"));
+        vistos.extend(pagina.iter().map(|e| e.id));
+        antes = pagina.last().map(|e| e.id);
+    }
+    assert_eq!(paginas, 3, "3 + 3 + 1");
+    let mut ordenados = vistos.clone();
+    ordenados.sort_unstable_by(|a, b| b.cmp(a));
+    ordenados.dedup();
+    assert_eq!(vistos, ordenados, "de más reciente a más antiguo, sin repetidos");
+    assert_eq!(vistos.len(), 7);
+    assert!(store.list_events(&filtro(Some(9_999))).unwrap().is_empty(), "id inexistente: nada");
 }
 
 #[test]
@@ -250,4 +327,27 @@ fn el_indice_de_la_boveda_busca_sin_acentos_ni_mayusculas() {
     store.boveda_olvidar("compartida/a.md").unwrap();
     assert!(store.boveda_buscar("\"te\"", None, 10, 8).unwrap().is_empty());
     assert_eq!(store.boveda_contar_por_region().unwrap(), vec![("compartida".to_string(), 1)]);
+    store.boveda_indexar(&e("compartida/a/c.md", "C"), "x").unwrap();
+    let todas: Vec<_> = store.boveda_todas().unwrap().into_iter().map(|r| r.ruta).collect();
+    assert_eq!(todas, vec!["compartida/a/c.md".to_string(), "compartida/b.md".to_string()]);
+}
+
+#[test]
+fn las_versiones_de_una_rutina_se_listan_de_la_mas_reciente_a_la_primera() {
+    let store = open_test_store();
+    let fila = |slug: &str, version: i64, por: &str| ea_store::FilaRutina {
+        slug: slug.into(),
+        version,
+        definicion: format!("slug = \"{slug}\"\nversion = {version}\n"),
+        creada_en: format!("2026-10-{:02}T10:00:00Z", 10 + version),
+        creada_por: por.into(),
+    };
+    store.guardar_rutina(&fila("informe", 1, "usuario")).unwrap();
+    store.guardar_rutina(&fila("informe", 2, "claude-code")).unwrap();
+    store.guardar_rutina(&fila("otra", 1, "usuario")).unwrap();
+    let v = store.listar_versiones_rutina("informe").unwrap();
+    assert_eq!(v.iter().map(|f| f.version).collect::<Vec<_>>(), vec![2, 1]);
+    assert_eq!(v[0].creada_por, "claude-code");
+    assert!(v[1].definicion.contains("version = 1"));
+    assert!(store.listar_versiones_rutina("no-existe").unwrap().is_empty());
 }

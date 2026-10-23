@@ -2,7 +2,6 @@
 //! Dentro del lock se escribe quién lo tiene, para poder monitorizarlo.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -11,13 +10,26 @@ use serde::{Deserialize, Serialize};
 use crate::bus::{raiz_estado, ahora_rfc3339};
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::fnv;
+use crate::tipos::Rol;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ocupante {
+    /// Id del agente (`qwen-code`, `codex`…); en semáforos de antes, el rol
+    /// (`modelo-local`).
     pub agente: String,
     pub trabajo: String,
     pub pid: u32,
     pub desde: String,
+    /// El rol con el que lo ocupa (spec 017, RF-008).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rol: Option<Rol>,
+}
+
+impl Ocupante {
+    /// Lo ocupa el ejecutor (también en un semáforo de antes).
+    pub fn es_ejecutor(&self) -> bool {
+        self.rol == Some(Rol::Ejecutor) || Rol::desde(&self.agente) == Some(Rol::Ejecutor)
+    }
 }
 
 #[derive(Debug)]
@@ -32,7 +44,7 @@ fn dir_semaforos(raiz: &Path) -> PathBuf {
 
 /// Ruta del `.lock` de un worktree: hash corto de su ruta canónica.
 pub fn ruta_lock(raiz: &Path, worktree: &Path) -> PathBuf {
-    let canonica = fs::canonicalize(worktree).unwrap_or_else(|_| worktree.to_path_buf());
+    let canonica = ea_plataforma::rutas::canonica(worktree).unwrap_or_else(|_| worktree.to_path_buf());
     let h = fnv(&canonica.to_string_lossy()) & 0xffff_ffff;
     dir_semaforos(raiz).join(format!("worktree-{h:08x}.lock"))
 }
@@ -40,14 +52,14 @@ pub fn ruta_lock(raiz: &Path, worktree: &Path) -> PathBuf {
 impl CandadoWorktree {
     /// Con la raíz de estado estándar y sin identificar al ocupante.
     pub fn adquirir(ruta_worktree: &Path, espera: Duration) -> Resultado<Self> {
-        let o = Ocupante { agente: "desconocido".into(), trabajo: String::new(), pid: std::process::id(), desde: ahora_rfc3339() };
+        let o = Ocupante { agente: "desconocido".into(), trabajo: String::new(), pid: std::process::id(), desde: ahora_rfc3339(), rol: None };
         Self::adquirir_en(&raiz_estado(), ruta_worktree, o, espera)
     }
 
     pub fn adquirir_en(raiz: &Path, ruta_worktree: &Path, mut ocupante: Ocupante, espera: Duration) -> Resultado<Self> {
         let ruta = ruta_lock(raiz, ruta_worktree);
         fs::create_dir_all(ruta.parent().unwrap())?;
-        let mut f = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&ruta)?;
+        let f = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&ruta)?;
         let limite = Instant::now() + espera;
         loop {
             match f.try_lock() {
@@ -62,9 +74,14 @@ impl CandadoWorktree {
             }
         }
         ocupante.pid = std::process::id();
-        f.set_len(0)?;
-        f.write_all(&serde_json::to_vec(&ocupante)?)?;
-        f.sync_all()?;
+        // Quién lo tiene va en un fichero aparte: en Windows el bloqueo es
+        // obligatorio y nadie más podría leer el `.lock` mientras está tomado.
+        let _ = f.set_len(0);
+        let lado = ruta_ocupante(&ruta);
+        // Ya tenemos el lock: el ocupante que hubiera es el residuo de un
+        // proceso muerto y un lector no debe verlo en la ventana de abajo.
+        let _ = fs::remove_file(&lado);
+        std::fs::write(&lado, serde_json::to_vec(&ocupante)?)?;
         Ok(Self { fichero: f, ruta_lock: ruta })
     }
 
@@ -82,6 +99,11 @@ impl CandadoWorktree {
     }
 }
 
+/// Dónde se anota quién tiene un `.lock`.
+fn ruta_ocupante(ruta_lock: &Path) -> PathBuf {
+    ruta_lock.with_extension("ocupante")
+}
+
 /// `None` si el lock no existe o nadie lo tiene (el contenido sería residuo).
 fn leer_ocupante(ruta: &Path) -> Option<Ocupante> {
     let f = File::open(ruta).ok()?;
@@ -91,8 +113,10 @@ fn leer_ocupante(ruta: &Path) -> Option<Ocupante> {
             None
         }
         Err(std::fs::TryLockError::WouldBlock) => {
-            let texto = fs::read_to_string(ruta).ok()?;
-            serde_json::from_str(&texto).ok()
+            let texto = fs::read_to_string(ruta_ocupante(ruta)).ok()?;
+            let o: Ocupante = serde_json::from_str(&texto).ok()?;
+            // Un ocupante cuyo proceso ya no vive es residuo, no un dueño.
+            ea_plataforma::proceso::vive(o.pid).then_some(o)
         }
         Err(_) => None,
     }
@@ -119,7 +143,41 @@ pub fn listar_semaforos_en(raiz: &Path) -> Vec<(PathBuf, Ocupante)> {
 
 impl Drop for CandadoWorktree {
     fn drop(&mut self) {
-        let _ = self.fichero.set_len(0);
+        let _ = fs::remove_file(ruta_ocupante(&self.ruta_lock));
         let _ = self.fichero.unlock();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ocupante(pid: u32) -> Ocupante {
+        Ocupante { agente: "x".into(), trabajo: "t".into(), pid, desde: "ahora".into(), rol: None }
+    }
+
+    #[test]
+    fn un_ocupante_de_un_proceso_muerto_se_descarta_y_se_borra_al_adquirir() {
+        let d = tempfile::tempdir().unwrap();
+        let wt = d.path().join("wt");
+        fs::create_dir_all(&wt).unwrap();
+        let ruta = ruta_lock(d.path(), &wt);
+        fs::create_dir_all(ruta.parent().unwrap()).unwrap();
+        // Residuo de un proceso muerto (pid imposible) con el lock tomado por otro.
+        let f = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&ruta).unwrap();
+        f.lock().unwrap();
+        fs::write(ruta_ocupante(&ruta), serde_json::to_vec(&ocupante(u32::MAX - 1)).unwrap()).unwrap();
+        assert!(leer_ocupante(&ruta).is_none(), "un pid muerto no es un dueño");
+        // Con uno vivo (el nuestro) sí se ve.
+        fs::write(ruta_ocupante(&ruta), serde_json::to_vec(&ocupante(std::process::id())).unwrap()).unwrap();
+        assert_eq!(leer_ocupante(&ruta).unwrap().pid, std::process::id());
+        drop(f);
+
+        // Al adquirir se borra el residuo antes de escribir el nuevo.
+        fs::write(ruta_ocupante(&ruta), serde_json::to_vec(&ocupante(u32::MAX - 1)).unwrap()).unwrap();
+        let c = CandadoWorktree::adquirir_en(d.path(), &wt, ocupante(0), Duration::from_secs(1)).unwrap();
+        assert_eq!(CandadoWorktree::ocupante_en(d.path(), &wt).unwrap().pid, std::process::id());
+        drop(c);
+        assert!(!ruta_ocupante(&ruta).exists());
     }
 }

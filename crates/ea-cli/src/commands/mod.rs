@@ -1,11 +1,18 @@
 pub mod acciones;
+pub mod agentes;
+pub mod ajustes;
+pub mod biblioteca;
 pub mod boveda;
 pub mod diario;
+pub mod equipo;
+pub mod hook;
 pub mod propuestas;
 pub mod qwen_skills;
 pub mod rutinas;
+pub mod servicios;
 pub mod status;
 pub mod trabajo;
+pub mod worktree;
 
 use anyhow::{Context, Result};
 use time::format_description::well_known::Rfc3339;
@@ -43,9 +50,10 @@ pub fn bloquear<F: std::future::Future>(f: F) -> F::Output {
 /// El sistema real para lo que el usuario confirma desde esta terminal.
 pub fn sistema() -> ea_acciones::SistemaReal {
     ea_acciones::SistemaReal {
-        rutinas_dir: ea_orchestrator::config::load().rutinas_dir,
+        rutinas_dir: ea_ajustes::cargar().orquestador.rutinas_dir,
         boveda: ea_acciones::Boveda::configurada(),
         propio: None,
+        temporizadores: ea_acciones::Temporizadores::usuario(),
     }
 }
 
@@ -57,6 +65,19 @@ pub fn preguntar(texto: &str) -> anyhow::Result<String> {
     let mut linea = String::new();
     std::io::stdin().read_line(&mut linea)?;
     Ok(linea.trim().to_string())
+}
+
+/// Con `esperar` (una ventana abierta por ea-web), enseña el error, si lo
+/// hay, y espera a Intro antes de salir: si no, la ventana se cerraría sin
+/// dejar leer el resultado. El error se devuelve igual (código de salida).
+pub fn al_final(esperar: bool, r: anyhow::Result<()>) -> anyhow::Result<()> {
+    if esperar {
+        if let Err(e) = &r {
+            eprintln!("Error: {e:#}");
+        }
+        let _ = preguntar("\n  Pulsa Intro para cerrar esta ventana. ");
+    }
+    r
 }
 
 /// Confirmación explícita (§11.1): una reversible pide `s`; una irreversible

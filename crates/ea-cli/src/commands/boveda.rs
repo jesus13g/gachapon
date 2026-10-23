@@ -101,7 +101,7 @@ pub fn leer(ruta: &str, desde: usize) -> Result<()> {
 }
 
 pub fn reindexar(store: &mut Store) -> Result<()> {
-    let r = Boveda::configurada().sincronizar(store, true)?;
+    let r = Boveda::configurada().reindexar(store, "usuario")?;
     println!(
         "Índice reconstruido: {} nuevas, {} actualizadas, {} eliminadas, {} omitidas por tamaño",
         r.indexadas, r.actualizadas, r.eliminadas, r.omitidas
@@ -117,4 +117,36 @@ pub fn promover(store: &mut Store, ruta: &str, destino: Option<String>) -> Resul
         args["destino"] = json!(d);
     }
     super::acciones::ejecutar(store, "ea_promover_nota", &args.to_string()).context("no se pudo promover")
+}
+
+/// Vacía la papelera de la bóveda: borra para siempre lo que hay en ella.
+/// Es irreversible (art. IV.2), así que solo se hace desde aquí: terminal
+/// interactiva real (un agente que lance `ea` sin TTY no puede), lo que se
+/// borraría a la vista y la frase `confirmo vaciar-papelera`.
+pub fn vaciar_papelera(store: &mut Store) -> Result<()> {
+    let b = Boveda::configurada();
+    ea_acciones::Canal::terminal_interactiva()?;
+    let r = b.simular_vaciar_papelera()?;
+    if r.entradas == 0 {
+        println!("La papelera de la bóveda está vacía: no hay nada que borrar.");
+        return Ok(());
+    }
+    let simulacion = format!(
+        "borraría PARA SIEMPRE {} entradas de la papelera ({} notas, {} bytes) en {}/.papelera; no se pueden recuperar",
+        r.entradas,
+        r.notas,
+        r.bytes,
+        b.raiz().display()
+    );
+    let args = json!({});
+    if !super::confirmar_en_terminal("vaciar la papelera de la bóveda", "irreversible", &args, &simulacion, "vaciar-papelera")? {
+        println!("Cancelado: la papelera sigue como estaba y no se ha borrado nada.");
+        return Ok(());
+    }
+    let hecho = b.vaciar_papelera(store, "usuario")?;
+    println!(
+        "Papelera vaciada: {} entradas ({} notas, {} bytes) borradas para siempre.",
+        hecho.entradas, hecho.notas, hecho.bytes
+    );
+    Ok(())
 }

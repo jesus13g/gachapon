@@ -26,6 +26,15 @@ pub struct VerTrabajoArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct VerEquipoArgs {
+    /// Identificador del equipo (el que devuelve ea_listar_equipos).
+    pub id: String,
+    /// Cuántos de los últimos trabajos del equipo incluir (por defecto 10,
+    /// como mucho 20).
+    pub trabajos: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListarDiarioArgs {
     /// Limita el diario a los eventos asociados a un trabajo concreto.
     pub trabajo: Option<String>,
@@ -46,6 +55,84 @@ pub struct RutinaArgs {
     pub slug: String,
     /// Si es true, solo describe lo que se haría. Si es false (por defecto),
     /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct HerramientaArgs {
+    /// Id del elemento de la biblioteca: `agente/tipo/ámbito/nombre`, p. ej.
+    /// "codex/mcp/usuario/docs" o "claude-code/plugin/usuario/foo@mkt".
+    pub elemento: String,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct WorktreeArgs {
+    /// Id del trabajo con worktree propio (el de `ea trabajo listar`).
+    pub trabajo: String,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EncolarRutinaArgs {
+    /// Nombre (slug) de la rutina, p. ej. "revision-diaria".
+    pub slug: String,
+    /// Entradas que sustituyen a los valores por defecto, como
+    /// {"clave": "valor"}. Solo las que la rutina declara; como mucho 32,
+    /// de 1024 bytes cada una y sin saltos de línea ni otros caracteres de
+    /// control. Se sustituyen tal cual en los pasos y en el criterio (un
+    /// comando de shell): la simulación muestra el criterio resultante.
+    pub entradas: Option<std::collections::BTreeMap<String, String>>,
+    /// Si es true, solo describe lo que se haría. Si es false (por defecto),
+    /// encola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RegistrarRutinaArgs {
+    /// La definición completa de la rutina en TOML ([rutina] con slug,
+    /// version, worktree absoluto y criterio_exito; [entradas]; [[pasos]]),
+    /// como la que se pasaría a `ea rutina registrar`. Para corregir una
+    /// rutina, la versión debe ser mayor que la registrada. Como mucho 64 KiB.
+    pub toml: String,
+    /// Si es true, solo describe lo que se haría (diff frente a la versión
+    /// registrada y criterio resultante). Si es false (por defecto), encola
+    /// una propuesta que el usuario debe aceptar: nada se registra aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LanzarSesionArgs {
+    /// Agente que se lanza: "claude-code", "qwen-code", "codex" u "opencode".
+    pub agente: String,
+    /// Ids de la biblioteca de herramientas (`agente/tipo/ámbito/nombre`,
+    /// p. ej. "claude-code/mcp/usuario/mi-servidor"): solo estos estarán
+    /// disponibles en la sesión.
+    pub herramientas: Vec<String>,
+    /// Carpeta del proyecto (ruta absoluta; opcional).
+    pub directorio: Option<String>,
+    /// Si es true, solo describe la sesión (comando y ficheros, sin secretos).
+    /// Si es false (por defecto), encola una propuesta que el usuario debe
+    /// aceptar: nada se abre aquí.
+    pub simular: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ProgramarRutinaArgs {
+    /// Nombre (slug) de una rutina registrada, p. ej. "revision-diaria".
+    pub slug: String,
+    /// Expresión `OnCalendar` de systemd, p. ej. "*-*-* 08:00:00" (cada día a
+    /// las 8), "Mon *-*-* 09:00" (los lunes) o "daily". Una sola línea: sin
+    /// saltos de línea ni otros caracteres de control, sin `%` ni `\`; como
+    /// mucho 200 caracteres. La valida `systemd-analyze calendar`.
+    pub calendario: String,
+    /// Si es true, solo describe lo que se haría (con las próximas 3
+    /// ejecuciones). Si es false (por defecto), encola una propuesta que el
+    /// usuario debe aceptar: nada se programa aquí.
     pub simular: Option<bool>,
 }
 
@@ -127,4 +214,25 @@ pub fn parse_flexible_date(s: &str) -> Result<OffsetDateTime, String> {
     let date = time::Date::parse(s, &date_fmt)
         .map_err(|_| format!("fecha inválida: '{s}' (usa RFC3339 o AAAA-MM-DD)"))?;
     Ok(date.midnight().assume_utc())
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BibliotecaArgs {
+    /// Id de un elemento (`agente/tipo/ámbito/nombre`, p. ej.
+    /// "claude-code/skill/usuario/revisar"): devuelve su ficha completa
+    /// (origen, estado, cómo se cambia, definición MCP sin secretos) y su uso
+    /// por actor. Sin id, lista el inventario y los demás argumentos filtran.
+    pub id: Option<String>,
+    /// Filtra por agente: claude-code, qwen-code, codex, opencode,
+    /// antigravity o ecosistema.
+    pub agente: Option<String>,
+    /// Filtra por tipo: skill, plugin, subagente, mcp, comando o extension.
+    pub tipo: Option<String>,
+    /// Filtra por categoría (por defecto, el origen: usuario, proyecto,
+    /// ecosistema, plugin:<id> o integrada).
+    pub categoria: Option<String>,
+    /// true: solo los activados; false: solo los desactivados.
+    pub activado: Option<bool>,
+    /// Número máximo de elementos a devolver (por defecto 50, como mucho 200).
+    pub limite: Option<i64>,
 }

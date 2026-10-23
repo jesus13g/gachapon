@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use ea_bus::{Bus, ConfigOrquestador};
+use ea_bus::Bus;
 use ea_orchestrator::config;
-use ea_orchestrator::ejecutor::{ejecutar_uno, QwenCode};
+use ea_orchestrator::trabajadores::{Contexto, Trabajadores};
 use ea_store::{EventOutcome, NewEvent, Store};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -31,9 +31,22 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let config = config::load();
+    // Avisos de los ajustes (valores inválidos, ficheros rotos), una vez.
+    let efectivos = ea_ajustes::cargar_de(&ea_ajustes::Fuentes::sistema());
+    for aviso in &efectivos.avisos {
+        tracing::warn!(%aviso, "ajustes");
+    }
+    let config: config::Config = efectivos.ajustes.orquestador.into();
 
     let intervalo_heartbeat = config.intervalo_heartbeat_s;
+    // Se relee en cada latido: `agente.sandbox` es en caliente. El motivo, si
+    // el aislamiento no puede arrancar, viaja en el latido para que el panel lo
+    // muestre (spec 020, «sandbox visible»).
+    let sandbox_detalle = || {
+        let activado = ea_ajustes::cargar_de(&ea_ajustes::Fuentes::sistema()).ajustes.agente.sandbox;
+        let info = ea_orchestrator::sandbox::Sandbox::actual(activado).info(ea_plataforma::Sistema::actual());
+        serde_json::to_string(&info).ok()
+    };
     tokio::spawn(async move {
         loop {
             match Store::open() {
@@ -44,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
                         trabajo: None,
                         outcome: Some(EventOutcome::Ok),
                         duration_ms: None,
-                        detail: None,
+                        detail: sandbox_detalle(),
                     }) {
                         tracing::warn!(error = %e, "no se pudo registrar el heartbeat");
                     }
@@ -63,24 +76,15 @@ async fn main() -> anyhow::Result<()> {
     }
     tracing::info!("ea-orchestrator arrancado");
 
+    // Un trabajador por ejecutor despierto (spec 019): los miembros ejecutor de
+    // los equipos despiertos o, sin equipos, solo `roles.ejecutor`. Cada
+    // trabajador rehace su configuración y su adaptador en cada ciclo y el
+    // agente tarda minutos, así que van en hilos aparte; aquí solo se
+    // reconcilia quién debe tener trabajador.
     let sondeo = Duration::from_secs(config.intervalo_sondeo_s);
+    let mut trabajadores = Trabajadores::new(Contexto::sistema(|| abrir_bus().ok(), sondeo));
     loop {
-        // La configuración se relee en cada ciclo; el ejecutor bloquea (qwen
-        // tarda minutos), así que va en un hilo aparte.
-        let b = abrir_bus()?;
-        let resultado = tokio::task::spawn_blocking(move || {
-            let cfg = ConfigOrquestador::cargar();
-            ejecutar_uno(&b, &cfg, &QwenCode)
-        })
-        .await;
-        match resultado {
-            Ok(Some(id)) => {
-                tracing::info!(%id, "trabajo procesado");
-                continue; // puede haber más en la cola
-            }
-            Ok(None) => {}
-            Err(e) => tracing::error!(error = %e, "el ejecutor falló"),
-        }
+        trabajadores.reconciliar();
         tokio::time::sleep(sondeo).await;
     }
 }
