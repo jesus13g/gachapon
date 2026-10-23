@@ -1,0 +1,46 @@
+---
+/**
+ * Page-wide background: the grainy gradient shader on a fixed canvas behind everything,
+ * under a dark veil so the light copy and the scenes keep their contrast.
+ * Without WebGL the page keeps its plain graphite background.
+ */
+---
+<div class="shader-bg" aria-hidden="true">
+  <canvas class="shader-bg__canvas"></canvas>
+  <div class="shader-bg__veil"></div>
+</div>
+
+<style>
+  .shader-bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 1.2s var(--ease-out);
+  }
+  :global(.has-shader) .shader-bg {
+    opacity: 1;
+  }
+  .shader-bg__canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .shader-bg__veil {
+    position: absolute;
+    inset: 0;
+    background: var(--shader-veil);
+  }
+</style>
+
+<script>
+  const canvas = document.querySelector<HTMLCanvasElement>('.shader-bg__canvas');
+  if (canvas) {
+    import('../../lib/gradient-shader')
+      .then(({ createGradientShader }) => {
+        if (createGradientShader(canvas)) document.documentElement.classList.add('has-shader');
+      })
+      .catch((err) => console.warn('[gachapon] shader background unavailable', err));
+  }
+</script>

@@ -167,6 +167,13 @@ a {
     radial-gradient(ellipse 70% 60% at 50% 45%, #10161d 0%, transparent 70%),
     linear-gradient(var(--bg), var(--bg));
 }
+/* With the shader background running, body and stage let it show through. */
+.has-shader body {
+  background: transparent;
+}
+.has-shader .stage {
+  background: radial-gradient(ellipse 70% 60% at 50% 45%, rgba(16, 22, 29, 0.35) 0%, transparent 70%);
+}
 .stage__grid {
   position: absolute;
   inset: 0;
