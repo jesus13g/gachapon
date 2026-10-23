@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { STORY, TR, VB, type Transition } from '../lib/tokens';
+import { SCROLL, STORY, TR, VB, type Transition } from '../lib/tokens';
 import type { Ctx } from '../lib/motion';
 import { makePose, type Pose } from '../lib/pose';
 import type { Capsule3D, createCapsule3D } from '../lib/capsule3d';
@@ -212,10 +212,10 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
   const st = ScrollTrigger.create({
     trigger: stage,
     start: 'top top',
-    end: () => `+=${(total / 100) * innerHeight}`,
+    end: () => `+=${(total / 100) * SCROLL.stretch * innerHeight}`,
     pin: true,
     pinSpacing: true,
-    scrub: 0.7,
+    scrub: SCROLL.scrub,
     anticipatePin: 1,
     invalidateOnRefresh: true,
     animation: master,

@@ -37,6 +37,10 @@ export const STORY: ActCfg[] = [
   { id: 'final', len: 80, in: 'zoom', start: [800, 545], end: [1130, 330], crop: [560, 80, 900, 760] },
 ];
 
+/** Scroll feel: `stretch` multiplies the scroll distance of the whole story (more = slower),
+ *  `scrub` is how many seconds the scene lags behind the wheel (more = heavier, smoother). */
+export const SCROLL = { stretch: 1.7, scrub: 1.4 } as const;
+
 /** Overlap (in vh) at each side of an act boundary where the camera moves between scenes. */
 export const TR = 9;
 
