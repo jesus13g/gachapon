@@ -1,5 +1,5 @@
 import { gsap } from 'gsap';
-import { appear, vanish, enterFrom, draw, state, along, move, fade, uAt, success, failure, gate, verify, camera, cameraHome, cameraStart, press, typeText } from '../lib/motion';
+import { appear, vanish, enterFrom, draw, state, along, move, fade, uAt, success, failure, gate, verify, camera, cameraHome, cameraHomeOnExit, cameraStart, press, typeText } from '../lib/motion';
 import type { ActBuilder } from './acts';
 
 type G = SVGGeometryElement;
@@ -29,13 +29,14 @@ export const knowledge: ActBuilder = (c) => {
   c.tl.set(cursor, { x: 640, y: 520, autoAlpha: 1 }, c.p(0.1));
   move(c, cursor, { x: 380, y: 440 }, 0.1, 0.04);
   press(c, key, 0.15);
-  c.tl.to(key, { rotation: 90, svgOrigin: '370 430', duration: c.d(0.03), ease: 'back.out(2)' }, c.p(0.15));
+  c.tl.to(key, { rotation: 90, transformOrigin: '50% 50%', duration: c.d(0.03), ease: 'back.out(2)' }, c.p(0.15));
   vanish(c, cursor, 0.18, 0.02);
-  move(c, note, { x: 470, y: 560 }, 0.18, 0.1);
+  // from a slot of the executor's private region to a slot of SHARED
+  move(c, note, { x: 443, y: 549 }, 0.18, 0.1);
   state(c, note, 'ok', 0.28);
 
   // skills reach the executor for one job, then vanish
-  camera(c, 1050, 560, 1.05, 0.3, 0.07, [1000, 560]);
+  camera(c, 1050, 560, 1.05, 0.3, 0.07, [1040, 560]);
   c.tl.set(th, { autoAlpha: 1, scale: 0 }, c.p(0.34));
   c.tl.to(th, { scale: 1, duration: c.d(0.03), ease: 'back.out(2)' }, c.p(0.34));
   skills.forEach((s, i) => {
@@ -46,8 +47,11 @@ export const knowledge: ActBuilder = (c) => {
     vanish(c, s, f + 0.065, 0.015);
   });
   appear(c, c.one('[data-k=ctx-note]'), 0.58, 0.03);
+  vanish(c, c.one('[data-k=ctx-note]'), 0.63, 0.03);
 
-  // the tool library: one inventory
+  // the tool library: one inventory (kept out of the frame until the camera gets there)
+  gsap.set(c.one('[data-k=library]'), { autoAlpha: 0 });
+  c.tl.to(c.one('[data-k=library]'), { autoAlpha: 1, duration: c.d(0.05) }, c.p(0.63));
   camera(c, 1800, 580, 1.05, 0.64, 0.07, [960, 560]);
   appear(c, tools, 0.66, 0.03, 10, 0.01);
   c.tl.fromTo(scan, { x: 0 }, { x: 626, duration: c.d(0.18), ease: 'none', immediateRender: false }, c.p(0.72));
@@ -56,7 +60,8 @@ export const knowledge: ActBuilder = (c) => {
     state(c, col, 'exec', 0.72 + j * 0.03);
   }
   vanish(c, scan, 0.9, 0.02);
-  cameraHome(c, 0.93, 0.07);
+  // ending on the library: going home here would crop it against the right edge
+  cameraHomeOnExit(c);
 };
 
 /* ─────────────── 10 · MCP + PERMISSIONS ─────────────── */
@@ -94,7 +99,7 @@ export const mcp: ActBuilder = (c) => {
 
   // irreversible: stopped, needs a real terminal
   c.tl.set(capI, { autoAlpha: 1, x: 300, y: 670 }, c.p(0.36));
-  along(c, irr, capI, 0.36, 0.09, { to: u(irr, 788, 670), rotate: true });
+  along(c, irr, capI, 0.36, 0.09, { to: u(irr, 750, 670), rotate: true });
   failure(c, capI, 0.46);
   state(c, c.one('[data-k=s-irr] .station'), 'blocked', 0.47);
 
@@ -110,7 +115,7 @@ export const mcp: ActBuilder = (c) => {
   appear(c, c.one('[data-k=prompt]'), 0.68, 0.04, 10);
   c.q<SVGTextElement>('[data-k=prompt] text.t-nocase:not(.t-sm)').forEach((t, i) => typeText(c, t, 0.72 + i * 0.045, 0.04));
   c.tl.set(capI, { x: 300 }, c.p(0.82));
-  along(c, irr, capI, 0.83, 0.07, { to: u(irr, 788, 670), rotate: true });
+  along(c, irr, capI, 0.83, 0.07, { to: u(irr, 750, 670), rotate: true });
   failure(c, capI, 0.91);
   appear(c, c.one('[data-k=unchanged]'), 0.9, 0.04);
   void success; void gate; void verify; void camera; void cameraHome; void press; void fade;
@@ -125,7 +130,7 @@ export const sandbox: ActBuilder = (c) => {
   const gauges = c.q('[data-k=gauge]');
 
   state(c, th, 'exec', 0.0);
-  enterFrom(c, [c.one('[data-k=box]'), exec], { autoAlpha: 0, scale: 0.9, svgOrigin: '800 535' } as gsap.TweenVars, 0.0, 0.08, 'power3.out');
+  enterFrom(c, [c.one('[data-k=box]'), exec], { autoAlpha: 0, scale: 0.9, transformOrigin: '50% 50%' } as gsap.TweenVars, 0.0, 0.08, 'power3.out');
   appear(c, c.one('[data-k=fs]'), 0.08, 0.06);
   draw(c, [P('fs-w1').parentElement!, P('fs-w2').parentElement!], 0.12, 0.06);
   appear(c, c.one('[data-k=net]'), 0.22, 0.06);

@@ -3,10 +3,6 @@ import { appear, vanish, enterFrom, draw, state, along, move, fade, uAt, success
 import type { ActBuilder } from './acts';
 
 type G = SVGGeometryElement;
-const ctr = (el: Element) => {
-  const b = (el as unknown as SVGGraphicsElement).getBBox();
-  return [b.x + b.width / 2, b.y + b.height / 2] as const;
-};
 
 /* ─────────────── 06 · HUMAN CONTROL ─────────────── */
 export const control: ActBuilder = (c) => {
@@ -27,7 +23,8 @@ export const control: ActBuilder = (c) => {
 
   // 1 · the change travels and stops at the barrier
   state(c, th, 'active', 0.04);
-  along(c, lane, th, 0.06, 0.2, { from: u(340), to: u(836), rotate: true });
+  // the change leaves from beside the agent, never drawn on top of it
+  along(c, lane, th, 0.06, 0.2, { from: u(360), to: u(836), rotate: true });
   failure(c, th, 0.27);
   appear(c, c.one('[data-k=stn-applied]'), 0.28, 0.04);
   appear(c, [card, c.one('[data-k=card-link]')], 0.29, 0.05, 16);
@@ -57,8 +54,8 @@ export const control: ActBuilder = (c) => {
   move(c, th, { rotation: 0 }, 0.72, 0.02);
 
   // 3 · an irreversible one is diverted to a real terminal
-  c.tl.set(capX, { autoAlpha: 1, x: 340, y: 470 }, c.p(0.68));
-  along(c, lane, capX, 0.68, 0.08, { from: u(340), to: u(600), rotate: true });
+  c.tl.set(capX, { autoAlpha: 1, x: 360, y: 470 }, c.p(0.68));
+  along(c, lane, capX, 0.68, 0.08, { from: u(360), to: u(600), rotate: true });
   along(c, irrev, capX, 0.77, 0.1, { rotate: true });
   appear(c, c.one('[data-k=irrev]'), 0.8, 0.06, 12);
   vanish(c, c.one('[data-k=card]'), 0.82, 0.04);
@@ -112,26 +109,29 @@ export const teams: ActBuilder = (c) => {
   appear(c, ins, 0.35, 0.03);
 
   // distribute: three jobs, three routes, three worktrees
-  c.tl.set(th, { autoAlpha: 1, x: 260, y: 520 }, c.p(0.38));
-  c.tl.set([capB, capC], { autoAlpha: 1, x: 260, y: 520 }, c.p(0.38));
-  const tg: Array<[Element, string, number]> = [[th, 'tc-a', 0], [capB, 'tc-b', 0.02], [capC, 'tc-c', 0.04]];
-  tg.forEach(([el, id, d]) => along(c, P(id), el, 0.4 + d, 0.1, { rotate: true }));
+  // each job shows up only as it leaves the planner, far enough behind the previous one not to overlap it
+  const tg: Array<[Element, string]> = [[th, 'tc-a'], [capB, 'tc-b'], [capC, 'tc-c']];
   const exY = [370, 520, 670];
-  [th, capB, capC].forEach((el, i) => {
-    move(c, el, { x: 860, y: exY[i], rotation: 0 }, 0.5 + i * 0.015, 0.02);
-    along(c, P(['ex-a', 'ex-b', 'ex-c'][i]), el, 0.53 + i * 0.015, 0.06, { rotate: true });
-    move(c, el, { x: 1110, y: exY[i], rotation: 0 }, 0.6 + i * 0.015, 0.02);
-    verify(c, bars[i], 252, 0.62 + i * 0.01, 0.18);
+  tg.forEach(([el, id], i) => {
+    const go = 0.4 + i * 0.04;
+    c.tl.set(el, { autoAlpha: 1, x: 370, y: 520, rotation: 0 }, c.p(go));
+    along(c, P(id), el, go, 0.08, { rotate: true });
+    move(c, el, { x: 860, y: exY[i], rotation: 0 }, go + 0.08, 0.02);
+    along(c, P(['ex-a', 'ex-b', 'ex-c'][i]), el, go + 0.1, 0.05, { rotate: true });
+    // inside the worktree the job rides its commit line, smaller, clear of the tag and the progress bar
+    move(c, el, { x: 1110, y: exY[i] + 8, rotation: 0, scale: 0.7 }, go + 0.15, 0.02);
+    verify(c, bars[i], 252, 0.58 + i * 0.03, 0.16);
   });
 
   // results converge on the reviewer
   const wr = ['wr-a', 'wr-b', 'wr-c'];
+  // one after another, and each companion is absorbed as it reaches the reviewer, so they never pile up
   [th, capB, capC].forEach((el, i) => {
-    success(c, el, 0.8 + i * 0.01);
-    along(c, P(wr[i]), el, 0.82 + i * 0.01, 0.08, { rotate: true });
+    success(c, el, 0.8 + i * 0.03);
+    along(c, P(wr[i]), el, 0.81 + i * 0.03, 0.05, { rotate: true });
+    if (i > 0) vanish(c, el, 0.84 + i * 0.03, 0.02);
   });
-  move(c, th, { rotation: 0, x: 1480, y: 520 }, 0.91, 0.02);
-  vanish(c, [capB, capC], 0.91, 0.02);
+  move(c, th, { rotation: 0, scale: 1, x: 1480, y: 520 }, 0.86, 0.03);
 
   // and everyone goes back to sleep (your decision)
   vanish(c, wake_, 0.9, 0.02);
@@ -168,7 +168,7 @@ export const routines: ActBuilder = (c) => {
   // a good run is folded into routine v1
   move(c, th, { x: 450, y: 540, scale: 0.4 }, 0.02, 0.1);
   vanish(c, th, 0.11, 0.02);
-  enterFrom(c, plates[0], { scale: 0.6, svgOrigin: '450 540' } as gsap.TweenVars, 0.1, 0.04, 'back.out(2.2)');
+  enterFrom(c, plates[0], { scale: 0.6, autoAlpha: 0, transformOrigin: '50% 50%' } as gsap.TweenVars, 0.1, 0.04, 'back.out(2.2)');
 
   // then it runs by itself, on a calendar
   c.tl.to(c.one('#rt-cal').parentElement, { autoAlpha: 1, duration: 0.01 }, c.p(0.14));
@@ -178,18 +178,18 @@ export const routines: ActBuilder = (c) => {
     const f = 0.24 + i * 0.07;
     c.tl.set(capRun, { autoAlpha: 1, x: 640, y: 520 }, c.p(f));
     along(c, P('rt-cal'), capRun, f, 0.05, { rotate: true });
-    enterFrom(c, cell, { scale: 0, autoAlpha: 0, svgOrigin: ctr(cell).join(' ') } as gsap.TweenVars, f + 0.05, 0.02, 'back.out(3)');
+    enterFrom(c, cell, { scale: 0, autoAlpha: 0, transformOrigin: '50% 50%' } as gsap.TweenVars, f + 0.05, 0.02, 'back.out(3)');
     vanish(c, capRun, f + 0.05, 0.01);
   });
 
   // v2: a new, explicit version stacks on top
   enterFrom(c, plates[1], { y: '-=90', autoAlpha: 0 } as gsap.TweenVars, 0.52, 0.05, 'power3.out');
-  okCells.slice(4).forEach((cell, i) => enterFrom(c, cell, { scale: 0, autoAlpha: 0, svgOrigin: ctr(cell).join(' ') } as gsap.TweenVars, 0.58 + i * 0.015, 0.02, 'back.out(3)'));
+  okCells.slice(4).forEach((cell, i) => enterFrom(c, cell, { scale: 0, autoAlpha: 0, transformOrigin: '50% 50%' } as gsap.TweenVars, 0.58 + i * 0.015, 0.02, 'back.out(3)'));
 
   // a run fails → correction package → waits for you
   c.tl.set(capF, { autoAlpha: 1, x: 640, y: 520 }, c.p(0.62));
   along(c, P('rt-cal'), capF, 0.62, 0.05, { rotate: true });
-  enterFrom(c, failCell, { scale: 0, autoAlpha: 0, svgOrigin: ctr(failCell).join(' ') } as gsap.TweenVars, 0.67, 0.02, 'back.out(3)');
+  enterFrom(c, failCell, { scale: 0, autoAlpha: 0, transformOrigin: '50% 50%' } as gsap.TweenVars, 0.67, 0.02, 'back.out(3)');
   appear(c, c.one('[data-k=failed-t]'), 0.68, 0.03);
   c.tl.to(P('rt-fail').parentElement, { autoAlpha: 1, duration: 0.01 }, c.p(0.7));
   move(c, capF, { x: 1265, y: 540, rotation: 0 }, 0.67, 0.03);
@@ -199,7 +199,8 @@ export const routines: ActBuilder = (c) => {
   appear(c, pkg, 0.73, 0.04);
   state(c, capF, 'wait', 0.75);
   appear(c, [c.one('[data-k=confirm]'), c.one('[data-k=user]'), planner, c.one('[data-k=planner-t]')], 0.76, 0.04);
-  move(c, capF, { x: 1210, y: 750, rotation: 0 }, 0.75, 0.03);
+  // it waits at the package's door, where its conduit starts, not on top of the package's text
+  move(c, capF, { x: 1050, y: 750, rotation: 0 }, 0.75, 0.03);
 
   // you confirm → the planner corrects → v3
   c.tl.set(cursor, { x: 1180, y: 880, autoAlpha: 1 }, c.p(0.8));
@@ -216,7 +217,8 @@ export const routines: ActBuilder = (c) => {
   along(c, P('rt-back'), capF, 0.92, 0.04, { rotate: true });
   vanish(c, capF, 0.96, 0.01);
   enterFrom(c, plates[2], { y: '-=90', autoAlpha: 0 } as gsap.TweenVars, 0.95, 0.04, 'power3.out');
-  c.tl.set(th, { x: 478, y: 512, scale: 1 }, c.p(0.97));
+  // the story capsule comes back out at the mouth of the calendar conduit, beside v3 rather than on top of it
+  c.tl.set(th, { x: 660, y: 520, scale: 1 }, c.p(0.97));
   c.tl.to(th, { autoAlpha: 1, duration: 0.01 }, c.p(0.97));
   void success; void sleep; void gate; void uAt;
 };

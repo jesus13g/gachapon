@@ -55,11 +55,9 @@ const CHAOS = [
 ];
 export const problem: ActBuilder = (c) => {
   const terms = c.q('[data-k=term]');
-  const centers = [[295, 590], [565, 770], [1275, 770], [1325, 550], [1105, 260], [285, 420]];
   terms.forEach((t, i) => {
     const o = CHAOS[i];
-    const [cx, cy] = centers[i];
-    enterFrom(c, t, { x: o.x, y: o.y, rotation: o.r, svgOrigin: `${cx} ${cy}` } as gsap.TweenVars, 0, 0.5, 'power3.inOut');
+    enterFrom(c, t, { x: o.x, y: o.y, rotation: o.r, transformOrigin: '50% 50%' } as gsap.TweenVars, 0, 0.5, 'power3.inOut');
   });
   // jobs flying in at random
   const caps = c.q('[data-k=chaos-caps] .capsule');
@@ -74,7 +72,7 @@ export const problem: ActBuilder = (c) => {
   fade(c, c.q('[data-k=tangle]'), 0, 0.5, 0.1);
   appear(c, c.q('[data-k=okTag]'), 0.68, 0.06, 8, 0.02);
   // hub assembles around the capsule
-  enterFrom(c, c.q('.hub'), { scale: 0, autoAlpha: 0, svgOrigin: '800 450' } as gsap.TweenVars, 0.42, 0.2, EASE.lock);
+  enterFrom(c, c.q('.hub'), { scale: 0, autoAlpha: 0, transformOrigin: '100px 100px' } as gsap.TweenVars, 0.42, 0.2, EASE.lock);
   draw(c, c.q('[data-k=order] .conduit'), 0.58, 0.14);
   state(c, c.q('.term'), 'active', 0.62);
 };
@@ -95,7 +93,7 @@ export const roles: ActBuilder = (c) => {
 
   // objective → planner
   enterFrom(c, c.one('[data-k=obj]'), { x: -230, autoAlpha: 0 } as gsap.TweenVars, 0.0, 0.1, EASE.transfer);
-  move(c, c.one('[data-k=obj]'), { x: '+=170', y: '+=68', scale: 0.2, autoAlpha: 0, svgOrigin: '195 390' } as gsap.TweenVars, 0.11, 0.05);
+  move(c, c.one('[data-k=obj]'), { x: '+=170', y: '+=68', scale: 0.2, autoAlpha: 0, transformOrigin: '50% 50%' } as gsap.TweenVars, 0.11, 0.05);
   appear(c, c.one('[data-k=plan]'), 0.15, 0.04, -10);
   vanish(c, c.one('[data-k=plan]'), 0.2, 0.03);
 

@@ -49,15 +49,17 @@ export const interfaces: ActBuilder = (c) => {
   const cards = c.q('[data-k=card]');
   const bar = c.one('[data-k=tab-bar]');
   const tabs = c.q('[data-k=tab] text');
-  const o = '830 575';
+  // each screen flips about its own centre; the origin is set once, before any scale, so GSAP never re-anchors it
+  const o = '50% 50%';
   gsap.set(tabs, { fill: '#a3adb8' });
   gsap.set(tabs[0], { fill: '#ff9a3c' });
-  gsap.set([cli, tui], { scaleX: 0, autoAlpha: 0, svgOrigin: o });
+  gsap.set([cli, tui], { transformOrigin: o });
+  gsap.set([cli, tui], { scaleX: 0, autoAlpha: 0 });
 
   // the machine becomes the product: the capsule turns into a card on the board
   move(c, th, { x: 598, y: 456, scale: 0.4 }, 0.0, 0.1);
   vanish(c, th, 0.11, 0.02);
-  enterFrom(c, panel, { autoAlpha: 0, y: '+=30', scale: 0.96, svgOrigin: o } as gsap.TweenVars, 0.02, 0.1, 'power3.out');
+  enterFrom(c, panel, { autoAlpha: 0, y: '+=30', scale: 0.96, transformOrigin: o } as gsap.TweenVars, 0.02, 0.1, 'power3.out');
   appear(c, cards, 0.12, 0.03, 10, 0.02);
   appear(c, c.one('[data-k=tabs]'), 0.12, 0.04);
   // jobs move across the board
@@ -66,8 +68,8 @@ export const interfaces: ActBuilder = (c) => {
 
   // flip: web panel → CLI → TUI
   const flip = (from: Element, to: Element, f: number) => {
-    c.tl.to(from, { scaleX: 0, autoAlpha: 0, duration: c.d(0.05), ease: 'power2.in', svgOrigin: o }, c.p(f));
-    c.tl.to(to, { scaleX: 1, autoAlpha: 1, duration: c.d(0.06), ease: 'power2.out', svgOrigin: o }, c.p(f + 0.05));
+    c.tl.to(from, { scaleX: 0, autoAlpha: 0, duration: c.d(0.05), ease: 'power2.in' }, c.p(f));
+    c.tl.to(to, { scaleX: 1, autoAlpha: 1, duration: c.d(0.06), ease: 'power2.out' }, c.p(f + 0.05));
   };
   flip(panel, cli, 0.5);
   c.tl.to(bar, { x: '+=190', duration: c.d(0.05) }, c.p(0.5));
@@ -89,7 +91,7 @@ export const system: ActBuilder = (c) => {
 
   cameraStart(c, 800, 545, 1.25);
   c.tl.set(th, { autoAlpha: 1, x: 800, y: 545 }, c.p(0));
-  enterFrom(c, c.one('.hub'), { scale: 0, autoAlpha: 0, svgOrigin: '800 545' } as gsap.TweenVars, 0.0, 0.06, 'back.out(2)');
+  enterFrom(c, c.one('.hub'), { scale: 0, autoAlpha: 0, transformOrigin: '100px 100px' } as gsap.TweenVars, 0.0, 0.06, 'back.out(2)');
   appear(c, q('hub-label'), 0.04, 0.03);
   appear(c, c.q('.agent--planner, .agent--executor'), 0.06, 0.05, 0, 0.02);
   draw(c, c.q('.conduit'), 0.1, 0.08);
@@ -114,7 +116,8 @@ export const final: ActBuilder = (c, { pose, gl }) => {
   const done = c.sc.ownerDocument.querySelector<SVGTextElement>('.done-text')!;
   const machine = c.one('[data-k=machine2]');
   const copy = c.sc.querySelector('.final-copy')!;
-  gsap.set(done, { x: 800, y: 575, scale: 1, autoAlpha: 0 });
+  // DONE shows up under the opened capsule, never printed across it
+  gsap.set(done, { x: 800, y: 770, scale: 1, autoAlpha: 0 });
   gsap.set(machine, { autoAlpha: 0 });
   gsap.set(copy, { autoAlpha: 0, y: 26 });
   if (c.mode !== 'cinema') {
@@ -128,7 +131,7 @@ export const final: ActBuilder = (c, { pose, gl }) => {
     c.tl.to(th, { autoAlpha: 0, duration: 0.4 }, c.p(0.02));
     c.tl.to(pose, { size: 560, ry: 0.9, rx: 0.15, duration: c.d(0.34), ease: 'power2.inOut' }, c.p(0.06));
     c.tl.to(pose, { open: 1, duration: c.d(0.14), ease: 'power2.out' }, c.p(0.4));
-    c.tl.to(done, { autoAlpha: 1, duration: c.d(0.05) }, c.p(0.5));
+    c.tl.to(done, { autoAlpha: 1, duration: c.d(0.05) }, c.p(0.52));
     c.tl.to(pose, { size: 330, vx: 1130, vy: 400, ry: 0.35, rx: 0.2, rz: -0.3, open: 0.6, idle: 1, duration: c.d(0.3), ease: 'power3.inOut' }, c.p(0.6));
   } else {
     c.tl.to(th, { scale: 3.6, duration: c.d(0.34), ease: 'power2.inOut' }, c.p(0.06));

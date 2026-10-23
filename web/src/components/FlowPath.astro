@@ -3,13 +3,28 @@ import { uid } from '../lib/uid';
 // A conduit: the physical lane along which capsules and signals travel. Draw-on via DrawSVG on .conduit__wall.
 // The bore is a real hole cut out of the wall (a mask), not a stroke painted in the page colour, so the tube
 // stays hollow over any ground — the plain graphite or the gradient shader behind the page.
+// The mask region hugs the path: a huge region (it used to be 30000 units wide) made Chromium composite stale
+// copies of whole scenes on some frames.
 interface Props { d: string; id?: string; state?: string; thin?: boolean; class?: string; arrow?: boolean }
 const { d, id, state = 'idle', thin = false, class: cls } = Astro.props;
 const cut = uid('conduit-cut');
+// Bounding box of the path from its (absolute M/L/H/V/C/Q) coordinates; curve handles only make it a bit larger.
+const xs: number[] = [];
+const ys: number[] = [];
+let x = 0;
+let y = 0;
+for (const [, cmd, args] of d.matchAll(/([MLHVCQS])([^MLHVCQS]*)/g)) {
+  const n = (args.match(/-?\d*\.?\d+/g) ?? []).map(Number);
+  if (cmd === 'H') n.forEach((v) => xs.push((x = v)) && ys.push(y));
+  else if (cmd === 'V') n.forEach((v) => ys.push((y = v)) && xs.push(x));
+  else for (let i = 0; i + 1 < n.length; i += 2) { xs.push((x = n[i])); ys.push((y = n[i + 1])); }
+}
+const pad = 20;
+const box = { x: Math.min(...xs) - pad, y: Math.min(...ys) - pad, width: Math.max(...xs) - Math.min(...xs) + pad * 2, height: Math.max(...ys) - Math.min(...ys) + pad * 2 };
 ---
 <g class:list={['conduit', thin && 'conduit--thin', cls]} data-state={state}>
-  <mask id={cut} maskUnits="userSpaceOnUse" x="-10000" y="-10000" width="30000" height="30000">
-    <rect x="-10000" y="-10000" width="30000" height="30000" fill="#fff" />
+  <mask id={cut} maskUnits="userSpaceOnUse" {...box}>
+    <rect {...box} fill="#fff" />
     <path class="conduit__bore" {d} />
   </mask>
   <path class="conduit__wall" {d} id={id} mask={`url(#${cut})`} />

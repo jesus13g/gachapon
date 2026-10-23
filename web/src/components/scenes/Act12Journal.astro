@@ -40,6 +40,7 @@ const src = ['JOBS', 'ROUTINES', 'PROPOSALS', 'SETTINGS'];
     })}
   </g>
 
-  <path data-k="corr-arc" d={`M${X(8)} 548 C ${X(8)} 460 ${X(5)} 460 ${X(5)} 548`} fill="none" stroke="var(--accent)" stroke-width="2.4" marker-end="url(#m-arrow)" />
-  <text data-k="corr-t" class="t-sm" x={(X(8) + X(5)) / 2} y="458" text-anchor="middle" style="fill:var(--accent)">corrects · original stays</text>
+  <!-- from the top of the correction's card, arching over the other cards, down to the event it corrects -->
+  <path data-k="corr-arc" d={`M${X(8)} 448 C ${X(8)} 360 ${X(5)} 360 ${X(5)} 548`} fill="none" stroke="var(--accent)" stroke-width="2.4" marker-end="url(#m-arrow)" />
+  <text data-k="corr-t" class="t-sm" x={(X(8) + X(5)) / 2} y="380" text-anchor="middle" style="fill:var(--accent)">corrects · original stays</text>
 </Scene>

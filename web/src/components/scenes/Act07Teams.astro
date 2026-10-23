@@ -25,7 +25,7 @@ const ids = ['A', 'B', 'C'];
   <g data-k="exec" data-n="A"><AgentNode kind="executor" x={760} y={370} s={0.6} state="exec" /><text class="t-sm" x="760" y="436" text-anchor="middle" style="fill:var(--exec)">executor A</text></g>
   <g data-k="exec" data-n="B"><AgentNode kind="executor" x={760} y={520} s={0.6} state="exec" /><text class="t-sm" x="760" y="586" text-anchor="middle" style="fill:var(--exec)">executor B</text></g>
   <g data-k="exec" data-n="C"><AgentNode kind="executor" x={760} y={670} s={0.6} state="exec" /><text class="t-sm" x="760" y="736" text-anchor="middle" style="fill:var(--exec)">executor C</text></g>
-  {rows.map((y, i) => <g data-k="wt"><Worktree x={960} y={y - 45} w={300} h={90} branch={`job-${ids[i].toLowerCase()}`} state="exec" commits={4} tag="own worktree" /></g>)}
+  {rows.map((y, i) => <g data-k="wt"><Worktree x={960} y={y - 55} w={300} h={110} branch={`job-${ids[i].toLowerCase()}`} state="exec" commits={4} tag="own worktree" /></g>)}
   <g data-k="reviewer"><AgentNode kind="reviewer" x={1480} y={520} s={0.7} state="planner" label="REVIEWER" /></g>
 
   <g data-k="wake" transform="translate(185 330)">
