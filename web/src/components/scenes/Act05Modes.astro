@@ -1,0 +1,90 @@
+---
+import Scene from '../Scene.astro';
+import FlowPath from '../FlowPath.astro';
+import LockGate from '../LockGate.astro';
+import Station from '../Station.astro';
+import Capsule from '../Capsule.astro';
+const cx = 1010, cy = 345, R = 58;
+const nodes = ['TRY', 'VERIFY', 'FAIL', 'EVIDENCE', 'RETRY'].map((t, k) => {
+  const a = (-90 + 72 * k) * (Math.PI / 180);
+  return { t, x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R, lx: cx + Math.cos(a) * (R + 30), ly: cy + Math.sin(a) * (R + 30) + 5, anchor: Math.cos(a) > 0.3 ? 'start' : Math.cos(a) < -0.3 ? 'end' : 'middle' };
+});
+const phases = [
+  { n: '01', x: 820 }, { n: '02', x: 940 }, { n: '03', x: 1060 }, { n: '04', x: 1262 }, { n: '05', x: 1382 },
+];
+const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+---
+<Scene i={5}>
+  <FlowPath id="m-lane" d="M520 500 C 620 500 680 345 820 345 H1490" state="exec" />
+  <FlowPath id="b-lane" d="M520 500 C 620 500 690 540 820 540 H1490" state="planner" />
+  <FlowPath id="r-lane" d="M520 500 C 620 500 680 735 820 735 H1490" state="active" />
+  <FlowPath id="m-end" d="M1490 345 C 1540 345 1540 450 1540 505" state="ok" thin />
+  <FlowPath id="b-end" d="M1490 540 H1512" state="ok" thin />
+  <FlowPath id="r-end" d="M1490 735 C 1540 735 1540 630 1540 575" state="ok" thin />
+  <circle cx="520" cy="500" r="16" fill="var(--bg)" stroke="var(--accent)" stroke-width="3" />
+  <text class="t-sm" x="520" y="540" text-anchor="middle">split</text>
+  <circle cx="1540" cy="540" r="34" fill="var(--bg)" stroke="var(--ok)" stroke-width="3" />
+  <text class="t-sm" x="1540" y="545" text-anchor="middle" style="fill:var(--ok)">merge</text>
+
+  <!-- MISSION -->
+  <g data-k="lane-mission">
+    <text class="t-d t-hot" x="820" y="262" style="font-size:34px;letter-spacing:.14em;fill:var(--exec)">MISSION</text>
+    <path id="m-ring" d={`M${cx} ${cy - R} A${R} ${R} 0 1 1 ${cx - 0.01} ${cy - R}`} fill="none" stroke="var(--exec)" stroke-width="3" stroke-opacity=".8" />
+    <circle cx={cx} cy={cy} r={R - 10} fill="none" stroke="var(--line)" stroke-dasharray="2 8" />
+    {nodes.map((n) => (
+      <g data-k="m-node" data-n={n.t}>
+        <circle cx={n.x} cy={n.y} r="6" fill="var(--bg)" stroke={n.t === 'FAIL' ? 'var(--stop)' : 'var(--exec)'} stroke-width="2.4" />
+        <text class="t-sm" x={n.lx} y={n.ly} text-anchor={n.anchor} style={`font-size:12px;${n.t === 'FAIL' ? 'fill:var(--stop)' : ''}`}>{n.t}</text>
+      </g>
+    ))}
+    <g data-k="crit" transform="translate(1250 258)">
+      <text class="t-sm t-nocase" text-anchor="middle" style="font-size:12px">success criterion</text>
+      <text data-k="crit-v" class="t-md t-nocase" y="22" text-anchor="middle" style="fill:var(--ok)">exit 0</text>
+      <use data-k="crit-ok" href="#i-check" x="60" y="17" color="var(--ok)" />
+    </g>
+    <g data-k="gateM"><LockGate x={1250} y={345} h={110} state="blocked" /></g>
+    <g data-k="stn-success"><Station x={1420} y={345} w={110} label="SUCCESS" state="idle" below /></g>
+  </g>
+
+  <!-- BUILD -->
+  <g data-k="lane-build">
+    <text class="t-d" x="820" y="458" style="font-size:34px;letter-spacing:.14em;fill:var(--planner)">BUILD</text>
+    {phases.map((p) => (
+      <g data-k="phase" data-n={p.n}>
+        <rect class="panel-hi" x={p.x} y="508" width="96" height="64" rx="6" />
+        <rect class="phase__fill" x={p.x + 6} y="560" width="84" height="6" rx="3" fill="var(--planner)" />
+        <text class="t-d t-fg" x={p.x + 48} y="548" text-anchor="middle" style="font-size:30px">{p.n}</text>
+      </g>
+    ))}
+    <g data-k="review-gate" transform="translate(1208 540)">
+      <rect x="-30" y="-30" width="60" height="60" transform="rotate(45)" fill="var(--bg)" stroke="var(--planner)" stroke-width="3" />
+      <text class="t-sm" y="5" text-anchor="middle" style="font-size:11px;fill:var(--planner)">REVIEW</text>
+    </g>
+    <path data-k="reform" d="M1208 504 C 1208 430 1020 430 1020 504" fill="none" stroke="var(--planner)" stroke-width="2.4" stroke-dasharray="5 6" marker-end="url(#m-arrow)" />
+    <text data-k="reform-t" class="t-sm" x="1112" y="438" text-anchor="middle" style="fill:var(--planner);font-size:12px">reformulate from a phase</text>
+    <text data-k="cont-t" class="t-sm" x="1208" y="602" text-anchor="middle" style="fill:var(--ok);font-size:12px">continue →</text>
+  </g>
+
+  <!-- ROUTINE -->
+  <g data-k="lane-routine">
+    <text class="t-d" x="820" y="652" style="font-size:34px;letter-spacing:.14em;fill:var(--accent)">ROUTINE</text>
+    <g data-k="rt-card" transform="translate(900 735)">
+      <rect class="panel" x="-72" y="-28" width="150" height="76" rx="6" opacity=".6" />
+      <rect class="panel-hi" x="-80" y="-40" width="150" height="76" rx="6" style="stroke:var(--accent)" />
+      <text class="t-sm" x="-66" y="-16" style="fill:var(--accent)">routine</text>
+      <text class="t-d t-fg" x="-66" y="18" style="font-size:34px">v1</text>
+    </g>
+    <g data-k="calendar">
+      {days.map((d, i) => (
+        <g transform={`translate(${1080 + i * 58} 706)`}>
+          <text class="t-sm" x="25" y="-10" text-anchor="middle" style="font-size:11px">{d}</text>
+          <rect class="panel" width="50" height="58" rx="4" />
+          {[1, 3, 5].includes(i) && <g data-k="run"><circle cx="25" cy="29" r="9" fill="var(--ok)" /><use href="#i-check" x="25" y="29" color="#04140a" transform="translate(25 29) scale(.6) translate(-25 -29)" /></g>}
+        </g>
+      ))}
+    </g>
+    <text data-k="sched-t" class="t-sm" x="1080" y="684" style="font-size:12px;fill:var(--accent)">scheduled · by calendar</text>
+  </g>
+  <Capsule class="ghost capBuild" x={520} y={500} s={0.8} state="planner" />
+  <Capsule class="ghost capRoutine" x={520} y={500} s={0.8} state="active" />
+</Scene>

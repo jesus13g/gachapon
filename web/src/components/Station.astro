@@ -1,0 +1,13 @@
+---
+// A physical station on the job bus.
+interface Props { x: number; y: number; w?: number; label: string; sub?: string; state?: string; class?: string; hint?: string; below?: boolean }
+const { x, y, w = 150, label, sub, state = 'idle', class: cls, hint, below = false } = Astro.props;
+---
+<g class:list={['station', cls, hint && 'hoverable']} data-state={state} data-hint={hint} transform={`translate(${x} ${y})`}>
+  <rect class="steel hover-glow" x={-w / 2} y="-34" width={w} height="68" rx="10" />
+  <path d={`M${-w / 2 + 18} 6 H${w / 2 - 18}`} stroke="var(--line-hi)" stroke-width="2" stroke-dasharray="3 6" />
+  <rect x={-w / 2 + 14} y="20" width={w - 28} height="4" rx="2" fill="var(--c)" opacity=".75" />
+  <circle class="led" cx={w / 2 - 14} cy="-20" r="4.5" data-state={state} />
+  <text class="t-md t-fg t-d" y={below ? 62 : -46} text-anchor="middle" style="font-size:22px;letter-spacing:.14em">{label}</text>
+  {sub && <text class="t-sm t-nocase" y={below ? 82 : -74} text-anchor="middle">{sub}</text>}
+</g>

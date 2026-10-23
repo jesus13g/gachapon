@@ -1,0 +1,8 @@
+---
+// The user's hand in the story: a pointer that presses real controls (accept, wake team, confirm…).
+interface Props { x?: number; y?: number; k?: string }
+const { x = 0, y = 0, k = 'cursor' } = Astro.props;
+---
+<g data-k={k} class="cursor" transform={`translate(${x} ${y})`}>
+  <path d="M0 0 V26 L7 20 L12 31 L17 29 L12 18 L21 18 Z" fill="#fff" stroke="#000" stroke-width="1.5" stroke-linejoin="round" />
+</g>

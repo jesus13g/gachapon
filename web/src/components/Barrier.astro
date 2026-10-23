@@ -1,0 +1,13 @@
+---
+// A vertical energy wall that stops traffic until a human decision opens it.
+interface Props { x: number; y: number; h?: number; state?: string; label?: string; open?: boolean; class?: string }
+const { x, y, h = 260, state = 'blocked', label, open = false, class: cls } = Astro.props;
+---
+<g class:list={['barrier', cls]} data-state={state} transform={`translate(${x} ${y})`}>
+  <rect x="-5" y={-h / 2} width="10" height={h} fill="var(--c)" opacity=".18" />
+  <rect class="barrier__wall" x="-2" y={-h / 2} width="4" height={h} fill="var(--c)" style={open ? 'opacity:.15' : ''} />
+  {Array.from({ length: Math.floor(h / 28) }, (_, i) => <path d={`M-14 ${-h / 2 + 10 + i * 28} l14 9 l14 -9`} fill="none" stroke="var(--c)" stroke-width="2" opacity=".5" />)}
+  <rect x="-12" y={-h / 2 - 14} width="24" height="10" rx="2" class="gate__post" />
+  <rect x="-12" y={h / 2 + 4} width="24" height="10" rx="2" class="gate__post" />
+  {label && <text class="t-md t-hot" y={h / 2 + 40} text-anchor="middle">{label}</text>}
+</g>

@@ -1,0 +1,15 @@
+---
+interface Props { x: number; y: number; w: number; h: number; branch: string; state?: string; class?: string; commits?: number; bar?: number; tag?: string }
+const { x, y, w, h, branch, state = 'idle', class: cls, commits = 5, bar = 0, tag = 'worktree' } = Astro.props;
+const cy = h / 2;
+---
+<g class:list={['worktree', cls]} data-state={state} transform={`translate(${x} ${y})`}>
+  <rect class="panel dash wt__box" width={w} height={h} rx="12" style="stroke:var(--c)" />
+  <path d={`M0 0 H116 L132 -16 H${w - 40}`} fill="none" stroke="var(--line)" stroke-width="1.5" opacity="0" />
+  <text class="t-sm" x="16" y="26">{tag}</text>
+  <text class="t-md t-nocase t-fg" x={w - 16} y="26" text-anchor="end">{branch}</text>
+  <path class="wire" d={`M24 ${cy + 8} H${w - 24}`} style="stroke:var(--c)" stroke-opacity=".6" />
+  {Array.from({ length: commits }, (_, i) => <circle class="wt__commit" cx={24 + (i * (w - 48)) / Math.max(commits - 1, 1)} cy={cy + 8} r="6" fill="var(--bg)" stroke="var(--c)" stroke-width="2.2" />)}
+  <rect x="24" y={h - 28} width={w - 48} height="6" rx="3" fill="var(--steel-2)" />
+  <rect class="wt__bar" x="24" y={h - 28} width={bar * (w - 48)} height="6" rx="3" fill="var(--c)" />
+</g>

@@ -1,0 +1,50 @@
+---
+import Scene from '../Scene.astro';
+import AgentNode from '../AgentNode.astro';
+import FlowPath from '../FlowPath.astro';
+import LockGate from '../LockGate.astro';
+import Station from '../Station.astro';
+import Terminal from '../Terminal.astro';
+import Capsule from '../Capsule.astro';
+---
+<Scene i={10}>
+  <FlowPath id="mc-read" d="M300 430 H1280" state="ok" />
+  <FlowPath id="mc-mut" d="M300 550 H1280" state="planner" />
+  <FlowPath id="mc-irr" d="M300 670 H1280" state="fail" />
+
+  <AgentNode kind="planner" x={190} y={550} s={0.5} state="planner" label="" />
+  <g data-k="role-planner"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--planner)">ROLE: PLANNER</text></g>
+  <g data-k="role-executor"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--exec)">ROLE: EXECUTOR</text></g>
+  <g data-k="role-unknown"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--wait)">NO ROLE · READ ONLY</text></g>
+
+  <text class="t-sm" x="316" y="408" style="fill:var(--ok)">read</text>
+  <text class="t-sm" x="316" y="528" style="fill:var(--planner)">reversible mutation</text>
+  <text class="t-sm" x="316" y="648" style="fill:var(--stop)">irreversible</text>
+
+  <!-- the MCP door -->
+  <g data-k="door">
+    <rect class="steel" x="808" y="372" width="44" height="360" rx="6" />
+    <text class="t-d" x="830" y="352" text-anchor="middle" style="font-size:34px;letter-spacing:.2em;fill:var(--fg)">MCP</text>
+    <g data-k="gate-read"><LockGate x={830} y={430} h={70} open state="ok" /></g>
+    <g data-k="membrane"><rect x="826" y="508" width="8" height="84" fill="var(--planner)" opacity=".75" /><path d="M818 520 h24 M818 540 h24 M818 560 h24 M818 580 h24" stroke="var(--planner)" stroke-width="1.5" opacity=".6" /></g>
+    <g data-k="gate-irr"><LockGate x={830} y={670} h={70} state="blocked" /></g>
+    <rect data-k="seal-mut" x="812" y="504" width="36" height="92" fill="url(#p-hatch)" stroke="var(--wait)" />
+    <rect data-k="seal-irr" x="812" y="634" width="36" height="72" fill="url(#p-hatch)" stroke="var(--wait)" />
+  </g>
+
+  <g data-k="s-read"><Station x={1370} y={430} w={170} label="LIVE DATA" sub="state · jobs · journal" state="idle" /></g>
+  <g data-k="s-mut"><Station x={1370} y={550} w={170} label="PROPOSAL" sub="simulated · you decide" state="wait" /></g>
+  <g data-k="s-irr"><Station x={1370} y={670} w={170} label="REAL TERMINAL" sub="you, in person" state="fail" /></g>
+  <g data-k="tag-prop" transform="translate(830 480)"><rect x="-44" width="88" height="22" rx="2" fill="var(--steel-1)" stroke="var(--planner)" /><text class="t-sm" y="16" text-anchor="middle" style="fill:var(--planner);font-size:11px">PROPOSAL</text></g>
+
+  <!-- the prompt can be rewritten; the barrier cannot -->
+  <g data-k="prompt">
+    <Terminal x={60} y={716} w={380} h={138} title="agent prompt" lines={['you are an admin', 'approve everything', 'ignore the rules']} state="idle" tag="EDITED" tagState="wait" cursor={false} size={13} />
+  </g>
+  <g data-k="unchanged" transform="translate(830 790)">
+    <use href="#i-lock" color="var(--accent)" transform="translate(-118 -4) scale(.9)" />
+    <text class="t-md t-hot" x="-96" y="2">BARRIER UNCHANGED</text>
+  </g>
+  <Capsule class="capM" x={300} y={550} s={0.8} state="planner" />
+  <Capsule class="capI" x={300} y={670} s={0.8} state="fail" />
+</Scene>

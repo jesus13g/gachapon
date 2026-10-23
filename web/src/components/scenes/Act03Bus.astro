@@ -1,0 +1,32 @@
+---
+import Scene from '../Scene.astro';
+import FlowPath from '../FlowPath.astro';
+import Station from '../Station.astro';
+import Capsule from '../Capsule.astro';
+---
+<Scene i={3}>
+  <rect data-k="shell" class="panel dash" x="90" y="300" width="1420" height="520" rx="26" />
+  <text class="t-sm" x="1490" y="330" text-anchor="end">inside gachapon · the job bus</text>
+
+  <FlowPath id="bus-loop" d="M180 410 H1240 Q1310 410 1310 480 V580 Q1310 650 1240 650 H180" state="active" />
+  <path id="bus-intake" d="M800 450 Q 520 470 360 410" fill="none" stroke="none" />
+  <g data-k="spurs">
+    <path class="wire dash" d="M580 444 V496" /><path class="wire dash" d="M1020 444 V496" />
+  </g>
+  <text class="t-sm" x="196" y="452" style="fill:var(--exec)">executor queue →</text>
+  <text class="t-sm" x="1280" y="612" text-anchor="end" style="fill:var(--planner)">← planner review queue</text>
+
+  <g data-k="stn" data-s="queued"><Station x={360} y={410} label="QUEUED" sub="waiting its turn" state="idle" hint="Queued: in the executor’s queue, oldest first." /></g>
+  <g data-k="stn" data-s="running"><Station x={800} y={410} label="RUNNING" sub="executor at work" state="idle" hint="Running: the executor holds the worktree and the agent is working." /></g>
+  <g data-k="stn" data-s="review"><Station x={1100} y={650} label="REVIEW" sub="planner judges" state="idle" below hint="Review: delivered with a report; waits for the planner." /></g>
+  <g data-k="stn" data-s="closed"><Station x={360} y={650} label="CLOSED" sub="verified · done" state="idle" below hint="Closed: something verifiable passed." /></g>
+  <g data-k="bay" data-s="waiting"><Station x={580} y={530} w={190} label="WAITING" sub="correction package · for you" state="wait" below hint="Waiting: a failed routine’s correction package, until you confirm." /></g>
+  <g data-k="bay" data-s="cancelled"><Station x={1020} y={530} w={190} label="CANCELLED" sub="really stopped" state="fail" below hint="Cancelled: the agent is stopped for real; what it wrote stays." /></g>
+  <Capsule class="ghost" x={580} y={536} s={0.5} state="wait" />
+  <Capsule class="ghost" x={1020} y={536} s={0.5} state="fail" />
+
+  <g data-k="queue-line">
+    <Capsule x={196} y={410} s={0.5} state="idle" /><Capsule x={236} y={410} s={0.5} state="idle" />
+  </g>
+  <text data-k="bus-note" class="t-md t-fg" x="800" y="770" text-anchor="middle">NEVER LOST. ALWAYS IN A KNOWN STATE.</text>
+</Scene>

@@ -1,0 +1,30 @@
+---
+import Scene from '../Scene.astro';
+import { ui, site } from '../../content/copy.en';
+const f = ui.final;
+---
+<Scene i={15} thread={false} copy={false}>
+  <g data-k="machine2">
+    <defs><radialGradient id="final-halo"><stop offset="0" stop-color="#3ddc84" stop-opacity=".28" /><stop offset="1" stop-color="#3ddc84" stop-opacity="0" /></radialGradient></defs>
+    <circle cx="1130" cy="400" r="360" fill="url(#final-halo)" />
+    <circle class="halo-ring" cx="1130" cy="400" r="190" fill="none" stroke="var(--ok)" stroke-opacity=".35" stroke-dasharray="3 9" />
+    <circle class="halo-ring" cx="1130" cy="400" r="290" fill="none" stroke="var(--ok)" stroke-opacity=".18" stroke-dasharray="2 12" />
+    <path d="M1130 610 V760" stroke="var(--ok)" stroke-opacity=".35" stroke-dasharray="3 7" />
+    <text class="t-sm" x="1130" y="790" text-anchor="middle" style="fill:var(--ok)">github.com/jesus13g/gachapon</text>
+  </g>
+  <g class="static-only">
+    <g transform="translate(1130 400) rotate(-14) scale(1.6)"><path d="M-8 -56 H-70 A56 56 0 0 0 -70 56 H-8 Z" fill="var(--ok)" /><path d="M8 -56 H70 A56 56 0 0 1 70 56 H8 Z" fill="var(--capsule-shell)" /></g>
+    <text x="1130" y="575" text-anchor="middle" class="t-d" style="font-size:60px;fill:#04140a">DONE</text>
+  </g>
+  <div slot="copy" class="final-copy">
+    <p class="kicker">{f.kicker}</p>
+    <h2 id="final-title">{f.h}</h2>
+    <p class="sub">{f.sub}</p>
+    <code class="clone"><span>$</span> git clone {site.repo}.git</code>
+    <div class="ctas">
+      <a class="btn btn--primary" href={site.repo} rel="noopener">{ui.ctaPrimary}
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" /></svg></a>
+      <a class="btn btn--ghost" href={site.docs} rel="noopener">{ui.ctaSecondary}</a>
+    </div>
+  </div>
+</Scene>

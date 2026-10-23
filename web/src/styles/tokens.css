@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+
+  /* surfaces — graphite, like the panel's machine metal but dark */
+  --bg: #090b0e;
+  --bg-2: #0e1217;
+  --steel-0: #131920;
+  --steel-1: #1a222b;
+  --steel-2: #26313c;
+  --line: #2c3743;
+  --line-hi: #46566a;
+
+  /* text */
+  --fg: #eceee9;
+  --fg-dim: #a3adb8;
+  --fg-faint: #66717e;
+
+  /* meaning — every state keeps its colour across the whole page */
+  --accent: #ff9a3c; /* Gachapon / the system */
+  --planner: #f2c94c; /* expensive thinking */
+  --exec: #4f93ff; /* local work */
+  --ok: #3ddc84;
+  --stop: #ff5d5d;
+  --wait: #b4bfcc;
+  --capsule-shell: #f1f0ea;
+
+  /* type */
+  --display: 'Big Shoulders Display', 'Arial Narrow', Impact, sans-serif;
+  --sans: 'Inter Tight Variable', 'Inter Tight', system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* spacing */
+  --gutter: clamp(20px, 5vw, 88px);
+  --copy-w: min(44rem, 50vw);
+
+  /* motion (CSS-side; scroll-driven motion lives in src/lib/tokens.ts) */
+  --ease-mech: cubic-bezier(0.7, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-led: 1.4s;
+  --t-heart: 2.8s;
+  --t-flow: 0.9s;
+}

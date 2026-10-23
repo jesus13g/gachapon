@@ -1,0 +1,10 @@
+---
+// A conduit: the physical lane along which capsules and signals travel. Draw-on via DrawSVG on .conduit__wall.
+interface Props { d: string; id?: string; state?: string; thin?: boolean; class?: string; arrow?: boolean }
+const { d, id, state = 'idle', thin = false, class: cls } = Astro.props;
+---
+<g class:list={['conduit', thin && 'conduit--thin', cls]} data-state={state}>
+  <path class="conduit__wall" {d} id={id} />
+  <path class="conduit__bore" {d} />
+  <path class="conduit__flow" {d} />
+</g>

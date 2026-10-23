@@ -1,0 +1,36 @@
+---
+// Planner = abstract / cognitive (orbits, rings). Executor = mechanical (housing, gear, pistons). Reviewer = planner with a lens.
+interface Props {
+  kind: 'planner' | 'executor' | 'reviewer';
+  x: number; y: number; s?: number;
+  label?: string; sub?: string; state?: string; class?: string; hint?: string; dormant?: boolean;
+}
+const { kind, x, y, s = 1, label, sub, state = 'idle', class: cls, hint, dormant = false } = Astro.props;
+const tone = kind === 'executor' ? 'exec' : 'planner';
+---
+<g class:list={['agent', `agent--${kind}`, cls, hint && 'hoverable', dormant && 'is-dormant']} data-state={state} data-tone={tone} data-hint={hint} transform={`translate(${x} ${y}) scale(${s})`}>
+  {kind !== 'executor' ? (
+    <g class="agent__body" style={`--k:var(--${tone === 'planner' ? 'planner' : 'exec'})`}>
+      <circle r="104" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 8" />
+      <circle r="78" fill="var(--steel-0)" stroke="var(--k)" stroke-opacity=".55" stroke-width="2" class="hover-glow" />
+      <g class="orbit"><circle r="92" fill="none" stroke="var(--k)" stroke-opacity=".5" stroke-width="1.5" stroke-dasharray="60 520" /><circle cx="92" r="6" fill="var(--k)" /></g>
+      <g class="spin-r"><circle r="56" fill="none" stroke="var(--k)" stroke-opacity=".7" stroke-width="2" stroke-dasharray="3 12" /></g>
+      <circle r="30" fill="var(--k)" fill-opacity=".14" stroke="var(--k)" stroke-width="2" />
+      {kind === 'reviewer'
+        ? <><circle r="13" fill="none" stroke="var(--k)" stroke-width="3" /><path d="M10 10 L22 22" stroke="var(--k)" stroke-width="3.4" stroke-linecap="round" /></>
+        : <><circle r="9" fill="var(--k)" /><path d="M-30 0 H-52 M30 0 H52 M0 -30 V-52 M0 30 V52" stroke="var(--k)" stroke-width="2" /></>}
+    </g>
+  ) : (
+    <g class="agent__body" style="--k:var(--exec)">
+      <rect x="-96" y="-72" width="192" height="144" rx="10" class="steel" />
+      <rect x="-80" y="-56" width="160" height="112" rx="4" fill="#0b0e12" stroke="var(--line)" />
+      <g class="hover-glow-wrap" transform="translate(-34 0)"><g class="spin"><use href="#i-gear" color="var(--k)" transform="scale(1.35)" /></g></g>
+      <g transform="translate(40 0)"><g class="spin-r"><use href="#i-gear" color="var(--k)" opacity=".7" transform="scale(.85)" /></g></g>
+      <path d="M-96 -30 h-14 M-96 0 h-14 M-96 30 h-14 M96 -30 h14 M96 0 h14 M96 30 h14" stroke="var(--line-hi)" stroke-width="5" stroke-linecap="round" />
+      <rect x="-80" y="58" width="160" height="4" fill="var(--k)" opacity=".5" />
+    </g>
+  )}
+  <circle class="led agent__led" cx={kind === 'executor' ? 84 : 68} cy={kind === 'executor' ? -60 : -68} r="5" />
+  {label && <text class="t-lg t-d" y={kind === 'executor' ? 106 : 138} text-anchor="middle" style="font-size:28px;letter-spacing:.14em">{label}</text>}
+  {sub && <text class="t-sm" y={kind === 'executor' ? 128 : 160} text-anchor="middle" fill="var(--k, var(--fg-dim))" style={`fill:var(--${tone === 'planner' ? 'planner' : 'exec'})`}>{sub}</text>}
+</g>

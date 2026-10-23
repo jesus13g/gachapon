@@ -1,0 +1,35 @@
+---
+import Scene from '../Scene.astro';
+import AgentNode from '../AgentNode.astro';
+import Hub from '../Hub.astro';
+import FlowPath from '../FlowPath.astro';
+---
+<Scene i={2}>
+  <FlowPath id="r-job-l" d="M440 430 H700" state="planner" />
+  <FlowPath id="r-job-r" d="M900 430 H1150" state="exec" />
+  <FlowPath id="r-ev-r" d="M1150 500 H900" state="ok" thin />
+  <FlowPath id="r-ev-l" d="M700 500 H440" state="ok" thin />
+  <Hub x={800} y={450} s={0.95} label={false} />
+  <text class="t-lg t-d" x="800" y="590" text-anchor="middle" style="font-size:26px;letter-spacing:.2em">GACHAPON</text>
+  <text class="t-sm" x="800" y="614" text-anchor="middle">queue · state · lock</text>
+
+  <AgentNode kind="planner" x={330} y={450} state="active" label="PLANNER" sub="REMOTE MODEL · THINKS" hint="The planner: understands the goal, designs the plan, reviews the result. Default: Claude Code." />
+  <AgentNode kind="executor" x={1270} y={450} state="active" label="EXECUTOR" sub="LOCAL MODEL · WORKS" hint="The executor: runs verifiable steps, unattended, against a local model. Default: Qwen Code." />
+
+  <g data-k="obj" transform="translate(120 372)">
+    <rect width="150" height="34" rx="3" fill="var(--steel-1)" stroke="var(--planner)" />
+    <text x="75" y="22" text-anchor="middle" class="t-md" style="fill:var(--planner)">OBJECTIVE</text>
+  </g>
+  <g data-k="plan" transform="translate(330 330)">
+    <rect x="-44" width="88" height="28" rx="3" fill="var(--steel-1)" stroke="var(--planner)" />
+    <text y="19" text-anchor="middle" class="t-sm" style="fill:var(--planner)">PLAN</text>
+  </g>
+  <g data-k="tag-job"><text class="t-sm" x="570" y="408" text-anchor="middle" style="fill:var(--planner)">JOB →</text></g>
+  <g data-k="tag-run"><text class="t-sm" x="1025" y="408" text-anchor="middle" style="fill:var(--exec)">→ RUN</text></g>
+  <g data-k="tag-ev"><text class="t-sm" x="1025" y="536" text-anchor="middle" style="fill:var(--ok)">← EVIDENCE</text></g>
+  <g data-k="tag-review"><text class="t-sm" x="570" y="536" text-anchor="middle" style="fill:var(--ok)">← REVIEW</text></g>
+  <g data-k="cost" opacity="0.95">
+    <text class="t-sm" x="330" y="640" text-anchor="middle" style="fill:var(--planner)">EXPENSIVE · ONLY WHERE JUDGEMENT IS NEEDED</text>
+    <text class="t-sm" x="1270" y="640" text-anchor="middle" style="fill:var(--exec)">CHEAP · EVERYTHING MECHANICAL</text>
+  </g>
+</Scene>
