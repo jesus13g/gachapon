@@ -1,5 +1,5 @@
 import { gsap } from 'gsap';
-import { appear, vanish, enterFrom, draw, state, along, move, fade, uAt, success, failure, gate, verify, camera, cameraStart } from '../lib/motion';
+import { appear, vanish, enterFrom, draw, state, along, move, fade, uAt, success, failure, gate, verify, camera, cameraHomeOnExit, cameraStart } from '../lib/motion';
 import type { ActBuilder } from './acts';
 
 type G = SVGGeometryElement;
@@ -119,6 +119,9 @@ export const modes: ActBuilder = (c) => {
   camera(c, 1180, 735, 1.2, 0.64, 0.06, [960, 600]);
   // the full composition runs from split (520) to merge (1574): frame it on its own centre, clear of the chapter rail
   camera(c, 1000, 450, 1, 0.9, 0.08);
+  // and hand both layers back home while 06 takes over: it never touches the camera, so a leftover pan on the
+  // shared thread layer would put the capsule 200 units off its lane there
+  cameraHomeOnExit(c);
   // lanes that are not in focus step back so the copy stays legible
   const dimM = [c.one('[data-k=lane-mission]'), par('m-lane')];
   const dimB = [c.one('[data-k=lane-build]'), par('b-lane')];
