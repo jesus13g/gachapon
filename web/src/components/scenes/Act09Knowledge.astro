@@ -3,6 +3,8 @@ import Scene from '../Scene.astro';
 import AgentNode from '../AgentNode.astro';
 import ToolModule from '../ToolModule.astro';
 import Cursor from '../Cursor.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 const types = ['skill', 'plugin', 'subagent', 'mcp', 'command', 'extension'] as const;
 const names = [
   ['testing', 'review', 'explore', 'browser', 'build', 'lint'],
@@ -13,20 +15,20 @@ const names = [
 <Scene i={9}>
   <!-- VAULT -->
   <g data-k="vault">
-    <text class="t-d" x="100" y="372" style="font-size:34px;letter-spacing:.16em;fill:var(--fg)">VAULT</text>
+    <text class="t-d" x="100" y="372" style="font-size:34px;letter-spacing:.16em;fill:var(--fg)">{t('VAULT')}</text>
     <rect class="panel" x="100" y="390" width="600" height="400" rx="14" />
     {['planner', 'executor', 'reviewer'].map((r, i) => (
       <g data-k="region" transform={`translate(120 ${410 + i * 120})`}>
         <rect width="220" height="100" rx="8" fill="var(--steel-1)" stroke="var(--line-hi)" stroke-dasharray="4 6" />
-        <text class="t-sm" x="14" y="24">{r} · private</text>
+        <text class="t-sm" x="14" y="24">{t(r)} · {t('private')}</text>
         {[0, 1].map((n) => <rect x={14 + n * 62} y="44" width="50" height="40" rx="3" fill="var(--steel-2)" />)}
       </g>
     ))}
     <path d="M370 400 V780" stroke="var(--accent)" stroke-width="2" stroke-dasharray="3 9" />
-    <text class="t-sm" x="370" y="800" text-anchor="middle" style="fill:var(--accent);font-size:11px">only you promote</text>
+    <text class="t-sm" x="370" y="800" text-anchor="middle" style="fill:var(--accent);font-size:11px">{t('only you promote')}</text>
     <g transform="translate(400 410)">
       <rect width="280" height="360" rx="8" fill="var(--steel-0)" stroke="var(--ok)" stroke-opacity=".7" />
-      <text class="t-md" x="16" y="30" style="fill:var(--ok)">SHARED</text>
+      <text class="t-md" x="16" y="30" style="fill:var(--ok)">{t('SHARED')}</text>
       {[0, 1, 2, 3].map((n) => <rect x={16 + (n % 2) * 130} y={56 + Math.floor(n / 2) * 74} width="116" height="58" rx="4" fill="var(--steel-2)" />)}
     </g>
     <g data-k="note-promo" transform="translate(140 576)"><rect width="62" height="40" rx="3" fill="var(--accent)" /><path d="M10 14 H52 M10 24 H40" stroke="#1a0e02" stroke-width="3" /></g>
@@ -35,23 +37,23 @@ const names = [
 
   <!-- EXECUTOR + SKILLS -->
   <g data-k="exec-zone">
-    <AgentNode kind="executor" x={1050} y={590} s={1} state="exec" label="EXECUTOR" sub="THIS JOB ONLY" />
+    <AgentNode kind="executor" x={1050} y={590} s={1} state="exec" label={t('EXECUTOR')} sub={t('THIS JOB ONLY')} />
     {['TESTING', 'DEBUGGING', 'DOCUMENTATION'].map((s, i) => (
       <g data-k="skill" transform={`translate(965 ${340 + i * 52})`}>
         <rect width="170" height="38" rx="4" fill="var(--steel-1)" stroke="var(--planner)" />
-        <text class="t-sm" x="85" y="24" text-anchor="middle" style="fill:var(--planner)">skill · {s}</text>
+        <text class="t-sm" x="85" y="24" text-anchor="middle" style="fill:var(--planner)">{t('skill')} · {t(s)}</text>
       </g>
     ))}
-    <text data-k="ctx-note" class="t-md t-fg" x="1050" y="800" text-anchor="middle">ONLY THE CONTEXT THIS JOB NEEDS</text>
+    <text data-k="ctx-note" class="t-md t-fg" x="1050" y="800" text-anchor="middle">{t('ONLY THE CONTEXT THIS JOB NEEDS')}</text>
   </g>
 
   <!-- TOOL LIBRARY -->
   <g data-k="library">
-    <text class="t-d" x="1490" y="372" style="font-size:34px;letter-spacing:.16em;fill:var(--fg)">TOOL LIBRARY</text>
+    <text class="t-d" x="1490" y="372" style="font-size:34px;letter-spacing:.16em;fill:var(--fg)">{t('TOOL LIBRARY')}</text>
     <rect class="panel" x="1490" y="390" width="640" height="400" rx="14" />
     {names.map((row, r) => row.map((n, i) => <ToolModule x={1560 + i * 100} y={470 + r * 110} type={types[(i + r * 2) % 6]} label={n} state={(i + r) % 3 === 0 ? 'ok' : 'idle'} />))}
     <rect data-k="scan" x="1494" y="396" width="6" height="388" fill="var(--accent)" opacity=".7" />
-    <text class="t-sm" x="1510" y="812" style="font-size:12px">skills · plugins · subagents · mcp · commands · extensions</text>
+    <text class="t-sm" x="1510" y="812" style="font-size:12px">{t('skills · plugins · subagents · mcp · commands · extensions')}</text>
   </g>
   <Cursor x={600} y={450} />
 </Scene>

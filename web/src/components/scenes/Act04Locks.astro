@@ -5,33 +5,35 @@ import LockGate from '../LockGate.astro';
 import Worktree from '../Worktree.astro';
 import AgentNode from '../AgentNode.astro';
 import Capsule from '../Capsule.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 ---
 <Scene i={4}>
   <FlowPath id="lk-lane" d="M120 450 H780" state="active" />
   <FlowPath id="lk-fork" d="M600 450 C 600 560 600 650 700 710 H780" state="idle" thin />
 
   <g data-k="wtA">
-    <Worktree x={780} y={340} w={520} h={220} branch="main" state="exec" commits={6} bar={0.0} tag="worktree · repo" />
+    <Worktree x={780} y={340} w={520} h={220} branch="main" state="exec" commits={6} bar={0.0} tag={t('worktree · repo')} />
     <AgentNode kind="executor" x={1040} y={448} s={0.4} state="active" label="" />
-    <text class="t-sm" x="1040" y="506" text-anchor="middle" style="fill:var(--exec)">executor A</text>
+    <text class="t-sm" x="1040" y="506" text-anchor="middle" style="fill:var(--exec)">{t('executor A')}</text>
   </g>
   <g data-k="gateA"><LockGate x={710} y={450} h={130} open state="ok" /></g>
   <g data-k="lock-text" transform="translate(730 590)">
-    <text class="t-md t-hot" style="fill:var(--stop)">LOCK · executor A</text>
-    <text class="t-sm t-nocase" y="22">held since 12:04</text>
+    <text class="t-md t-hot" style="fill:var(--stop)">{t('LOCK · executor A')}</text>
+    <text class="t-sm t-nocase" y="22">{t('held since 12:04')}</text>
   </g>
   <g data-k="blocked-text" transform="translate(120 392)">
-    <text class="t-md" style="fill:var(--stop)">JOB B · BLOCKED</text>
-    <text class="t-sm t-nocase" y="22">one writer at a time</text>
+    <text class="t-md" style="fill:var(--stop)">{t('JOB B · BLOCKED')}</text>
+    <text class="t-sm t-nocase" y="22">{t('one writer at a time')}</text>
   </g>
 
   <g data-k="wtB">
-    <Worktree x={780} y={620} w={520} h={170} branch="job-b" state="exec" commits={4} bar={0.0} tag="own worktree · own branch" />
+    <Worktree x={780} y={620} w={520} h={170} branch="job-b" state="exec" commits={4} bar={0.0} tag={t('own worktree · own branch')} />
     <AgentNode kind="executor" x={1040} y={712} s={0.34} state="active" label="" />
-    <text class="t-sm" x="1040" y="762" text-anchor="middle" style="fill:var(--exec)">executor B</text>
+    <text class="t-sm" x="1040" y="762" text-anchor="middle" style="fill:var(--exec)">{t('executor B')}</text>
   </g>
   <g data-k="gateB"><LockGate x={730} y={710} h={100} open state="ok" /></g>
-  <text data-k="branch-label" class="t-sm" x="400" y="650" style="fill:var(--ok)">git worktree add · new branch</text>
+  <text data-k="branch-label" class="t-sm" x="400" y="650" style="fill:var(--ok)">{t('git worktree add · new branch')}</text>
 
-  <Capsule class="capB" x={120} y={450} s={0.9} state="exec" label="job B" />
+  <Capsule class="capB" x={120} y={450} s={0.9} state="exec" label={t('job B')} />
 </Scene>

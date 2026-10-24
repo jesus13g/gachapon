@@ -96,6 +96,14 @@ a {
   color: var(--fg);
   border-color: var(--accent);
 }
+.lang-switch {
+  display: flex;
+  gap: 10px;
+}
+.lang-switch a[aria-current='page'] {
+  color: var(--fg);
+  border-color: var(--accent);
+}
 
 .rail {
   position: fixed;

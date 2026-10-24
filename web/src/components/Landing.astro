@@ -1,0 +1,72 @@
+---
+import Base from '../layouts/Base.astro';
+import ThreadLayer from './ThreadLayer.astro';
+import { copyFor, langOf, langs, pathFor } from '../i18n';
+import Act00Boot from './scenes/Act00Boot.astro';
+import Act01Problem from './scenes/Act01Problem.astro';
+import Act02Roles from './scenes/Act02Roles.astro';
+import Act03Bus from './scenes/Act03Bus.astro';
+import Act04Locks from './scenes/Act04Locks.astro';
+import Act05Modes from './scenes/Act05Modes.astro';
+import Act06Control from './scenes/Act06Control.astro';
+import Act07Teams from './scenes/Act07Teams.astro';
+import Act08Routines from './scenes/Act08Routines.astro';
+import Act09Knowledge from './scenes/Act09Knowledge.astro';
+import Act10Mcp from './scenes/Act10Mcp.astro';
+import Act11Sandbox from './scenes/Act11Sandbox.astro';
+import Act12Journal from './scenes/Act12Journal.astro';
+import Act13Interfaces from './scenes/Act13Interfaces.astro';
+import Act14System from './scenes/Act14System.astro';
+import Act15Final from './scenes/Act15Final.astro';
+const { acts, site, ui } = copyFor(Astro.currentLocale);
+const lang = langOf(Astro.currentLocale);
+---
+<Base>
+  <header class="hud">
+    <a class="brand" href="#boot" aria-label={ui.top}>
+      <svg viewBox="0 0 30 18" aria-hidden="true"><path d="M15 1H9a8 8 0 0 0 0 16h6z" fill="#ff9a3c" /><path d="M15 1h6a8 8 0 0 1 0 16h-6z" fill="#f1f0ea" /></svg>
+      Gachapon
+    </a>
+    <nav class="hud__links" aria-label={ui.navProject}>
+      <span class="lang-switch" role="group" aria-label={ui.langLabel}>
+        {langs.map((l) => (
+          <a href={pathFor(l)} hreflang={l} lang={l} aria-label={ui.langNames[l]} aria-current={l === lang ? 'page' : undefined}>{l}</a>
+        ))}
+      </span>
+      <a href={site.repo} rel="noopener">GitHub</a>
+    </nav>
+  </header>
+  <nav class="rail" aria-label={ui.railLabel}>
+    {acts.map((a, i) => <button type="button" aria-label={a.kicker} aria-current={i === 0 ? 'true' : 'false'}><span>{a.kicker}</span></button>)}
+  </nav>
+  <main id="story" class="story">
+    <div class="stage">
+      <div class="stage__grid"></div>
+      <Act00Boot />
+      <Act01Problem />
+      <Act02Roles />
+      <Act03Bus />
+      <Act04Locks />
+      <Act05Modes />
+      <Act06Control />
+      <Act07Teams />
+      <Act08Routines />
+      <Act09Knowledge />
+      <Act10Mcp />
+      <Act11Sandbox />
+      <Act12Journal />
+      <Act13Interfaces />
+      <Act14System />
+      <Act15Final />
+      <ThreadLayer />
+      <div class="stage__vignette"></div>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <span>{ui.footer}</span>
+    <span><a href={site.repo} rel="noopener">GitHub</a> · {site.license}</span>
+  </footer>
+  <script>
+    import '../scripts/main';
+  </script>
+</Base>

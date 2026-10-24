@@ -7,26 +7,28 @@ import Station from '../Station.astro';
 import Terminal from '../Terminal.astro';
 import Capsule from '../Capsule.astro';
 import Cursor from '../Cursor.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 ---
 <Scene i={6}>
   <FlowPath id="cl-lane" d="M340 470 H1245" state="active" />
   <FlowPath id="cl-irrev" d="M600 470 C 600 600 640 690 760 690 H940" state="fail" thin />
-  <AgentNode kind="planner" x={240} y={470} s={0.55} state="active" label="AGENT" />
+  <AgentNode kind="planner" x={240} y={470} s={0.55} state="active" label={t('AGENT')} />
 
   <Barrier x={860} y={470} h={300} state="blocked" />
-  <text class="t-md t-hot" x="860" y="302" text-anchor="middle" style="fill:var(--stop)" data-k="barrier-label">PROPOSAL</text>
-  <g data-k="stn-applied"><Station x={1340} y={470} w={170} label="APPLIED" sub="accepted by you · logged" state="idle" below /></g>
+  <text class="t-md t-hot" x="860" y="302" text-anchor="middle" style="fill:var(--stop)" data-k="barrier-label">{t('PROPOSAL')}</text>
+  <g data-k="stn-applied"><Station x={1340} y={470} w={170} label={t('APPLIED')} sub={t('accepted by you · logged')} state="idle" below /></g>
 
   <!-- the proposal card -->
   <g data-k="card" transform="translate(920 120)">
     <rect class="panel-hi" width="420" height="180" rx="8" style="stroke:var(--accent)" />
-    <text class="t-md t-hot" x="18" y="32">PROPOSAL</text>
-    <text class="t-sm t-nocase" x="18" y="58">an agent wants to change the system</text>
-    <text class="t-sm t-nocase" x="18" y="78">reversible · nothing applied yet</text>
-    <g data-k="sim"><text class="t-sm t-nocase" x="18" y="106" style="fill:var(--ok)">✓ simulated: would enable 1 tool</text></g>
-    <g data-k="btn-sim"><rect x="18" y="124" width="112" height="38" rx="3" fill="none" stroke="var(--line-hi)" /><text class="t-sm t-fg" x="74" y="148" text-anchor="middle">SIMULATE</text></g>
-    <g data-k="btn-acc"><rect x="146" y="124" width="116" height="38" rx="3" fill="none" stroke="var(--ok)" /><text class="t-sm" x="204" y="148" text-anchor="middle" style="fill:var(--ok)">ACCEPT</text></g>
-    <g data-k="btn-rej"><rect x="278" y="124" width="116" height="38" rx="3" fill="none" stroke="var(--stop)" /><text class="t-sm" x="336" y="148" text-anchor="middle" style="fill:var(--stop)">REJECT</text></g>
+    <text class="t-md t-hot" x="18" y="32">{t('PROPOSAL')}</text>
+    <text class="t-sm t-nocase" x="18" y="58">{t('an agent wants to change the system')}</text>
+    <text class="t-sm t-nocase" x="18" y="78">{t('reversible · nothing applied yet')}</text>
+    <g data-k="sim"><text class="t-sm t-nocase" x="18" y="106" style="fill:var(--ok)">{t('✓ simulated: would enable 1 tool')}</text></g>
+    <g data-k="btn-sim"><rect x="18" y="124" width="112" height="38" rx="3" fill="none" stroke="var(--line-hi)" /><text class="t-sm t-fg" x="74" y="148" text-anchor="middle">{t('SIMULATE')}</text></g>
+    <g data-k="btn-acc"><rect x="146" y="124" width="116" height="38" rx="3" fill="none" stroke="var(--ok)" /><text class="t-sm" x="204" y="148" text-anchor="middle" style="fill:var(--ok)">{t('ACCEPT')}</text></g>
+    <g data-k="btn-rej"><rect x="278" y="124" width="116" height="38" rx="3" fill="none" stroke="var(--stop)" /><text class="t-sm" x="336" y="148" text-anchor="middle" style="fill:var(--stop)">{t('REJECT')}</text></g>
   </g>
   <path data-k="card-link" class="wire dash" d="M870 320 L930 300" />
 
@@ -34,14 +36,14 @@ import Cursor from '../Cursor.astro';
   <g data-k="user" transform="translate(500 790)">
     <circle r="34" fill="var(--bg)" stroke="var(--accent)" stroke-width="2.5" />
     <use href="#i-key" color="var(--accent)" transform="scale(1.2)" />
-    <text class="t-md t-fg" x="52" y="6">YOU</text>
-    <text class="t-sm" x="52" y="26" style="font-size:11px">hold the keys</text>
+    <text class="t-md t-fg" x="52" y="6">{t('YOU')}</text>
+    <text class="t-sm" x="52" y="26" style="font-size:11px">{t('hold the keys')}</text>
   </g>
   <path data-k="user-link" class="wire dash" d="M534 780 L840 640" />
 
   <!-- irreversible path -->
   <g data-k="irrev">
-    <Terminal x={1000} y={640} w={470} h={130} title="real terminal" lines={['$ irreversible action — nothing runs here', '> type the confirmation phrase_']} state="fail" tag="REAL TERMINAL REQUIRED" cursor={false} size={13} />
+    <Terminal x={1000} y={640} w={470} h={130} title={t('real terminal')} lines={['$ irreversible action — nothing runs here', '> type the confirmation phrase_'].map(t)} state="fail" tag={t('REAL TERMINAL REQUIRED')} cursor={false} size={13} />
   </g>
   <Capsule class="capX" x={340} y={470} s={0.9} state="fail" />
   <Cursor x={1100} y={300} />

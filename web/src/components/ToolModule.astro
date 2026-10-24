@@ -1,9 +1,11 @@
 ---
+import { tr } from '../i18n';
 interface Props { x: number; y: number; type: 'skill' | 'plugin' | 'subagent' | 'mcp' | 'command' | 'extension'; label: string; state?: string; class?: string }
 const { x, y, type, label, state = 'idle', class: cls } = Astro.props;
+const t = tr(Astro.currentLocale);
 const glyph = { skill: 'SK', plugin: 'PL', subagent: 'SA', mcp: 'MCP', command: '>_', extension: 'EX' }[type];
 ---
-<g class:list={['tool', cls, 'hoverable']} data-state={state} data-type={type} data-hint={`${type}: ${label}`} transform={`translate(${x} ${y})`}>
+<g class:list={['tool', cls, 'hoverable']} data-state={state} data-type={type} data-hint={`${t(type)}: ${label}`} transform={`translate(${x} ${y})`}>
   <rect class="panel-hi hover-glow" x="-38" y="-38" width="76" height="76" rx="8" />
   <rect x="-30" y="-30" width="60" height="4" fill="var(--c)" opacity=".8" />
   <text class="t-lg t-d" y="8" text-anchor="middle" style="font-size:28px">{glyph}</text>

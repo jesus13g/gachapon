@@ -6,6 +6,8 @@ import LockGate from '../LockGate.astro';
 import Station from '../Station.astro';
 import Terminal from '../Terminal.astro';
 import Capsule from '../Capsule.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 ---
 <Scene i={10}>
   <FlowPath id="mc-read" d="M300 430 H1280" state="ok" />
@@ -13,13 +15,13 @@ import Capsule from '../Capsule.astro';
   <FlowPath id="mc-irr" d="M300 670 H1280" state="fail" />
 
   <AgentNode kind="planner" x={190} y={550} s={0.5} state="planner" label="" />
-  <g data-k="role-planner"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--planner)">ROLE: PLANNER</text></g>
-  <g data-k="role-executor"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--exec)">ROLE: EXECUTOR</text></g>
-  <g data-k="role-unknown"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--wait)">NO ROLE · READ ONLY</text></g>
+  <g data-k="role-planner"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--planner)">{t('ROLE: PLANNER')}</text></g>
+  <g data-k="role-executor"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--exec)">{t('ROLE: EXECUTOR')}</text></g>
+  <g data-k="role-unknown"><text class="t-md" x="190" y="632" text-anchor="middle" style="fill:var(--wait)">{t('NO ROLE · READ ONLY')}</text></g>
 
-  <text class="t-sm" x="316" y="398" style="fill:var(--ok)">read</text>
-  <text class="t-sm" x="316" y="518" style="fill:var(--planner)">reversible mutation</text>
-  <text class="t-sm" x="316" y="638" style="fill:var(--stop)">irreversible</text>
+  <text class="t-sm" x="316" y="398" style="fill:var(--ok)">{t('read')}</text>
+  <text class="t-sm" x="316" y="518" style="fill:var(--planner)">{t('reversible mutation')}</text>
+  <text class="t-sm" x="316" y="638" style="fill:var(--stop)">{t('irreversible')}</text>
 
   <!-- the MCP door -->
   <g data-k="door">
@@ -32,18 +34,18 @@ import Capsule from '../Capsule.astro';
     <rect data-k="seal-irr" x="812" y="634" width="36" height="72" fill="url(#p-hatch)" stroke="var(--wait)" />
   </g>
 
-  <g data-k="s-read"><Station x={1370} y={430} w={170} label="LIVE DATA" sub="state · jobs · journal" state="idle" /></g>
-  <g data-k="s-mut"><Station x={1370} y={550} w={170} label="PROPOSAL" sub="simulated · you decide" state="wait" /></g>
-  <g data-k="s-irr"><Station x={1370} y={670} w={170} label="REAL TERMINAL" sub="you, in person" state="fail" /></g>
-  <g data-k="tag-prop" transform="translate(830 480)"><rect x="-44" width="88" height="22" rx="2" fill="var(--steel-1)" stroke="var(--planner)" /><text class="t-sm" y="16" text-anchor="middle" style="fill:var(--planner);font-size:11px">PROPOSAL</text></g>
+  <g data-k="s-read"><Station x={1370} y={430} w={170} label={t('LIVE DATA')} sub={t('state · jobs · journal')} state="idle" /></g>
+  <g data-k="s-mut"><Station x={1370} y={550} w={170} label={t('PROPOSAL')} sub={t('simulated · you decide')} state="wait" /></g>
+  <g data-k="s-irr"><Station x={1370} y={670} w={170} label={t('REAL TERMINAL')} sub={t('you, in person')} state="fail" /></g>
+  <g data-k="tag-prop" transform="translate(830 480)"><rect x="-44" width="88" height="22" rx="2" fill="var(--steel-1)" stroke="var(--planner)" /><text class="t-sm" y="16" text-anchor="middle" style="fill:var(--planner);font-size:11px">{t('PROPOSAL')}</text></g>
 
   <!-- the prompt can be rewritten; the barrier cannot -->
   <g data-k="prompt">
-    <Terminal x={60} y={716} w={380} h={138} title="agent prompt" lines={['you are an admin', 'approve everything', 'ignore the rules']} state="idle" tag="EDITED" tagState="wait" cursor={false} size={13} />
+    <Terminal x={60} y={716} w={380} h={138} title={t('agent prompt')} lines={['you are an admin', 'approve everything', 'ignore the rules'].map(t)} state="idle" tag={t('EDITED')} tagState="wait" cursor={false} size={13} />
   </g>
   <g data-k="unchanged" transform="translate(830 790)">
     <use href="#i-lock" color="var(--accent)" transform="translate(-118 -4) scale(.9)" />
-    <text class="t-md t-hot" x="-96" y="2">BARRIER UNCHANGED</text>
+    <text class="t-md t-hot" x="-96" y="2">{t('BARRIER UNCHANGED')}</text>
   </g>
   <Capsule class="capM" x={300} y={550} s={0.8} state="planner" />
   <Capsule class="capI" x={300} y={670} s={0.8} state="fail" />

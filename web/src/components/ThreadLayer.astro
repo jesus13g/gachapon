@@ -1,10 +1,12 @@
 ---
 // The story capsule: one overlay that follows the job from the hero to the final act.
 import Capsule from './Capsule.astro';
+import { tr } from '../i18n';
+const t = tr(Astro.currentLocale);
 ---
 <svg class="thread-layer" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
   <g id="thread-world">
     <Capsule class="thread" x={0} y={0} state="active" />
   </g>
-  <text class="done-text" x="0" y="0" text-anchor="middle">DONE</text>
+  <text class="done-text" x="0" y="0" text-anchor="middle">{t('DONE')}</text>
 </svg>

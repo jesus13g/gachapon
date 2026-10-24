@@ -1,10 +1,11 @@
 ---
-import { acts } from '../content/copy.en';
+import { copyFor } from '../i18n';
 import { STORY } from '../lib/tokens';
 import Capsule from './Capsule.astro';
 import SceneCopy from './SceneCopy.astro';
 interface Props { i: number; thread?: boolean; copy?: boolean }
 const { i, thread = true, copy = true } = Astro.props;
+const { acts } = copyFor(Astro.currentLocale);
 const a = acts[i];
 const cfg = STORY[i];
 ---
