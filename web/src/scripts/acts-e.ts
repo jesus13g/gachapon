@@ -90,7 +90,9 @@ export const system: ActBuilder = (c) => {
   const pathR = c.one<G>('#sy-job-r');
 
   cameraStart(c, 800, 545, 1.25);
-  c.tl.set(th, { autoAlpha: 1, x: 800, y: 545 }, c.p(0));
+  // the capsule may still carry act 13's shrink: it is reborn whole and level in the core as the core assembles
+  c.tl.set(th, { autoAlpha: 1, x: 800, y: 545, scale: 0, rotation: 0 }, c.p(0));
+  c.tl.to(th, { scale: 1, duration: c.d(0.05), ease: 'back.out(2)' }, c.p(0.01));
   enterFrom(c, c.one('.hub'), { scale: 0, autoAlpha: 0, transformOrigin: '100px 100px' } as gsap.TweenVars, 0.0, 0.06, 'back.out(2)');
   appear(c, q('hub-label'), 0.04, 0.03);
   appear(c, c.q('.agent--planner, .agent--executor'), 0.06, 0.05, 0, 0.02);
@@ -101,10 +103,12 @@ export const system: ActBuilder = (c) => {
   appear(c, q('wires'), 0.38, 0.2, 0);
   // the system keeps working while its virtues are named
   state(c, th, 'exec', 0.5);
-  along(c, pathR, th, 0.52, 0.14, { rotate: true });
-  state(c, th, 'ok', 0.67);
-  along(c, pathR, th, 0.68, 0.14, { from: 1, to: 0, rotate: true });
-  move(c, th, { x: 800, y: 545, rotation: 0 }, 0.82, 0.04);
+  // out along the rail and back on it, centre on the rail all the way: it starts and ends in the core (800,545),
+  // the exact pose the final act picks up, so the 2D → 3D cross-fade has nothing to catch up with.
+  // No autoRotate: the rail is level and a 180° flip on the way back would be a spin in place at the end.
+  along(c, pathR, th, 0.52, 0.15);
+  state(c, th, 'ok', 0.68);
+  along(c, pathR, th, 0.69, 0.15, { from: 1, to: 0 });
   state(c, th, 'active', 0.86);
   benefits.forEach((b, i) => appear(c, b, 0.6 + i * 0.06, 0.04, 14));
   void camera; void fade; void vanish; void uAt;

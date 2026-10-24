@@ -1,6 +1,7 @@
 import { gsap } from 'gsap';
 import { appear, vanish, enterFrom, draw, state, along, move, fade, uAt, success, failure, gate, verify, camera, cameraHome, cameraStart, press, wake, sleep } from '../lib/motion';
 import type { ActBuilder } from './acts';
+import { TR } from '../lib/tokens';
 
 type G = SVGGeometryElement;
 
@@ -86,7 +87,12 @@ export const teams: ActBuilder = (c) => {
     const exAg = execs.map((e) => e.querySelector('.agent')!);
   gsap.set([planner, ...exAg], { opacity: 0.35 });
   c.q('.agent').forEach((a) => a.setAttribute('data-state', 'idle'));
+  // the story capsule glides into the planner during the transition and is absorbed there (it fades over the
+  // second half of the glide instead of popping out on top of the planner); it comes back as job A, an
+  // executor's job like its companions, not still carrying 06's green
+  if (c.mode === 'cinema') c.tl.to(th, { autoAlpha: 0, duration: TR, ease: 'power2.in' }, c.p(0) - TR);
   c.tl.set(th, { autoAlpha: 0 }, c.p(0));
+  state(c, th, 'exec', 0);
 
   // wake team (your decision)
   c.tl.set(cursor, { x: 520, y: 420, autoAlpha: 1 }, c.p(0.02));
@@ -116,7 +122,8 @@ export const teams: ActBuilder = (c) => {
     const go = 0.4 + i * 0.04;
     c.tl.set(el, { autoAlpha: 1, x: 370, y: 520, rotation: 0 }, c.p(go));
     along(c, P(id), el, go, 0.08, { rotate: true });
-    move(c, el, { x: 860, y: exY[i], rotation: 0 }, go + 0.08, 0.02);
+    // across the executor to the mouth of its outgoing conduit, where the next transfer starts (no jump)
+    move(c, el, { x: 836, y: exY[i], rotation: 0 }, go + 0.08, 0.02);
     along(c, P(['ex-a', 'ex-b', 'ex-c'][i]), el, go + 0.1, 0.05, { rotate: true });
     // inside the worktree the job rides its commit line, smaller, clear of the tag and the progress bar
     move(c, el, { x: 1110, y: exY[i] + 8, rotation: 0, scale: 0.7 }, go + 0.15, 0.02);
@@ -128,6 +135,9 @@ export const teams: ActBuilder = (c) => {
   // one after another, and each companion is absorbed as it reaches the reviewer, so they never pile up
   [th, capB, capC].forEach((el, i) => {
     success(c, el, 0.8 + i * 0.03);
+    // off the commit line to the worktree's exit, where its conduit to the reviewer starts: without it the
+    // capsule jumps 150 units there (and scrolling back would leave it stuck at that exit)
+    move(c, el, { x: 1260, y: exY[i], rotation: 0 }, 0.8 + i * 0.03, 0.01);
     along(c, P(wr[i]), el, 0.81 + i * 0.03, 0.05, { rotate: true });
     if (i > 0) vanish(c, el, 0.84 + i * 0.03, 0.02);
   });
