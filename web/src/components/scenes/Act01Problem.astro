@@ -5,14 +5,32 @@ import Hub from '../Hub.astro';
 import FlowPath from '../FlowPath.astro';
 import Capsule from '../Capsule.astro';
 // Ring positions (final, ordered). The builder throws them into chaos on entry and brings them back.
-const terms = [
-  { x: 150, y: 520, title: 'claude-code', lines: ['$ rename 40 files', '$ npm install', '…'], tag: 'premium model' },
-  { x: 420, y: 700, title: 'opencode', lines: ['$ fix lint x14', '$ run tests', '…'], tag: 'mechanical' },
-  { x: 1130, y: 700, title: 'codex', lines: ['$ bump versions', '$ format code', '…'], tag: 'premium model' },
-  { x: 1180, y: 480, title: 'qwen-code', lines: ['$ grep -r TODO', '$ summarise', '…'], tag: 'who has the lock?' },
-  { x: 960, y: 190, title: 'agent #5', lines: ['$ ???', '…'], tag: 'state: ?' },
-  { x: 140, y: 320, title: 'agent #6', lines: ['waiting…', '…'], tag: 'state: ?' },
+// `port` is the side of the terminal that faces the core: its conduit leaves from the middle of that edge.
+const W = 290;
+const H = 140;
+type Port = 'l' | 'r' | 't' | 'b';
+const terms: Array<{ x: number; y: number; port: Port; title: string; lines: string[]; tag: string }> = [
+  { x: 150, y: 520, port: 'r', title: 'claude-code', lines: ['$ rename 40 files', '$ npm install', '…'], tag: 'premium model' },
+  { x: 420, y: 700, port: 't', title: 'opencode', lines: ['$ fix lint x14', '$ run tests', '…'], tag: 'mechanical' },
+  { x: 1080, y: 700, port: 't', title: 'codex', lines: ['$ bump versions', '$ format code', '…'], tag: 'premium model' },
+  { x: 1180, y: 480, port: 'l', title: 'qwen-code', lines: ['$ grep -r TODO', '$ summarise', '…'], tag: 'who has the lock?' },
+  { x: 960, y: 190, port: 'l', title: 'agent #5', lines: ['$ ???', '…'], tag: 'state: ?' },
+  { x: 140, y: 320, port: 'r', title: 'agent #6', lines: ['waiting…', '…'], tag: 'state: ?' },
 ];
+// Every conduit aims at the capsule in the middle of the core and stops on the octagon's rim (vertex radius 100,
+// faces normal to multiples of 45°), so all six visibly plug into the machine.
+const HUB = [800, 450];
+const rim = (a: number) => {
+  const q = Math.PI / 4;
+  const dev = (((a % q) + q) % q) - (((a % q) + q) % q > q / 2 ? q : 0);
+  return (100 * Math.cos(q / 2)) / Math.cos(dev);
+};
+const conduit = (t: (typeof terms)[number]) => {
+  const [sx, sy] = t.port === 'r' ? [t.x + W, t.y + H / 2] : t.port === 'l' ? [t.x, t.y + H / 2] : t.port === 't' ? [t.x + W / 2, t.y] : [t.x + W / 2, t.y + H];
+  const a = Math.atan2(sy - HUB[1], sx - HUB[0]);
+  const r = rim(a);
+  return `M${sx} ${sy} L${(HUB[0] + Math.cos(a) * r).toFixed(1)} ${(HUB[1] + Math.sin(a) * r).toFixed(1)}`;
+};
 const tangle = [
   'M290 600 C 500 450, 700 800, 900 760 S 1200 600, 1180 540',
   'M560 760 C 400 500, 640 360, 960 250',
@@ -27,12 +45,12 @@ const tangle = [
     {tangle.map((d) => <path class="wire dash" {d} style="stroke:var(--stop);stroke-opacity:.45" />)}
   </g>
   <g data-k="order" class="order">
-    {terms.map((t) => <FlowPath thin state="active" d={`M${t.x + 100} ${t.y + 50} L800 ${t.y + 50 > 450 ? 520 : 380}`} />)}
+    {terms.map((t) => <FlowPath thin state="active" d={conduit(t)} />)}
   </g>
   <Hub x={800} y={450} s={1} />
   {terms.map((t, n) => (
     <g data-k="term" data-n={n}>
-      <Terminal x={t.x} y={t.y} w={290} h={140} title={t.title} lines={t.lines} state="idle" tag={t.tag} tagState={t.tag.includes('?') ? 'wait' : 'fail'} />
+      <Terminal x={t.x} y={t.y} w={W} h={H} title={t.title} lines={t.lines} state="idle" tag={t.tag} tagState={t.tag.includes('?') ? 'wait' : 'fail'} />
       <g data-k="okTag" transform={`translate(${t.x} ${t.y + 156})`}>
         <rect width="178" height="20" rx="2" fill="none" stroke="var(--ok)" />
         <text x="10" y="14" class="t-sm" style="fill:var(--ok);font-size:11px">queue · state · lock</text>
