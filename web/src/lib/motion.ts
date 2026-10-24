@@ -41,15 +41,23 @@ export function enterFrom(c: Ctx, t: gsap.TweenTarget, from: Vars, f: number, df
   if (!els.length) return;
   // Make sure GSAP has parsed each element's transform: for <text>/<rect> a bare getProperty('y') would
   // otherwise return the geometry attribute instead of the transform offset.
+  // The origin goes in first, while the element is still untransformed: setting it on an already rotated/scaled
+  // element makes GSAP compensate with a hidden x/y offset that the tween back never removes.
+  const origin: Vars = {};
+  for (const key of ['svgOrigin', 'transformOrigin'] as const) if (key in from) origin[key] = from[key];
   gsap.set(els, { x: '+=0' });
+  if (Object.keys(origin).length) gsap.set(els, origin);
+  // Neither the start state nor the tween repeats the origin, so GSAP never re-anchors mid-move.
+  const start: Vars = {};
   const to: Vars = {};
   for (const key of Object.keys(from)) {
-    const keep = key === 'svgOrigin' || key === 'transformOrigin';
-    to[key] = keep ? (from as Record<string, unknown>)[key] : key === 'autoAlpha' || key === 'opacity' ? 1 : gsap.getProperty(els[0], key);
+    if (key in origin) continue;
     const v = (from as Record<string, unknown>)[key];
+    start[key] = v;
+    to[key] = key === 'autoAlpha' || key === 'opacity' ? 1 : gsap.getProperty(els[0], key);
     if (typeof v === 'string' && /^[+-]=/.test(v)) to[key] = (v[0] === '+' ? '-=' : '+=') + v.slice(2);
   }
-  gsap.set(els, from);
+  gsap.set(els, start);
   c.tl.to(els, { ...to, duration: c.d(df), ease, stagger: stagger ? c.d(stagger) : 0 }, c.p(f));
 }
 
@@ -127,6 +135,7 @@ export function uAt(path: SVGGeometryElement, x: number, y: number) {
 /**
  * Transfer: move `target` along a path between two fractions.
  * The path is sampled once, so the tween is an ordinary x/y tween: fully reversible when scrubbing.
+ * It always starts on the path (fromCurrent: false), never from wherever the target happened to be.
  */
 export function along(
   c: Ctx,
@@ -144,7 +153,7 @@ export function along(
     const p = path.getPointAtLength((from + ((to - from) * i) / n) * L);
     pts.push({ x: p.x + offset[0], y: p.y + offset[1] });
   }
-  c.tl.to(target, { motionPath: { path: pts, curviness: 0, autoRotate: rotate }, duration: c.d(df), ease }, c.p(f));
+  c.tl.to(target, { motionPath: { path: pts, curviness: 0, autoRotate: rotate, fromCurrent: false }, duration: c.d(df), ease }, c.p(f));
 }
 
 /** Free move of an element (x/y/rotation/scale/alpha). */
@@ -191,22 +200,49 @@ export function verify(c: Ctx, bar: Element, w: number, f: number, df: number) {
   c.tl.fromTo(bar, { attr: { width: 0 } }, { attr: { width: w }, duration: c.d(df), ease: EASE.verify, immediateRender: false }, c.p(f));
 }
 
+/*
+ * Camera layers (each scene's .world and the shared #thread-world) are driven through a plain {x, y, s} proxy
+ * written straight to the transform attribute, not through GSAP's SVG transforms: those bake the pivot into
+ * the matrix and re-derive it from the current (zoomed) matrix whenever the layer is re-parsed, so the scene
+ * and the story capsule slowly drift off their marks. Here a world point P lands on screen at (x + s·Px, y + s·Py).
+ */
+type Cam = { x: number; y: number; s: number };
+const cams = new WeakMap<Element, Cam>();
+const cam = (el: Element) => {
+  let k = cams.get(el);
+  if (!k) cams.set(el, (k = { x: 0, y: 0, s: 1 }));
+  return k;
+};
+const paint = (el: Element, k: Cam) => el.setAttribute('transform', `matrix(${k.s} 0 0 ${k.s} ${k.x} ${k.y})`);
+/** Back to the untouched composition (on build and on teardown). */
+export function resetCamera(layers: Element[]) {
+  for (const el of layers) {
+    cams.set(el, { x: 0, y: 0, s: 1 });
+    el.removeAttribute('transform');
+  }
+}
+function shot(el: Element, x: number, y: number, s: number, at: number, duration: number, c: Ctx) {
+  const k = cam(el);
+  c.tl.to(k, { x, y, s, duration, ease: EASE.camera, onUpdate: () => paint(el, k) }, at);
+}
+
 /** Scene camera: world and thread share the same transform so the capsule stays glued to the artwork. */
 export function camera(c: Ctx, cx: number, cy: number, s: number, f: number, df: number, target: [number, number] = [800, 450]) {
   if (c.mode !== 'cinema') return;
-  const x = target[0] - 800 - s * (cx - 800);
-  const y = target[1] - 450 - s * (cy - 450);
-  const vars = { x, y, scale: s, svgOrigin: '800 450', duration: c.d(df), ease: EASE.camera };
-  c.tl.to(c.world, vars, c.p(f));
-  if (c.threadWorld) c.tl.to(c.threadWorld, vars, c.p(f));
+  const x = target[0] - s * cx;
+  const y = target[1] - s * cy;
+  shot(c.world, x, y, s, c.p(f), c.d(df), c);
+  if (c.threadWorld) shot(c.threadWorld, x, y, s, c.p(f), c.d(df), c);
 }
 /** Start the act already zoomed: the scene is set at once, the shared thread layer eases in during the transition. */
 export function cameraStart(c: Ctx, cx: number, cy: number, s: number, target: [number, number] = [800, 450]) {
   if (c.mode !== 'cinema') return;
-  const x = target[0] - 800 - s * (cx - 800);
-  const y = target[1] - 450 - s * (cy - 450);
-  gsap.set(c.world, { x, y, scale: s, svgOrigin: '800 450' });
-  if (c.threadWorld) c.tl.to(c.threadWorld, { x, y, scale: s, svgOrigin: '800 450', duration: TR * 2, ease: EASE.camera }, c.p(0) - TR * 2);
+  const x = target[0] - s * cx;
+  const y = target[1] - s * cy;
+  const k = cam(c.world);
+  Object.assign(k, { x, y, s });
+  paint(c.world, k);
+  if (c.threadWorld) shot(c.threadWorld, x, y, s, c.p(0) - TR * 2, TR * 2, c);
 }
 /** A quick press on a control: dip and recover. */
 export function press(c: Ctx, t: Element, f: number) {
@@ -215,6 +251,12 @@ export function press(c: Ctx, t: Element, f: number) {
 }
 export function cameraHome(c: Ctx, f: number, df: number) {
   camera(c, 800, 450, 1, f, df);
+}
+/** Hold the act's last framing and only pull back home while the next act takes over (its cross-fade window). */
+export function cameraHomeOnExit(c: Ctx) {
+  if (c.mode !== 'cinema') return;
+  shot(c.world, 0, 0, 1, c.p(1), TR * 2, c);
+  if (c.threadWorld) shot(c.threadWorld, 0, 0, 1, c.p(1), TR * 2, c);
 }
 
 /** type text into a <text> element, character by character (stepped). */

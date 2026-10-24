@@ -11,7 +11,7 @@ const terms = [
   { x: 1130, y: 700, title: 'codex', lines: ['$ bump versions', '$ format code', '…'], tag: 'premium model' },
   { x: 1180, y: 480, title: 'qwen-code', lines: ['$ grep -r TODO', '$ summarise', '…'], tag: 'who has the lock?' },
   { x: 960, y: 190, title: 'agent #5', lines: ['$ ???', '…'], tag: 'state: ?' },
-  { x: 140, y: 350, title: 'agent #6', lines: ['waiting…', '…'], tag: 'state: ?' },
+  { x: 140, y: 320, title: 'agent #6', lines: ['waiting…', '…'], tag: 'state: ?' },
 ];
 const tangle = [
   'M290 600 C 500 450, 700 800, 900 760 S 1200 600, 1180 540',
@@ -34,12 +34,12 @@ const tangle = [
     <g data-k="term" data-n={n}>
       <Terminal x={t.x} y={t.y} w={290} h={140} title={t.title} lines={t.lines} state="idle" tag={t.tag} tagState={t.tag.includes('?') ? 'wait' : 'fail'} />
       <g data-k="okTag" transform={`translate(${t.x} ${t.y + 156})`}>
-        <rect width="150" height="20" rx="2" fill="none" stroke="var(--ok)" />
+        <rect width="178" height="20" rx="2" fill="none" stroke="var(--ok)" />
         <text x="10" y="14" class="t-sm" style="fill:var(--ok);font-size:11px">queue · state · lock</text>
       </g>
     </g>
   ))}
   <g data-k="chaos-caps">
-    {[[60, 760, 25], [1500, 300, -30], [700, 880, 70], [1560, 700, 20], [500, 120, -20]].map(([x, y, r]) => <Capsule x={x} y={y} rot={r} s={0.55} state="fail" />)}
+    {[[60, 760, 25], [1500, 300, -30], [700, 880, 70], [1560, 700, 20], [840, 70, -20]].map(([x, y, r]) => <Capsule x={x} y={y} rot={r} s={0.55} state="fail" />)}
   </g>
 </Scene>

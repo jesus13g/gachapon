@@ -1,7 +1,7 @@
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { SCROLL, STORY, TR, VB, type Transition } from '../lib/tokens';
-import type { Ctx } from '../lib/motion';
+import { resetCamera, type Ctx } from '../lib/motion';
 import { makePose, type Pose } from '../lib/pose';
 import type { Capsule3D, createCapsule3D } from '../lib/capsule3d';
 import { BUILDERS, type ActBuilder } from './acts';
@@ -109,6 +109,7 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
   const threadWorld = $<SVGGElement>('#thread-world', threadLayer)!;
   const thread = $<SVGGElement>('.thread', threadLayer)!;
   const cleanups: Array<() => void> = [];
+  resetCamera([threadWorld, ...$$('.world')]);
 
   // geometry
   const starts: number[] = [];
@@ -118,7 +119,9 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
     total += a.len;
   }
 
-  const master = gsap.timeline({ paused: false, defaults: { ease: 'none' } });
+  // lazy: false — a tween must read its start values only after the previous ones have rendered, or a jump
+  // (fast scroll, chapter rail, deep link) records stale positions and capsules land in the wrong place.
+  const master = gsap.timeline({ paused: false, defaults: { ease: 'none', lazy: false } });
   // anchor so the timeline's total duration equals `total` units
   master.set({}, {}, total);
 
@@ -178,7 +181,8 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
       if (cfg.id === 'final') gsap.set(copy, { autoAlpha: 0, y: 26 });
       else if (i > 0) {
         gsap.set(copy, { autoAlpha: 0, y: 26 });
-        master.to(copy, { autoAlpha: 1, y: 0, duration: TR * 0.9, ease: 'power3.out' }, S - TR * 0.2);
+        // the copy comes in once the previous artwork has mostly faded, so text never sits on the old scene
+        master.to(copy, { autoAlpha: 1, y: 0, duration: TR * 0.9, ease: 'power3.out' }, S + TR * 0.2);
       }
       if (i < STORY.length - 1) master.to(copy, { autoAlpha: 0, y: -18, duration: TR * 0.8, ease: 'power2.in' }, E - TR * 1.05);
       const beats = $$('.beat', copy);
@@ -186,7 +190,8 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
       beats.forEach((b, n) => {
         if (n > 0) gsap.set(b, { autoAlpha: 0, y: 18 });
         if (n > 0) master.to(b, { autoAlpha: 1, y: 0, duration: 4, ease: 'power3.out' }, ctx.p(fr[n]) - 1);
-        if (n < beats.length - 1) master.to(b, { autoAlpha: 0, y: -14, duration: 4, ease: 'power2.in' }, ctx.p(fr[n + 1]) - 4);
+        // the outgoing beat is gone before the next one starts, so two headlines never sit on top of each other
+        if (n < beats.length - 1) master.to(b, { autoAlpha: 0, y: -14, duration: 3, ease: 'power2.in' }, ctx.p(fr[n + 1]) - 4);
       });
     }
 
@@ -278,8 +283,7 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
         s.classList.remove('is-live');
       });
       gsap.set([...arts, ...copies.filter(Boolean), thread, ...$$('.beat')], { clearProps: 'all' });
-      gsap.set(threadWorld, { clearProps: 'all' });
-      $$('.world').forEach((w) => gsap.set(w, { clearProps: 'all' }));
+      resetCamera([threadWorld, ...$$('.world')]);
     },
   };
 }
@@ -310,7 +314,7 @@ export function inview(): Director {
     const builder = BUILDERS[cfg.id];
     if (!builder) return;
     const local = $<SVGGElement>('.local-thread', sc);
-    const tl = gsap.timeline({ paused: true, defaults: { ease: 'none' } });
+    const tl = gsap.timeline({ paused: true, defaults: { ease: 'none', lazy: false } });
     tl.set({}, {}, 100);
     const ctx = makeCtx(tl, sc, 'inview', 0, 100, 0, (local ?? document.createElementNS('http://www.w3.org/2000/svg', 'g')) as SVGGElement, null);
     if (local) gsap.set(local, { x: cfg.start[0], y: cfg.start[1] });

@@ -19,8 +19,8 @@ const lh = size + 7;
   {cursor && <rect class="cursor-blink" x="14" y={46 + lines.length * lh - size + 2} width="8" height={size} fill="var(--c, var(--accent))" />}
   {tag && (
     <g data-state={tagState} class="term__tag">
-      <rect x={w - 4} y="-10" width={tag.length * 9.4 + 22} height="22" rx="2" transform={`translate(${-(tag.length * 9.4 + 18)} 0)`} fill="var(--c)" />
-      <text x={w - 12} y="5" text-anchor="end" style="font-size:12px;fill:#0b0e12;font-weight:700">{tag}</text>
+      <rect x={w - 4} y="-16" width={tag.length * 9.4 + 22} height="22" rx="2" transform={`translate(${-(tag.length * 9.4 + 18)} 0)`} fill="var(--c)" />
+      <text x={w - 12} y="-1" text-anchor="end" style="font-size:12px;fill:#0b0e12;font-weight:700">{tag}</text>
     </g>
   )}
 </g>

@@ -1,5 +1,5 @@
 import { gsap } from 'gsap';
-import { appear, vanish, enterFrom, draw, state, along, move, fade, uAt, success, failure, gate, verify, camera, cameraHome } from '../lib/motion';
+import { appear, vanish, enterFrom, draw, state, along, move, fade, uAt, success, failure, gate, verify, camera, cameraStart } from '../lib/motion';
 import type { ActBuilder } from './acts';
 
 type G = SVGGeometryElement;
@@ -15,7 +15,7 @@ export const bus: ActBuilder = (c) => {
   const uV = uAt(loop, 1100, 650);
   const uC = uAt(loop, 360, 650);
 
-  enterFrom(c, c.one('[data-k=shell]'), { autoAlpha: 0 }, 0, 0.08);
+  enterFrom(c, [c.one('[data-k=shell]'), c.one('[data-k=bus-labels]')], { autoAlpha: 0 }, 0, 0.08);
   draw(c, c.q('.conduit'), 0, 0.14);
   appear(c, c.q('[data-k=stn]'), 0.06, 0.05, 12, 0.025);
   appear(c, c.one('[data-k=queue-line]'), 0.1, 0.04);
@@ -23,7 +23,7 @@ export const bus: ActBuilder = (c) => {
   appear(c, c.one('[data-k=bus-note]'), 0.8, 0.05);
 
   state(c, th, 'idle', 0.08);
-  along(c, intake, th, 0.1, 0.12, { rotate: true });
+  along(c, intake, th, 0.1, 0.12);
   state(c, stn('queued'), 'active', 0.22);
   state(c, stn('queued'), 'idle', 0.3);
   along(c, loop, th, 0.3, 0.1, { from: uQ, to: uR, rotate: true });
@@ -66,8 +66,9 @@ export const locks: ActBuilder = (c) => {
   move(c, th, { x: 1010, y: 450, rotation: 0 }, 0.3, 0.06);
   verify(c, bars[0], 472, 0.36, 0.6);
 
-  // B is turned away
+  // B is turned away. It rolls in only once A has left the start of the lane, so the two never overlap.
   gsap.set(capB, { x: 120, y: 450 });
+  enterFrom(c, capB, { x: '-=220', autoAlpha: 0 } as unknown as gsap.TweenVars, 0.12, 0.08, 'power2.out');
   along(c, lane, capB, 0.32, 0.12, { from: u(130), to: u(630), rotate: true });
   failure(c, capB, 0.45);
   appear(c, c.one('[data-k=blocked-text]'), 0.47, 0.04);
@@ -81,6 +82,8 @@ export const locks: ActBuilder = (c) => {
   state(c, capB, 'exec', 0.66);
   along(c, fork, capB, 0.68, 0.12, { rotate: true });
   move(c, capB, { x: 1010, y: 712, rotation: 0, scale: 0.9 }, 0.8, 0.05);
+  // inside its worktree the «job B» label would sit on top of «executor B»
+  vanish(c, capB.querySelector('.cap-label')!, 0.8, 0.03);
   gate(c, gB, true, 0.83);
   verify(c, bars[1], 472, 0.84, 0.13);
 };
@@ -109,10 +112,13 @@ export const modes: ActBuilder = (c) => {
   appear(c, c.one('[data-k=lane-routine]'), 0.62, 0.05);
   gsap.set([capB, capR], { autoAlpha: 0 });
 
-  camera(c, 1050, 345, 1.2, 0.02, 0.08, [960, 470]);
+  // already framed on the mission lane when the act arrives (the home framing would put merge under the rail)
+  cameraStart(c, 1050, 345, 1.2, [960, 470]);
   camera(c, 1150, 540, 1.18, 0.31, 0.06, [930, 470]);
-  camera(c, 1180, 735, 1.2, 0.64, 0.06, [960, 490]);
-  cameraHome(c, 0.9, 0.08);
+  // the routine lane sits low enough that split and the dimmed BUILD label stay clear of the copy
+  camera(c, 1180, 735, 1.2, 0.64, 0.06, [960, 600]);
+  // the full composition runs from split (520) to merge (1574): frame it on its own centre, clear of the chapter rail
+  camera(c, 1000, 450, 1, 0.9, 0.08);
   // lanes that are not in focus step back so the copy stays legible
   const dimM = [c.one('[data-k=lane-mission]'), par('m-lane')];
   const dimB = [c.one('[data-k=lane-build]'), par('b-lane')];
@@ -172,11 +178,10 @@ export const modes: ActBuilder = (c) => {
   c.tl.set(capR, { autoAlpha: 1 }, c.p(0.62));
   along(c, rLane, capR, 0.64, 0.05, { from: 0, to: ru(900) });
   vanish(c, capR, 0.7, 0.01);
-  enterFrom(c, c.one('[data-k=rt-card]'), { scale: 0, autoAlpha: 0, svgOrigin: '900 735' } as gsap.TweenVars, 0.69, 0.04, 'back.out(2)');
+  enterFrom(c, c.one('[data-k=rt-card]'), { scale: 0, autoAlpha: 0, transformOrigin: '50% 50%' } as gsap.TweenVars, 0.69, 0.04, 'back.out(2)');
   appear(c, [c.one('[data-k=calendar]'), c.one('[data-k=sched-t]')], 0.74, 0.04);
   c.q('[data-k=run]').forEach((r, i) => {
-    const b = (r as unknown as SVGGraphicsElement).getBBox();
-    enterFrom(c, r, { scale: 0, autoAlpha: 0, svgOrigin: `${b.x + b.width / 2} ${b.y + b.height / 2}` } as gsap.TweenVars, 0.78 + i * 0.04, 0.03, 'back.out(3)');
+    enterFrom(c, r, { scale: 0, autoAlpha: 0, transformOrigin: '50% 50%' } as gsap.TweenVars, 0.78 + i * 0.04, 0.03, 'back.out(3)');
   });
 
   // converge

@@ -8,7 +8,8 @@ import LockGate from '../LockGate.astro';
 import Station from '../Station.astro';
 import ToolModule from '../ToolModule.astro';
 import { benefits } from '../../content/copy.en';
-const pos = [[1500, 640, 'end'], [1200, 150, 'middle'], [110, 686, 'start'], [1350, 428, 'middle'], [880, 872, 'start'], [1200, 286, 'middle']] as const;
+// Benefit words sit in the gaps between blocks: never on the journal, the routines grid or the tool library.
+const pos = [[1500, 640, 'end'], [1200, 135, 'middle'], [110, 686, 'start'], [1350, 470, 'middle'], [880, 872, 'start'], [1250, 290, 'middle']] as const;
 const types = ['skill', 'plugin', 'mcp', 'command', 'subagent', 'extension'] as const;
 ---
 <Scene i={14}>
