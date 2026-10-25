@@ -296,6 +296,9 @@ pub struct TrabajoResumen {
     pub worktree: String,
     pub creado: String,
     pub actualizado: String,
+    /// Con qué agente y modelo se tomó (spec 017), para las tarjetas de
+    /// Actividad; `None` si aún no lo ha tomado nadie o es un trabajo antiguo.
+    pub ejecutado_por: Option<ea_bus::EjecutadoPor>,
 }
 
 /// Lo que guarda el bus de un trabajo, tal cual (el informe sin el diff).
