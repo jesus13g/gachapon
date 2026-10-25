@@ -95,6 +95,15 @@ header { display: flex; align-items: center; gap: 12px; height: 52px; flex: none
 #salud { color: var(--fg-lo); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #off, #lectura { flex: none; white-space: nowrap; font-style: normal; }
 #salud.hot { color: var(--hot); }
+/* Franja de solo lectura: ocupa su sitio bajo la cabecera, no tapa nada. */
+#franja-lectura {
+  flex: none; width: 100%; max-width: calc(960px + 20%); margin: 0 auto 4px; padding: 6px 12px;
+  background: var(--bg0); color: var(--fg); border-left: 3px solid var(--hot); border-radius: 4px; font-size: 13px; line-height: 1.4;
+}
+#franja-lectura[hidden] { display: none; }
+#franja-lectura b { color: var(--hot); font-weight: 600; }
+button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .45; cursor: not-allowed; }
+button:disabled:hover { color: var(--fg-lo); background: none; }
 
 button {
   font: inherit; color: var(--fg-lo); background: none; border: 0;

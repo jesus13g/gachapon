@@ -1347,8 +1347,13 @@ parar). Todo lo que no sea GET/HEAD tiene que llevarla en la cabecera
 `GET /api/sesion` dice si la que se manda vale (`{"escritura": true|false}`).
 `ea-web-open` abre `http://localhost:8092/#clave=<clave>`; la página la guarda
 en `sessionStorage` y la quita de la barra de direcciones. Abierta a mano, o
-tras reiniciar `ea-web`, la cabecera marca **⊘ solo lectura** y cada botón que
-cambia algo avisa de que hay que cerrarla y abrirla con `ea-web-open`. Desde
+tras reiniciar `ea-web`, la cabecera marca **⊘ solo lectura**, una franja bajo
+la cabecera lo explica («Panel en solo lectura. Ábrelo con ea-escritorio o
+ea-web-open para poder cambiar cosas.») y todos los botones que cambian algo
+(y los campos que solo sirven para escribir) quedan apagados con ese mismo
+texto como ayuda; al llegar la clave se reactivan sin recargar. Navegar,
+filtrar y abrir fichas sigue funcionando; el servidor sigue rechazando con 403
+cualquier escritura sin clave. Desde
 la terminal:
 
 ```bash

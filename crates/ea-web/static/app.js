@@ -189,6 +189,61 @@ function fila(k, cls, row, txt, det = '', extra = '') {
   };
 }
 
+// ---------------------------------------------------------- solo lectura
+// Sin clave de sesión el panel solo lee. En vez de marcar botón a botón, esta
+// lista dice qué acciones (`data-a`) escriben o lanzan algo (todas acaban en un
+// POST que exige la clave) y `aplicaLectura` apaga esos botones, y los campos
+// que solo sirven para escribir, allí donde estén pintados. El servidor sigue
+// siendo quien rechaza (403): esto solo evita pulsar en falso.
+const MUTA = new Set([
+  // trabajos
+  'cerrar', 'cancelar', 'continuar', 'reformular', 'confirmar', 'clonar', 'nueva-mision', 'crear-mision', 'wtlimpiar',
+  // propuestas, herramientas y servicios
+  'decidir', 'simular', 'ejecutar', 'terminal', 'reiniciar', 'poner-rol',
+  // rutinas
+  'lanzar', 'rprevia', 'rvalidar', 'rregistrar', 'rnueva', 'red', 'rretiro', 'rhguardar', 'rhquitar',
+  // equipos
+  'eq-nuevo', 'eq-despertar', 'eq-dormir',
+  // ajustes
+  'ajuste-guardar', 'ajuste-defecto',
+  // diario
+  'd-anotar', 'd-anotar-enviar', 'd-corregir',
+  // biblioteca
+  'bib-sesion', 'bib-simular', 'bib-ejecutar', 'bib-ses-simular', 'bib-ses-ejecutar', 'bib-cat', 'bib-cat-guardar', 'bib-cat-quitar',
+  // bóveda y memoria
+  'nueva-memoria-nota', 'confirmar-memoria-nota', 'crear-nota', 'carpeta-nota', 'guardar-nota', 'vaciar-papelera',
+  'restaurar-nota', 'renombrar-nota', 'eliminar-nota', 'mostrar-nota', 'promover-nota', 'carpeta-menu',
+  'carpeta-renombrar', 'carpeta-eliminar', 'reindexar-boveda',
+]);
+// Campos que solo existen para preparar una escritura.
+const CAMPOS_ESCRITURA = 'textarea.nota, textarea.editor, [data-rff], [data-aj], [data-rent], [data-rhor], [data-bcat], [data-bs-el], ' +
+  '[data-an], [data-nm], [data-nf], [data-eq], [data-eqm], [data-eqr], [data-mc], [data-ed], input.ren';
+function aplicaLectura(raiz = document) {
+  const sin = !ea.escritura();
+  if (!sin && !document.querySelector('[data-lectura]')) return;
+  const escribe = el => el.matches('button[data-a]') ? (MUTA.has(el.dataset.a) || (el.dataset.a === 'modo-nota' && el.getAttribute('aria-pressed') !== 'true')) : true;
+  for (const el of $$('button[data-a], ' + CAMPOS_ESCRITURA, raiz)) {
+    if (!escribe(el)) continue;
+    if (sin) {
+      if (el.disabled && !('lectura' in el.dataset)) continue; // ya apagado por otra razón
+      if (!('lectura' in el.dataset)) el.dataset.lectura = el.getAttribute('title') ?? '';
+      el.disabled = true;
+      el.title = ea.avisoLectura;
+    } else if ('lectura' in el.dataset) {
+      el.disabled = false;
+      if (el.dataset.lectura) el.title = el.dataset.lectura; else el.removeAttribute('title');
+      delete el.dataset.lectura;
+    }
+  }
+}
+// El repintado de la lista y de las fichas pasa por aquí antes de pintarse.
+let lecturaPendiente = false;
+new MutationObserver(() => {
+  if (lecturaPendiente) return;
+  lecturaPendiente = true;
+  queueMicrotask(() => { lecturaPendiente = false; aplicaLectura(); });
+}).observe(document.body, { childList: true, subtree: true });
+
 const btn = (a, glifo, titulo, datos = {}, cls = '') =>
   `<button class="b ${cls}" data-a="${a}" title="${esc(titulo)}" aria-label="${esc(titulo)}"` +
   Object.entries(datos).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('') + `>${glifo}</button>`;
@@ -4242,11 +4297,14 @@ addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
   proyectos();
   // La primera vez, el recorrido guiado.
   try { if (!localStorage.getItem('ea-tour-visto')) tour.iniciar(); } catch { /* sin almacenamiento */ }
-  // Sin clave de sesión válida, la cabecera lo dice y las escrituras avisan.
+  // Sin clave de sesión válida: insignia, franja bajo la cabecera y botones apagados (mismo texto).
   const lectura = () => {
     const sin = !ea.escritura();
-    if (sin && $('#lectura').hidden) avisa(ea.avisoLectura);
     $('#lectura').hidden = !sin;
+    $('#franja-lectura').hidden = !sin;
+    $('#franja-lectura span').textContent = ea.avisoLectura;
+    document.body.classList.toggle('lectura', sin);
+    aplicaLectura();
   };
   // Una clave nueva (pegada en una página ya abierta) se comprueba antes de fiarse.
   ea.alCambiarSesion(ok => (ok ? ea.sesion().catch(() => {}).finally(lectura) : lectura()));
