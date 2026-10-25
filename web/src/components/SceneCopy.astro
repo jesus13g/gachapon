@@ -1,6 +1,7 @@
 ---
-import { acts } from '../content/copy.en';
+import { copyFor } from '../i18n';
 interface Props { i: number }
+const { acts } = copyFor(Astro.currentLocale);
 const a = acts[Astro.props.i];
 ---
 <div class="scene__copy">

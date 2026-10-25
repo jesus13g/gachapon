@@ -1,5 +1,7 @@
 ---
 import Scene from '../Scene.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 const X = 330, Y = 350, W = 1000, H = 450;
 const nav = ['Home', 'Jobs', 'Journal', 'Routines', 'Proposals', 'Actions', 'System', 'Vault', 'Memory', 'Library', 'Teams', 'Settings', 'Projects'];
 const cols = [['QUEUED', 'idle', 2], ['RUNNING', 'exec', 1], ['REVIEW', 'planner', 1], ['WAITING', 'wait', 1], ['CLOSED', 'ok', 3]] as const;
@@ -8,19 +10,19 @@ const cols = [['QUEUED', 'idle', 2], ['RUNNING', 'exec', 1], ['REVIEW', 'planner
   <g data-k="ui-panel" transform={`translate(${X} ${Y})`}>
     <rect class="panel" width={W} height={H} rx="10" />
     <rect width={W} height="34" rx="10" fill="var(--steel-1)" /><rect y="20" width={W} height="14" fill="var(--steel-1)" />
-    <text class="t-sm t-nocase" x="16" y="22">gachapon · local web panel</text>
-    {['orchestrator', 'services', 'health'].map((n, i) => <g transform={`translate(${W - 330 + i * 106} 17)`}><circle r="4" class="led" data-state="ok" /><text class="t-sm" x="10" y="4" style="font-size:10px">{n}</text></g>)}
+    <text class="t-sm t-nocase" x="16" y="22">{t('gachapon · local web panel')}</text>
+    {['orchestrator', 'services', 'health'].map((n, i) => <g transform={`translate(${W - 330 + i * 106} 17)`}><circle r="4" class="led" data-state="ok" /><text class="t-sm" x="10" y="4" style="font-size:10px">{t(n)}</text></g>)}
     <path d="M170 34 V450" stroke="var(--line)" />
     {nav.map((n, i) => (
       <g transform={`translate(18 ${64 + i * 28})`}>
         {n === 'Jobs' && <rect x="-8" y="-16" width="146" height="24" rx="3" fill="var(--accent)" opacity=".16" />}
         <rect width="8" height="8" rx="1" y="-8" fill={n === 'Jobs' ? 'var(--accent)' : 'var(--line-hi)'} />
-        <text class="t-sm t-nocase" x="20" style={n === 'Jobs' ? 'fill:var(--fg)' : ''}>{n}</text>
+        <text class="t-sm t-nocase" x="20" style={n === 'Jobs' ? 'fill:var(--fg)' : ''}>{t(n)}</text>
       </g>
     ))}
     {cols.map(([n, st, k], i) => (
       <g transform={`translate(${196 + i * 156} 58)`} data-state={st} data-k="col">
-        <text class="t-sm t-hot" y="0">{n}</text>
+        <text class="t-sm t-hot" y="0">{t(n)}</text>
         <rect y="10" width="144" height="368" rx="5" fill="var(--steel-0)" stroke="var(--line)" />
         {Array.from({ length: k }, (_, j) => (
           <g data-k="card" data-col={i} transform={`translate(8 ${22 + j * 62})`}>
@@ -41,26 +43,26 @@ const cols = [['QUEUED', 'idle', 2], ['RUNNING', 'exec', 1], ['REVIEW', 'planner
       ['$ ea cola', 1], ['  executor queue ▸ jobs waiting, oldest first', 0],
       ['$ ea agentes', 1], ['  planner  claude-code   executor  qwen-code · local', 0],
       ['$ ea semaforos', 1], ['  worktree ▸ who holds the lock, since when', 0],
-    ].map(([l, p], i) => <text class="t-nocase" x="22" y={78 + i * 38} style={`font-size:18px;fill:${p ? 'var(--accent)' : 'var(--fg-dim)'}`}>{l}</text>)}
+    ].map(([l, p], i) => <text class="t-nocase" x="22" y={78 + i * 38} style={`font-size:18px;fill:${p ? 'var(--accent)' : 'var(--fg-dim)'}`}>{t(String(l))}</text>)}
     <rect class="cursor-blink" x="22" y="396" width="11" height="20" fill="var(--accent)" />
   </g>
 
   <g data-k="ui-tui" class="cine-only" transform={`translate(${X} ${Y})`}>
     <rect class="panel" width={W} height={H} rx="4" style="stroke:var(--ok)" />
-    {['Orchestrator', 'Routines', 'Agents'].map((t, i) => <g transform={`translate(${24 + i * 170} 30)`}><rect width="154" height="30" fill={i === 0 ? 'var(--ok)' : 'none'} stroke="var(--ok)" opacity={i === 0 ? 1 : 0.5} /><text class="t-sm t-nocase" x="77" y="20" text-anchor="middle" style={i === 0 ? 'fill:#04140a;font-weight:700' : 'fill:var(--ok)'}>{t}</text></g>)}
+    {['Orchestrator', 'Routines', 'Agents'].map((tab, i) => <g transform={`translate(${24 + i * 170} 30)`}><rect width="154" height="30" fill={i === 0 ? 'var(--ok)' : 'none'} stroke="var(--ok)" opacity={i === 0 ? 1 : 0.5} /><text class="t-sm t-nocase" x="77" y="20" text-anchor="middle" style={i === 0 ? 'fill:#04140a;font-weight:700' : 'fill:var(--ok)'}>{t(tab)}</text></g>)}
     <g transform="translate(24 90)">
-      <text class="t-sm" style="fill:var(--exec)">executor queue</text>
-      {[0, 1].map((r) => <text class="t-nocase" y={34 + r * 30} style="font-size:17px;fill:var(--fg)">{r === 0 ? '▶ job · running · mission' : '  job · queued · build'}</text>)}
-      <text class="t-sm" y="130" style="fill:var(--planner)">planner review</text>
-      <text class="t-nocase" y="164" style="font-size:17px">  job · review · routine</text>
-      <text class="t-sm" y="230" style="fill:var(--stop)">worktree lock</text>
-      <text class="t-nocase" y="264" style="font-size:17px">  held · executor · since 12:04</text>
+      <text class="t-sm" style="fill:var(--exec)">{t('executor queue')}</text>
+      {[0, 1].map((r) => <text class="t-nocase" y={34 + r * 30} style="font-size:17px;fill:var(--fg)">{t(r === 0 ? '▶ job · running · mission' : '  job · queued · build')}</text>)}
+      <text class="t-sm" y="130" style="fill:var(--planner)">{t('planner review')}</text>
+      <text class="t-nocase" y="164" style="font-size:17px">{t('  job · review · routine')}</text>
+      <text class="t-sm" y="230" style="fill:var(--stop)">{t('worktree lock')}</text>
+      <text class="t-nocase" y="264" style="font-size:17px">{t('  held · executor · since 12:04')}</text>
     </g>
-    <text class="t-sm t-nocase" x="24" y="420" style="fill:var(--ok)">read-only snapshot · ↑↓ move · Enter opens a job</text>
+    <text class="t-sm t-nocase" x="24" y="420" style="fill:var(--ok)">{t('read-only snapshot · ↑↓ move · Enter opens a job')}</text>
   </g>
 
   <g data-k="tabs" transform="translate(830 842)">
-    {['WEB PANEL', 'CLI', 'TUI'].map((t, i) => <g data-k="tab" data-i={i} transform={`translate(${(i - 1) * 190} 0)`}><text class="t-md" text-anchor="middle" style={i === 0 ? 'fill:var(--accent)' : ''}>{t}</text></g>)}
+    {['WEB PANEL', 'CLI', 'TUI'].map((tab, i) => <g data-k="tab" data-i={i} transform={`translate(${(i - 1) * 190} 0)`}><text class="t-md" text-anchor="middle" style={i === 0 ? 'fill:var(--accent)' : ''}>{t(tab)}</text></g>)}
     <rect data-k="tab-bar" x="-242" y="12" width="104" height="3" fill="var(--accent)" />
   </g>
 </Scene>
