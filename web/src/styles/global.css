@@ -96,6 +96,24 @@ a {
   color: var(--fg);
   border-color: var(--accent);
 }
+.hud__links .lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-hi);
+  border-radius: 999px;
+}
+.hud__links .lang-switch:hover {
+  border-color: var(--accent);
+}
+.lang-switch svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+}
 
 .rail {
   position: fixed;

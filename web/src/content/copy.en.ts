@@ -1,5 +1,5 @@
 /**
- * All landing copy lives here, decoupled from components (i18n-ready: add copy.es.ts with the same shape).
+ * All landing copy lives here, decoupled from components (Spanish lives in copy.es.ts with the same shape; see src/i18n.ts).
  * Source of truth for facts: FUNCIONALIDADES.md in the Gachapon repository.
  */
 export interface Beat {
@@ -30,6 +30,10 @@ export const site = {
 
 export const ui = {
   skip: 'Skip to content',
+  top: 'Gachapon — top',
+  navProject: 'Project',
+  /** The header button that switches to the other language. */
+  langSwitch: 'Ver en español',
   scroll: 'Scroll',
   soundNote: '',
   railLabel: 'Story chapters',
@@ -38,8 +42,10 @@ export const ui = {
   ctaSecondary: 'Read the docs',
   hero: {
     kicker: 'Agent orchestration · local first',
-    h1: 'Turn AI agents into a system.',
-    sub: 'The expensive model thinks. The local model works. Gachapon coordinates them — and you keep control.',
+    h1: 'Turn AI agents',
+    h1em: 'into a system.',
+    subStrong: 'The expensive model thinks. The local model works.',
+    sub: 'Gachapon coordinates them — and you keep control.',
     boot: ['planner   idle', 'executor  idle', 'bus       ok', 'sandbox   armed'],
   },
   final: {
@@ -212,3 +218,6 @@ export const benefits = [
   { w: 'Controlled', t: 'You hold the keys.' },
   { w: 'Auditable', t: 'Append-only trace.' },
 ];
+
+/** Labels drawn inside the artwork, keyed by their English text (English needs no entries). */
+export const svg: Record<string, string> = {};

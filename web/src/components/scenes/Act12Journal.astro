@@ -2,6 +2,8 @@
 import Scene from '../Scene.astro';
 import FlowPath from '../FlowPath.astro';
 import TimelineEvent from '../TimelineEvent.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 const evs = ['JOB QUEUED', 'RUN STARTED', 'SKILLS INJECTED', 'PHASE DONE', 'REVIEW', 'RESULT: OK', 'ROUTINE RUN', 'PROPOSAL ACCEPTED', 'CORRECTION', 'USER NOTE'];
 const subs = ['planner', 'executor', 'job #skills', 'diff saved', 'planner', 'closed?', 'calendar', 'by you', 'new event', 'by you'];
 const X = (i: number) => 160 + i * 145;
@@ -14,18 +16,18 @@ const src = ['JOBS', 'ROUTINES', 'PROPOSALS', 'SETTINGS'];
   <g data-k="ticks">
     {Array.from({ length: 26 }, (_, i) => <path d={`M${110 + i * 60} 548 V572`} stroke="var(--line-hi)" stroke-width="1.5" />)}
   </g>
-  <text class="t-sm" x="1500" y="602" text-anchor="end" style="fill:var(--accent)" data-k="append">append only →</text>
+  <text class="t-sm" x="1500" y="602" text-anchor="end" style="fill:var(--accent)" data-k="append">{t('append only →')}</text>
 
   <g data-k="emit">
     {src.map((s, i) => (
       <g>
-        <text class="t-sm" x={880 + i * 170} y="212" text-anchor="middle">{s}</text>
+        <text class="t-sm" x={880 + i * 170} y="212" text-anchor="middle">{t(s)}</text>
         <path class="emit" d={`M${880 + i * 170} 228 V${i % 2 ? 540 : 536}`} stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 8" />
       </g>
     ))}
   </g>
 
-  {evs.map((e, i) => <g data-k="ev" data-i={i}><TimelineEvent x={X(i)} y={560} label={e} sub={subs[i]} up={i % 2 === 0} w={132} state={i === 8 ? 'active' : i === 5 ? 'wait' : 'idle'} /></g>)}
+  {evs.map((e, i) => <g data-k="ev" data-i={i}><TimelineEvent x={X(i)} y={560} label={t(e)} sub={t(subs[i])} up={i % 2 === 0} w={132} state={i === 8 ? 'active' : i === 5 ? 'wait' : 'idle'} /></g>)}
 
   <g data-k="spokes">
     {fields.map((f, i) => {
@@ -34,7 +36,7 @@ const src = ['JOBS', 'ROUTINES', 'PROPOSALS', 'SETTINGS'];
       return (
         <g>
           <path d={`M${cx} ${cy} L${x} ${y}`} stroke="var(--accent)" stroke-opacity=".6" stroke-width="1.5" />
-          <g transform={`translate(${x - 56} ${y - 17})`}><rect width="112" height="34" rx="4" class="panel-hi" style="stroke:var(--accent)" /><text class="t-sm t-fg" x="56" y="22" text-anchor="middle" style="font-size:12px">{f}</text></g>
+          <g transform={`translate(${x - 56} ${y - 17})`}><rect width="112" height="34" rx="4" class="panel-hi" style="stroke:var(--accent)" /><text class="t-sm t-fg" x="56" y="22" text-anchor="middle" style="font-size:12px">{t(f)}</text></g>
         </g>
       );
     })}
@@ -42,5 +44,5 @@ const src = ['JOBS', 'ROUTINES', 'PROPOSALS', 'SETTINGS'];
 
   <!-- from the top of the correction's card, arching over the other cards, down to the event it corrects -->
   <path data-k="corr-arc" d={`M${X(8)} 448 C ${X(8)} 360 ${X(5)} 360 ${X(5)} 548`} fill="none" stroke="var(--accent)" stroke-width="2.4" marker-end="url(#m-arrow)" />
-  <text data-k="corr-t" class="t-sm" x={(X(8) + X(5)) / 2} y="380" text-anchor="middle" style="fill:var(--accent)">corrects · original stays</text>
+  <text data-k="corr-t" class="t-sm" x={(X(8) + X(5)) / 2} y="380" text-anchor="middle" style="fill:var(--accent)">{t('corrects · original stays')}</text>
 </Scene>

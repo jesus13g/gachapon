@@ -7,7 +7,9 @@ import Worktree from '../Worktree.astro';
 import LockGate from '../LockGate.astro';
 import Station from '../Station.astro';
 import ToolModule from '../ToolModule.astro';
-import { benefits } from '../../content/copy.en';
+import { copyFor, tr } from '../../i18n';
+const { benefits } = copyFor(Astro.currentLocale);
+const t = tr(Astro.currentLocale);
 // Benefit words sit in the gaps between blocks: never on the journal, the routines grid or the tool library.
 const pos = [[1500, 640, 'end'], [1200, 135, 'middle'], [110, 686, 'start'], [1350, 470, 'middle'], [880, 872, 'start'], [1250, 290, 'middle']] as const;
 const types = ['skill', 'plugin', 'mcp', 'command', 'subagent', 'extension'] as const;
@@ -27,8 +29,8 @@ const types = ['skill', 'plugin', 'mcp', 'command', 'subagent', 'extension'] as 
   <FlowPath d="M1270 595 H845" state="ok" thin />
   <Hub x={800} y={545} s={0.7} label={false} />
   <text class="t-lg t-d" x="800" y="640" text-anchor="middle" style="font-size:22px;letter-spacing:.2em" data-k="hub-label">GACHAPON</text>
-  <AgentNode kind="planner" x={250} y={545} s={0.5} state="planner" label="PLANNER" />
-  <AgentNode kind="executor" x={1350} y={545} s={0.5} state="exec" label="EXECUTOR" />
+  <AgentNode kind="planner" x={250} y={545} s={0.5} state="planner" label={t('PLANNER')} />
+  <AgentNode kind="executor" x={1350} y={545} s={0.5} state="exec" label={t('EXECUTOR')} />
 
   <g data-k="mcp"><Station x={560} y={410} w={110} label="MCP" state="active" /></g>
   <g data-k="locks">
@@ -38,30 +40,30 @@ const types = ['skill', 'plugin', 'mcp', 'command', 'subagent', 'extension'] as 
   </g>
   <g data-k="teams" transform="translate(1180 700)">
     {[0, 1, 2].map((i) => <AgentNode kind="executor" x={70 + i * 100} y={50} s={0.26} state="exec" />)}
-    <text class="t-sm" x="170" y="104" text-anchor="middle" style="font-size:11px">TEAM</text>
+    <text class="t-sm" x="170" y="104" text-anchor="middle" style="font-size:11px">{t('TEAM')}</text>
   </g>
   <g data-k="journal">
     <rect class="panel" x="880" y="170" width="640" height="80" rx="6" />
-    <text class="t-sm" x="896" y="194">journal · append-only</text>
+    <text class="t-sm" x="896" y="194">{t('journal · append-only')}</text>
     {Array.from({ length: 24 }, (_, i) => <path d={`M${900 + i * 26} 214 V236`} stroke={i === 17 ? 'var(--accent)' : 'var(--line-hi)'} stroke-width="2" />)}
   </g>
   <g data-k="routines" transform="translate(900 300)">
-    <text class="t-sm" y="-8">routines</text>
+    <text class="t-sm" y="-8">{t('routines')}</text>
     {Array.from({ length: 14 }, (_, i) => <rect x={(i % 7) * 30} y={Math.floor(i / 7) * 28} width="24" height="22" rx="3" fill={[0, 2, 3, 5, 8, 9].includes(i) ? 'var(--ok)' : 'var(--steel-2)'} opacity={[0, 2, 3, 5, 8, 9].includes(i) ? 0.85 : 1} />)}
   </g>
   <g data-k="tools" transform="translate(1400 262)">
-    <text class="t-sm" y="-10">tool library</text>
+    <text class="t-sm" y="-10">{t('tool library')}</text>
     {Array.from({ length: 9 }, (_, i) => <g transform={`translate(${(i % 3) * 52 + 20} ${Math.floor(i / 3) * 52 + 20}) scale(.6)`}><ToolModule x={0} y={0} type={types[i % 6]} label="" state={i % 2 ? 'ok' : 'idle'} /></g>)}
   </g>
   <g data-k="vault" transform="translate(110 720)">
     <rect class="panel" width="270" height="100" rx="8" />
-    <text class="t-sm" x="12" y="22">vault</text>
+    <text class="t-sm" x="12" y="22">{t('vault')}</text>
     {[0, 1, 2].map((i) => <rect x={12 + i * 34} y="38" width="28" height="48" rx="3" fill="var(--steel-2)" />)}
-    <rect x="130" y="34" width="128" height="56" rx="4" fill="none" stroke="var(--ok)" /><text class="t-sm" x="194" y="66" text-anchor="middle" style="fill:var(--ok);font-size:11px">shared</text>
+    <rect x="130" y="34" width="128" height="56" rx="4" fill="none" stroke="var(--ok)" /><text class="t-sm" x="194" y="66" text-anchor="middle" style="fill:var(--ok);font-size:11px">{t('shared')}</text>
   </g>
   <g data-k="user" transform="translate(800 858)">
     <circle r="26" fill="var(--bg)" stroke="var(--accent)" stroke-width="2.5" /><use href="#i-key" color="var(--accent)" />
-    <text class="t-sm" x="38" y="5" style="fill:var(--accent)">YOU</text>
+    <text class="t-sm" x="38" y="5" style="fill:var(--accent)">{t('YOU')}</text>
   </g>
 
   <g data-k="benefits">

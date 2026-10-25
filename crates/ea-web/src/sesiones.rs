@@ -113,6 +113,10 @@ fn subagentes(dir: &Path, sesion: &str) -> Vec<Subagente> {
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
         .filter_map(|e| serde_json::from_slice::<Marca>(&std::fs::read(e.path()).ok()?).ok())
+        // Un `SubagentStop` sin `SubagentStart` ni meta.json (agentes internos
+        // de Claude Code) deja una marca sin tipo ni descripción: no hay nada
+        // que mostrar, así que no cuenta como subagente.
+        .filter(|m| !m.tipo.is_empty() || !meta(&m.transcript, &m.agente).0.description.is_empty())
         .map(|m| {
             let (meta, acabado) = meta(&m.transcript, &m.agente);
             // Sin marca de fin pero con `finished`, la hora del meta.json.

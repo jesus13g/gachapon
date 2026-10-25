@@ -2,6 +2,8 @@
 // The Gachapon machine as a precision instrument: dome, bus conduits, slots. Hero (dormant) and final (lit).
 import Capsule from './Capsule.astro';
 import FlowPath from './FlowPath.astro';
+import { tr } from '../i18n';
+const t = tr(Astro.currentLocale);
 interface Props { lit?: boolean; k?: string }
 const { lit = false, k = 'machine' } = Astro.props;
 const caps = [
@@ -37,5 +39,5 @@ const caps = [
     <rect x="-84" y="8" width="168" height="18" rx="4" fill="none" stroke="var(--accent)" stroke-opacity={lit ? 0.9 : 0.25} />
     <path d="M-108 40 H108 L120 62 H-120 Z" class="steel" />
   </g>
-  <text class="t-sm" x="1130" y="782" text-anchor="middle" style="font-size:11px;letter-spacing:.3em">GACHAPON · ORCHESTRATOR</text>
+  <text class="t-sm" x="1130" y="782" text-anchor="middle" style="font-size:11px;letter-spacing:.3em">{t('GACHAPON · ORCHESTRATOR')}</text>
 </g>

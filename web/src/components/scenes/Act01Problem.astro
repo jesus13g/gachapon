@@ -4,6 +4,8 @@ import Terminal from '../Terminal.astro';
 import Hub from '../Hub.astro';
 import FlowPath from '../FlowPath.astro';
 import Capsule from '../Capsule.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 // Ring positions (final, ordered). The builder throws them into chaos on entry and brings them back.
 // `port` is the side of the terminal that faces the core: its conduit leaves from the middle of that edge.
 const W = 290;
@@ -20,6 +22,9 @@ const terms: Array<{ x: number; y: number; port: Port; title: string; lines: str
 // Every conduit aims at the capsule in the middle of the core and stops on the octagon's rim (vertex radius 100,
 // faces normal to multiples of 45°), so all six visibly plug into the machine.
 const HUB = [800, 450];
+// the ok tag grows with its label (178 for the English one)
+const okLabel = t('queue · state · lock');
+const okW = Math.round(okLabel.length * 7.6 + 26);
 const rim = (a: number) => {
   const q = Math.PI / 4;
   const dev = (((a % q) + q) % q) - (((a % q) + q) % q > q / 2 ? q : 0);
@@ -45,15 +50,15 @@ const tangle = [
     {tangle.map((d) => <path class="wire dash" {d} style="stroke:var(--stop);stroke-opacity:.45" />)}
   </g>
   <g data-k="order" class="order">
-    {terms.map((t) => <FlowPath thin state="active" d={conduit(t)} />)}
+    {terms.map((term) => <FlowPath thin state="active" d={conduit(term)} />)}
   </g>
   <Hub x={800} y={450} s={1} />
-  {terms.map((t, n) => (
+  {terms.map((term, n) => (
     <g data-k="term" data-n={n}>
-      <Terminal x={t.x} y={t.y} w={W} h={H} title={t.title} lines={t.lines} state="idle" tag={t.tag} tagState={t.tag.includes('?') ? 'wait' : 'fail'} />
-      <g data-k="okTag" transform={`translate(${t.x} ${t.y + 156})`}>
-        <rect width="178" height="20" rx="2" fill="none" stroke="var(--ok)" />
-        <text x="10" y="14" class="t-sm" style="fill:var(--ok);font-size:11px">queue · state · lock</text>
+      <Terminal x={term.x} y={term.y} w={W} h={H} title={t(term.title)} lines={term.lines.map(t)} state="idle" tag={t(term.tag)} tagState={term.tag.includes('?') ? 'wait' : 'fail'} />
+      <g data-k="okTag" transform={`translate(${term.x} ${term.y + 156})`}>
+        <rect width={okW} height="20" rx="2" fill="none" stroke="var(--ok)" />
+        <text x="10" y="14" class="t-sm" style="fill:var(--ok);font-size:11px">{okLabel}</text>
       </g>
     </g>
   ))}

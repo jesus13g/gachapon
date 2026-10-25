@@ -1,6 +1,7 @@
 ---
 import Scene from '../Scene.astro';
-import { ui, site } from '../../content/copy.en';
+import { copyFor } from '../../i18n';
+const { ui, site } = copyFor(Astro.currentLocale);
 const f = ui.final;
 ---
 <Scene i={15} thread={false} copy={false}>
@@ -14,7 +15,7 @@ const f = ui.final;
   </g>
   <g class="static-only">
     <g transform="translate(1130 400) rotate(-14) scale(1.6)"><path d="M-8 -56 H-70 A56 56 0 0 0 -70 56 H-8 Z" fill="var(--ok)" /><path d="M8 -56 H70 A56 56 0 0 1 70 56 H8 Z" fill="var(--capsule-shell)" /></g>
-    <text x="1130" y="575" text-anchor="middle" class="t-d" style="font-size:60px;fill:#04140a">DONE</text>
+    <text x="1130" y="575" text-anchor="middle" class="t-d" style="font-size:60px;fill:#04140a">{f.done}</text>
   </g>
   <div slot="copy" class="final-copy">
     <p class="kicker">{f.kicker}</p>

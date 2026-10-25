@@ -210,7 +210,7 @@ const gasha = (() => {
     const grande = !a.padre;
     r1.textContent = corto(a.nombre, grande ? 26 : 14);
     if (grande) {
-      r2.textContent = corto([a.modelo ?? v.nombre, a.rol, a.local && 'local'].filter(Boolean).join(' · '), 30);
+      r2.textContent = corto([a.modelo ?? v.nombre, a.rol, a.local && 'local'].filter(Boolean).join(' · '), 36);
       r3.textContent = a.actividad ? corto(a.actividad, 30) : ESTADO_AG[a.estado];
     } else {
       r2.textContent = a.estado === 'terminado' ? 'terminado' : corto(a.actividad || a.modelo || '', 15);

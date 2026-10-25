@@ -58,7 +58,7 @@ El servicio `ea-rutina@<slug>.service` ya existe y solo ejecuta
 `ea rutina lanzar <slug>` (crea el trabajo; no ejecuta nada). El horario se
 **propone** por MCP con `ea_programar_rutina` (`slug` de una rutina registrada y
 `calendario`, una expresión `OnCalendar` de una línea: `*-*-* 08:00:00` cada día,
-`Mon *-*-* 09:00` los lunes, `daily`; fuera de Linux solo vale el subconjunto portable: `daily`, `HH:MM`, `Mon..Fri 09:00`…, ver el README):
+`Mon *-*-* 09:00` los lunes, `daily`; fuera de Linux solo vale el subconjunto portable: `daily`, `HH:MM`, `Mon..Fri 09:00`…, ver «Rutinas programadas» en docs/manual.md):
 
 1. Primero con `simular: true`: valida el calendario (`systemd-analyze` en Linux; fuera de Linux, el subconjunto portable) y
    enseña las próximas 3 ejecuciones y el horario actual. Si da error, corrige.

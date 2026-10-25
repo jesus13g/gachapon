@@ -2,7 +2,8 @@
 import Scene from '../Scene.astro';
 import MachineArt from '../MachineArt.astro';
 import Capsule from '../Capsule.astro';
-import { ui } from '../../content/copy.en';
+import { copyFor } from '../../i18n';
+const { site, ui } = copyFor(Astro.currentLocale);
 const h = ui.hero;
 ---
 <Scene i={0} thread={false} copy={false}>
@@ -22,9 +23,9 @@ const h = ui.hero;
     <text x="0" y="46" class="t-sm" style="fill:var(--accent)">$ ea status</text>
   </g>
   <div slot="copy" class="hero-copy">
-    <span class="brandmark">Gachapon</span>
-    <h1 id="boot-title">Turn AI agents <em>into a system.</em></h1>
-    <p class="sub"><strong>The expensive model thinks. The local model works.</strong> Gachapon coordinates them — and you keep control.</p>
-    <span class="scroll-cue" aria-hidden="true"><i></i>Scroll</span>
+    <span class="brandmark">{site.name}</span>
+    <h1 id="boot-title">{h.h1} <em>{h.h1em}</em></h1>
+    <p class="sub"><strong>{h.subStrong}</strong> {h.sub}</p>
+    <span class="scroll-cue" aria-hidden="true"><i></i>{ui.scroll}</span>
   </div>
 </Scene>

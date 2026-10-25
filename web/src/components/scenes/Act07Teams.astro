@@ -5,6 +5,8 @@ import FlowPath from '../FlowPath.astro';
 import Worktree from '../Worktree.astro';
 import Capsule from '../Capsule.astro';
 import Cursor from '../Cursor.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 const rows = [370, 520, 670];
 const ids = ['A', 'B', 'C'];
 ---
@@ -21,20 +23,20 @@ const ids = ['A', 'B', 'C'];
     <FlowPath id="wr-c" d="M1260 670 C 1330 670 1340 520 1405 520" state="ok" thin />
   </g>
 
-  <AgentNode kind="planner" x={260} y={520} s={0.9} state="planner" label="PLANNER" />
-  <g data-k="exec" data-n="A"><AgentNode kind="executor" x={760} y={370} s={0.6} state="exec" /><text class="t-sm" x="760" y="436" text-anchor="middle" style="fill:var(--exec)">executor A</text></g>
-  <g data-k="exec" data-n="B"><AgentNode kind="executor" x={760} y={520} s={0.6} state="exec" /><text class="t-sm" x="760" y="586" text-anchor="middle" style="fill:var(--exec)">executor B</text></g>
-  <g data-k="exec" data-n="C"><AgentNode kind="executor" x={760} y={670} s={0.6} state="exec" /><text class="t-sm" x="760" y="736" text-anchor="middle" style="fill:var(--exec)">executor C</text></g>
-  {rows.map((y, i) => <g data-k="wt"><Worktree x={960} y={y - 55} w={300} h={110} branch={`job-${ids[i].toLowerCase()}`} state="exec" commits={4} tag="own worktree" /></g>)}
-  <g data-k="reviewer"><AgentNode kind="reviewer" x={1480} y={520} s={0.7} state="planner" label="REVIEWER" /></g>
+  <AgentNode kind="planner" x={260} y={520} s={0.9} state="planner" label={t('PLANNER')} />
+  <g data-k="exec" data-n="A"><AgentNode kind="executor" x={760} y={370} s={0.6} state="exec" /><text class="t-sm" x="760" y="436" text-anchor="middle" style="fill:var(--exec)">{t('executor A')}</text></g>
+  <g data-k="exec" data-n="B"><AgentNode kind="executor" x={760} y={520} s={0.6} state="exec" /><text class="t-sm" x="760" y="586" text-anchor="middle" style="fill:var(--exec)">{t('executor B')}</text></g>
+  <g data-k="exec" data-n="C"><AgentNode kind="executor" x={760} y={670} s={0.6} state="exec" /><text class="t-sm" x="760" y="736" text-anchor="middle" style="fill:var(--exec)">{t('executor C')}</text></g>
+  {rows.map((y, i) => <g data-k="wt"><Worktree x={960} y={y - 55} w={300} h={110} branch={`job-${ids[i].toLowerCase()}`} state="exec" commits={4} tag={t('own worktree')} /></g>)}
+  <g data-k="reviewer"><AgentNode kind="reviewer" x={1480} y={520} s={0.7} state="planner" label={t('REVIEWER')} /></g>
 
   <g data-k="wake" transform="translate(185 330)">
     <rect width="150" height="40" rx="3" fill="var(--steel-1)" stroke="var(--ok)" />
-    <text x="75" y="26" text-anchor="middle" class="t-md" style="fill:var(--ok)">WAKE TEAM</text>
+    <text x="75" y="26" text-anchor="middle" class="t-md" style="fill:var(--ok)">{t('WAKE TEAM')}</text>
   </g>
   <g data-k="sleep" transform="translate(185 330)">
     <rect width="150" height="40" rx="3" fill="var(--steel-1)" stroke="var(--fg-faint)" />
-    <text x="75" y="26" text-anchor="middle" class="t-md">SLEEP TEAM</text>
+    <text x="75" y="26" text-anchor="middle" class="t-md">{t('SLEEP TEAM')}</text>
   </g>
   <Capsule class="capB" x={260} y={520} s={0.8} state="exec" />
   <Capsule class="capC" x={260} y={520} s={0.8} state="exec" />

@@ -4,13 +4,27 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
 const GL_AJUSTES = '<svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 5.4L10.9 3.1L13.1 3.1L13.5 5.4L15.7 6.3L17.5 4.9L19.1 6.5L17.7 8.3L18.6 10.5L20.9 10.9L20.9 13.1L18.6 13.5L17.7 15.7L19.1 17.5L17.5 19.1L15.7 17.7L13.5 18.6L13.1 20.9L10.9 20.9L10.5 18.6L8.3 17.7L6.5 19.1L4.9 17.5L6.3 15.7L5.4 13.5L3.1 13.1L3.1 10.9L5.4 10.5L6.3 8.3L4.9 6.5L6.5 4.9L8.3 6.3Z"/><circle cx="12" cy="12" r="3"/></svg>';
-const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'biblioteca', 'equipos', 'ajustes'];
+const GL_PAPELERA = '<svg class="gl" aria-hidden="true"><use href="#i-papelera"/></svg>';
+const GL_REINDEXAR = '<svg class="gl" aria-hidden="true"><use href="#i-reindexar"/></svg>';
+// Orden del raíl, por bloques: Trabajo · Conocimiento · Herramientas · Sistema.
+// Las teclas 1-9 y 0 siguen este orden; las dos que sobran (Diario, Ajustes) tienen letra.
+const SECCIONES = ['inicio', 'trabajos', 'propuestas', 'rutinas', 'equipos', 'boveda', 'memoria', 'biblioteca', 'acciones', 'sistema', 'diario', 'ajustes'];
+const TECLA_SECCION = { diario: 'd', ajustes: 'a' };
+// Un glifo = un significado (los iconos del raíl son SVG: #i-<sección> en index.html).
+//   ○ ◐ ◕ ● ⊘   estado de un trabajo: en cola, ejecutando, en revisión, cerrado, cancelado
+//   □ ◧ ■        riesgo de una herramienta: lee, reversible, irreversible
+//   ◇            una propuesta (el rombo de la cápsula rosa de la escena)
+//   ¶ ◆ ◈        árbol de notas: nota, región compartida, promovida;  ≡ índice de la memoria
+//   ✎ ⌨ $        Ajustes: se cambia aquí, solo en terminal, lo fija una variable de entorno
+//   ● ○ ?        Biblioteca: activado, desactivado, no se sabe
+//   candado SVG  solo lectura (sin clave de sesión)
+//   ✓ ✕ !        hecho/aceptado, fallo/rechazado, atención
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
 const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm', equipos: 'q' };
-const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
+const RIESGO = { lectura: '□', reversible: '◧', irreversible: '■' };
 // Estados de un trabajo: glifo y palabra. El orden es el del recorrido.
 const EST = {
-  en_cola: ['○', 'en cola'], ejecutando: ['◐', 'ejecutando'], en_revision: ['◇', 'en revisión'],
+  en_cola: ['○', 'en cola'], ejecutando: ['◐', 'ejecutando'], en_revision: ['◕', 'en revisión'],
   en_espera: ['!', 'en espera'], cerrado: ['●', 'cerrado'], cancelado: ['⊘', 'cancelado'],
 };
 const FINAL = ['cerrado', 'cancelado'];
@@ -30,8 +44,8 @@ const NOMBRE = {
   'sin-rol': 'agente sin rol', desconocido: 'cliente desconocido',
 };
 const TITULOS = {
-  inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
-  trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su premio (el informe), el diff y lo que admite.'],
+  inicio: ['Inicio', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
+  trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su informe, el diff y lo que admite.'],
   diario: ['Diario', 'El registro de todo lo que ocurre en el ecosistema, lo más reciente arriba.'],
   rutinas: ['Rutinas', 'Máquinas de cápsulas amarillas, versionadas y registradas. Echa una ficha para lanzar una ahora sin esperar a su hora.'],
   propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
@@ -43,14 +57,24 @@ const TITULOS = {
   equipos: ['Equipos', 'Grupos de agentes despertados para una tarea: quién es planificador, ejecutor o revisor, quién está despierto, en qué trabaja y qué ha entregado. Despierta uno con ＋ despertar; dormirlo devuelve lo pendiente a la cola.'],
   ajustes: ['Ajustes', 'Cómo se comporta el ecosistema. Lo marcado ⌨ se cambia en una terminal con `ea ajustes`.'],
 };
+// Qué hacer a continuación en cada estado vacío (HTML propio; los botones que
+// mutan usan un data-a de MUTA y se apagan en solo lectura).
+const irSec = (sec, txt, titulo) => btn('ir-sec', txt, titulo, { id: sec });
+const VACIO_ACC = {
+  trabajos: () => btn('nueva-mision', '＋ misión', 'encargar una misión al ejecutor', {}, 'coin'),
+  rutinas: () => btn('rnueva', '＋ rutina', 'rutina nueva: abre el editor con una plantilla TOML', {}, 'coin'),
+  propuestas: () => irSec('trabajos', 'ir a Trabajos', 'ver los trabajos del ecosistema'),
+  equipos: () => btn('eq-nuevo', '＋ despertar', 'despertar un equipo de agentes', {}, 'coin'),
+  diario: () => btn('d-anotar', '✎ anotar', 'anotar en el diario: dejar constancia de algo con actor usuario', {}, 'coin'),
+};
 const VACIO = {
-  trabajos: 'No hay trabajos. Encarga una misión con ＋ misión, o desde el planificador con /mision, /obra o /rutina.',
-  diario: 'El diario está vacío.',
-  rutinas: 'No hay rutinas registradas (ea rutina registrar).',
-  propuestas: 'Nada espera tu decisión.',
+  trabajos: 'No hay trabajos. Encarga una misión, o desde el planificador con /mision, /obra o /rutina.',
+  diario: 'El diario está vacío: se llena solo cuando algo ocurre. También puedes dejar una anotación.',
+  rutinas: 'No hay rutinas registradas. Crea una, o pídele al planificador /rutina (ea rutina registrar).',
+  propuestas: 'Nada espera tu decisión. Las propuestas aparecen cuando un agente quiere cambiar algo.',
   boveda: 'No hay notas.',
   memoria: 'Ningún proyecto tiene memoria (~/.claude/projects/*/memory).',
-  equipos: 'No hay equipos. Despierta uno con ＋ despertar, o con ea equipo despertar.',
+  equipos: 'No hay equipos. Despierta uno para repartir trabajo entre varios agentes (o con ea equipo despertar).',
   biblioteca: 'La biblioteca está vacía: ningún agente tiene herramientas en disco (o los filtros no dejan ninguna).',
 };
 
@@ -65,6 +89,7 @@ const st = {
   nuevos: {},          // cwd -> instante hasta el que su tarjeta luce la clase nueva
   datos: null,         // datos de la sección visible
   detalle: {},         // detalle cargado de las filas abiertas
+  ordenes: new Set(),  // trabajos con «orden original» desplegada (id)
   diffs: {},           // diff de los trabajos con el diff desplegado (id -> respuesta)
   faseDiff: {},        // diff de las fases desplegadas ('<id>:<n>' -> respuesta)
   fasePlan: new Set(), // fases con el plan desplegado ('<id>:<n>')
@@ -126,7 +151,8 @@ const st = {
 const esc = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const ms = t => (typeof t === 'number' ? t * 1000 : Date.parse(t));
+// Epoch en segundos (bus) o ya en milisegundos (sesiones de Claude Code).
+const ms = t => (typeof t === 'number' ? (t < 1e11 ? t * 1000 : t) : Date.parse(t));
 const p2 = n => String(n).padStart(2, '0');
 
 function unidades(s) {
@@ -189,6 +215,153 @@ function fila(k, cls, row, txt, det = '', extra = '') {
   };
 }
 
+// ------------------------------------------------- etiquetas humanas (B4, #7)
+// Los tipos de evento que emiten los crates (ea-bus, ea-boveda, ea-mcp,
+// ea-acciones, ea-web, ea-cli, ea-orchestrator) con su frase. El diario sigue
+// guardando el identificador técnico: la etiqueta solo se pinta.
+const EVENTOS = {
+  heartbeat: 'Latido del orquestador',
+  bus_crear: 'Trabajo creado',
+  bus_tomar: 'Trabajo tomado por el ejecutor',
+  bus_entregar: 'Informe entregado',
+  bus_reformular: 'Trabajo reformulado',
+  bus_cerrar: 'Trabajo cerrado',
+  bus_cancelar: 'Trabajo cancelado',
+  bus_cancelado_en_curso: 'Cancelación en curso',
+  bus_poner_en_espera: 'Trabajo puesto en espera',
+  bus_confirmar: 'Corrección confirmada',
+  boveda_escritura: 'Nota escrita en la bóveda',
+  boveda_creacion: 'Nota creada en la bóveda',
+  boveda_edicion: 'Nota editada en la bóveda',
+  boveda_renombrado: 'Nota renombrada',
+  boveda_promocion: 'Nota promovida a la región compartida',
+  boveda_papelera: 'Nota enviada a la papelera',
+  boveda_restauracion: 'Nota restaurada de la papelera',
+  boveda_papelera_vaciada: 'Papelera vaciada',
+  boveda_papelera_carpeta: 'Carpeta enviada a la papelera',
+  boveda_carpeta: 'Carpeta creada en la bóveda',
+  boveda_carpeta_renombrada: 'Carpeta renombrada',
+  boveda_carpeta_eliminada: 'Carpeta eliminada',
+  boveda_reindexado: 'Bóveda reindexada',
+  memoria_editada: 'Memoria editada',
+  memoria_creada: 'Memoria creada',
+  memoria_eliminada: 'Memoria eliminada',
+  memoria_renombrada: 'Memoria renombrada',
+  propuesta_encolada: 'Propuesta puesta en cola',
+  propuesta_decidida: 'Propuesta decidida',
+  accion_ejecutada: 'Acción ejecutada',
+  accion_fallida: 'Acción fallida',
+  accion_terminal_abierta: 'Terminal abierta para una acción',
+  ajustes_cambiados: 'Ajustes cambiados',
+  rutina_registrada: 'Rutina registrada',
+  biblioteca_cambio: 'Herramienta activada o desactivada',
+  equipo_despertado: 'Equipo despertado',
+  equipo_dormido: 'Equipo dormido',
+  equipo_sesion_abierta: 'Sesión de equipo abierta',
+  usuario_nota: 'Nota del usuario',
+  // Un mcp_<x> es la herramienta ea_<x>; su sufijo dice si fue simulada o denegada.
+  mcp_escribir_nota: 'Nota escrita por MCP',
+  mcp_escribir_nota_simulada: 'Nota simulada por MCP',
+  mcp_escribir_nota_denegada: 'Escritura de nota denegada por MCP',
+};
+const HERRAMIENTAS = {
+  status: 'Consulta del estado', listar_trabajos: 'Consulta de trabajos', ver_trabajo: 'Consulta de un trabajo',
+  listar_equipos: 'Consulta de equipos', ver_equipo: 'Consulta de un equipo', listar_diario: 'Consulta del diario',
+  biblioteca: 'Consulta de la biblioteca', buscar_notas: 'Búsqueda de notas', leer_nota: 'Lectura de nota',
+  promover_nota: 'Promoción de nota', encolar_rutina: 'Rutina encolada', registrar_rutina: 'Registro de rutina',
+  programar_rutina: 'Programación de rutina', desprogramar_rutina: 'Rutina desprogramada',
+  retirar_rutina: 'Retirada de rutina', restaurar_rutina: 'Restauración de rutina', eliminar_rutina: 'Eliminación de rutina',
+  reiniciar_servicio: 'Reinicio de servicio', limpiar_worktree: 'Limpieza de worktree',
+  activar_herramienta: 'Activación de herramienta', desactivar_herramienta: 'Desactivación de herramienta',
+  lanzar_sesion: 'Sesión lanzada',
+};
+// «a_b_c» → «A b c»: lo que se enseña de un identificador que no está en el mapa.
+const humaniza = s => { const t = String(s ?? '').replace(/_+/g, ' ').trim(); return t ? t[0].toUpperCase() + t.slice(1) : ''; };
+function eventoHumano(accion) {
+  if (EVENTOS[accion]) return EVENTOS[accion];
+  const m = /^mcp_([a-z_]+?)(_simulada|_denegada)?$/.exec(accion ?? '');
+  if (m) {
+    const base = HERRAMIENTAS[m[1]] ?? humaniza(m[1]);
+    return `${base}${m[2] === '_simulada' ? ', simulada' : m[2] === '_denegada' ? ', denegada' : ''} (MCP)`;
+  }
+  return humaniza(accion);
+}
+// La etiqueta con el identificador técnico en gris pequeño al lado.
+const eventoHtml = accion => `${esc(eventoHumano(accion))} <small class="ids">${esc(accion)}</small>`;
+// Una herramienta: «ea_listar_trabajos» → «Listar trabajos».
+const herramientaHumana = n => humaniza(String(n ?? '').replace(/^ea_/, ''));
+
+// Cómo se llama un trabajo donde solo hay su id: el título si el panel lo
+// tiene cargado; si no, el final del id («…a1b2c3»), que es lo distintivo.
+function nombreTrabajo(id) {
+  const t = st.trabajos?.find(x => x.id === id);
+  return t?.titulo || '…' + String(id).slice(-6);
+}
+
+// Truncado que deja ver el sufijo distintivo («ecosistema-asi…-38»): el
+// principio se recorta con puntos suspensivos y las últimas `cola` letras
+// siempre se ven. El texto completo va en el title de quien lo use.
+function truncaFinal(texto, cola = 4) {
+  const t = String(texto ?? '');
+  if (t.length <= cola + 6) return `<span class="tr"><span class="tr-a">${esc(t)}</span></span>`;
+  return `<span class="tr"><span class="tr-a">${esc(t.slice(0, -cola))}</span><span class="tr-z">${esc(t.slice(-cola))}</span></span>`;
+}
+
+// ---------------------------------------------------------- solo lectura
+// Sin clave de sesión el panel solo lee. En vez de marcar botón a botón, esta
+// lista dice qué acciones (`data-a`) escriben o lanzan algo (todas acaban en un
+// POST que exige la clave) y `aplicaLectura` apaga esos botones, y los campos
+// que solo sirven para escribir, allí donde estén pintados. El servidor sigue
+// siendo quien rechaza (403): esto solo evita pulsar en falso.
+const MUTA = new Set([
+  // trabajos
+  'cerrar', 'cancelar', 'continuar', 'reformular', 'confirmar', 'clonar', 'nueva-mision', 'crear-mision', 'wtlimpiar',
+  // propuestas, herramientas y servicios
+  'decidir', 'simular', 'ejecutar', 'terminal', 'reiniciar', 'poner-rol',
+  // rutinas
+  'lanzar', 'rprevia', 'rvalidar', 'rregistrar', 'rnueva', 'red', 'rretiro', 'rhguardar', 'rhquitar',
+  // equipos
+  'eq-nuevo', 'eq-despertar', 'eq-dormir',
+  // ajustes
+  'ajuste-guardar', 'ajuste-defecto',
+  // diario
+  'd-anotar', 'd-anotar-enviar', 'd-corregir',
+  // biblioteca
+  'bib-sesion', 'bib-simular', 'bib-ejecutar', 'bib-ses-simular', 'bib-ses-ejecutar', 'bib-cat', 'bib-cat-guardar', 'bib-cat-quitar',
+  // bóveda y memoria
+  'nueva-memoria-nota', 'confirmar-memoria-nota', 'crear-nota', 'carpeta-nota', 'guardar-nota', 'vaciar-papelera',
+  'restaurar-nota', 'renombrar-nota', 'eliminar-nota', 'mostrar-nota', 'promover-nota', 'carpeta-menu',
+  'carpeta-renombrar', 'carpeta-eliminar', 'reindexar-boveda',
+]);
+// Campos que solo existen para preparar una escritura.
+const CAMPOS_ESCRITURA = 'textarea.nota, textarea.editor, [data-rff], [data-aj], [data-rent], [data-rhor], [data-bcat], [data-bs-el], ' +
+  '[data-an], [data-nm], [data-nf], [data-eq], [data-eqm], [data-eqr], [data-mc], [data-ed], input.ren';
+function aplicaLectura(raiz = document) {
+  const sin = !ea.escritura();
+  if (!sin && !document.querySelector('[data-lectura]')) return;
+  const escribe = el => el.matches('button[data-a]') ? (MUTA.has(el.dataset.a) || (el.dataset.a === 'modo-nota' && el.getAttribute('aria-pressed') !== 'true')) : true;
+  for (const el of $$('button[data-a], ' + CAMPOS_ESCRITURA, raiz)) {
+    if (!escribe(el)) continue;
+    if (sin) {
+      if (el.disabled && !('lectura' in el.dataset)) continue; // ya apagado por otra razón
+      if (!('lectura' in el.dataset)) el.dataset.lectura = el.getAttribute('title') ?? '';
+      el.disabled = true;
+      el.title = ea.avisoLectura;
+    } else if ('lectura' in el.dataset) {
+      el.disabled = false;
+      if (el.dataset.lectura) el.title = el.dataset.lectura; else el.removeAttribute('title');
+      delete el.dataset.lectura;
+    }
+  }
+}
+// El repintado de la lista y de las fichas pasa por aquí antes de pintarse.
+let lecturaPendiente = false;
+new MutationObserver(() => {
+  if (lecturaPendiente) return;
+  lecturaPendiente = true;
+  queueMicrotask(() => { lecturaPendiente = false; aplicaLectura(); });
+}).observe(document.body, { childList: true, subtree: true });
+
 const btn = (a, glifo, titulo, datos = {}, cls = '') =>
   `<button class="b ${cls}" data-a="${a}" title="${esc(titulo)}" aria-label="${esc(titulo)}"` +
   Object.entries(datos).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('') + `>${glifo}</button>`;
@@ -209,7 +382,7 @@ function eventos(lista) {
     const ex = extracto(e);
     return `<div class="ev"><span>${hora(e.ts)}</span>` +
       `<i class="${err ? 'hot' : ''}">${e.resultado === 'ok' ? '✓' : err ? '✕' : '·'}</i>` +
-      `<span>${esc(e.actor)}</span><span>${esc(e.accion)}</span><span>${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>` +
+      `<span>${esc(e.actor)}</span><span title="${esc(e.accion)}">${esc(eventoHumano(e.accion))}</span><span>${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>` +
       (ex ? `<span class="ex${err ? ' hot' : ''}">${esc(ex)}</span>` : '') + `</div>`;
   }).join('');
 }
@@ -217,7 +390,9 @@ function eventos(lista) {
 // ------------------------------------------------------------------- trabajos
 
 // «cancelando…»: cancelado, pero el ejecutor aún tiene su worktree (parando al agente).
-const estadoJ = t => `<span class="est ${t.estado}">${capsulaJ(t)}${t.cancelando ? 'cancelando…' : EST[t.estado][1]}</span>`;
+// Estado ≠ resultado: un trabajo cerrado cuyo informe quedó bloqueado dice «cerrado · falló» en rojo.
+const falloJ = t => t.estado === 'cerrado' && t.resultado === 'bloqueado';
+const estadoJ = t => `<span class="est ${t.estado}${falloJ(t) ? ' fallo' : ''}">${capsulaJ(t)}${t.cancelando ? 'cancelando…' : EST[t.estado][1] + (falloJ(t) ? ' · falló' : '')}</span>`;
 const NO_SE_DESHACE = 'lo que el agente ya escribió en el worktree no se deshace';
 
 // «fase 2/5» o «iteración 3», lo que diga más del avance.
@@ -226,18 +401,18 @@ function avance(t) {
   return t.iteracion ? `iteración ${t.iteracion}` : '';
 }
 
-// El informe es el premio del trabajo: [texto, clase]. En una tarjeta
+// El informe del trabajo: [texto, clase]. En una tarjeta
 // (`largo`) dice además por qué falló.
 function premio(t, largo = false) {
   const av = avance(t);
   const con = (...xs) => xs.filter(Boolean).join(' · ');
   if (t.cancelando) return ['⊘ cancelando…', 'hot'];
-  if (t.estado === 'cancelado') return ['⊘ sin premio', ''];
+  if (t.estado === 'cancelado') return ['⊘ sin informe', ''];
   if (t.resultado === 'bloqueado' || t.estado === 'en_espera') {
-    const roto = t.estado === 'cerrado' ? '✕ premio roto' : '✕ bloqueado';
+    const roto = t.estado === 'cerrado' ? '✕ falló' : '✕ bloqueado';
     return [largo && t.detalle ? '✕ ' + t.detalle.slice(0, 120) : roto, 'hot'];
   }
-  if (t.resultado && t.estado === 'en_revision') return [con(largo ? '✓ trae premio' : '★ terminado', av), largo ? '' : 'pz'];
+  if (t.resultado && t.estado === 'en_revision') return [con(largo ? '✓ trae informe' : '★ terminado', av), largo ? '' : 'pz'];
   if (t.resultado) return [t.obra_completa && t.fases_total ? `★ obra completa · ${t.fases_total}/${t.fases_total}` : con('★ terminado', av), 'pz'];
   return [av, ''];
 }
@@ -248,15 +423,15 @@ function accionesTrabajo(t, i, mas = '') {
   const b = (a, g, tt, cls = '') => btn(a, g, tt, { id: t.id }, cls);
   let h = '';
   if (t.estado === 'en_revision') {
-    h += b('cerrar', '★ canjear <span>cerrar</span>', 'cerrar: darlo por bueno', 'coin');
-    if (i && !i.obra_completa) h += b('continuar', '▶ seguir girando <span class="dd">continuar</span>', 'la obra sigue con las fases que quedan');
+    h += b('cerrar', 'Cerrar', 'cerrar el trabajo: darlo por bueno', 'coin');
+    if (i && !i.obra_completa) h += b('continuar', 'Continuar', 'continuar: la obra sigue con las fases que quedan');
     h += reformularHtml(t);
   } else if (t.estado === 'en_espera') {
     h += `<textarea class="nota" rows="2" placeholder="contexto que se añade al paquete (opcional)" aria-label="Contexto" maxlength="10000"></textarea>` +
-      b('confirmar', '✓ desatascar', 'pasa el paquete de corrección al planificador', 'coin hot');
+      b('confirmar', 'Confirmar corrección', 'confirmar: pasa el paquete de corrección al planificador', 'coin hot');
   }
   h += mas;
-  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
+  if (!FINAL.includes(t.estado)) h += b('cancelar', 'Cancelar', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
   return h ? `<div class="acc" data-j="${id}">${h}</div>` : '';
 }
 
@@ -273,7 +448,7 @@ function reformularHtml(t) {
     h += '<p class="et">notas anteriores</p>' +
       o.notas_revision.map((n, i) => `<p class="tx"><span class="dd">${i + 1}.</span> ${esc(n)}</p>`).join('');
   }
-  h += `<textarea class="nota" data-rf="${id}" rows="3" placeholder="nota para volver a girar: qué falla y qué cambiar" aria-label="Nota para reformular" maxlength="10000">${esc(bo.nota ?? '')}</textarea></div>`;
+  h += `<textarea class="nota" data-rf="${id}" rows="3" placeholder="nota para reformular: qué falla y qué cambiar" aria-label="Nota para reformular" maxlength="10000">${esc(bo.nota ?? '')}</textarea></div>`;
   if (t.modo === 'obra' && t.fases_total) {
     const fases = o?.fases?.length ? o.fases : Array.from({ length: t.fases_total }, (_, i) => ({ numero: i + 1 }));
     const nums = fases.map(f => f.numero);
@@ -283,7 +458,7 @@ function reformularHtml(t) {
       fases.map(f => `<option value="${f.numero}"${f.numero === elegida ? ' selected' : ''}>rehacer desde la fase ${f.numero}` +
         `${f.titulo ? ': ' + esc(f.titulo) : ''}${f.numero === pend ? ' · pendiente' : ''}</option>`).join('') + '</select>';
   }
-  return h + btn('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al ejecutor con esta nota (obligatoria)', { id: t.id });
+  return h + btn('reformular', 'Reformular', 'reformular: devolverlo al ejecutor con esta nota (obligatoria)', { id: t.id });
 }
 
 // «qwen-code (qwen3-coder-30b)»: con qué agente y modelo se ejecutó (spec 017).
@@ -301,8 +476,8 @@ function informeHtml(d) {
     h += '<p class="et">fases</p>' + i.fases.map(f =>
       `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="dd">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}${f.ejecutado_por ? ' · ' + porQuien(f.ejecutado_por) : ''}</span></p>`).join('');
   }
-  return `<div class="caja-premio"><div class="cab-p"><span class="premio">★ PREMIO</span>` +
-    `<span class="${bloq ? 'hot' : 'x'}">${bloq ? '✕ bloqueado' : '✓ terminado'}</span>` +
+  return `<div class="caja-premio"><div class="cab-p"><span class="premio">INFORME</span>` +
+    `<span class="${bloq ? 'hot' : 'x'}">${bloq ? '✕ falló · bloqueado' : '✓ terminado'}</span>` +
     `<span class="m">· obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s${i.ejecutado_por ? ' · ' + porQuien(i.ejecutado_por) : ''}</span></div>` +
     `<div class="cuerpo-p">${h}</div></div>`;
 }
@@ -422,35 +597,54 @@ function colorDiff(txt) {
   }).join('\n');
 }
 
+// La orden tal como se lanzó (objetivo, worktree, criterio, topes), plegada:
+// el objetivo puede ser un prompt de decenas de líneas.
+function ordenOriginal(t, d) {
+  const o = d.orden, abierto = st.ordenes.has(t.id);
+  const h = `<p class="et">${btn('orden', (abierto ? '▾' : '▸') + ' orden original', 'mostrar u ocultar el objetivo y los datos de la orden', { id: t.id }, 'l')}</p>`;
+  if (!abierto) return h;
+  return h + `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
+    `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
+    (d.estado?.ejecutado_por ? `<p class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</p>` : '') +
+    metaTrabajo(o, d.worktree);
+}
+
 function filasTrabajos(ts) {
   return ts.map(t => {
     const k = 'j' + t.id;
     const [pz, pzCls] = premio(t);
-    const row = estadoJ(t) + `<span class="n">${esc(t.id.slice(9, 15))}</span>` +
-      `<span class="x">${esc(t.titulo)}</span><span class="m w">${MODO[t.modo] ?? t.modo}${t.rutina ? ' · ' + esc(t.rutina.slug) + ' v' + t.rutina.version : ''}</span>` +
+    // El id no es columna: va en el title del título y en el detalle.
+    const row = estadoJ(t) +
+      `<span class="x" title="${esc(t.titulo)} · ${esc(t.id)}">${esc(t.titulo)}</span><span class="m w">${MODO[t.modo] ?? t.modo}${t.rutina ? ' · ' + esc(t.rutina.slug) + ' v' + t.rutina.version : ''}</span>` +
       `<span class="m ${pzCls}">${esc(pz || '—')}</span><span class="m">${reloj(t.actualizado)}</span>`;
     const d = st.detalle[k];
     let det = `<p class="m">${esc(t.id)} · creado ${hora(t.creado)}${t.detalle ? ' · ' + esc(t.detalle) : ''}</p>`;
     if (t.cancelando) det += `<p class="m hot">cancelando…: el ejecutor está parando al agente y soltará el worktree; ${NO_SE_DESHACE}.</p>`;
     if (d) {
+      // Orden de la ficha: resultado → acciones → informe → diff → historial,
+      // y la orden original (el objetivo, a menudo largo) plegada al final.
       const o = d.orden;
-      det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
-        `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
-        (d.estado?.ejecutado_por ? `<p class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</p>` : '') +
-        metaTrabajo(o, d.worktree) +
-        (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
+      const [pz, pzCls] = premio(t, true);
+      det += `<div class="resultado">${estadoJ(t)}` +
+        (pz ? `<span class="${pzCls === 'pz' ? 'x' : pzCls || 'm'}">${esc(pz)}</span>` : '') +
+        (d.informe ? `<span class="m">${d.informe.fases_hechas} fases hechas · ${d.informe.duracion_s}s${d.informe.ejecutado_por ? ' · ' + porQuien(d.informe.ejecutado_por) : ''}</span>` : '') +
+        (d.estado?.ejecutado_por && !d.informe ? `<span class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</span>` : '') +
+        '</div>';
+      // El paquete de corrección se lee antes de decidir: va sobre los botones.
+      if (d.paquete) det += `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>`;
+      det += accionesTrabajo(t, d.informe);
+      if (FINAL.includes(t.estado)) det += botonClonar(t);
+      det += (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
         informeHtml(d) +
         resumenAgente(d) +
         planObra(t.id, d) +
-        (d.paquete ? `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>` : '') +
         (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
         `<p class="et">historial ${btn('ir-diario', '→ diario', 'los eventos de este trabajo en el diario', { id: t.id }, 'l')}</p><div class="evs">` + d.historial.map(h =>
-          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span>${esc(h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}${h.ejecutado_por ? ' · ' + esc(h.ejecutado_por.agente) : ''}</span></div>`).join('') + '</div>' +
-        accionesTrabajo(t, d.informe);
+          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span title="${esc(h.evento)}">${esc(EVENTOS['bus_' + h.evento] ?? h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}${h.ejecutado_por ? ' · ' + esc(h.ejecutado_por.agente) : ''}</span></div>`).join('') + '</div>' +
+        ordenOriginal(t, d);
     } else {
       det += accionesTrabajo(t, null);
     }
-    if (d && FINAL.includes(t.estado)) det += botonClonar(t);
     return fila(k, 'j', row, `${t.titulo} ${t.modo} ${t.id} ${EST[t.estado][1]} ${t.resultado ?? ''}`, det, FINAL.includes(t.estado) ? ' fin' : '');
   });
 }
@@ -488,7 +682,7 @@ function formMision() {
       : btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del ejecutor', {}, 'coin')) +
     btn('nueva-mision', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
   const nombre = obra ? 'obra' : 'misión';
-  const row = `<span class="est">${capsula(obra ? COLOR.obra : COLOR.mision)}nueva</span><span class="n">—</span>` +
+  const row = `<span class="est">${capsula(obra ? COLOR.obra : COLOR.mision)}nueva</span>` +
     `<span class="x">${esc(v.titulo || nombre + ' sin título')}</span><span class="m w">${nombre}</span>` +
     `<span class="m">${obra ? `${n.fases.length} ${n.fases.length === 1 ? 'fase' : 'fases'}` : 'para el ejecutor'}</span><span class="m"></span>`;
   return [suelto(`<article class="f o nueva"><div class="r j">${row}</div><div class="det">${det}</div></article>`, true)];
@@ -760,14 +954,14 @@ function filasDiario(evs) {
     const k = 'e' + e.id;
     const row = `<span class="m">${hora(e.ts)}</span>` +
       `<i class="${e.resultado === 'error' ? 'hot' : 'm'}">${e.resultado === 'ok' ? '✓' : e.resultado === 'error' ? '✕' : '·'}</i>` +
-      `<span class="m w">${esc(e.actor)}</span><span class="x">${esc(e.accion)}</span>` +
-      `<span class="n" title="${esc(e.trabajo ?? '')}">${e.trabajo ? esc(e.trabajo.slice(-8)) : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
-    const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${new Date(e.ts).toLocaleString()}</p>` +
+      `<span class="m w">${esc(e.actor)}</span><span class="x" title="${esc(e.accion)}">${eventoHtml(e.accion)}</span>` +
+      `<span class="n" title="${esc(e.trabajo ?? '')}">${e.trabajo ? esc(nombreTrabajo(e.trabajo)) : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
+    const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${esc(e.accion)} · ${new Date(e.ts).toLocaleString()}</p>` +
       (e.detalle ? `<pre>${esc(pretty(e.detalle))}</pre>` : '') +
       (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '') +
       correccionesDiario(e) +
       enlacesEvento(e);
-    return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
+    return fila(k, 'd', row, `${e.actor} ${e.accion} ${eventoHumano(e.accion)} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
   });
 }
 
@@ -826,7 +1020,7 @@ function formEntradas(r) {
     btn('rprevia', '◌ vista previa', 'muestra el objetivo y el criterio que recibirá el agente, sin lanzar nada', { slug: r.slug }) + '</div>';
   if (re.previa) {
     h += `<p class="tx sal">criterio: <b>${esc(re.previa.criterio)}</b></p><pre class="toml sal">${esc(re.previa.objetivo)}</pre>` +
-      `<div class="acc sal">${btn('lanzar', '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha', 'lanzar con estas entradas', { slug: r.slug }, 'coin')}</div>`;
+      `<div class="acc sal">${btn('lanzar', '<span class="ranura" aria-hidden="true"><i></i></span>Lanzar rutina', 'lanzar con estas entradas', { slug: r.slug }, 'coin')}</div>`;
   }
   if (re.err) h += `<p class="hot sal">✕ ${esc(re.err)}</p>`;
   return h;
@@ -850,7 +1044,7 @@ function filasRutinas(rs) {
       ultimaRutina(r.ultima) +
       (retirada ? '<span class="m fuera">retirada</span>'
         : r.error ? '<span class="hot fuera">fuera de servicio</span>'
-        : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
+        : btn('lanzar', enCola ? '✓ en cola' : '<span class="ranura" aria-hidden="true"><i></i></span>Lanzar rutina',
           `Lanzar ahora la rutina ${r.slug} con las entradas de su ficha: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
     const d = st.detalle[k];
     const editando = st.rutEd?.slug === r.slug;
@@ -1165,6 +1359,22 @@ function versionesHtml(slug) {
     `<pre class="diff">${colorDiff(diffLineas(V.txt[ant.version], txt) || '(sin cambios)')}</pre>`;
 }
 
+// Los botones de decidir una propuesta pendiente (también los usa la bandeja «Te espera»).
+// Aceptar una propuesta con acción la ejecuta: pide confirmar (segundo
+// clic). Una irreversible no se confirma desde aquí, solo en terminal.
+function botonesPropuesta(p) {
+  if (p.estado !== 'pendiente') return '';
+  const ac = p.accion;
+  const irrev = ac && ac.riesgo === 'irreversible';
+  const armada = st.armado && st.armado.n === 'p' + p.id && st.armado.hasta > Date.now();
+  let acc = '';
+  // Irreversible: la web solo abre la terminal; la frase se escribe allí.
+  if (irrev) acc += btn('terminal', '⌨ terminal', `irreversible: abre una terminal con ea propuestas decidir ${p.id}; allí se confirma escribiendo «confirmo ${p.id}»`, { id: p.id }, 'hot');
+  else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
+  else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' }, 'coin');
+  return acc + btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
+}
+
 function filasPropuestas(ps) {
   // La recién aceptada (A1) sigue a la vista con lo que produjo, aunque ya no
   // esté entre las pendientes, hasta que se cambia de sección.
@@ -1180,14 +1390,7 @@ function filasPropuestas(ps) {
     // Aceptar una propuesta con acción la ejecuta: pide confirmar (segundo
     // clic). Una irreversible no se confirma desde aquí, solo en terminal.
     const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
-    let acc = '';
-    if (pend) {
-      // Irreversible: la web solo abre la terminal; la frase se escribe allí.
-      if (irrev) acc += btn('terminal', '⌨ terminal', `irreversible: abre una terminal con ea propuestas decidir ${p.id}; allí se confirma escribiendo «confirmo ${p.id}»`, { id: p.id }, 'hot');
-      else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
-      else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' }, 'coin');
-      acc += btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
-    }
+    const acc = botonesPropuesta(p);
     const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : '';
     const row = `<span title="${glifo} ${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${capsula(COLOR.propuesta, falla ? 'hot' : pend ? '' : 'cerrada', 18, true)}</span><span class="n">#${p.id}</span>` +
       `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${reloj(p.creada)}</span><span class="bs">${acc}</span>`;
@@ -1408,11 +1611,21 @@ function arbolNotas(A, E, nodos, prof = 0) {
   }).join('');
 }
 
+// Sin nota elegida: las más recientes (por fecha de actualización) como enlaces.
+function recientes(A, d) {
+  const lista = (A.recientes?.(d) ?? []).slice(0, 10);
+  const cab = `<p class="vacio">Elige una ${A.cosa} del árbol` + (lista.length ? ' o abre una reciente.' : '.') + '</p>';
+  if (!lista.length) return cab;
+  return cab + '<h3 class="rec-cab">Recientes</h3><ul class="rec">' + lista.map(r =>
+    `<li><a class="ml" href="#" data-ml="${esc(r.k)}" title="${esc(r.titulo)}">${esc(r.nombre)}</a>` +
+    `<span class="m">${esc(r.sub)}</span>${r.t != null ? `<span class="m">hace ${reloj(r.t)}</span>` : ''}</li>`).join('') + '</ul>';
+}
+
 function notaEditor(A, E, d) {
   const panel = A.panel?.(d, E);
   if (panel) return panel;
   const k = E.sel;
-  if (!k) return `<p class="vacio">Elige una ${A.cosa} del árbol.</p>`;
+  if (!k) return recientes(A, d);
   const x = st.detalle[k], e = E.borrador?.k === k ? E.borrador : null;
   if (!x && !e) return '<p class="vacio">Cargando…</p>';
   const edita = E.modo === 'edicion' && e;
@@ -1451,6 +1664,11 @@ function pintaEditor() {
     E.borrador = null;
   }
   asegurarBorrador(E);
+  if (E.plegadoInicial && !A.vacio(d)) {
+    E.plegadoInicial = false;
+    A.arbol(d, '').forEach(n => { if (n.hijos) E.plegados.add(n.d); });
+    if (E.sel) A.desplegar?.(E, E.sel);
+  }
   const nodos = A.arbol(d, st.q.trim().toLowerCase());
   st.vis = clavesVisibles(E, nodos);
   if (A.vacio(d)) {
@@ -1524,10 +1742,16 @@ EDITOR.memoria = {
         d: p.id, etiqueta: et.get(p.id), titulo: p.cwd ?? p.id, cuenta: p.ficheros.length,
         hijos: fs.map(f => ({
           k: claveMem(p.id, f.nombre), nombre: f.nombre.replace(/\.md$/, ''), titulo: f.descripcion ?? f.titulo ?? f.nombre,
-          icono: f.nombre === INDICE ? '≡' : '◇', iconoTitulo: f.nombre === INDICE ? 'índice de las memorias' : 'memoria',
+          icono: f.nombre === INDICE ? '≡' : '¶', iconoTitulo: f.nombre === INDICE ? 'índice de las memorias' : 'memoria',
         })),
       };
     }).filter(g => g.hijos.length);
+  },
+  recientes(d) {
+    const et = etiquetasMem(d.proyectos);
+    return d.proyectos.flatMap(p => p.ficheros.map(f => ({
+      k: claveMem(p.id, f.nombre), nombre: f.nombre.replace(/\.md$/, ''), sub: et.get(p.id), titulo: f.descripcion ?? f.titulo ?? f.nombre, t: f.modificada ?? null,
+    }))).sort((a, b) => (b.t == null ? 0 : ms(b.t)) - (a.t == null ? 0 : ms(a.t)));
   },
   nombre: k => partesMem(k)[1],
   nombreEditable: k => partesMem(k)[1].replace(/\.md$/, ''),
@@ -1781,8 +2005,8 @@ EDITOR.boveda = {
       dir(carpetaDe(n.ruta)).hijos.push({
         k: 'b' + n.ruta, nombre: n.ruta.split('/').pop().replace(/\.md$/, ''),
         titulo: n.titulo + (n.autor ? ' · ' + (NOMBRE[n.autor] ?? n.autor) : ''),
-        icono: n.region === 'compartida' ? '◆' : promovida ? '◈' : '◇',
-        iconoTitulo: n.region + (promovida ? ' · promovida' : ''),
+        icono: n.region === 'compartida' ? '◆' : promovida ? '◈' : '¶',
+        iconoTitulo: (n.region === 'compartida' ? 'región compartida' : promovida ? 'promovida' : 'nota') + (n.region !== 'compartida' ? ' · ' + n.region : ''),
       });
     }
     const ordena = n => {
@@ -1795,6 +2019,9 @@ EDITOR.boveda = {
     const poda = ns => ns.filter(n => !n.hijos || n.cuenta > 0).map(n => (n.hijos ? { ...n, hijos: poda(n.hijos) } : n));
     return q ? poda(raices) : raices;
   },
+  recientes: d => d.notas.map(n => ({
+    k: 'b' + n.ruta, nombre: n.ruta.split('/').pop().replace(/\.md$/, ''), sub: carpetaDe(n.ruta), titulo: n.titulo, t: n.actualizada ?? null,
+  })).sort((a, b) => (b.t == null ? 0 : ms(b.t)) - (a.t == null ? 0 : ms(a.t))),
   nombre: k => rutaB(k).split('/').pop(),
   // Lo que se escribe al renombrar: la ruta dentro de la región, sin .md.
   nombreEditable: k => rutaB(k).split('/').slice(1).join('/').replace(/\.md$/, ''),
@@ -1841,8 +2068,8 @@ EDITOR.boveda = {
     let h = '<div class="arbol-bar">' +
       btn('crear-nota', '＋ nota', 'nota nueva (solo en la región compartida)', {}, E.creando === 'nota' ? 'on' : '') +
       btn('carpeta-nota', '＋ carpeta', 'carpeta nueva, en cualquier región', {}, E.creando === 'carpeta' ? 'on' : '') +
-      btn('papelera-nota', 'papelera' + (n ? ` (${n})` : ''), 'las notas borradas: se pueden restaurar', {}, E.papelera ? 'on' : '') +
-      btn('reindexar-boveda', '↻ reindexar', 'reconstruye el índice de búsqueda desde los ficheros (no toca las notas)') +
+      btn('papelera-nota', GL_PAPELERA + ' papelera' + (n ? ` (${n})` : ''), 'las notas borradas: se pueden restaurar', {}, E.papelera ? 'on' : '') +
+      btn('reindexar-boveda', GL_REINDEXAR + ' reindexar', 'reconstruye el índice de búsqueda desde los ficheros (no toca las notas)') +
       '</div>';
     const i = d.indice;
     if (i && i.desfasado) {
@@ -2025,7 +2252,7 @@ function filasSistema(e, plano = false, ag = null) {
   if (!plano) out.push(filaServicios(ag?.plan));
   e.agentes.forEach((a, i) => {
     const modelo = a.modelo ?? 'su modelo propio';
-    const hizo = a.ultimo ? esc(a.ultimo.accion) + (a.ultimo_agente && a.ultimo_agente !== a.agente ? ` (${esc(a.ultimo_agente)})` : '') : 'sin actividad';
+    const hizo = a.ultimo ? esc(eventoHumano(a.ultimo.accion)) + (a.ultimo_agente && a.ultimo_agente !== a.agente ? ` (${esc(a.ultimo_agente)})` : '') : 'sin actividad';
     const row = `<i class="n">◈</i><span class="x">${esc(a.rol)}</span>` +
       `<span class="m" title="${esc(a.agente)} con ${esc(modelo)}"><b class="ag">${esc(a.agente_nombre || a.agente)}</b> · ${esc(modelo)} · ${hizo}</span>` +
       `<span class="m" title="${esc(a.ultimo?.accion ?? '')}">${reloj(a.ultimo?.ts)}</span><span></span>`;
@@ -2162,7 +2389,7 @@ function filasAcciones(hs) {
   return hs.map(h => {
     const c = st.consola[h.nombre] || {};
     const row = `<i class="${h.riesgo === 'irreversible' ? 'hot' : 'm'}" title="${h.riesgo}">${RIESGO[h.riesgo]}</i>` +
-      `<span class="x">${esc(h.nombre)}</span><span class="m">${esc(h.resumen)}</span><span class="m">${h.riesgo}</span>`;
+      `<span class="x" title="${esc(h.nombre)}">${esc(herramientaHumana(h.nombre))} <small class="ids">${esc(h.nombre)}</small></span><span class="m">${esc(h.resumen)}</span><span class="m">${h.riesgo}</span>`;
     let det;
     if (!h.supervisada) {
       det = '<p class="m">Herramienta de los agentes: se ejecuta al invocarla, sin confirmación. No se lanza desde aquí.</p>';
@@ -2223,7 +2450,7 @@ function historialHerramienta(hs) {
       (e.error ? ` · <span class="hot">${esc(e.error)}</span>` : '');
     return `<div class="ev"><span title="${esc(e.ts)}">${hora(e.ts)}</span>` +
       `<span class="${mal ? 'hot' : 'm'}" title="${esc(e.resultado ?? '')}">${mal ? '✕' : e.resultado === 'ok' ? '✓' : '·'}</span>` +
-      `<span>${btn('ir-evento', '#' + e.id, 'ir al evento #' + e.id + ' en el diario', { id: e.id }, 'l')} ${esc(e.accion)}${extra}</span>` +
+      `<span>${btn('ir-evento', '#' + e.id, 'ir al evento #' + e.id + ' en el diario', { id: e.id }, 'l')} <span title="${esc(e.accion)}">${esc(eventoHumano(e.accion))}</span>${extra}</span>` +
       `<span class="m" title="${esc(e.actor)}">${esc(e.actor)}</span>` +
       `<span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span></div>`;
   }).join('') + '</div>';
@@ -2324,11 +2551,29 @@ function categoriaFicha(e) {
     '<p class="m">También con <b>ea ajustes establecer biblioteca.categorias=…</b>.</p>';
 }
 
+// Las herramientas con el mismo tipo y nombre en otro agente o en el ecosistema:
+// la biblioteca no guarda la relación de copia, así que se agrupa por nombre.
+function gemelosBib(e) {
+  return (st.datos?.elementos ?? []).filter(x => x.id !== e.id && x.tipo === e.tipo && x.nombre === e.nombre);
+}
+function marcaGemelosBib(e) {
+  const g = gemelosBib(e);
+  if (!g.length) return ['', ''];
+  const eco = g.find(x => x.agente === 'ecosistema');
+  const otros = [...new Set(g.map(x => nombreAgenteBib(x.agente)))].join(', ');
+  const corto = eco && e.agente !== 'ecosistema' ? '⧉ copia de ecosistema' : `⧉ ×${g.length + 1}`;
+  const largo = eco && e.agente !== 'ecosistema'
+    ? `copia de ecosistema/${e.nombre}: el original está en ${eco.ruta}`
+    : `mismo ${e.tipo} «${e.nombre}» también en: ${otros}`;
+  return [corto, largo];
+}
+
 function filaBib(e) {
+  const [dupCorto, dupLargo] = marcaGemelosBib(e);
   const [glifo, cls, tit] = ESTADO_BIB[e.activado] ?? ESTADO_BIB.desconocido;
   const u = usoBib(e.id);
   const usos = u ? `${u.total}` : st.bibUso?.mapa ? '—' : '…';
-  const row = `<i class="${cls}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(e.nombre)}">${esc(e.nombre)}</span>` +
+  const row = `<i class="${cls}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(e.nombre)}">${esc(e.nombre)}${dupCorto ? ` <small class="dup" title="${esc(dupLargo)}">${esc(dupCorto)}</small>` : ''}</span>` +
     `<span class="m">${esc(nombreAgenteBib(e.agente))}</span><span class="m" title="${esc(e.ambito)}">${esc(e.ambito)}</span>` +
     `<span class="m" title="${u ? 'último uso hace ' + esc(hace(u.ultimo)) : ''}">${usos}</span>`;
   const sesionOk = e.sesion.length > 0;
@@ -2336,6 +2581,7 @@ function filaBib(e) {
     `<p class="m">${esc(e.id)}</p>` +
     `<p class="m">${esc(e.tipo)} de ${esc(nombreAgenteBib(e.agente))} · ámbito ${esc(e.ambito)} · categoría <b>${esc(e.categoria)}</b> · ${esc(tit)}</p>` +
     `<p class="m">origen: ${esc(e.ruta)}</p>` +
+    (dupLargo ? `<p class="m">⧉ ${esc(dupLargo)}</p>` : '') +
     `<p class="m">se cambia: ${esc(MECANISMO_BIB[e.mecanismo] ?? e.mecanismo)}${e.version_formato ? ' · formato comprobado con la versión ' + esc(e.version_formato) : ''}</p>` +
     (e.nota ? `<p class="m">⧉ ${esc(e.nota)}</p>` : '') +
     defMcp(e.def_mcp) +
@@ -2376,7 +2622,7 @@ function filasBiblioteca(d) {
     out.push(suelto(`<p class="aj-cab m" title="${esc(d.avisos.join('\n'))}">${d.avisos.length} ${d.avisos.length === 1 ? 'aviso' : 'avisos'} al leer: ${esc(d.avisos[0])}${d.avisos.length > 1 ? ' …' : ''}</p>`, true));
   }
   if (!els.length) return out;
-  out.push(columnas('l', '', 'nombre', 'agente', 'ámbito', 'usos'));
+  out.push(columnas('l', '<abbr title="● activado · ○ desactivado · ? no se sabe si está activado">●○?</abbr>', 'nombre', 'agente', 'ámbito', 'usos'));
   const cats = [...new Set(els.map(e => e.categoria))].sort((a, b) => a.localeCompare(b));
   for (const c of cats) {
     const deC = els.filter(e => e.categoria === c);
@@ -2385,13 +2631,14 @@ function filasBiblioteca(d) {
       const deT = deC.filter(e => e.tipo === t);
       if (!deT.length) continue;
       out.push(suelto(`<p class="bib-tipo m">${esc(plural)} · ${deT.length}</p>`));
-      out.push(...deT.map(filaBib));
+      // Los homónimos van juntos (mismo nombre, agentes distintos).
+      out.push(...[...deT].sort((a, b) => a.nombre.localeCompare(b.nombre) || a.agente.localeCompare(b.agente)).map(filaBib));
     }
   }
   return out;
 }
 
-// La barra: «▶ sesión con…» primero y los filtros, que se aplican aquí mismo.
+// La barra: «▶ sesión con…» como acción a la izquierda y los filtros, que se aplican aquí mismo.
 function barraBiblioteca() {
   const d = st.datos;
   const opcion = (v, t, actual) => `<option value="${esc(v)}"${v === (actual ?? '') ? ' selected' : ''}>${esc(t)}</option>`;
@@ -2399,11 +2646,17 @@ function barraBiblioteca() {
     `<select class="c${actual ? ' on' : ''}" data-bf="${campo}" title="${titulo}" aria-label="${titulo}">${ops.map(([v, t]) => opcion(v, t, actual)).join('')}</select>`;
   const agentes = [...new Set([...(d?.elementos ?? []).map(e => e.agente), st.bAgente].filter(Boolean))];
   const cats = [...new Set([...(d?.categorias ?? []), st.bCat].filter(Boolean))];
-  return `<button class="c${st.bibSes ? ' on' : ''}" data-a="bib-sesion" title="abrir una sesión de un agente con solo las herramientas que elijas" aria-pressed="${!!st.bibSes}">▶ sesión con…</button>` +
-    sel('agente', 'agente', [['', 'agente: todos'], ...agentes.map(a => [a, nombreAgenteBib(a)])], st.bAgente) +
+  const accion = `<button class="c${st.bibSes ? ' on' : ''}" data-a="bib-sesion" title="abrir una sesión de un agente con solo las herramientas que elijas" aria-pressed="${!!st.bibSes}">▶ sesión con…</button>`;
+  const filtros = sel('agente', 'agente', [['', 'agente: todos'], ...agentes.map(a => [a, nombreAgenteBib(a)])], st.bAgente) +
     sel('tipo', 'tipo', [['', 'tipo: todos'], ...TIPOS_BIB.map(([t, p]) => [t, p])], st.bTipo) +
     sel('categoria', 'categoría', [['', 'categoría: todas'], ...cats.map(c => [c, c])], st.bCat) +
     sel('estado', 'estado', [['', 'estado: todos'], ['si', '● activados'], ['no', '○ desactivados'], ['desconocido', '? desconocido']], st.bEstado);
+  const activos = [];
+  if (st.bAgente) activos.push(chipFiltro('bAgente', 'agente: ' + nombreAgenteBib(st.bAgente)));
+  if (st.bTipo) activos.push(chipFiltro('bTipo', 'tipo: ' + (TIPOS_BIB.find(([t]) => t === st.bTipo)?.[1] ?? st.bTipo)));
+  if (st.bCat) activos.push(chipFiltro('bCat', 'categoría: ' + st.bCat));
+  if (st.bEstado) activos.push(chipFiltro('bEstado', 'estado: ' + ({ si: 'activados', no: 'desactivados' }[st.bEstado] ?? 'desconocido')));
+  return barraAF(accion, filtros, activos);
 }
 
 // «▶ sesión con…»: abre el formulario (con `id` preelegido) o lo cierra.
@@ -2488,6 +2741,7 @@ const origenAj = o => (ORIGEN_AJ[o.tipo] ?? (() => o.tipo))(o);
 // Un valor para leerlo y tal como se escribiría en la terminal.
 const esMapaAj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const valorAj = v => (esMapaAj(v) ? (Object.keys(v).length ? Object.entries(v).map(([k, x]) => `${k} → ${x}`).join(', ') : '(ninguna)') : Array.isArray(v) ? (v.length ? v.join(', ') : '(ninguna)') : typeof v === 'boolean' ? (v ? 'sí' : 'no') : String(v ?? ''));
+const vacioAj = v => v === '' || v === null || v === undefined;
 const crudoAj = v => (esMapaAj(v) ? JSON.stringify(v) : Array.isArray(v) ? v.join(',') : String(v ?? ''));
 const armadoAj = n => !!(st.armado && st.armado.n === n && st.armado.hasta > Date.now());
 
@@ -2636,12 +2890,15 @@ async function accionEquipo(a, b) {
 function filaAjuste(c) {
   const fijada = !!c.fijada_por;
   const web = c.edicion === 'web' && !fijada;
-  const [glifo, tit] = fijada ? ['⊘', `la fija la variable ${c.fijada_por}`] : web ? ['◐', 'se cambia desde aquí'] : ['⌨', 'solo desde una terminal (ea ajustes)'];
+  const [glifo, tit] = fijada ? ['$', `la fija la variable de entorno ${c.fijada_por}`] : web ? ['✎', 'se cambia desde aquí'] : ['⌨', 'solo desde una terminal (ea ajustes)'];
   const reinicia = c.aplica === 'reinicio';
   const row = `<i class="${fijada ? 'n' : 'm'}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(c.clave)}">${esc(c.titulo)}</span>` +
-    `<span class="${c.origen.tipo === 'defecto' ? 'm' : 'x'}" title="${esc(valorAj(c.valor))}">${esc(valorAj(c.valor))}</span>` +
+    (vacioAj(c.valor)
+      ? `<span class="m sin-valor" title="${c.origen.tipo === 'defecto' ? 'vacío por defecto: el agente o el sistema usa el suyo' : 'vacío a propósito en ' + esc(origenAj(c.origen))}">(sin valor)</span>`
+      : `<span class="${c.origen.tipo === 'defecto' ? 'm' : 'x'}" title="${esc(valorAj(c.valor))}">${esc(valorAj(c.valor))}</span>`) +
     `<span class="m">${esc(origenAj(c.origen))}</span>` +
-    `<span class="${reinicia ? 'hot' : 'm'}" title="${reinicia ? esc('reiniciar ' + c.reinicio.join(', ')) : 'sin reiniciar nada'}">${reinicia ? 'requiere reinicio' : 'en caliente'}</span>`;
+    // Lo habitual (en caliente) no se dice: solo se marca lo que pide reiniciar.
+    (reinicia ? `<span class="hot" title="${esc('al cambiarlo hay que reiniciar ' + c.reinicio.join(', '))}">al reiniciar</span>` : '<span class="m" title="se aplica en caliente, sin reiniciar nada"></span>');
   const rango = c.min != null ? ` · de ${c.min} a ${c.max}` : c.permitidos ? ` · solo ${c.permitidos.join(', ') || 'nada'}` : '';
   let det = `<p class="tx">${esc(c.descripcion)}</p>` +
     `<p class="m">${esc(c.clave)} · por defecto ${esc(valorAj(c.defecto))}${esc(rango)}${reinicia ? esc(' · al cambiarlo, reinicia ' + c.reinicio.join(', ')) : ''}</p>`;
@@ -2668,9 +2925,9 @@ function filaAjuste(c) {
 }
 
 function filasAjustes(d) {
-  const out = [suelto(`<p class="aj-cab m">${esc(d.fichero)}${d.existe ? '' : ' · aún no existe: todo sale de otras capas'}</p>` +
+  const out = [suelto(`<p class="aj-cab m">${esc(d.fichero)}${d.existe ? '' : ' · aún no has cambiado nada: se usan los valores por defecto y los de otras capas'}</p>` +
     d.avisos.map(a => `<p class="aj-cab hot">! ${esc(a)}</p>`).join(''), true)];
-  out.push(columnas('aj', '', 'ajuste', 'valor', 'origen', 'aplica'));
+  out.push(columnas('aj', '<abbr title="✎ se cambia desde el panel · ⌨ solo desde una terminal · $ lo fija una variable de entorno">✎⌨$</abbr>', 'ajuste', 'valor', 'origen', '<abbr title="Todo se aplica en caliente salvo lo marcado «al reiniciar»">reinicio</abbr>'));
   d.secciones.forEach(s => {
     if (!s.claves.length) return;
     out.push(grupo(GL_AJUSTES, esc(s.titulo), 0), ...s.claves.map(filaAjuste));
@@ -2782,9 +3039,9 @@ function tableroJ() {
   return suelto('<div class="tablero t5">' +
     col('○ En cola', 'esperan al ejecutor', por('en_cola')) +
     col('◐ Ejecutando', 'el ejecutor trabaja', por('ejecutando')) +
-    col('◇ En revisión', 'esperan al planificador', por('en_revision')) +
+    col('◕ En revisión', 'esperan al planificador', por('en_revision')) +
     col('! En espera', 'esperan tu confirmación', por('en_espera')) +
-    col('● Cerrados', 'los últimos, con su premio', cerrados) + '</div>');
+    col('● Cerrados', 'los últimos, con su informe', cerrados) + '</div>');
 }
 
 // Las sesiones vivas de Claude Code (del proyecto elegido, o todas), cada una
@@ -2807,6 +3064,38 @@ function avisoPaquete(t) {
   return suelto(`<div class="paq"><h3>${capsulaJ(t)}${esc(t.rutina ? t.rutina.slug : t.titulo)} <span class="m">${t.rutina ? 'v' + t.rutina.version + ' ' : ''}falló · hace ${reloj(t.actualizado)}</span></h3>` +
     `<p class="m">${esc(motivo)} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa al planificador.</p>` +
     accionesTrabajo(t, null, btn('ir-trabajo', '▸ ver paquete', 'abrir la ficha', { id: t.id })) + '</div>');
+}
+
+// La bandeja «Te espera (N)», fija arriba de Inicio y fuera de la escena:
+// propuestas pendientes, trabajos en revisión y paquetes en espera. Sale de
+// los datos que ya cargan Inicio y Trabajos; el número suma lo mismo que las
+// pegatinas del raíl.
+function bandejaHtml() {
+  const props = st.datos?.propuestas ?? [];
+  const rev = st.trabajos.filter(t => t.estado === 'en_revision');
+  const esp = st.trabajos.filter(t => t.estado === 'en_espera');
+  const n = props.length + rev.length + esp.length;
+  if (!n) return '<p class="te-vacia">Nada te espera. Cuando un agente proponga algo o entregue un trabajo, aparecerá aquí.' +
+    `<span class="vacio-acc">${irSec('trabajos', 'ir a Trabajos', 'ver los trabajos; desde ahí se encarga una misión con ＋ misión')}${irSec('rutinas', 'ir a Rutinas', 'ver o lanzar las rutinas')}</span></p>`;
+  const fila = (cap, tag, tit, acc, hot = false) =>
+    `<div class="te-fila${hot ? ' hot' : ''}">${cap}<span class="te-tag">${tag}</span><span class="x">${tit}</span><span class="bs">${acc}</span></div>`;
+  const ficha = t => btn('ir-trabajo', 'Revisar', 'abrir la ficha del trabajo', { id: t.id }, 'l');
+  const filas = [
+    ...esp.map(t => fila(capsulaJ(t, 16), 'corrección', esc(t.rutina ? t.rutina.slug + ' falló' : t.titulo), ficha(t), true)),
+    ...rev.map(t => fila(capsulaJ(t, 16), MODO[t.modo] ?? t.modo, esc(t.titulo),
+      ficha(t) + `<span class="acc" data-j="${esc(t.id)}">${btn('cerrar', 'Cerrar', 'cerrar el trabajo: darlo por bueno', { id: t.id }, 'coin')}</span>`)),
+    ...props.map(p => fila(capsula(COLOR.propuesta, '', 16, true), 'propuesta #' + p.id, esc(p.descripcion), botonesPropuesta(p))),
+  ];
+  return `<h2 class="te-cab">Te espera <b>(${n})</b></h2>` + filas.join('');
+}
+
+function pintaEspera() {
+  const el = $('#espera');
+  if (!el) return;
+  el.hidden = st.sec !== 'inicio' || !st.datos;
+  if (el.hidden) return;
+  const h = bandejaHtml();
+  if (h !== el.dataset.h) { el.dataset.h = h; el.innerHTML = h; }
 }
 
 // La portada: colas y semáforo, lo que espera una decisión, el tablero de
@@ -2843,7 +3132,7 @@ function construir() {
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
-    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
+    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'trabajo', 'modo', 'informe · avance', 'hace'),
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
     case 'diario': return d ? [...formAnotar(), ...con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)), ...pieDiario(d)] : [];
     case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
@@ -2943,6 +3232,29 @@ function pieDiario(d) {
     'cargar los eventos anteriores, con los mismos filtros', {}, 'c')}</div>`, true)];
 }
 
+// El patrón de las barras de filtros: las acciones (crear, anotar…) a la
+// izquierda, un separador, los filtros con su etiqueta y, al final, un chip con
+// ✕ por cada filtro activo para quitarlo de un clic.
+const grupoFiltro = (etiqueta, html) => `<span class="fb-grp"><span class="fb-et">${etiqueta}</span>${html}</span>`;
+const chipFiltro = (clave, texto, titulo) =>
+  `<button class="c on chip" data-a="f-quitar" data-v="${clave}" title="quitar el filtro «${esc(titulo ?? texto)}»">${esc(texto)} <b aria-hidden="true">✕</b></button>`;
+const sep = '<span class="fb-sep" aria-hidden="true"></span>';
+function barraAF(acciones, filtros = '', activos = []) {
+  return (acciones ? `<span class="fb-acc">${acciones}</span>` : '') +
+    (acciones && filtros ? sep : '') +
+    (filtros ? `<span class="fb-fil" role="group" aria-label="filtros">${filtros}</span>` : '') +
+    (activos.length ? sep + `<span class="fb-act" role="group" aria-label="filtros activos">${activos.join('')}</span>` : '');
+}
+// Quita un filtro activo (chip ✕): la clave dice de qué barra es.
+function quitaFiltro(clave) {
+  const quita = {
+    actor: () => { st.dActor = null; }, resultado: () => { st.dResultado = null; }, accion: () => { st.dAccion = null; },
+    rango: () => { st.dFechas = false; st.dDesde = null; st.dHasta = null; },
+    bAgente: () => { st.bAgente = null; }, bTipo: () => { st.bTipo = null; }, bCat: () => { st.bCat = null; }, bEstado: () => { st.bEstado = null; },
+  }[clave];
+  quita?.();
+}
+
 function barraDiario() {
   const opcion = (v, t, actual) => `<option value="${esc(v)}"${v === (actual ?? '') ? ' selected' : ''}>${esc(t)}</option>`;
   const sel = (campo, titulo, ops, actual) =>
@@ -2952,7 +3264,7 @@ function barraDiario() {
   const rango = fechas ? 'fechas' : st.dDesde;
   const res = (v, g, t) => `<button class="c${st.dResultado === v ? ' on' : ''}" data-a="d-resultado" data-v="${v}" title="${t}" aria-pressed="${st.dResultado === v}">${g}</button>`;
   let h = sel('actor', 'quién', [['', 'quién: todos'], ...actores.map(a => [a, a])], st.dActor) +
-    res('ok', '✓', 'solo lo que salió bien') + res('error', '✕', 'solo los errores') +
+    grupoFiltro('resultado', res('ok', '✓', 'solo lo que salió bien') + res('error', '✕', 'solo los errores')) +
     sel('accion', 'familia de eventos', [['', 'qué: todo'], ...Object.entries(FAMILIAS)], st.dAccion) +
     sel('rango', 'cuándo', [['', 'cuándo: siempre'], ...Object.entries(RANGOS), ['fechas', 'fechas…']], rango);
   if (fechas) {
@@ -2960,36 +3272,41 @@ function barraDiario() {
     h += `<input type="date" class="c${d ? ' on' : ''}" data-df="desde" value="${esc(d)}" title="desde (incluido)" aria-label="Desde">` +
       `<input type="date" class="c${st.dHasta ? ' on' : ''}" data-df="hasta" value="${esc(st.dHasta ?? '')}" title="hasta (incluido)" aria-label="Hasta">`;
   }
-  if (st.dTrabajo) h += `<button class="c on" data-a="d-trabajo" title="solo los eventos del trabajo ${esc(st.dTrabajo)}; pulsa para quitarlo" aria-pressed="true">▣ ${esc(st.dTrabajo.slice(-8))} ✕</button>`;
   h += `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
-  return h;
+  const activos = [];
+  if (st.dActor) activos.push(chipFiltro('actor', 'quién: ' + st.dActor));
+  if (st.dResultado) activos.push(chipFiltro('resultado', st.dResultado === 'ok' ? 'resultado: ✓' : 'resultado: ✕'));
+  if (st.dAccion) activos.push(chipFiltro('accion', 'qué: ' + (Object.entries(FAMILIAS).find(([k]) => k === st.dAccion)?.[1] ?? st.dAccion)));
+  if (fechas || st.dDesde) activos.push(chipFiltro('rango', 'cuándo: ' + (fechas ? [st.dDesde, st.dHasta].map(x => x || '…').join(' → ') : RANGOS[st.dDesde] ?? st.dDesde)));
+  if (st.dTrabajo) activos.push(`<button class="c on chip" data-a="d-trabajo" title="solo los eventos del trabajo ${esc(st.dTrabajo)}; pulsa para quitarlo" aria-pressed="true">▣ ${esc(st.dTrabajo.slice(-8))} <b aria-hidden="true">✕</b></button>`);
+  return [h, activos];
 }
 
 function barra() {
   const fb = $('#fb');
   let h = '';
   if (st.sec === 'trabajos') {
-    // «＋ misión» va primero: los filtros pueden desbordar la barra.
-    h = `<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al ejecutor" aria-pressed="${!!st.nueva}">＋ misión</button>` +
-      Object.keys(EST).map(e =>
+    // «＋ misión» es una acción: va a la izquierda y separada de los filtros.
+    h = barraAF(`<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al ejecutor" aria-pressed="${!!st.nueva}">＋ misión</button>`,
+      grupoFiltro('estado', Object.keys(EST).map(e =>
         `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
-        `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
+        `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('')));
   } else if (st.sec === 'diario') {
     // «✎ anotar» va primero, como «＋ misión»: los filtros pueden desbordar.
     const on = !!st.anota && st.anota.corrige == null;
-    h = `<button class="c${on ? ' on' : ''}" data-a="d-anotar" title="anotar en el diario: dejar constancia de algo con actor usuario" aria-pressed="${on}">✎ anotar</button>` +
-      barraDiario();
+    const [filtros, activos] = barraDiario();
+    h = barraAF(`<button class="c${on ? ' on' : ''}" data-a="d-anotar" title="anotar en el diario: dejar constancia de algo con actor usuario" aria-pressed="${on}">✎ anotar</button>`, filtros, activos);
   } else if (st.sec === 'rutinas') {
     const on = st.rutEd?.slug === '';
-    h = `<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>` +
-      `<button class="c${st.rutRetiradas ? ' on' : ''}" data-a="rretiradas" title="las rutinas retiradas (en la papelera): se restauran desde su ficha" aria-pressed="${st.rutRetiradas}">▣ retiradas</button>`;
+    h = barraAF(`<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>`,
+      grupoFiltro('ver', `<button class="c${st.rutRetiradas ? ' on' : ''}" data-a="rretiradas" title="las rutinas retiradas (en la papelera): se restauran desde su ficha" aria-pressed="${st.rutRetiradas}">▣ retiradas</button>`));
   } else if (st.sec === 'propuestas') {
-    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
-        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
+    h = barraAF('', grupoFiltro('ver', `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
+        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`));
   }
   else if (st.sec === 'biblioteca') h = barraBiblioteca();
   else if (st.sec === 'equipos') {
-    h = `<button class="c${st.eqNuevo ? ' on' : ''}" data-a="eq-nuevo" title="despertar un equipo de agentes" aria-pressed="${!!st.eqNuevo}">＋ despertar</button>`;
+    h = barraAF(`<button class="c${st.eqNuevo ? ' on' : ''}" data-a="eq-nuevo" title="despertar un equipo de agentes" aria-pressed="${!!st.eqNuevo}">＋ despertar</button>`);
   }
   if (fb.dataset.h !== h) { fb.dataset.h = h; fb.innerHTML = h; }
 }
@@ -3000,7 +3317,8 @@ function cabecera() {
   $('#servicios').innerHTML = e.servicios.map(s => {
     const cls = s.activo === 'active' ? 'ok' : s.activo === 'failed' ? 'bad' : 'off';
     const g = s.activo === 'desconocido' ? '◌' : s.activo === 'inactive' ? '○' : '●';
-    return `<i class="dot ${cls}" title="${s.nombre} · ${s.activo}">${g}</i>`;
+    const corto = { 'llama-server': 'llama', 'ea-mcp': 'mcp', 'ea-orchestrator': 'orquestador' }[s.nombre] ?? s.nombre;
+    return `<i class="dot ${cls}" title="${s.nombre} · ${s.activo}" aria-label="${s.nombre}: ${s.activo}">${g}<span>${corto}</span></i>`;
   }).join('');
   const caidos = e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => s.nombre);
   const salud = $('#salud');
@@ -3068,7 +3386,7 @@ function barraProyectos() {
       }).join('');
     const titulo = `${cwd} · ${st.proyecto === cwd ? 'pulsa para ver todos los proyectos' : 'pulsa para ver solo este proyecto'}`;
     return `<section class="pry${hot ? ' hot' : ''}${ocupada ? ' trab' : ''}${st.proyecto === cwd ? ' sel' : ''}${st.nuevos[cwd] > Date.now() ? ' nueva' : ''}" data-pry="${esc(cwd)}" title="${esc(titulo)}">` +
-      `<h3><i${ocupada ? ` style="color:${CLAUDE}"` : ''}>${ocupada ? '●' : '○'}</i><span class="n">${esc(etiqueta.get(cwd))}</span><span class="m">${resumen}</span></h3>${filas}</section>`;
+      `<h3><i${ocupada ? ` style="color:${CLAUDE}"` : ''}>${ocupada ? '●' : '○'}</i><span class="n" title="${esc(etiqueta.get(cwd))}">${truncaFinal(etiqueta.get(cwd), 4)}</span><span class="m">${resumen}</span></h3>${filas}</section>`;
   }).join('') || '<p class="vacio">Sin sesiones de Claude Code abiertas.</p>';
 
   const l = $('#proy-lista');
@@ -3084,6 +3402,7 @@ function barraProyectos() {
     f.title = `Solo se ve ${st.proyecto}: pulsa para ver todos los proyectos`;
   }
   $('#bproy').classList.toggle('trab', lista.some(([, ss]) => trabaja(ss)));
+  proyectos(); // sin preferencia guardada, abre o pliega según cuántos haya
 }
 
 // ¿El trabajo es del proyecto? Su worktree es la carpeta del proyecto o cuelga de ella.
@@ -3104,14 +3423,17 @@ function elige(cwd) {
 
 // Desplegada o plegada a una tira con el punto de cada proyecto (en el móvil,
 // plegada no se ve); se recuerda en el navegador. Sin elección guardada:
-// desplegada en pantallas anchas y plegada en estrechas.
+// desplegada solo en pantallas anchas con más de un proyecto.
 function proyectos(cambiar = false) {
   const a = $('#proyectos');
-  let abierta;
-  try { const g = localStorage.getItem('ea-proyectos'); if (g) abierta = g === 'abierta'; } catch { /* sin almacenamiento */ }
-  if (st.proyAbierta === undefined) st.proyAbierta = abierta ?? matchMedia('(min-width: 1100px)').matches;
+  let guardada;
+  try { const g = localStorage.getItem('ea-proyectos'); if (g) guardada = g === 'abierta'; } catch { /* sin almacenamiento */ }
+  // Sin preferencia: abierta solo en pantallas anchas y con más de un proyecto.
+  const auto = matchMedia('(min-width: 1100px)').matches && (st.proyectos?.length ?? 0) > 1;
+  if (st.proyAbierta === undefined || (!cambiar && !st.proyFijo)) st.proyAbierta = guardada ?? auto;
   if (cambiar) {
     st.proyAbierta = !st.proyAbierta;
+    st.proyFijo = true;
     try { localStorage.setItem('ea-proyectos', st.proyAbierta ? 'abierta' : 'plegada'); } catch { /* sin almacenamiento */ }
   }
   a.classList.toggle('plegada', !st.proyAbierta);
@@ -3128,6 +3450,7 @@ function proyectos(cambiar = false) {
 
 function pintar() {
   escribeHash(false); // el hash sigue a la vista (filtros, fila abierta)
+  pintaEspera(); // antes de cualquier salida temprana: la bandeja solo vive en Inicio
   // No pisar lo que se está escribiendo dentro de un detalle.
   const foco = document.activeElement;
   if (foco && foco.matches('input, select, textarea') && foco.closest('#lista')) return relojes();
@@ -3155,9 +3478,14 @@ function pintar() {
   if (st.sel && !st.vis.includes(st.sel)) st.sel = null;
 
   const vacio = q ? `Nada coincide con «${esc(st.q.trim())}».`
+    : st.sec === 'trabajos' && st.filtroEstado ? `Ningún trabajo ${EST[st.filtroEstado][1]}. Quita el filtro para ver el resto.`
     : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.'
       : st.sec === 'rutinas' && st.rutRetiradas ? 'No hay rutinas retiradas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
-  const html = st.vis.length || st.sec === 'inicio' || vis.some(f => f.fijo) ? vis.map(f => f.html).join('') : `<p class="vacio">${vacio}</p>`;
+  const sinFiltro = !q && !(st.sec === 'propuestas' && st.propTodas) && !(st.sec === 'rutinas' && st.rutRetiradas);
+  const acc = st.sec === 'trabajos' && st.filtroEstado && !q ? `<button class="b" data-f="${st.filtroEstado}" title="quitar el filtro de estado">✕ quitar filtro</button>`
+    : sinFiltro ? VACIO_ACC[st.sec]?.() ?? '' : '';
+  const html = st.vis.length || st.sec === 'inicio' || vis.some(f => f.fijo) ? vis.map(f => f.html).join('')
+    : `<p class="vacio">${vacio}${acc ? `<span class="vacio-acc">${acc}</span>` : ''}</p>`;
   if (html !== st.html) {
     const lista = $('#lista');
     const y = lista.scrollTop;
@@ -3257,6 +3585,33 @@ async function tick() {
 
 // ------------------------------------------------------------------ acciones
 
+// «Más» del raíl en pantallas estrechas: una hoja con las secciones que no caben en la barra.
+// Los botones son los mismos del raíl (contadores y sección activa incluidos).
+function masAbierto() { return $('#rail').classList.contains('mas'); }
+function masCierra(foco = false) {
+  if (!masAbierto()) return;
+  $('#rail').classList.remove('mas');
+  $('#bmas').setAttribute('aria-expanded', 'false');
+  if (foco) $('#bmas').focus();
+}
+function masAlterna() {
+  if (masAbierto()) return masCierra(true);
+  $('#rail').classList.add('mas');
+  $('#bmas').setAttribute('aria-expanded', 'true');
+  ($('#mas-hoja button.on') ?? $('#mas-hoja button'))?.focus();
+}
+// El aviso de «Más» resume los contadores de lo que esconde (rojo si alguno lo es).
+function masAviso() {
+  const bs = $$('#mas-hoja b').filter(b => b.textContent);
+  const b = $('#bmas b');
+  const n = bs.reduce((a, x) => a + (parseInt(x.textContent, 10) || 1), 0);
+  const txt = n ? String(n) : '', cls = bs.some(x => x.classList.contains('hot')) ? 'hot' : '';
+  if (b.textContent !== txt) b.textContent = txt;
+  if (b.className !== cls) b.className = cls;
+}
+new MutationObserver(masAviso).observe($('#mas-hoja'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+$('#rail').addEventListener('focusout', ev => { if (masAbierto() && ev.relatedTarget && !$('#rail').contains(ev.relatedTarget)) masCierra(); });
+
 // Lo que cambia con la sección fuera de la lista: título y cuadros.
 function marco() {
   const [nombre] = TITULOS[st.sec];
@@ -3268,6 +3623,7 @@ function marco() {
     b.classList.toggle('on', b.dataset.s === st.sec);
     if (b.dataset.s === st.sec) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
+  masCierra();
   $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
   $('#escena').hidden = st.sec !== 'inicio';
   $('#lista').classList.toggle('vista-mem', !!EDITOR[st.sec]);
@@ -3462,7 +3818,7 @@ async function accion(b) {
       if (a === 'reformular' && !texto) throw new Error('escribe la nota para reformular');
       if (a === 'cancelar' && !(st.armado && st.armado.n === 'c' + id && st.armado.hasta > Date.now())) {
         st.armado = { n: 'c' + id, hasta: Date.now() + 3000 };
-        b.textContent = '⊘ confirmar';
+        b.textContent = 'Confirmar cancelación';
         setTimeout(() => { st.armado = null; st.html = ''; pintar(); }, 3100);
         return;
       }
@@ -3494,6 +3850,8 @@ async function accion(b) {
       return;
     } else if (a === 'crear-mision') {
       try { await creaMision(); } catch (e) { if (st.nueva) st.nueva.err = e.message; }
+    } else if (a === 'orden') {
+      if (st.ordenes.has(id)) st.ordenes.delete(id); else st.ordenes.add(id);
     } else if (a === 'diff') {
       if (st.diffs[id] !== undefined) delete st.diffs[id];
       else st.diffs[id] = await ea.diff(id).catch(e => ({ error: e.message }));
@@ -3652,6 +4010,9 @@ async function accion(b) {
       st.filtroEstado = null;
       abre('trabajos', 'j' + id);
       return;
+    } else if (a === 'ir-sec') {
+      ir(id);
+      return;
     } else if (a === 'ir-diario') {
       ir('diario', { fila: null, params: { trabajo: id } });
       return;
@@ -3694,6 +4055,8 @@ async function accion(b) {
       st.dResultado = st.dResultado === v ? null : v;
     } else if (a === 'd-trabajo') {
       st.dTrabajo = null;
+    } else if (a === 'f-quitar') {
+      quitaFiltro(v);
     } else if (a === 'd-mas') {
       await masDiario();
     } else if (a === 'd-anotar' || a === 'd-corregir') {
@@ -3842,8 +4205,76 @@ function tema(cambiar = false) {
   b.setAttribute('aria-label', b.title);
 }
 
+// Ayuda corta de cada vista: se enseña al abrir la ayuda (la leyenda global va plegada debajo).
+const AYUDA_VISTA = {
+  inicio: ['Lo vivo de un vistazo.', [
+    '<b>Te espera (N)</b>: propuestas, trabajos por revisar y paquetes de corrección que necesitan tu decisión.',
+    '<b>La escena</b>: una máquina por agente activo; cada cápsula es un trabajo. Pulsa una para abrir su ficha.',
+    '<b>Colas y semáforo</b>: qué espera al ejecutor y quién tiene el worktree.',
+    '<b>Tablero</b>: en cola → ejecutando → en revisión → en espera → cerrado.']],
+  trabajos: ['Misiones, obras y rutinas.', [
+    '<b>Pulsa una fila</b> (o Enter) para abrir la ficha: informe, fases, diff e historial.',
+    '<b>Cerrar</b> da el trabajo por bueno; <b>Reformular</b> lo devuelve con nota; <b>Cancelar</b> pide segundo clic.',
+    '<b>＋ misión</b> encarga una nueva; las cápsulas de arriba filtran por estado.']],
+  propuestas: ['Cambios que un agente quiere hacer.', [
+    '<b>✓ aceptar</b> ejecuta la acción (pide confirmar); <b>✕</b> la rechaza.',
+    'Las irreversibles llevan <b>⌨</b>: solo se confirman en una terminal.',
+    '<b>∗ todas</b> enseña también las ya decididas.']],
+  rutinas: ['Procesos repetibles y versionados.', [
+    '<b>▶ Lanzar rutina</b> la ejecuta ahora: es lo único que crea trabajo desde aquí.',
+    '<b>＋ rutina</b> abre el editor con una plantilla; <b>▣ retiradas</b> muestra las de la papelera.']],
+  equipos: ['Grupos de agentes que trabajan a la vez.', [
+    '<b>●</b> despierto, <b>○</b> dormido; ábrelo para ver presencia, cola y entregas.',
+    '<b>＋ despertar</b> crea un equipo; <b>◌ dormir</b> lo apaga y devuelve lo pendiente a la cola.']],
+  boveda: ['Las notas, como en Obsidian.', [
+    'Árbol por regiones: <b>modelo-local</b>, <b>claude-code</b> y <b>compartida</b> (la tuya).',
+    '<b>✎</b> (Ctrl+E) edita, <b>Ctrl+S</b> guarda; <b>⋯</b> renombra, promueve, copia la ruta o manda a la papelera.',
+    'El cuadro de arriba busca por nombre y dentro del contenido.']],
+  memoria: ['Lo que Claude Code recuerda de cada proyecto.', [
+    'Una carpeta por proyecto y una nota por memoria; <b>≡</b> es el índice.',
+    '<b>＋ memoria</b> crea una nueva; <b>✎</b> (Ctrl+E) edita y <b>⋯</b> renombra o elimina.']],
+  biblioteca: ['Herramientas instaladas de cada agente.', [
+    'Skills, plugins, subagentes, MCP, comandos y extensiones; <b>●</b> activado, <b>○</b> no, <b>?</b> se ignora.',
+    'En la ficha: <b>⏻</b> activa o desactiva (simula y pide aceptar) y <b>▶ sesión con…</b> abre una terminal con solo las que elijas.']],
+  acciones: ['Las herramientas del ecosistema, a mano.', [
+    'Abre una, rellena los campos y <b>simula</b> para ver qué pasaría; solo después se puede <b>ejecutar</b>.',
+    'Riesgo: <b>□</b> solo lee, <b>◧</b> reversible, <b>■</b> irreversible (solo en terminal).']],
+  sistema: ['Servicios y agentes.', [
+    '<b>↻</b> reinicia un servicio (segundo clic para confirmar).',
+    'Despliega un rol para cambiar el agente que lo ocupa.']],
+  diario: ['Todo lo que ocurre, lo más reciente arriba.', [
+    'Filtra por quién, <b>✓</b>/<b>✕</b>, familia de evento y fecha; los filtros quedan en la dirección.',
+    '<b>✎ anotar</b> deja constancia de algo; <b>♡</b> muestra los latidos.']],
+  ajustes: ['Cómo se comporta el ecosistema.', [
+    '<b>✎</b> se cambia aquí (segundo clic); <b>⌨</b> solo con <b>ea ajustes</b> en una terminal; <b>$</b> lo fija una variable de entorno.',
+    'Todo se aplica en caliente salvo lo marcado <b>al reiniciar</b>.']],
+};
+
+function ayudaVista() {
+  const [titulo] = TITULOS[st.sec] ?? [st.sec];
+  const [que, puntos] = AYUDA_VISTA[st.sec] ?? ['', []];
+  $('#ayuda-vista').innerHTML = `<h2>${esc(titulo)}</h2><p class="ay-que">${esc(que)}</p><ul>${puntos.map(p => `<li>${p}</li>`).join('')}</ul>` +
+    '<p class="ay-atajos">Atajos: <kbd>1–9</kbd> <kbd>0</kbd> secciones · <kbd>/</kbd> filtrar · <kbd>j</kbd>/<kbd>k</kbd> moverse · <kbd>Esc</kbd> cerrar · <kbd>t</kbd> recorrido</p>';
+}
+
+// Invitación discreta al recorrido en la primera visita (se recuerda al cerrarla).
+function invitaTour() {
+  try { if (localStorage.getItem('ea-tour-visto')) return; } catch { return; }
+  const d = document.createElement('div');
+  d.id = 'invita-tour';
+  d.setAttribute('role', 'status');
+  d.innerHTML = '<span>¿Primer vistazo? Haz el recorrido (8 pasos).</span>' +
+    '<button class="coin" data-tour="todo">Empezar</button><button data-invita-cerrar title="No volver a mostrar" aria-label="Cerrar la invitación">✕</button>';
+  document.body.appendChild(d);
+}
+function cierraInvita() {
+  $('#invita-tour')?.remove();
+  try { localStorage.setItem('ea-tour-visto', '1'); } catch { /* sin almacenamiento */ }
+}
+
 function ayuda(mostrar) {
   const a = $('#ayuda');
+  if (mostrar) ayudaVista();
   const dentro = a.contains(document.activeElement);
   a.hidden = !mostrar;
   if (mostrar) $('[data-cerrar]', a).focus();
@@ -3858,6 +4289,8 @@ document.addEventListener('click', ev => {
   const E = EDITOR[st.sec] && ed();
   if (E?.menu && !t.closest('.menu, [data-a="menu-nota"]')) { E.menu = false; pintar(); }
   if (E?.menuCarpeta && !t.closest('.menu, [data-a="carpeta-menu"]')) { E.menuCarpeta = null; pintar(); }
+  if (masAbierto() && !t.closest('#rail')) masCierra();
+  if (t.closest('#bmas')) return masAlterna();
   const rail = t.closest('#rail button[data-s]');
   if (rail) return ir(rail.dataset.s);
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
@@ -3869,6 +4302,7 @@ document.addEventListener('click', ev => {
   const pry = t.closest('[data-pry]');
   if (pry) { elige(pry.dataset.pry); barraProyectos(); pintar(); return tick(); }
   if (t.closest('#fproy')) { elige(null); barraProyectos(); pintar(); return tick(); }
+  if (t.closest('[data-invita-cerrar], #invita-tour [data-tour]')) cierraInvita();
   const tb = t.closest('[data-tour]');
   if (tb) return tour.iniciar(tb.dataset.tour === 'vista' ? st.sec : null);
   if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }
@@ -4073,6 +4507,7 @@ document.addEventListener('keydown', ev => {
   const t = ev.target;
   const enCampo = t.matches('input, textarea, select');
   if (ev.key === 'Escape' && !$('#ayuda').hidden) return ayuda(false);
+  if (ev.key === 'Escape' && masAbierto()) return masCierra(true);
   if (EDITOR[st.sec]) {
     const E = ed();
     const tecla = ev.key.toLowerCase();
@@ -4150,14 +4585,12 @@ document.addEventListener('keydown', ev => {
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('trabajos', 'j' + t.dataset.pt); return; }
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('#lista [data-k]')) { ev.preventDefault(); st.sel = t.dataset.k; alterna(t.dataset.k); return; }
-  if (ev.key === '0') { ir('ajustes'); return; }
-  const n = Number(ev.key);
-  if (n >= 1 && n <= 9 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
+  if (/^[0-9]$/.test(ev.key)) { const sec = SECCIONES[(Number(ev.key) + 9) % 10]; if (sec) ir(sec); return; }
+  const porLetra = Object.keys(TECLA_SECCION).find(k => TECLA_SECCION[k] === ev.key);
+  if (porLetra) { ir(porLetra); return; }
   if (ev.key === 'p') proyectos(true);
   else if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
   else if (ev.key === 't') tour.iniciar();
-  else if (ev.key === 'b') ir('biblioteca');
-  else if (ev.key === 'e') ir('equipos');
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);
@@ -4187,23 +4620,30 @@ addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
     }
     for (const sec of Object.keys(EDITOR)) {
       const E = ed(sec);
-      E.plegados = new Set(JSON.parse(localStorage.getItem(`ea-${sec}-plegados`) ?? '[]'));
+      const pl = localStorage.getItem(`ea-${sec}-plegados`);
+      E.plegados = new Set(JSON.parse(pl ?? '[]'));
+      E.plegadoInicial = pl === null; // nadie ha tocado el árbol: abre plegado por carpeta de primer nivel
       E.sel = localStorage.getItem(`ea-${sec}-sel`);
     }
   } catch { /* sin almacenamiento */ }
   aplicaEnlace(enlace); // la fila y los filtros del hash (de otra sección, se ignoran por defecto)
+  // En pantallas bajas la escena empieza plegada, salvo que el usuario ya eligiera.
+  try { if (localStorage.getItem('ea-escena-plegada') === null && innerHeight < 800) localStorage.setItem('ea-escena-plegada', '1'); } catch { /* sin almacenamiento */ }
   gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
   tour.montar({ ir, seccion: () => st.sec });
   marco();
   tema();
   proyectos();
-  // La primera vez, el recorrido guiado.
-  try { if (!localStorage.getItem('ea-tour-visto')) tour.iniciar(); } catch { /* sin almacenamiento */ }
-  // Sin clave de sesión válida, la cabecera lo dice y las escrituras avisan.
+  // La primera vez, solo una invitación discreta (no el recorrido a pantalla).
+  invitaTour();
+  // Sin clave de sesión válida: insignia, franja bajo la cabecera y botones apagados (mismo texto).
   const lectura = () => {
     const sin = !ea.escritura();
-    if (sin && $('#lectura').hidden) avisa(ea.avisoLectura);
     $('#lectura').hidden = !sin;
+    $('#franja-lectura').hidden = !sin;
+    $('#franja-lectura span').textContent = ea.avisoLectura;
+    document.body.classList.toggle('lectura', sin);
+    aplicaLectura();
   };
   // Una clave nueva (pegada en una página ya abierta) se comprueba antes de fiarse.
   ea.alCambiarSesion(ok => (ok ? ea.sesion().catch(() => {}).finally(lectura) : lectura()));

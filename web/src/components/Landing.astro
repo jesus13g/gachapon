@@ -1,0 +1,71 @@
+---
+import Base from '../layouts/Base.astro';
+import ThreadLayer from './ThreadLayer.astro';
+import { copyFor, langOf, pathFor } from '../i18n';
+import Act00Boot from './scenes/Act00Boot.astro';
+import Act01Problem from './scenes/Act01Problem.astro';
+import Act02Roles from './scenes/Act02Roles.astro';
+import Act03Bus from './scenes/Act03Bus.astro';
+import Act04Locks from './scenes/Act04Locks.astro';
+import Act05Modes from './scenes/Act05Modes.astro';
+import Act06Control from './scenes/Act06Control.astro';
+import Act07Teams from './scenes/Act07Teams.astro';
+import Act08Routines from './scenes/Act08Routines.astro';
+import Act09Knowledge from './scenes/Act09Knowledge.astro';
+import Act10Mcp from './scenes/Act10Mcp.astro';
+import Act11Sandbox from './scenes/Act11Sandbox.astro';
+import Act12Journal from './scenes/Act12Journal.astro';
+import Act13Interfaces from './scenes/Act13Interfaces.astro';
+import Act14System from './scenes/Act14System.astro';
+import Act15Final from './scenes/Act15Final.astro';
+const { acts, site, ui } = copyFor(Astro.currentLocale);
+const other = langOf(Astro.currentLocale) === 'es' ? 'en' : 'es';
+---
+<Base>
+  <header class="hud">
+    <a class="brand" href="#boot" aria-label={ui.top}>
+      <svg viewBox="0 0 30 18" aria-hidden="true"><path d="M15 1H9a8 8 0 0 0 0 16h6z" fill="#ff9a3c" /><path d="M15 1h6a8 8 0 0 1 0 16h-6z" fill="#f1f0ea" /></svg>
+      Gachapon
+    </a>
+    <nav class="hud__links" aria-label={ui.navProject}>
+      <a class="lang-switch" href={pathFor(other)} hreflang={other} lang={other} title={ui.langSwitch} aria-label={ui.langSwitch} data-lang-switch>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" /><path d="M1.5 8h13M8 1.5c2 2 2.6 4.2 2.6 6.5S10 12.5 8 14.5M8 1.5C6 3.5 5.4 5.7 5.4 8S6 12.5 8 14.5" /></svg>
+        {other}
+      </a>
+      <a href={site.repo} rel="noopener">GitHub</a>
+    </nav>
+  </header>
+  <nav class="rail" aria-label={ui.railLabel}>
+    {acts.map((a, i) => <button type="button" aria-label={a.kicker} aria-current={i === 0 ? 'true' : 'false'}><span>{a.kicker}</span></button>)}
+  </nav>
+  <main id="story" class="story">
+    <div class="stage">
+      <div class="stage__grid"></div>
+      <Act00Boot />
+      <Act01Problem />
+      <Act02Roles />
+      <Act03Bus />
+      <Act04Locks />
+      <Act05Modes />
+      <Act06Control />
+      <Act07Teams />
+      <Act08Routines />
+      <Act09Knowledge />
+      <Act10Mcp />
+      <Act11Sandbox />
+      <Act12Journal />
+      <Act13Interfaces />
+      <Act14System />
+      <Act15Final />
+      <ThreadLayer />
+      <div class="stage__vignette"></div>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <span>{ui.footer}</span>
+    <span><a href={site.repo} rel="noopener">GitHub</a> · {site.license}</span>
+  </footer>
+  <script>
+    import '../scripts/main';
+  </script>
+</Base>

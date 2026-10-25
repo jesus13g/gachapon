@@ -12,11 +12,32 @@ const tour = (() => {
 
   // Cada paso: sección (opcional), anclas candidatas (la primera visible gana),
   // `si` (se salta si no hay ancla), título y texto (HTML propio, constante).
+  // El recorrido corto (8 pasos esenciales); lo de cada vista, abajo (DETALLE).
   const PASOS = [
+    { sec: 'inicio', ancla: ['#rail'], titulo: 'Las secciones',
+      texto: 'Cada icono es una vista, en cuatro bloques: Trabajo, Conocimiento, Herramientas y Sistema (en pantalla estrecha, <b>Más</b> abre el resto). Las teclas <b>1 – 9</b> y <b>0</b> van en ese orden; <b>d</b> al Diario y <b>a</b> a Ajustes. Las pegatinas cuentan lo que espera.' },
+    { sec: 'inicio', ancla: ['#espera'], titulo: 'Te espera',
+      texto: 'Lo que necesita tu decisión, siempre arriba de Inicio: propuestas pendientes, trabajos por revisar y paquetes de corrección. Desde aquí puedes revisar o cerrar sin buscar.' },
+    { sec: 'trabajos', ancla: ['#lista .f', '#lista'], titulo: 'Un trabajo y su ficha',
+      texto: 'Cada fila es una misión, obra o rutina: la cápsula dice el estado (en cola, ejecutando, en revisión, cerrado) y la columna del final, el resultado. Púlsala para abrir la ficha: informe, fases, diff y los botones <b>Cerrar</b>, <b>Reformular</b>, <b>Cancelar</b>.' },
+    { sec: 'propuestas', ancla: ['#lista .f', '#lista'], titulo: 'Tu visto bueno',
+      texto: 'Cambios que un agente quiere hacer. <b>✓ aceptar</b> los ejecuta (pide confirmar) y <b>✕</b> los rechaza. Los irreversibles llevan <b>⌨</b>: solo se confirman en una terminal.' },
+    { sec: 'inicio', ancla: ['#lectura', '#franja-lectura', '#cabecera .cab-izq'], titulo: 'Solo lectura o escritura',
+      texto: 'Con el candado <b>solo lectura</b> puedes mirarlo todo, pero los botones que cambian algo están apagados: ábrelo con <i>ea-escritorio</i> o <i>ea-web-open</i>. Sin candado, tienes la clave de sesión y los botones funcionan.' },
+    { sec: 'inicio', ancla: ['#servicios'], titulo: 'La salud del sistema',
+      texto: 'Un punto por servicio (llama, mcp, orquestador): verde en marcha, rojo caído. El engranaje es el orquestador: gira mientras late y se pone rojo si deja de latir.' },
+    { sec: 'inicio', ancla: ['#bayuda'], titulo: 'La ayuda',
+      texto: '<b>?</b> abre la ayuda de la vista en la que estés, con la leyenda de símbolos, botones y estados plegada debajo. Desde ahí puedes repetir este recorrido o recorrer solo la vista actual (tecla <b>t</b>).' },
+    { titulo: 'Atajos',
+      texto: '<b>1 – 9, 0</b> secciones · <b>/</b> filtrar · <b>j / k</b> moverse · <b>Enter</b> abrir · <b>Esc</b> cerrar · <b>p</b> proyectos · <b>?</b> ayuda · <b>t</b> este recorrido.' },
+  ];
+
+  // Los pasos de cada vista («▸ recorrer esta vista» en la ayuda).
+  const DETALLE = [
     { titulo: 'Bienvenido a ea',
       texto: 'Este recorrido enseña cada vista en un par de minutos. <b>→</b> avanza, <b>←</b> vuelve, <b>Esc</b> sale. Solo mira: no lanza, cierra ni decide nada.' },
     { sec: 'inicio', ancla: ['#rail'], titulo: 'Las secciones',
-      texto: 'Cada símbolo es una vista; las teclas <b>1 – 9</b> y <b>0</b> también llevan a ellas. Las pegatinas cuentan lo que espera: azul si espera al planificador, roja si te espera a ti.' },
+      texto: 'Cada icono es una vista, en cuatro bloques: Trabajo, Conocimiento, Herramientas y Sistema (en una pantalla estrecha, <b>Más</b> abre las que no caben). Las teclas <b>1 – 9</b> y <b>0</b> llevan a ellas en ese orden, y <b>d</b> al Diario y <b>a</b> a Ajustes; cada título dice la suya. Las pegatinas cuentan lo que espera: azul si espera al planificador, roja si te espera a ti.' },
     { sec: 'inicio', ancla: ['#cabecera .cab-izq'], titulo: 'La salud del sistema',
       texto: 'Un punto por servicio: verde en marcha, rojo caído. El engranaje es el orquestador: gira mientras late y se pone rojo si deja de latir.' },
     { sec: 'inicio', ancla: ['#btema, #bayuda'], titulo: 'Tema y ayuda',
@@ -26,7 +47,7 @@ const tour = (() => {
     { sec: 'inicio', ancla: ['.actores'], titulo: 'Colas y semáforo',
       texto: 'Lo que espera al ejecutor, lo que espera al planificador y quién tiene el worktree. Solo uno escribe a la vez: el semáforo en rojo dice que está ocupado.' },
     { sec: 'inicio', ancla: ['.paq'], si: true, titulo: 'Cápsulas atascadas',
-      texto: 'Una rutina falló y dejó un paquete de corrección. Añade contexto si quieres y pulsa <b>✓ desatascar</b>: solo entonces pasa al planificador.' },
+      texto: 'Una rutina falló y dejó un paquete de corrección. Añade contexto si quieres y pulsa <b>Confirmar corrección</b>: solo entonces pasa al planificador.' },
     { sec: 'inicio', ancla: ['.tablero.cc'], si: true, titulo: 'Claude Code',
       texto: 'Una tarjeta por sesión abierta de Claude Code, con sus subagentes debajo: los que siguen en marcha llevan barra; los terminados salen atenuados.' },
     { sec: 'inicio', ancla: ['.tablero.t5'], titulo: 'El tablero',
@@ -34,9 +55,9 @@ const tour = (() => {
     { sec: 'trabajos', ancla: ['#barra'], titulo: 'Filtrar trabajos',
       texto: 'Cada cápsula filtra por su estado, con el número de trabajos en cada uno; pulsa otra vez para quitar el filtro. <b>/</b> salta al cuadro de texto.' },
     { sec: 'trabajos', ancla: ['#lista .f', '#lista'], titulo: 'La lista de trabajos',
-      texto: 'Una fila por misión, obra o rutina, con su premio (el informe) y su avance. Pulsa una fila, o <b>Enter</b>, para abrir la ficha: informe, fases, diff e historial.' },
+      texto: 'Una fila por misión, obra o rutina, con su informe y su avance; un trabajo cerrado que falló dice <b>cerrado · falló</b> en rojo. Pulsa una fila, o <b>Enter</b>, para abrir la ficha: informe, fases, diff e historial.' },
     { sec: 'trabajos', ancla: ['#lista .acc', '#lista .f', '#lista'], titulo: 'Decidir desde la ficha',
-      texto: '<b>★ canjear</b> cierra, <b>▶ seguir girando</b> continúa una obra, <b>↺ volver a girar</b> reformula con una nota y <b>⊘ devolver</b> cancela (pide un segundo clic). El azul redondo es la acción principal.' },
+      texto: '<b>Cerrar</b> da el trabajo por bueno, <b>Continuar</b> sigue una obra, <b>Reformular</b> lo devuelve con una nota y <b>Cancelar</b> lo descarta (pide un segundo clic). El azul redondo es la acción principal.' },
     { sec: 'diario', ancla: ['#lista'], titulo: 'El diario',
       texto: 'Todo lo que ocurre en el ecosistema, lo más reciente arriba: quién hizo qué, en qué trabajo y cuánto duró.' },
     { sec: 'diario', ancla: ['#fb'], titulo: 'Filtros del diario',
@@ -44,7 +65,7 @@ const tour = (() => {
     { sec: 'diario', ancla: ['[data-a=latidos]'], si: true, titulo: 'Latidos',
       texto: 'El orquestador late cada pocos segundos. Por defecto se ocultan para no tapar el resto; <b>♡</b> los muestra.' },
     { sec: 'rutinas', ancla: ['#lista'], titulo: 'Rutinas',
-      texto: 'Los procesos repetibles, versionados, con su próxima ejecución. <b>▶ echar ficha</b> lanza una ahora: es lo único que crea trabajo desde esta página.' },
+      texto: 'Los procesos repetibles, versionados, con su próxima ejecución. <b>▶ Lanzar rutina</b> lanza una ahora: es lo único que crea trabajo desde esta página.' },
     { sec: 'propuestas', ancla: ['#barra'], titulo: 'Pendientes o todas',
       texto: 'Por defecto solo ves lo que espera tu decisión; <b>∗ todas</b> enseña también las ya decididas.' },
     { sec: 'propuestas', ancla: ['#lista .f', '#lista'], titulo: 'Tu visto bueno',
@@ -62,11 +83,11 @@ const tour = (() => {
     { sec: 'memoria', ancla: ['#filas .nota-cab', '#lista'], titulo: 'Leer, editar y más',
       texto: '<b>✎</b> (o <b>Ctrl+E</b>) alterna lectura y edición sin perder el borrador; <b>Ctrl+S</b> guarda, y si la memoria cambió en disco avisa antes de pisarla. <b>⋯</b> renombra (y pone al día los enlaces), copia la ruta, la muestra en el explorador o la elimina para siempre.' },
     { sec: 'biblioteca', ancla: ['#lista .f', '#lista'], titulo: 'La biblioteca de herramientas',
-      texto: 'Lo que cada agente tiene instalado: skills, plugins, subagentes, MCP, comandos y extensiones, por categoría y tipo (<b>●</b> activado, <b>○</b> no) y con cuánto se usan. Abre una para ver su origen y su uso; <b>⏻</b> activa o desactiva (simula y pide aceptar), <b>▶ sesión con…</b> abre una terminal con solo lo que elijas y <b>✎</b> le da una categoría propia. Nunca se enseñan los secretos de un MCP.' },
+      texto: 'Lo que cada agente tiene instalado: skills, plugins, subagentes, MCP, comandos y extensiones, por categoría y tipo (<b>●</b> activado, <b>○</b> no, <b>?</b> no se sabe) y con cuánto se usan. Abre una para ver su origen y su uso; <b>⏻</b> activa o desactiva (simula y pide aceptar), <b>▶ sesión con…</b> abre una terminal con solo lo que elijas y <b>✎</b> le da una categoría propia. Nunca se enseñan los secretos de un MCP.' },
     { sec: 'equipos', ancla: ['#lista .f', '#lista'], titulo: 'Equipos de agentes',
       texto: 'Un equipo es un grupo de agentes despertado para una tarea: planificadores y revisores en una terminal, ejecutores en paralelo. Cada fila enseña quién está despierto (<b>●</b>) y cuántos trabajos lleva; ábrela para ver la presencia, la cola y las entregas de cada uno. <b>＋ despertar</b> lo crea y <b>◌ dormir</b> lo apaga (pide confirmar).' },
     { sec: 'ajustes', ancla: ['#lista .f', '#lista'], titulo: 'Ajustes',
-      texto: 'Cómo se comporta el ecosistema y de dónde sale cada valor. <b>◐</b> se cambia aquí (segundo clic para confirmar; los topes solo bajan), <b>⌨</b> solo en una terminal con <b>ea ajustes</b> y <b>⊘</b> lo fija una variable de entorno.' },
+      texto: 'Cómo se comporta el ecosistema y de dónde sale cada valor. <b>✎</b> se cambia aquí (segundo clic para confirmar; los topes solo bajan), <b>⌨</b> solo en una terminal con <b>ea ajustes</b> y <b>$</b> lo fija una variable de entorno.' },
     { ancla: ['#proyectos:not(.plegada)', '#proyectos', '#bproy'], titulo: 'Proyectos',
       texto: 'Las sesiones de Claude Code abiertas, agrupadas por proyecto, con sus trabajos activos. Pulsa un proyecto para ver solo lo suyo en toda la web; <b>p</b> pliega o despliega la barra.' },
     { titulo: 'Eso es todo',
@@ -134,9 +155,10 @@ const tour = (() => {
 
   function iniciar(sec = null) {
     if (i >= 0) return;
-    pasos = sec == null ? PASOS : PASOS.filter(p => p.sec === sec);
+    pasos = sec == null ? PASOS : DETALLE.filter(p => p.sec === sec);
     if (!pasos.length) return;
     origen = ops.seccion();
+    document.querySelector('#invita-tour')?.remove();
     const ayuda = document.querySelector('#ayuda');
     if (ayuda) ayuda.hidden = true;
     el.raiz.hidden = false;
@@ -222,6 +244,10 @@ const tour = (() => {
       if (r.bottom + M + gh <= H - M) { top = r.bottom + M; left = entre(r.left, M, W - gw - M); }
       else if (r.top - M - gh >= M) { top = r.top - M - gh; left = entre(r.left, M, W - gw - M); }
       else if (r.right + M + gw <= W - M) { left = r.right + M; top = entre(r.top + (r.height - gh) / 2, M, H - gh - M); }
+      else if (r.left - M - gw >= M) { left = r.left - M - gw; top = entre(r.top + (r.height - gh) / 2, M, H - gh - M); }
+      else { // anclas enormes: esquina libre, abajo a la derecha (no tapa el principio de la zona)
+        left = W - gw - M; top = H - gh - M;
+      }
     }
     g.style.top = Math.round(top) + 'px';
     g.style.left = Math.round(left) + 'px';

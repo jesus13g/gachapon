@@ -3,17 +3,19 @@ import Scene from '../Scene.astro';
 import AgentNode from '../AgentNode.astro';
 import FlowPath from '../FlowPath.astro';
 import Station from '../Station.astro';
+import { tr } from '../../i18n';
+const t = tr(Astro.currentLocale);
 const gauges = ['TURNS', 'TIME', 'TOOL CALLS', 'ITERATIONS'];
 ---
 <Scene i={11}>
   <!-- filesystem -->
   <g data-k="fs">
-    <text class="t-d" x="120" y="392" style="font-size:30px;letter-spacing:.16em;fill:var(--fg)">FILESYSTEM</text>
+    <text class="t-d" x="120" y="392" style="font-size:30px;letter-spacing:.16em;fill:var(--fg)">{t('FILESYSTEM')}</text>
     {[['WORKTREE', 'WRITE', 'ok'], ['TEMP + AGENT STATE', 'WRITE', 'ok'], ['EVERYTHING ELSE', 'READ ONLY', 'idle']].map(([n, m, st], i) => (
       <g transform={`translate(120 ${420 + i * 90})`} data-state={st}>
         <rect class="panel" width="300" height="70" rx="6" style="stroke:var(--c)" />
-        <text class="t-sm t-fg" x="16" y="30">{n}</text>
-        <text class="t-md t-hot" x="16" y="55">{m}</text>
+        <text class="t-sm t-fg" x="16" y="30">{t(n)}</text>
+        <text class="t-md t-hot" x="16" y="55">{t(m)}</text>
       </g>
     ))}
     <FlowPath id="fs-w1" d="M420 455 H560" state="ok" thin />
@@ -25,7 +27,7 @@ const gauges = ['TURNS', 'TIME', 'TOOL CALLS', 'ITERATIONS'];
   <g data-k="box">
     <rect x="560" y="370" width="480" height="330" rx="20" fill="rgba(79,147,255,.06)" stroke="var(--exec)" stroke-width="2" stroke-dasharray="10 8" />
     {[[560, 370, 1, 1], [1040, 370, -1, 1], [560, 700, 1, -1], [1040, 700, -1, -1]].map(([x, y, sx, sy]) => <path d={`M${x} ${y + sy * 36} V${y} H${x + sx * 36}`} fill="none" stroke="var(--exec)" stroke-width="5" />)}
-    <text class="t-sm" x="584" y="402" style="fill:var(--exec)">sandbox</text>
+    <text class="t-sm" x="584" y="402" style="fill:var(--exec)">{t('sandbox')}</text>
   </g>
   <AgentNode kind="executor" x={800} y={535} s={0.85} state="exec" />
 
@@ -33,33 +35,33 @@ const gauges = ['TURNS', 'TIME', 'TOOL CALLS', 'ITERATIONS'];
   <g data-k="net">
     <FlowPath id="net-x" d="M1040 440 H1260" state="blocked" thin />
     <g transform="translate(1150 440)"><circle r="18" fill="var(--bg)" stroke="var(--stop)" stroke-width="3" /><use href="#i-cross" color="var(--stop)" /></g>
-    <g transform="translate(1340 440)"><rect x="-80" y="-32" width="160" height="64" rx="32" fill="none" stroke="var(--stop)" stroke-dasharray="4 6" /><text class="t-md" y="6" text-anchor="middle" style="fill:var(--stop)">INTERNET</text></g>
-    <text class="t-sm" x="1150" y="406" text-anchor="middle" style="fill:var(--stop)">BLOCKED</text>
+    <g transform="translate(1340 440)"><rect x="-80" y="-32" width="160" height="64" rx="32" fill="none" stroke="var(--stop)" stroke-dasharray="4 6" /><text class="t-md" y="6" text-anchor="middle" style="fill:var(--stop)">{t('INTERNET')}</text></g>
+    <text class="t-sm" x="1150" y="406" text-anchor="middle" style="fill:var(--stop)">{t('BLOCKED')}</text>
     <FlowPath id="net-ok" d="M1040 600 H1260" state="ok" thin />
     <text class="t-sm" x="1150" y="578" text-anchor="middle" style="fill:var(--ok)">localhost</text>
-    <g data-k="s-model"><Station x={1340} y={600} w={170} label="LOCAL MODEL" sub="on this machine" state="exec" /></g>
+    <g data-k="s-model"><Station x={1340} y={600} w={170} label={t('LOCAL MODEL')} sub={t('on this machine')} state="exec" /></g>
   </g>
 
   <!-- tools -->
   <g data-k="tools" transform="translate(800 742)">
-    {['WEB SEARCH', 'BROWSE'].map((t, i) => <g transform={`translate(${-130 + i * 150} 0)`}><rect x="-62" y="-16" width="124" height="32" rx="4" fill="none" stroke="var(--line-hi)" /><text class="t-sm" y="5" text-anchor="middle" style="font-size:11px">{t}</text><path d="M-62 0 H62" stroke="var(--stop)" stroke-width="2.5" /></g>)}
-    <text class="t-sm" x="0" y="34" text-anchor="middle" style="font-size:11px;fill:var(--stop)">web tools removed from the executor</text>
+    {['WEB SEARCH', 'BROWSE'].map((w, i) => <g transform={`translate(${-130 + i * 150} 0)`}><rect x="-62" y="-16" width="124" height="32" rx="4" fill="none" stroke="var(--line-hi)" /><text class="t-sm" y="5" text-anchor="middle" style="font-size:11px">{t(w)}</text><path d="M-62 0 H62" stroke="var(--stop)" stroke-width="2.5" /></g>)}
+    <text class="t-sm" x="0" y="34" text-anchor="middle" style="font-size:11px;fill:var(--stop)">{t('web tools removed from the executor')}</text>
   </g>
 
   <!-- hard limits -->
   <g data-k="gauges">
     {gauges.map((g, i) => (
       <g transform={`translate(${420 + i * 200} 800)`} data-k="gauge" data-state={i === 3 ? 'fail' : 'exec'}>
-        <text class="t-sm" y="-8" style="font-size:11px">{g}</text>
+        <text class="t-sm" y="-8" style="font-size:11px">{t(g)}</text>
         <rect width="170" height="10" rx="5" fill="var(--steel-2)" />
         <rect class="gauge__fill" width={i === 3 ? 170 : [96, 70, 120][i]} height="10" rx="5" fill="var(--c)" />
       </g>
     ))}
-    <text data-k="limit-t" class="t-md" x="1230" y="808" style="fill:var(--stop)">LIMIT REACHED · STOPPED</text>
+    <text data-k="limit-t" class="t-md" x="1230" y="808" style="fill:var(--stop)">{t('LIMIT REACHED · STOPPED')}</text>
   </g>
   <g data-k="platforms" class="t-sm">
     <text class="t-sm" x="420" y="868" style="font-size:11px">linux · bubblewrap</text>
-    <text class="t-sm" x="700" y="868" style="font-size:11px">macos · seatbelt profile</text>
-    <text class="t-sm" x="1000" y="868" style="font-size:11px;fill:var(--wait)">windows · no native sandbox → use WSL2</text>
+    <text class="t-sm" x="700" y="868" style="font-size:11px">{t('macos · seatbelt profile')}</text>
+    <text class="t-sm" x="1000" y="868" style="font-size:11px;fill:var(--wait)">{t('windows · no native sandbox → use WSL2')}</text>
   </g>
 </Scene>

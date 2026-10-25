@@ -12,7 +12,7 @@
 // escrituras fallan con el aviso, sin llegar al servidor.
 
 const ea = (() => {
-  const AVISO_LECTURA = 'Panel en solo lectura: ábrelo con ea-escritorio o ea-web-open para poder cambiar nada.';
+  const AVISO_LECTURA = 'Panel en solo lectura. Ábrelo con ea-escritorio o ea-web-open para poder cambiar cosas.';
   let clave = null;
   try { clave = sessionStorage.getItem('ea-clave'); } catch { /* sin almacenamiento */ }
   const oyentes = [];

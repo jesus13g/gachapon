@@ -1559,6 +1559,9 @@ async fn cada_sesion_lleva_sus_subagentes_en_marcha_primero() {
     marca("viva", "a2", 150, Some(300));
     marca("viva", "a1", 400, None);
     marca("muerta", "a9", 100, None);
+    // Una marca de stop sin start ni meta (sin tipo): no es un subagente que mostrar.
+    let d = raiz.join("subagentes/viva");
+    std::fs::write(d.join("fantasma.json"), json!({"agente": "fantasma", "tipo": "", "transcript": "", "desde": 500, "hasta": 500}).to_string()).unwrap();
 
     let (_, v) = get(&f, "/api/sesiones").await;
     let lista = v["sesiones"].as_array().unwrap();

@@ -1,4 +1,4 @@
-<!-- Fragmento para el AGENTS.md de Codex. Instalación: README del repo, «Adaptadores de otros planificadores». -->
+<!-- Fragmento para el AGENTS.md de Codex. Instalación: docs/manual.md del repo, «Adaptadores del planificador». -->
 ## Ecosistema asistente: tú eres el planificador
 
 Si el usuario te pide lanzar o revisar trabajo para el ejecutor local (misiones,

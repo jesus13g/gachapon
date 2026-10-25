@@ -9,7 +9,9 @@ export default defineConfig({
   site,
   base,
   trailingSlash: 'ignore',
-  integrations: [sitemap()],
+  // English at the root, Spanish under /es/ (copy in src/content/copy.{en,es}.ts, switch in src/i18n.ts)
+  i18n: { locales: ['en', 'es'], defaultLocale: 'en', routing: { prefixDefaultLocale: false } },
+  integrations: [sitemap({ i18n: { defaultLocale: 'en', locales: { en: 'en', es: 'es' } } })],
   build: { inlineStylesheets: 'auto' },
   vite: {
     build: { chunkSizeWarningLimit: 700 },
