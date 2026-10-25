@@ -211,6 +211,8 @@ export const benefits = [
 export const svg: Record<string, string> = {
   // shared pieces
   'GACHAPON · ORCHESTRATOR': 'GACHAPON · ORQUESTADOR',
+  TURN: 'TURNO',
+  ORDER: 'ORDEN',
   DONE: 'HECHO',
   'queue · state · lock': 'cola · estado · semáforo',
   // 01 · problem

@@ -569,6 +569,22 @@ a {
 [data-state='active'] > .led, .led[data-state='active'] { animation: blink var(--t-led) steps(2, jump-none) infinite; }
 .led[data-state='wait'] { animation: beat var(--t-heart) ease-in-out infinite; }
 
+/* the gachapon machine: what wakes up when the system does */
+.machine__screw circle { fill: var(--steel-0); stroke: var(--line-hi); }
+.machine__label { font: 500 12px var(--mono); letter-spacing: 0.08em; fill: var(--fg-dim); }
+.machine__label--sm { font-size: 11px; letter-spacing: 0.18em; }
+.led-halo { fill: var(--c); opacity: 0.22; transition: opacity var(--t-wake) var(--ease-out); }
+[data-state='active'] > .led-halo { animation: blink var(--t-led) steps(2, jump-none) infinite; }
+.machine__led[data-state='idle'] .led-halo { opacity: 0; }
+.machine__led[data-state='idle'] .led { fill: var(--steel-2); stroke: var(--line-hi); }
+.machine__pile, .machine__knob, .machine__slot-line { transition: opacity var(--t-wake) var(--ease-out); }
+.machine__pile { opacity: 0.9; }
+.machine__knob { fill: var(--accent); }
+.machine__slot-line { stroke: var(--accent); stroke-width: 2; stroke-linecap: round; opacity: 0.9; }
+.machine.is-dormant .machine__pile { opacity: 0.4; }
+.machine.is-dormant .machine__knob { opacity: 0.35; }
+.machine.is-dormant .machine__slot-line { opacity: 0.25; }
+
 .conduit__wall { fill: none; stroke: var(--line); stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
 /* the bore lives in the wall's mask: black = cut out */
 .conduit__bore { fill: none; stroke: #000; stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; }
@@ -601,7 +617,7 @@ a {
 .spin-r { transform-box: fill-box; transform-origin: center; animation: spin 18s linear infinite reverse; }
 .spin-slow { transform-box: fill-box; transform-origin: center; animation: spin 40s linear infinite; }
 .orbit { transform-box: fill-box; transform-origin: center; animation: spin 22s linear infinite; }
-.is-dormant .spin, .is-dormant .spin-r, .is-dormant .orbit { animation-play-state: paused; }
+.is-dormant .spin, .is-dormant .spin-r, .is-dormant .spin-slow, .is-dormant .orbit { animation-play-state: paused; }
 
 .hoverable { cursor: help; }
 .hoverable:hover .hover-glow { stroke: var(--accent); }
@@ -612,6 +628,7 @@ a {
 .scene:not(.is-live) .orbit,
 .scene:not(.is-live) .conduit__flow,
 .scene:not(.is-live) .led,
+.scene:not(.is-live) .led-halo,
 .scene:not(.is-live) .cap,
 .scene:not(.is-live) .cursor-blink,
 .scene:not(.is-live) .tick-anim {
