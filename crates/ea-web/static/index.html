@@ -45,7 +45,7 @@
     </div>
   </header>
   <div id="barra"><span id="fb"></span><input id="q" placeholder="filtrar ( / )" aria-label="Filtrar" spellcheck="false"></div>
-  <section id="lista"><div id="escena" hidden></div><div id="filas"></div></section>
+  <section id="lista"><div id="espera" hidden aria-live="polite" aria-label="Te espera"></div><div id="escena" hidden></div><div id="filas"></div></section>
 </main>
 <aside id="proyectos" class="plegada" aria-label="Proyectos">
   <div class="cab"><h2>Proyectos</h2><b id="proy-n"></b><span class="grow"></span><button data-plegar-proy></button></div>
@@ -70,19 +70,19 @@
     <dl class="leyenda">
       <dt>cápsula</dt><dd>la mitad de arriba es el modo: roja misión, azul obra, amarilla rutina, rosa propuesta (con rombo). Gira si se ejecuta, lleva halo si espera, se apaga al cerrarse</dd>
       <dt>placa</dt><dd>el nombre de cada agente, como en la tapa de su máquina; la pegatina azul COLA dice cuántas cápsulas esperan</dd>
-      <dt><span class="premio">★</span></dt><dd>el premio: el informe que trae un trabajo</dd>
+      <dt><span class="premio">INFORME</span></dt><dd>lo que entrega un trabajo al terminar</dd>
       <dt class="hot">! aviso</dt><dd>el piloto de la máquina se pone rojo si tiene un trabajo bloqueado; el mostrador TÚ, si un paquete de corrección te espera; el orquestador se sacude y avisa si no late o hay un servicio parado</dd>
     </dl>
 
     <h2>Botones</h2>
-    <p class="nota-esc">Cada botón lleva el gesto de la máquina y, en gris, la acción real; el título da la explicación completa. El azul redondo es la acción principal de la fila; en rojo, cuando decide algo que falló.</p>
+    <p class="nota-esc">Cada botón dice lo que hace; el título da la explicación completa. El azul redondo es la acción principal de la fila; en rojo, cuando decide algo que falló. Arriba de Inicio, <i>Te espera (N)</i> reúne lo que necesita tu decisión: propuestas pendientes, trabajos en revisión y paquetes de corrección en espera.</p>
     <dl class="leyenda">
-      <dt>▶ echar ficha</dt><dd>lanzar una rutina: lo único que crea trabajo aquí</dd>
-      <dt>★ canjear</dt><dd>cerrar: el premio (el informe) vale</dd>
-      <dt>▶ seguir girando</dt><dd>continuar una obra con las fases que quedan</dd>
-      <dt>↺ volver a girar</dt><dd>reformular, con nota obligatoria</dd>
-      <dt>⊘ devolver</dt><dd>cancelar; segundo clic para confirmar</dd>
-      <dt>✓ desatascar</dt><dd>confirmar un paquete de corrección: pasa al planificador</dd>
+      <dt>▶ Lanzar rutina</dt><dd>lanzar una rutina: lo único que crea trabajo aquí</dd>
+      <dt>Cerrar</dt><dd>dar el trabajo por bueno: el informe vale</dd>
+      <dt>Continuar</dt><dd>continuar una obra con las fases que quedan</dd>
+      <dt>Reformular</dt><dd>reformular, con nota obligatoria</dd>
+      <dt>Cancelar</dt><dd>cancelar; segundo clic para confirmar</dd>
+      <dt>Confirmar corrección</dt><dd>confirmar un paquete de corrección: pasa al planificador</dd>
       <dt>✓ aceptar</dt><dd>decidir una propuesta; las irreversibles, solo en terminal</dd>
     </dl>
 
@@ -92,7 +92,7 @@
       <dt>◐ ejecutando</dt><dd>el ejecutor trabaja en el worktree</dd>
       <dt>◇ en revisión</dt><dd>entregado; espera al planificador (cerrar, reformular o continuar)</dd>
       <dt class="hot">! en espera</dt><dd>paquete de corrección de una rutina que falló; espera tu confirmación</dd>
-      <dt>● cerrado</dt><dd>revisado y dado por bueno</dd>
+      <dt>● cerrado</dt><dd>revisado y cerrado; si el informe quedó bloqueado dice <i class="hot">cerrado · falló</i> en rojo</dd>
       <dt>⊘ cancelado</dt><dd>descartado antes de cerrarse</dd>
     </dl>
 

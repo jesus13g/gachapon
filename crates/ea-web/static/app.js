@@ -31,7 +31,7 @@ const NOMBRE = {
 };
 const TITULOS = {
   inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
-  trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su premio (el informe), el diff y lo que admite.'],
+  trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su informe, el diff y lo que admite.'],
   diario: ['Diario', 'El registro de todo lo que ocurre en el ecosistema, lo más reciente arriba.'],
   rutinas: ['Rutinas', 'Máquinas de cápsulas amarillas, versionadas y registradas. Echa una ficha para lanzar una ahora sin esperar a su hora.'],
   propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
@@ -217,7 +217,9 @@ function eventos(lista) {
 // ------------------------------------------------------------------- trabajos
 
 // «cancelando…»: cancelado, pero el ejecutor aún tiene su worktree (parando al agente).
-const estadoJ = t => `<span class="est ${t.estado}">${capsulaJ(t)}${t.cancelando ? 'cancelando…' : EST[t.estado][1]}</span>`;
+// Estado ≠ resultado: un trabajo cerrado cuyo informe quedó bloqueado dice «cerrado · falló» en rojo.
+const falloJ = t => t.estado === 'cerrado' && t.resultado === 'bloqueado';
+const estadoJ = t => `<span class="est ${t.estado}${falloJ(t) ? ' fallo' : ''}">${capsulaJ(t)}${t.cancelando ? 'cancelando…' : EST[t.estado][1] + (falloJ(t) ? ' · falló' : '')}</span>`;
 const NO_SE_DESHACE = 'lo que el agente ya escribió en el worktree no se deshace';
 
 // «fase 2/5» o «iteración 3», lo que diga más del avance.
@@ -226,18 +228,18 @@ function avance(t) {
   return t.iteracion ? `iteración ${t.iteracion}` : '';
 }
 
-// El informe es el premio del trabajo: [texto, clase]. En una tarjeta
+// El informe del trabajo: [texto, clase]. En una tarjeta
 // (`largo`) dice además por qué falló.
 function premio(t, largo = false) {
   const av = avance(t);
   const con = (...xs) => xs.filter(Boolean).join(' · ');
   if (t.cancelando) return ['⊘ cancelando…', 'hot'];
-  if (t.estado === 'cancelado') return ['⊘ sin premio', ''];
+  if (t.estado === 'cancelado') return ['⊘ sin informe', ''];
   if (t.resultado === 'bloqueado' || t.estado === 'en_espera') {
-    const roto = t.estado === 'cerrado' ? '✕ premio roto' : '✕ bloqueado';
+    const roto = t.estado === 'cerrado' ? '✕ falló' : '✕ bloqueado';
     return [largo && t.detalle ? '✕ ' + t.detalle.slice(0, 120) : roto, 'hot'];
   }
-  if (t.resultado && t.estado === 'en_revision') return [con(largo ? '✓ trae premio' : '★ terminado', av), largo ? '' : 'pz'];
+  if (t.resultado && t.estado === 'en_revision') return [con(largo ? '✓ trae informe' : '★ terminado', av), largo ? '' : 'pz'];
   if (t.resultado) return [t.obra_completa && t.fases_total ? `★ obra completa · ${t.fases_total}/${t.fases_total}` : con('★ terminado', av), 'pz'];
   return [av, ''];
 }
@@ -248,15 +250,15 @@ function accionesTrabajo(t, i, mas = '') {
   const b = (a, g, tt, cls = '') => btn(a, g, tt, { id: t.id }, cls);
   let h = '';
   if (t.estado === 'en_revision') {
-    h += b('cerrar', '★ canjear <span>cerrar</span>', 'cerrar: darlo por bueno', 'coin');
-    if (i && !i.obra_completa) h += b('continuar', '▶ seguir girando <span class="dd">continuar</span>', 'la obra sigue con las fases que quedan');
+    h += b('cerrar', 'Cerrar', 'cerrar el trabajo: darlo por bueno', 'coin');
+    if (i && !i.obra_completa) h += b('continuar', 'Continuar', 'continuar: la obra sigue con las fases que quedan');
     h += reformularHtml(t);
   } else if (t.estado === 'en_espera') {
     h += `<textarea class="nota" rows="2" placeholder="contexto que se añade al paquete (opcional)" aria-label="Contexto" maxlength="10000"></textarea>` +
-      b('confirmar', '✓ desatascar', 'pasa el paquete de corrección al planificador', 'coin hot');
+      b('confirmar', 'Confirmar corrección', 'confirmar: pasa el paquete de corrección al planificador', 'coin hot');
   }
   h += mas;
-  if (!FINAL.includes(t.estado)) h += b('cancelar', '⊘ devolver', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
+  if (!FINAL.includes(t.estado)) h += b('cancelar', 'Cancelar', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
   return h ? `<div class="acc" data-j="${id}">${h}</div>` : '';
 }
 
@@ -273,7 +275,7 @@ function reformularHtml(t) {
     h += '<p class="et">notas anteriores</p>' +
       o.notas_revision.map((n, i) => `<p class="tx"><span class="dd">${i + 1}.</span> ${esc(n)}</p>`).join('');
   }
-  h += `<textarea class="nota" data-rf="${id}" rows="3" placeholder="nota para volver a girar: qué falla y qué cambiar" aria-label="Nota para reformular" maxlength="10000">${esc(bo.nota ?? '')}</textarea></div>`;
+  h += `<textarea class="nota" data-rf="${id}" rows="3" placeholder="nota para reformular: qué falla y qué cambiar" aria-label="Nota para reformular" maxlength="10000">${esc(bo.nota ?? '')}</textarea></div>`;
   if (t.modo === 'obra' && t.fases_total) {
     const fases = o?.fases?.length ? o.fases : Array.from({ length: t.fases_total }, (_, i) => ({ numero: i + 1 }));
     const nums = fases.map(f => f.numero);
@@ -283,7 +285,7 @@ function reformularHtml(t) {
       fases.map(f => `<option value="${f.numero}"${f.numero === elegida ? ' selected' : ''}>rehacer desde la fase ${f.numero}` +
         `${f.titulo ? ': ' + esc(f.titulo) : ''}${f.numero === pend ? ' · pendiente' : ''}</option>`).join('') + '</select>';
   }
-  return h + btn('reformular', '↺ volver a girar <span class="dd">reformular</span>', 'devolverlo al ejecutor con esta nota (obligatoria)', { id: t.id });
+  return h + btn('reformular', 'Reformular', 'reformular: devolverlo al ejecutor con esta nota (obligatoria)', { id: t.id });
 }
 
 // «qwen-code (qwen3-coder-30b)»: con qué agente y modelo se ejecutó (spec 017).
@@ -301,8 +303,8 @@ function informeHtml(d) {
     h += '<p class="et">fases</p>' + i.fases.map(f =>
       `<p><i class="${f.resultado === 'hecha' ? '' : 'hot'}">${f.resultado === 'hecha' ? '✓' : '✕'}</i> ${f.numero}. ${esc(f.titulo)} <span class="dd">${esc(f.resultado)}${f.diff_stat ? ' · ' + esc(f.diff_stat.trim().split('\n').pop()) : ''}${f.ejecutado_por ? ' · ' + porQuien(f.ejecutado_por) : ''}</span></p>`).join('');
   }
-  return `<div class="caja-premio"><div class="cab-p"><span class="premio">★ PREMIO</span>` +
-    `<span class="${bloq ? 'hot' : 'x'}">${bloq ? '✕ bloqueado' : '✓ terminado'}</span>` +
+  return `<div class="caja-premio"><div class="cab-p"><span class="premio">INFORME</span>` +
+    `<span class="${bloq ? 'hot' : 'x'}">${bloq ? '✕ falló · bloqueado' : '✓ terminado'}</span>` +
     `<span class="m">· obra_completa: ${i.obra_completa ? 'sí' : 'no'} · ${i.fases_hechas} fases hechas · ${i.duracion_s}s${i.ejecutado_por ? ' · ' + porQuien(i.ejecutado_por) : ''}</span></div>` +
     `<div class="cuerpo-p">${h}</div></div>`;
 }
@@ -826,7 +828,7 @@ function formEntradas(r) {
     btn('rprevia', '◌ vista previa', 'muestra el objetivo y el criterio que recibirá el agente, sin lanzar nada', { slug: r.slug }) + '</div>';
   if (re.previa) {
     h += `<p class="tx sal">criterio: <b>${esc(re.previa.criterio)}</b></p><pre class="toml sal">${esc(re.previa.objetivo)}</pre>` +
-      `<div class="acc sal">${btn('lanzar', '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha', 'lanzar con estas entradas', { slug: r.slug }, 'coin')}</div>`;
+      `<div class="acc sal">${btn('lanzar', '<span class="ranura" aria-hidden="true"><i></i></span>Lanzar rutina', 'lanzar con estas entradas', { slug: r.slug }, 'coin')}</div>`;
   }
   if (re.err) h += `<p class="hot sal">✕ ${esc(re.err)}</p>`;
   return h;
@@ -850,7 +852,7 @@ function filasRutinas(rs) {
       ultimaRutina(r.ultima) +
       (retirada ? '<span class="m fuera">retirada</span>'
         : r.error ? '<span class="hot fuera">fuera de servicio</span>'
-        : btn('lanzar', enCola ? '✓ en la cúpula' : '<span class="ranura" aria-hidden="true"><i></i></span>echar ficha',
+        : btn('lanzar', enCola ? '✓ en cola' : '<span class="ranura" aria-hidden="true"><i></i></span>Lanzar rutina',
           `Lanzar ahora la rutina ${r.slug} con las entradas de su ficha: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
     const d = st.detalle[k];
     const editando = st.rutEd?.slug === r.slug;
@@ -1165,6 +1167,22 @@ function versionesHtml(slug) {
     `<pre class="diff">${colorDiff(diffLineas(V.txt[ant.version], txt) || '(sin cambios)')}</pre>`;
 }
 
+// Los botones de decidir una propuesta pendiente (también los usa la bandeja «Te espera»).
+// Aceptar una propuesta con acción la ejecuta: pide confirmar (segundo
+// clic). Una irreversible no se confirma desde aquí, solo en terminal.
+function botonesPropuesta(p) {
+  if (p.estado !== 'pendiente') return '';
+  const ac = p.accion;
+  const irrev = ac && ac.riesgo === 'irreversible';
+  const armada = st.armado && st.armado.n === 'p' + p.id && st.armado.hasta > Date.now();
+  let acc = '';
+  // Irreversible: la web solo abre la terminal; la frase se escribe allí.
+  if (irrev) acc += btn('terminal', '⌨ terminal', `irreversible: abre una terminal con ea propuestas decidir ${p.id}; allí se confirma escribiendo «confirmo ${p.id}»`, { id: p.id }, 'hot');
+  else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
+  else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' }, 'coin');
+  return acc + btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
+}
+
 function filasPropuestas(ps) {
   // La recién aceptada (A1) sigue a la vista con lo que produjo, aunque ya no
   // esté entre las pendientes, hasta que se cambia de sección.
@@ -1180,14 +1198,7 @@ function filasPropuestas(ps) {
     // Aceptar una propuesta con acción la ejecuta: pide confirmar (segundo
     // clic). Una irreversible no se confirma desde aquí, solo en terminal.
     const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
-    let acc = '';
-    if (pend) {
-      // Irreversible: la web solo abre la terminal; la frase se escribe allí.
-      if (irrev) acc += btn('terminal', '⌨ terminal', `irreversible: abre una terminal con ea propuestas decidir ${p.id}; allí se confirma escribiendo «confirmo ${p.id}»`, { id: p.id }, 'hot');
-      else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
-      else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' }, 'coin');
-      acc += btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
-    }
+    const acc = botonesPropuesta(p);
     const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : '';
     const row = `<span title="${glifo} ${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${capsula(COLOR.propuesta, falla ? 'hot' : pend ? '' : 'cerrada', 18, true)}</span><span class="n">#${p.id}</span>` +
       `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${reloj(p.creada)}</span><span class="bs">${acc}</span>`;
@@ -2784,7 +2795,7 @@ function tableroJ() {
     col('◐ Ejecutando', 'el ejecutor trabaja', por('ejecutando')) +
     col('◇ En revisión', 'esperan al planificador', por('en_revision')) +
     col('! En espera', 'esperan tu confirmación', por('en_espera')) +
-    col('● Cerrados', 'los últimos, con su premio', cerrados) + '</div>');
+    col('● Cerrados', 'los últimos, con su informe', cerrados) + '</div>');
 }
 
 // Las sesiones vivas de Claude Code (del proyecto elegido, o todas), cada una
@@ -2807,6 +2818,37 @@ function avisoPaquete(t) {
   return suelto(`<div class="paq"><h3>${capsulaJ(t)}${esc(t.rutina ? t.rutina.slug : t.titulo)} <span class="m">${t.rutina ? 'v' + t.rutina.version + ' ' : ''}falló · hace ${reloj(t.actualizado)}</span></h3>` +
     `<p class="m">${esc(motivo)} Revisa el paquete en su ficha, añade contexto si hace falta y confirma: solo entonces pasa al planificador.</p>` +
     accionesTrabajo(t, null, btn('ir-trabajo', '▸ ver paquete', 'abrir la ficha', { id: t.id })) + '</div>');
+}
+
+// La bandeja «Te espera (N)», fija arriba de Inicio y fuera de la escena:
+// propuestas pendientes, trabajos en revisión y paquetes en espera. Sale de
+// los datos que ya cargan Inicio y Trabajos; el número suma lo mismo que las
+// pegatinas del raíl.
+function bandejaHtml() {
+  const props = st.datos?.propuestas ?? [];
+  const rev = st.trabajos.filter(t => t.estado === 'en_revision');
+  const esp = st.trabajos.filter(t => t.estado === 'en_espera');
+  const n = props.length + rev.length + esp.length;
+  if (!n) return '<p class="te-vacia">Nada te espera</p>';
+  const fila = (cap, tag, tit, acc, hot = false) =>
+    `<div class="te-fila${hot ? ' hot' : ''}">${cap}<span class="te-tag">${tag}</span><span class="x">${tit}</span><span class="bs">${acc}</span></div>`;
+  const ficha = t => btn('ir-trabajo', 'Revisar', 'abrir la ficha del trabajo', { id: t.id }, 'l');
+  const filas = [
+    ...esp.map(t => fila(capsulaJ(t, 16), 'corrección', esc(t.rutina ? t.rutina.slug + ' falló' : t.titulo), ficha(t), true)),
+    ...rev.map(t => fila(capsulaJ(t, 16), MODO[t.modo] ?? t.modo, esc(t.titulo),
+      ficha(t) + `<span class="acc" data-j="${esc(t.id)}">${btn('cerrar', 'Cerrar', 'cerrar el trabajo: darlo por bueno', { id: t.id }, 'coin')}</span>`)),
+    ...props.map(p => fila(capsula(COLOR.propuesta, '', 16, true), 'propuesta #' + p.id, esc(p.descripcion), botonesPropuesta(p))),
+  ];
+  return `<h2 class="te-cab">Te espera <b>(${n})</b></h2>` + filas.join('');
+}
+
+function pintaEspera() {
+  const el = $('#espera');
+  if (!el) return;
+  el.hidden = st.sec !== 'inicio' || !st.datos;
+  if (el.hidden) return;
+  const h = bandejaHtml();
+  if (h !== el.dataset.h) { el.dataset.h = h; el.innerHTML = h; }
 }
 
 // La portada: colas y semáforo, lo que espera una decisión, el tablero de
@@ -2843,7 +2885,7 @@ function construir() {
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
-    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'premio · avance', 'hace'),
+    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'informe · avance', 'hace'),
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
     case 'diario': return d ? [...formAnotar(), ...con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)), ...pieDiario(d)] : [];
     case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
@@ -3172,6 +3214,7 @@ function pintar() {
     const f = $(`#filas .f[data-k="${CSS.escape(st.irA)}"]`);
     if (f) { st.irA = null; f.scrollIntoView({ block: 'nearest' }); }
   }
+  pintaEspera();
   relojes();
   barra();
 }
@@ -3462,7 +3505,7 @@ async function accion(b) {
       if (a === 'reformular' && !texto) throw new Error('escribe la nota para reformular');
       if (a === 'cancelar' && !(st.armado && st.armado.n === 'c' + id && st.armado.hasta > Date.now())) {
         st.armado = { n: 'c' + id, hasta: Date.now() + 3000 };
-        b.textContent = '⊘ confirmar';
+        b.textContent = 'Confirmar cancelación';
         setTimeout(() => { st.armado = null; st.html = ''; pintar(); }, 3100);
         return;
       }
