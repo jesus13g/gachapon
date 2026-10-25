@@ -5,3 +5,8 @@
 *.db-journal
 
 FUNCIONALIDADES.md
+
+# Dependencias locales y material de marketing (no se suben)
+node_modules/
+.venv*/
+/marketing/

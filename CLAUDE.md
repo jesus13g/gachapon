@@ -10,7 +10,8 @@ agente, worktree propio y presencia (spec 019, constitución 1.4.0). Corre en
 Linux, macOS y Windows con el sandbox de cada sistema (spec 020, constitución
 1.5.0). Una app de escritorio nativa (`escritorio/`, spec 021,
 constitución 1.5.1) envuelve el panel con bandeja y avisos. Se comunican
-por un bus de ficheros con colas y semáforos. Visión general en `README.md`; diseño original en
+por un bus de ficheros con colas y semáforos. Visión general e inicio rápido en `README.md`, referencia completa en
+`docs/manual.md`; diseño original en
 `orquestador-claude-qwen.md`.
 
 ## Fuente de verdad: la documentación SDD
@@ -113,7 +114,8 @@ en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
   `app.css`/`gashapon.css`. La escena de Inicio (`gashapon.js`) solo pinta
   estado real de `GET /api/ecosistema` (detectores en `ea-web/src/ecosistema/`):
   nada de animaciones decorativas ni actividad inventada.
-- Al cambiar comandos, API o comportamiento visible, actualiza el `README.md`.
+- Al cambiar comandos, API o comportamiento visible, actualiza `docs/manual.md`
+  (la referencia) y, si afecta al inicio rápido o al uso básico, el `README.md`.
 
 ## Git
 
