@@ -748,7 +748,7 @@ small.ids { margin-left: 6px; font-size: 10.5px; color: var(--fg-lo); opacity: .
 .sin-valor { font-style: italic; }
 
 /* Invitación discreta al recorrido (primera visita) */
-#invita-tour { position: fixed; right: 16px; bottom: 16px; z-index: 4; display: flex; align-items: center; gap: 8px; max-width: min(360px, calc(100vw - 32px)); padding: 8px 10px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .3); font-size: 13px; color: var(--fg); }
+#invita-tour { position: fixed; right: 16px; bottom: 84px; z-index: 4; display: flex; align-items: center; gap: 8px; max-width: min(360px, calc(100vw - 32px)); padding: 8px 10px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .3); font-size: 13px; color: var(--fg); }
 #invita-tour[hidden] { display: none; }
 #invita-tour span { flex: 1; min-width: 0; }
 @media (max-width: 760px) { #invita-tour { right: 12px; left: 12px; max-width: none; bottom: 72px; } }

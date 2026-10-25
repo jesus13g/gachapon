@@ -3450,6 +3450,7 @@ function proyectos(cambiar = false) {
 
 function pintar() {
   escribeHash(false); // el hash sigue a la vista (filtros, fila abierta)
+  pintaEspera(); // antes de cualquier salida temprana: la bandeja solo vive en Inicio
   // No pisar lo que se está escribiendo dentro de un detalle.
   const foco = document.activeElement;
   if (foco && foco.matches('input, select, textarea') && foco.closest('#lista')) return relojes();
@@ -3499,7 +3500,6 @@ function pintar() {
     const f = $(`#filas .f[data-k="${CSS.escape(st.irA)}"]`);
     if (f) { st.irA = null; f.scrollIntoView({ block: 'nearest' }); }
   }
-  pintaEspera();
   relojes();
   barra();
 }
