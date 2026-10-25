@@ -215,7 +215,7 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   padding: 0 10px; border-radius: 4px; cursor: default;
 }
 /* Trabajos: estado, modo e informe a su ancho natural (no se truncan); el título absorbe el resto. El id va en el title. */
-.r.j { grid-template-columns: 150px minmax(0, 1fr) 118px 196px 52px; }
+.r.j { grid-template-columns: 176px minmax(0, 1fr) minmax(118px, 200px) minmax(196px, 260px) 52px; }
 
 .r.d { grid-template-columns: 96px 18px 110px minmax(0, 1fr) 120px 56px; }
 .r.u { grid-template-columns: 18px minmax(120px, 220px) 40px 1fr 90px 140px 150px; min-height: 38px; }
