@@ -56,3 +56,23 @@ document.querySelector('.brand')?.addEventListener('click', (e) => {
   history.replaceState(null, '', location.pathname + location.search);
   window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
 });
+
+// The language button keeps the reader on the same chapter: the other page opens at #<act id>.
+document.querySelector<HTMLAnchorElement>('[data-lang-switch]')?.addEventListener('click', (e) => {
+  const scenes = [...document.querySelectorAll<HTMLElement>('.scene')];
+  let i = -1;
+  if (html.classList.contains('is-cinema')) {
+    i = [...document.querySelectorAll('.rail button')].findIndex((b) => b.getAttribute('aria-current') === 'true');
+  } else {
+    const mid = innerHeight / 2;
+    i = scenes.findIndex((s) => {
+      const r = s.getBoundingClientRect();
+      return r.top <= mid && r.bottom >= mid;
+    });
+  }
+  const id = scenes[i]?.id;
+  if (i > 0 && id) {
+    e.preventDefault();
+    location.href = `${(e.currentTarget as HTMLAnchorElement).pathname}#${id}`;
+  }
+});

@@ -32,8 +32,8 @@ export const ui = {
   skip: 'Skip to content',
   top: 'Gachapon — top',
   navProject: 'Project',
-  langLabel: 'Language',
-  langNames: { en: 'English', es: 'Español' },
+  /** The header button that switches to the other language. */
+  langSwitch: 'Ver en español',
   scroll: 'Scroll',
   soundNote: '',
   railLabel: 'Story chapters',
