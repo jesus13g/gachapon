@@ -25,6 +25,8 @@
   <symbol id="i-ajustes" viewBox="0 0 24 24"><path d="M10.5 5.4L10.9 3.1L13.1 3.1L13.5 5.4L15.7 6.3L17.5 4.9L19.1 6.5L17.7 8.3L18.6 10.5L20.9 10.9L20.9 13.1L18.6 13.5L17.7 15.7L19.1 17.5L17.5 19.1L15.7 17.7L13.5 18.6L13.1 20.9L10.9 20.9L10.5 18.6L8.3 17.7L6.5 19.1L4.9 17.5L6.3 15.7L5.4 13.5L3.1 13.1L3.1 10.9L5.4 10.5L6.3 8.3L4.9 6.5L6.5 4.9L8.3 6.3Z"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-proyectos" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-mas" viewBox="0 0 24 24"><path d="M5 12v.01M12 12v.01M19 12v.01" stroke-width="2.6"/></symbol>
+  <symbol id="i-papelera" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-reindexar" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4.5h-4.5"/></symbol>
   <symbol id="i-candado" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
 </svg>
 <nav id="rail" aria-label="Secciones">
@@ -87,7 +89,10 @@
 <aside id="ayuda" hidden role="dialog" aria-modal="true" aria-label="Ayuda">
   <div class="hoja">
     <button data-cerrar title="Cerrar (Esc)">✕ cerrar</button>
-    <p class="tour-bot"><button class="coin" data-tour="todo">▶ recorrido guiado</button><button data-tour="vista">▸ esta vista</button></p>
+    <p class="tour-bot"><button class="coin" data-tour="todo" title="recorrido de 8 pasos por lo esencial">▶ recorrido (8 pasos)</button><button data-tour="vista" title="paso a paso por la vista actual">▸ recorrer esta vista</button></p>
+    <div id="ayuda-vista"></div>
+    <details class="anexo">
+    <summary>Leyenda global: cómo funciona, símbolos, botones y estados</summary>
     <h2>Cómo funciona</h2>
     <ol>
       <li><b>El planificador formaliza.</b> Con <i>/mision</i>, <i>/obra</i> o <i>/rutina</i> deja una orden en la cola del ejecutor. Esta página no lanza trabajo nuevo, salvo las rutinas.</li>
@@ -178,6 +183,7 @@
       <dt>?</dt><dd>esta ayuda</dd>
       <dt>t</dt><dd>el recorrido guiado por todas las vistas</dd>
     </dl>
+    </details>
   </div>
 </aside>
 <script src="/gashapon.js"></script>

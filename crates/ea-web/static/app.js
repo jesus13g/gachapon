@@ -4,6 +4,8 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
 const GL_AJUSTES = '<svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 5.4L10.9 3.1L13.1 3.1L13.5 5.4L15.7 6.3L17.5 4.9L19.1 6.5L17.7 8.3L18.6 10.5L20.9 10.9L20.9 13.1L18.6 13.5L17.7 15.7L19.1 17.5L17.5 19.1L15.7 17.7L13.5 18.6L13.1 20.9L10.9 20.9L10.5 18.6L8.3 17.7L6.5 19.1L4.9 17.5L6.3 15.7L5.4 13.5L3.1 13.1L3.1 10.9L5.4 10.5L6.3 8.3L4.9 6.5L6.5 4.9L8.3 6.3Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const GL_PAPELERA = '<svg class="gl" aria-hidden="true"><use href="#i-papelera"/></svg>';
+const GL_REINDEXAR = '<svg class="gl" aria-hidden="true"><use href="#i-reindexar"/></svg>';
 // Orden del raíl, por bloques: Trabajo · Conocimiento · Herramientas · Sistema.
 // Las teclas 1-9 y 0 siguen este orden; las dos que sobran (Diario, Ajustes) tienen letra.
 const SECCIONES = ['inicio', 'trabajos', 'propuestas', 'rutinas', 'equipos', 'boveda', 'memoria', 'biblioteca', 'acciones', 'sistema', 'diario', 'ajustes'];
@@ -55,14 +57,24 @@ const TITULOS = {
   equipos: ['Equipos', 'Grupos de agentes despertados para una tarea: quién es planificador, ejecutor o revisor, quién está despierto, en qué trabaja y qué ha entregado. Despierta uno con ＋ despertar; dormirlo devuelve lo pendiente a la cola.'],
   ajustes: ['Ajustes', 'Cómo se comporta el ecosistema. Lo marcado ⌨ se cambia en una terminal con `ea ajustes`.'],
 };
+// Qué hacer a continuación en cada estado vacío (HTML propio; los botones que
+// mutan usan un data-a de MUTA y se apagan en solo lectura).
+const irSec = (sec, txt, titulo) => btn('ir-sec', txt, titulo, { id: sec });
+const VACIO_ACC = {
+  trabajos: () => btn('nueva-mision', '＋ misión', 'encargar una misión al ejecutor', {}, 'coin'),
+  rutinas: () => btn('rnueva', '＋ rutina', 'rutina nueva: abre el editor con una plantilla TOML', {}, 'coin'),
+  propuestas: () => irSec('trabajos', 'ir a Trabajos', 'ver los trabajos del ecosistema'),
+  equipos: () => btn('eq-nuevo', '＋ despertar', 'despertar un equipo de agentes', {}, 'coin'),
+  diario: () => btn('d-anotar', '✎ anotar', 'anotar en el diario: dejar constancia de algo con actor usuario', {}, 'coin'),
+};
 const VACIO = {
-  trabajos: 'No hay trabajos. Encarga una misión con ＋ misión, o desde el planificador con /mision, /obra o /rutina.',
-  diario: 'El diario está vacío.',
-  rutinas: 'No hay rutinas registradas (ea rutina registrar).',
-  propuestas: 'Nada espera tu decisión.',
+  trabajos: 'No hay trabajos. Encarga una misión, o desde el planificador con /mision, /obra o /rutina.',
+  diario: 'El diario está vacío: se llena solo cuando algo ocurre. También puedes dejar una anotación.',
+  rutinas: 'No hay rutinas registradas. Crea una, o pídele al planificador /rutina (ea rutina registrar).',
+  propuestas: 'Nada espera tu decisión. Las propuestas aparecen cuando un agente quiere cambiar algo.',
   boveda: 'No hay notas.',
   memoria: 'Ningún proyecto tiene memoria (~/.claude/projects/*/memory).',
-  equipos: 'No hay equipos. Despierta uno con ＋ despertar, o con ea equipo despertar.',
+  equipos: 'No hay equipos. Despierta uno para repartir trabajo entre varios agentes (o con ea equipo despertar).',
   biblioteca: 'La biblioteca está vacía: ningún agente tiene herramientas en disco (o los filtros no dejan ninguna).',
 };
 
@@ -1599,11 +1611,21 @@ function arbolNotas(A, E, nodos, prof = 0) {
   }).join('');
 }
 
+// Sin nota elegida: las más recientes (por fecha de actualización) como enlaces.
+function recientes(A, d) {
+  const lista = (A.recientes?.(d) ?? []).slice(0, 10);
+  const cab = `<p class="vacio">Elige una ${A.cosa} del árbol` + (lista.length ? ' o abre una reciente.' : '.') + '</p>';
+  if (!lista.length) return cab;
+  return cab + '<h3 class="rec-cab">Recientes</h3><ul class="rec">' + lista.map(r =>
+    `<li><a class="ml" href="#" data-ml="${esc(r.k)}" title="${esc(r.titulo)}">${esc(r.nombre)}</a>` +
+    `<span class="m">${esc(r.sub)}</span>${r.t != null ? `<span class="m">hace ${reloj(r.t)}</span>` : ''}</li>`).join('') + '</ul>';
+}
+
 function notaEditor(A, E, d) {
   const panel = A.panel?.(d, E);
   if (panel) return panel;
   const k = E.sel;
-  if (!k) return `<p class="vacio">Elige una ${A.cosa} del árbol.</p>`;
+  if (!k) return recientes(A, d);
   const x = st.detalle[k], e = E.borrador?.k === k ? E.borrador : null;
   if (!x && !e) return '<p class="vacio">Cargando…</p>';
   const edita = E.modo === 'edicion' && e;
@@ -1642,6 +1664,11 @@ function pintaEditor() {
     E.borrador = null;
   }
   asegurarBorrador(E);
+  if (E.plegadoInicial && !A.vacio(d)) {
+    E.plegadoInicial = false;
+    A.arbol(d, '').forEach(n => { if (n.hijos) E.plegados.add(n.d); });
+    if (E.sel) A.desplegar?.(E, E.sel);
+  }
   const nodos = A.arbol(d, st.q.trim().toLowerCase());
   st.vis = clavesVisibles(E, nodos);
   if (A.vacio(d)) {
@@ -1719,6 +1746,12 @@ EDITOR.memoria = {
         })),
       };
     }).filter(g => g.hijos.length);
+  },
+  recientes(d) {
+    const et = etiquetasMem(d.proyectos);
+    return d.proyectos.flatMap(p => p.ficheros.map(f => ({
+      k: claveMem(p.id, f.nombre), nombre: f.nombre.replace(/\.md$/, ''), sub: et.get(p.id), titulo: f.descripcion ?? f.titulo ?? f.nombre, t: f.modificada ?? null,
+    }))).sort((a, b) => (b.t == null ? 0 : ms(b.t)) - (a.t == null ? 0 : ms(a.t)));
   },
   nombre: k => partesMem(k)[1],
   nombreEditable: k => partesMem(k)[1].replace(/\.md$/, ''),
@@ -1986,6 +2019,9 @@ EDITOR.boveda = {
     const poda = ns => ns.filter(n => !n.hijos || n.cuenta > 0).map(n => (n.hijos ? { ...n, hijos: poda(n.hijos) } : n));
     return q ? poda(raices) : raices;
   },
+  recientes: d => d.notas.map(n => ({
+    k: 'b' + n.ruta, nombre: n.ruta.split('/').pop().replace(/\.md$/, ''), sub: carpetaDe(n.ruta), titulo: n.titulo, t: n.actualizada ?? null,
+  })).sort((a, b) => (b.t == null ? 0 : ms(b.t)) - (a.t == null ? 0 : ms(a.t))),
   nombre: k => rutaB(k).split('/').pop(),
   // Lo que se escribe al renombrar: la ruta dentro de la región, sin .md.
   nombreEditable: k => rutaB(k).split('/').slice(1).join('/').replace(/\.md$/, ''),
@@ -2032,8 +2068,8 @@ EDITOR.boveda = {
     let h = '<div class="arbol-bar">' +
       btn('crear-nota', '＋ nota', 'nota nueva (solo en la región compartida)', {}, E.creando === 'nota' ? 'on' : '') +
       btn('carpeta-nota', '＋ carpeta', 'carpeta nueva, en cualquier región', {}, E.creando === 'carpeta' ? 'on' : '') +
-      btn('papelera-nota', 'papelera' + (n ? ` (${n})` : ''), 'las notas borradas: se pueden restaurar', {}, E.papelera ? 'on' : '') +
-      btn('reindexar-boveda', '↻ reindexar', 'reconstruye el índice de búsqueda desde los ficheros (no toca las notas)') +
+      btn('papelera-nota', GL_PAPELERA + ' papelera' + (n ? ` (${n})` : ''), 'las notas borradas: se pueden restaurar', {}, E.papelera ? 'on' : '') +
+      btn('reindexar-boveda', GL_REINDEXAR + ' reindexar', 'reconstruye el índice de búsqueda desde los ficheros (no toca las notas)') +
       '</div>';
     const i = d.indice;
     if (i && i.desfasado) {
@@ -2705,6 +2741,7 @@ const origenAj = o => (ORIGEN_AJ[o.tipo] ?? (() => o.tipo))(o);
 // Un valor para leerlo y tal como se escribiría en la terminal.
 const esMapaAj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const valorAj = v => (esMapaAj(v) ? (Object.keys(v).length ? Object.entries(v).map(([k, x]) => `${k} → ${x}`).join(', ') : '(ninguna)') : Array.isArray(v) ? (v.length ? v.join(', ') : '(ninguna)') : typeof v === 'boolean' ? (v ? 'sí' : 'no') : String(v ?? ''));
+const vacioAj = v => v === '' || v === null || v === undefined;
 const crudoAj = v => (esMapaAj(v) ? JSON.stringify(v) : Array.isArray(v) ? v.join(',') : String(v ?? ''));
 const armadoAj = n => !!(st.armado && st.armado.n === n && st.armado.hasta > Date.now());
 
@@ -2856,9 +2893,12 @@ function filaAjuste(c) {
   const [glifo, tit] = fijada ? ['$', `la fija la variable de entorno ${c.fijada_por}`] : web ? ['✎', 'se cambia desde aquí'] : ['⌨', 'solo desde una terminal (ea ajustes)'];
   const reinicia = c.aplica === 'reinicio';
   const row = `<i class="${fijada ? 'n' : 'm'}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(c.clave)}">${esc(c.titulo)}</span>` +
-    `<span class="${c.origen.tipo === 'defecto' ? 'm' : 'x'}" title="${esc(valorAj(c.valor))}">${esc(valorAj(c.valor))}</span>` +
+    (vacioAj(c.valor)
+      ? `<span class="m sin-valor" title="${c.origen.tipo === 'defecto' ? 'vacío por defecto: el agente o el sistema usa el suyo' : 'vacío a propósito en ' + esc(origenAj(c.origen))}">(sin valor)</span>`
+      : `<span class="${c.origen.tipo === 'defecto' ? 'm' : 'x'}" title="${esc(valorAj(c.valor))}">${esc(valorAj(c.valor))}</span>`) +
     `<span class="m">${esc(origenAj(c.origen))}</span>` +
-    `<span class="${reinicia ? 'hot' : 'm'}" title="${reinicia ? esc('reiniciar ' + c.reinicio.join(', ')) : 'sin reiniciar nada'}">${reinicia ? 'requiere reinicio' : 'en caliente'}</span>`;
+    // Lo habitual (en caliente) no se dice: solo se marca lo que pide reiniciar.
+    (reinicia ? `<span class="hot" title="${esc('al cambiarlo hay que reiniciar ' + c.reinicio.join(', '))}">al reiniciar</span>` : '<span class="m" title="se aplica en caliente, sin reiniciar nada"></span>');
   const rango = c.min != null ? ` · de ${c.min} a ${c.max}` : c.permitidos ? ` · solo ${c.permitidos.join(', ') || 'nada'}` : '';
   let det = `<p class="tx">${esc(c.descripcion)}</p>` +
     `<p class="m">${esc(c.clave)} · por defecto ${esc(valorAj(c.defecto))}${esc(rango)}${reinicia ? esc(' · al cambiarlo, reinicia ' + c.reinicio.join(', ')) : ''}</p>`;
@@ -2887,7 +2927,7 @@ function filaAjuste(c) {
 function filasAjustes(d) {
   const out = [suelto(`<p class="aj-cab m">${esc(d.fichero)}${d.existe ? '' : ' · aún no has cambiado nada: se usan los valores por defecto y los de otras capas'}</p>` +
     d.avisos.map(a => `<p class="aj-cab hot">! ${esc(a)}</p>`).join(''), true)];
-  out.push(columnas('aj', '<abbr title="✎ se cambia desde el panel · ⌨ solo desde una terminal · $ lo fija una variable de entorno">✎⌨$</abbr>', 'ajuste', 'valor', 'origen', 'aplica'));
+  out.push(columnas('aj', '<abbr title="✎ se cambia desde el panel · ⌨ solo desde una terminal · $ lo fija una variable de entorno">✎⌨$</abbr>', 'ajuste', 'valor', 'origen', '<abbr title="Todo se aplica en caliente salvo lo marcado «al reiniciar»">reinicio</abbr>'));
   d.secciones.forEach(s => {
     if (!s.claves.length) return;
     out.push(grupo(GL_AJUSTES, esc(s.titulo), 0), ...s.claves.map(filaAjuste));
@@ -3035,7 +3075,8 @@ function bandejaHtml() {
   const rev = st.trabajos.filter(t => t.estado === 'en_revision');
   const esp = st.trabajos.filter(t => t.estado === 'en_espera');
   const n = props.length + rev.length + esp.length;
-  if (!n) return '<p class="te-vacia">Nada te espera</p>';
+  if (!n) return '<p class="te-vacia">Nada te espera. Cuando un agente proponga algo o entregue un trabajo, aparecerá aquí.' +
+    `<span class="vacio-acc">${irSec('trabajos', 'ir a Trabajos', 'ver los trabajos; desde ahí se encarga una misión con ＋ misión')}${irSec('rutinas', 'ir a Rutinas', 'ver o lanzar las rutinas')}</span></p>`;
   const fila = (cap, tag, tit, acc, hot = false) =>
     `<div class="te-fila${hot ? ' hot' : ''}">${cap}<span class="te-tag">${tag}</span><span class="x">${tit}</span><span class="bs">${acc}</span></div>`;
   const ficha = t => btn('ir-trabajo', 'Revisar', 'abrir la ficha del trabajo', { id: t.id }, 'l');
@@ -3276,7 +3317,8 @@ function cabecera() {
   $('#servicios').innerHTML = e.servicios.map(s => {
     const cls = s.activo === 'active' ? 'ok' : s.activo === 'failed' ? 'bad' : 'off';
     const g = s.activo === 'desconocido' ? '◌' : s.activo === 'inactive' ? '○' : '●';
-    return `<i class="dot ${cls}" title="${s.nombre} · ${s.activo}">${g}</i>`;
+    const corto = { 'llama-server': 'llama', 'ea-mcp': 'mcp', 'ea-orchestrator': 'orquestador' }[s.nombre] ?? s.nombre;
+    return `<i class="dot ${cls}" title="${s.nombre} · ${s.activo}" aria-label="${s.nombre}: ${s.activo}">${g}<span>${corto}</span></i>`;
   }).join('');
   const caidos = e.servicios.filter(s => s.activo !== 'active' && s.activo !== 'desconocido').map(s => s.nombre);
   const salud = $('#salud');
@@ -3360,6 +3402,7 @@ function barraProyectos() {
     f.title = `Solo se ve ${st.proyecto}: pulsa para ver todos los proyectos`;
   }
   $('#bproy').classList.toggle('trab', lista.some(([, ss]) => trabaja(ss)));
+  proyectos(); // sin preferencia guardada, abre o pliega según cuántos haya
 }
 
 // ¿El trabajo es del proyecto? Su worktree es la carpeta del proyecto o cuelga de ella.
@@ -3380,14 +3423,17 @@ function elige(cwd) {
 
 // Desplegada o plegada a una tira con el punto de cada proyecto (en el móvil,
 // plegada no se ve); se recuerda en el navegador. Sin elección guardada:
-// desplegada en pantallas anchas y plegada en estrechas.
+// desplegada solo en pantallas anchas con más de un proyecto.
 function proyectos(cambiar = false) {
   const a = $('#proyectos');
-  let abierta;
-  try { const g = localStorage.getItem('ea-proyectos'); if (g) abierta = g === 'abierta'; } catch { /* sin almacenamiento */ }
-  if (st.proyAbierta === undefined) st.proyAbierta = abierta ?? matchMedia('(min-width: 1100px)').matches;
+  let guardada;
+  try { const g = localStorage.getItem('ea-proyectos'); if (g) guardada = g === 'abierta'; } catch { /* sin almacenamiento */ }
+  // Sin preferencia: abierta solo en pantallas anchas y con más de un proyecto.
+  const auto = matchMedia('(min-width: 1100px)').matches && (st.proyectos?.length ?? 0) > 1;
+  if (st.proyAbierta === undefined || (!cambiar && !st.proyFijo)) st.proyAbierta = guardada ?? auto;
   if (cambiar) {
     st.proyAbierta = !st.proyAbierta;
+    st.proyFijo = true;
     try { localStorage.setItem('ea-proyectos', st.proyAbierta ? 'abierta' : 'plegada'); } catch { /* sin almacenamiento */ }
   }
   a.classList.toggle('plegada', !st.proyAbierta);
@@ -3431,9 +3477,14 @@ function pintar() {
   if (st.sel && !st.vis.includes(st.sel)) st.sel = null;
 
   const vacio = q ? `Nada coincide con «${esc(st.q.trim())}».`
+    : st.sec === 'trabajos' && st.filtroEstado ? `Ningún trabajo ${EST[st.filtroEstado][1]}. Quita el filtro para ver el resto.`
     : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.'
       : st.sec === 'rutinas' && st.rutRetiradas ? 'No hay rutinas retiradas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
-  const html = st.vis.length || st.sec === 'inicio' || vis.some(f => f.fijo) ? vis.map(f => f.html).join('') : `<p class="vacio">${vacio}</p>`;
+  const sinFiltro = !q && !(st.sec === 'propuestas' && st.propTodas) && !(st.sec === 'rutinas' && st.rutRetiradas);
+  const acc = st.sec === 'trabajos' && st.filtroEstado && !q ? `<button class="b" data-f="${st.filtroEstado}" title="quitar el filtro de estado">✕ quitar filtro</button>`
+    : sinFiltro ? VACIO_ACC[st.sec]?.() ?? '' : '';
+  const html = st.vis.length || st.sec === 'inicio' || vis.some(f => f.fijo) ? vis.map(f => f.html).join('')
+    : `<p class="vacio">${vacio}${acc ? `<span class="vacio-acc">${acc}</span>` : ''}</p>`;
   if (html !== st.html) {
     const lista = $('#lista');
     const y = lista.scrollTop;
@@ -3959,6 +4010,9 @@ async function accion(b) {
       st.filtroEstado = null;
       abre('trabajos', 'j' + id);
       return;
+    } else if (a === 'ir-sec') {
+      ir(id);
+      return;
     } else if (a === 'ir-diario') {
       ir('diario', { fila: null, params: { trabajo: id } });
       return;
@@ -4151,8 +4205,76 @@ function tema(cambiar = false) {
   b.setAttribute('aria-label', b.title);
 }
 
+// Ayuda corta de cada vista: se enseña al abrir la ayuda (la leyenda global va plegada debajo).
+const AYUDA_VISTA = {
+  inicio: ['Lo vivo de un vistazo.', [
+    '<b>Te espera (N)</b>: propuestas, trabajos por revisar y paquetes de corrección que necesitan tu decisión.',
+    '<b>La escena</b>: una máquina por agente activo; cada cápsula es un trabajo. Pulsa una para abrir su ficha.',
+    '<b>Colas y semáforo</b>: qué espera al ejecutor y quién tiene el worktree.',
+    '<b>Tablero</b>: en cola → ejecutando → en revisión → en espera → cerrado.']],
+  trabajos: ['Misiones, obras y rutinas.', [
+    '<b>Pulsa una fila</b> (o Enter) para abrir la ficha: informe, fases, diff e historial.',
+    '<b>Cerrar</b> da el trabajo por bueno; <b>Reformular</b> lo devuelve con nota; <b>Cancelar</b> pide segundo clic.',
+    '<b>＋ misión</b> encarga una nueva; las cápsulas de arriba filtran por estado.']],
+  propuestas: ['Cambios que un agente quiere hacer.', [
+    '<b>✓ aceptar</b> ejecuta la acción (pide confirmar); <b>✕</b> la rechaza.',
+    'Las irreversibles llevan <b>⌨</b>: solo se confirman en una terminal.',
+    '<b>∗ todas</b> enseña también las ya decididas.']],
+  rutinas: ['Procesos repetibles y versionados.', [
+    '<b>▶ Lanzar rutina</b> la ejecuta ahora: es lo único que crea trabajo desde aquí.',
+    '<b>＋ rutina</b> abre el editor con una plantilla; <b>▣ retiradas</b> muestra las de la papelera.']],
+  equipos: ['Grupos de agentes que trabajan a la vez.', [
+    '<b>●</b> despierto, <b>○</b> dormido; ábrelo para ver presencia, cola y entregas.',
+    '<b>＋ despertar</b> crea un equipo; <b>◌ dormir</b> lo apaga y devuelve lo pendiente a la cola.']],
+  boveda: ['Las notas, como en Obsidian.', [
+    'Árbol por regiones: <b>modelo-local</b>, <b>claude-code</b> y <b>compartida</b> (la tuya).',
+    '<b>✎</b> (Ctrl+E) edita, <b>Ctrl+S</b> guarda; <b>⋯</b> renombra, promueve, copia la ruta o manda a la papelera.',
+    'El cuadro de arriba busca por nombre y dentro del contenido.']],
+  memoria: ['Lo que Claude Code recuerda de cada proyecto.', [
+    'Una carpeta por proyecto y una nota por memoria; <b>≡</b> es el índice.',
+    '<b>＋ memoria</b> crea una nueva; <b>✎</b> (Ctrl+E) edita y <b>⋯</b> renombra o elimina.']],
+  biblioteca: ['Herramientas instaladas de cada agente.', [
+    'Skills, plugins, subagentes, MCP, comandos y extensiones; <b>●</b> activado, <b>○</b> no, <b>?</b> se ignora.',
+    'En la ficha: <b>⏻</b> activa o desactiva (simula y pide aceptar) y <b>▶ sesión con…</b> abre una terminal con solo las que elijas.']],
+  acciones: ['Las herramientas del ecosistema, a mano.', [
+    'Abre una, rellena los campos y <b>simula</b> para ver qué pasaría; solo después se puede <b>ejecutar</b>.',
+    'Riesgo: <b>□</b> solo lee, <b>◧</b> reversible, <b>■</b> irreversible (solo en terminal).']],
+  sistema: ['Servicios y agentes.', [
+    '<b>↻</b> reinicia un servicio (segundo clic para confirmar).',
+    'Despliega un rol para cambiar el agente que lo ocupa.']],
+  diario: ['Todo lo que ocurre, lo más reciente arriba.', [
+    'Filtra por quién, <b>✓</b>/<b>✕</b>, familia de evento y fecha; los filtros quedan en la dirección.',
+    '<b>✎ anotar</b> deja constancia de algo; <b>♡</b> muestra los latidos.']],
+  ajustes: ['Cómo se comporta el ecosistema.', [
+    '<b>✎</b> se cambia aquí (segundo clic); <b>⌨</b> solo con <b>ea ajustes</b> en una terminal; <b>$</b> lo fija una variable de entorno.',
+    'Todo se aplica en caliente salvo lo marcado <b>al reiniciar</b>.']],
+};
+
+function ayudaVista() {
+  const [titulo] = TITULOS[st.sec] ?? [st.sec];
+  const [que, puntos] = AYUDA_VISTA[st.sec] ?? ['', []];
+  $('#ayuda-vista').innerHTML = `<h2>${esc(titulo)}</h2><p class="ay-que">${esc(que)}</p><ul>${puntos.map(p => `<li>${p}</li>`).join('')}</ul>` +
+    '<p class="ay-atajos">Atajos: <kbd>1–9</kbd> <kbd>0</kbd> secciones · <kbd>/</kbd> filtrar · <kbd>j</kbd>/<kbd>k</kbd> moverse · <kbd>Esc</kbd> cerrar · <kbd>t</kbd> recorrido</p>';
+}
+
+// Invitación discreta al recorrido en la primera visita (se recuerda al cerrarla).
+function invitaTour() {
+  try { if (localStorage.getItem('ea-tour-visto')) return; } catch { return; }
+  const d = document.createElement('div');
+  d.id = 'invita-tour';
+  d.setAttribute('role', 'status');
+  d.innerHTML = '<span>¿Primer vistazo? Haz el recorrido (8 pasos).</span>' +
+    '<button class="coin" data-tour="todo">Empezar</button><button data-invita-cerrar title="No volver a mostrar" aria-label="Cerrar la invitación">✕</button>';
+  document.body.appendChild(d);
+}
+function cierraInvita() {
+  $('#invita-tour')?.remove();
+  try { localStorage.setItem('ea-tour-visto', '1'); } catch { /* sin almacenamiento */ }
+}
+
 function ayuda(mostrar) {
   const a = $('#ayuda');
+  if (mostrar) ayudaVista();
   const dentro = a.contains(document.activeElement);
   a.hidden = !mostrar;
   if (mostrar) $('[data-cerrar]', a).focus();
@@ -4180,6 +4302,7 @@ document.addEventListener('click', ev => {
   const pry = t.closest('[data-pry]');
   if (pry) { elige(pry.dataset.pry); barraProyectos(); pintar(); return tick(); }
   if (t.closest('#fproy')) { elige(null); barraProyectos(); pintar(); return tick(); }
+  if (t.closest('[data-invita-cerrar], #invita-tour [data-tour]')) cierraInvita();
   const tb = t.closest('[data-tour]');
   if (tb) return tour.iniciar(tb.dataset.tour === 'vista' ? st.sec : null);
   if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }
@@ -4497,7 +4620,9 @@ addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
     }
     for (const sec of Object.keys(EDITOR)) {
       const E = ed(sec);
-      E.plegados = new Set(JSON.parse(localStorage.getItem(`ea-${sec}-plegados`) ?? '[]'));
+      const pl = localStorage.getItem(`ea-${sec}-plegados`);
+      E.plegados = new Set(JSON.parse(pl ?? '[]'));
+      E.plegadoInicial = pl === null; // nadie ha tocado el árbol: abre plegado por carpeta de primer nivel
       E.sel = localStorage.getItem(`ea-${sec}-sel`);
     }
   } catch { /* sin almacenamiento */ }
@@ -4509,8 +4634,8 @@ addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
   marco();
   tema();
   proyectos();
-  // La primera vez, el recorrido guiado.
-  try { if (!localStorage.getItem('ea-tour-visto')) tour.iniciar(); } catch { /* sin almacenamiento */ }
+  // La primera vez, solo una invitación discreta (no el recorrido a pantalla).
+  invitaTour();
   // Sin clave de sesión válida: insignia, franja bajo la cabecera y botones apagados (mismo texto).
   const lectura = () => {
     const sin = !ea.escritura();

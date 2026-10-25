@@ -12,7 +12,28 @@ const tour = (() => {
 
   // Cada paso: sección (opcional), anclas candidatas (la primera visible gana),
   // `si` (se salta si no hay ancla), título y texto (HTML propio, constante).
+  // El recorrido corto (8 pasos esenciales); lo de cada vista, abajo (DETALLE).
   const PASOS = [
+    { sec: 'inicio', ancla: ['#rail'], titulo: 'Las secciones',
+      texto: 'Cada icono es una vista, en cuatro bloques: Trabajo, Conocimiento, Herramientas y Sistema (en pantalla estrecha, <b>Más</b> abre el resto). Las teclas <b>1 – 9</b> y <b>0</b> van en ese orden; <b>d</b> al Diario y <b>a</b> a Ajustes. Las pegatinas cuentan lo que espera.' },
+    { sec: 'inicio', ancla: ['#espera'], titulo: 'Te espera',
+      texto: 'Lo que necesita tu decisión, siempre arriba de Inicio: propuestas pendientes, trabajos por revisar y paquetes de corrección. Desde aquí puedes revisar o cerrar sin buscar.' },
+    { sec: 'trabajos', ancla: ['#lista .f', '#lista'], titulo: 'Un trabajo y su ficha',
+      texto: 'Cada fila es una misión, obra o rutina: la cápsula dice el estado (en cola, ejecutando, en revisión, cerrado) y la columna del final, el resultado. Púlsala para abrir la ficha: informe, fases, diff y los botones <b>Cerrar</b>, <b>Reformular</b>, <b>Cancelar</b>.' },
+    { sec: 'propuestas', ancla: ['#lista .f', '#lista'], titulo: 'Tu visto bueno',
+      texto: 'Cambios que un agente quiere hacer. <b>✓ aceptar</b> los ejecuta (pide confirmar) y <b>✕</b> los rechaza. Los irreversibles llevan <b>⌨</b>: solo se confirman en una terminal.' },
+    { sec: 'inicio', ancla: ['#lectura', '#franja-lectura', '#cabecera .cab-izq'], titulo: 'Solo lectura o escritura',
+      texto: 'Con el candado <b>solo lectura</b> puedes mirarlo todo, pero los botones que cambian algo están apagados: ábrelo con <i>ea-escritorio</i> o <i>ea-web-open</i>. Sin candado, tienes la clave de sesión y los botones funcionan.' },
+    { sec: 'inicio', ancla: ['#servicios'], titulo: 'La salud del sistema',
+      texto: 'Un punto por servicio (llama, mcp, orquestador): verde en marcha, rojo caído. El engranaje es el orquestador: gira mientras late y se pone rojo si deja de latir.' },
+    { sec: 'inicio', ancla: ['#bayuda'], titulo: 'La ayuda',
+      texto: '<b>?</b> abre la ayuda de la vista en la que estés, con la leyenda de símbolos, botones y estados plegada debajo. Desde ahí puedes repetir este recorrido o recorrer solo la vista actual (tecla <b>t</b>).' },
+    { titulo: 'Atajos',
+      texto: '<b>1 – 9, 0</b> secciones · <b>/</b> filtrar · <b>j / k</b> moverse · <b>Enter</b> abrir · <b>Esc</b> cerrar · <b>p</b> proyectos · <b>?</b> ayuda · <b>t</b> este recorrido.' },
+  ];
+
+  // Los pasos de cada vista («▸ recorrer esta vista» en la ayuda).
+  const DETALLE = [
     { titulo: 'Bienvenido a ea',
       texto: 'Este recorrido enseña cada vista en un par de minutos. <b>→</b> avanza, <b>←</b> vuelve, <b>Esc</b> sale. Solo mira: no lanza, cierra ni decide nada.' },
     { sec: 'inicio', ancla: ['#rail'], titulo: 'Las secciones',
@@ -134,9 +155,10 @@ const tour = (() => {
 
   function iniciar(sec = null) {
     if (i >= 0) return;
-    pasos = sec == null ? PASOS : PASOS.filter(p => p.sec === sec);
+    pasos = sec == null ? PASOS : DETALLE.filter(p => p.sec === sec);
     if (!pasos.length) return;
     origen = ops.seccion();
+    document.querySelector('#invita-tour')?.remove();
     const ayuda = document.querySelector('#ayuda');
     if (ayuda) ayuda.hidden = true;
     el.raiz.hidden = false;
@@ -222,6 +244,10 @@ const tour = (() => {
       if (r.bottom + M + gh <= H - M) { top = r.bottom + M; left = entre(r.left, M, W - gw - M); }
       else if (r.top - M - gh >= M) { top = r.top - M - gh; left = entre(r.left, M, W - gw - M); }
       else if (r.right + M + gw <= W - M) { left = r.right + M; top = entre(r.top + (r.height - gh) / 2, M, H - gh - M); }
+      else if (r.left - M - gw >= M) { left = r.left - M - gw; top = entre(r.top + (r.height - gh) / 2, M, H - gh - M); }
+      else { // anclas enormes: esquina libre, abajo a la derecha (no tapa el principio de la zona)
+        left = W - gw - M; top = H - gh - M;
+      }
     }
     g.style.top = Math.round(top) + 'px';
     g.style.left = Math.round(left) + 'px';
