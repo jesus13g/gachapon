@@ -77,6 +77,7 @@ const st = {
   nuevos: {},          // cwd -> instante hasta el que su tarjeta luce la clase nueva
   datos: null,         // datos de la sección visible
   detalle: {},         // detalle cargado de las filas abiertas
+  ordenes: new Set(),  // trabajos con «orden original» desplegada (id)
   diffs: {},           // diff de los trabajos con el diff desplegado (id -> respuesta)
   faseDiff: {},        // diff de las fases desplegadas ('<id>:<n>' -> respuesta)
   fasePlan: new Set(), // fases con el plan desplegado ('<id>:<n>')
@@ -201,6 +202,98 @@ function fila(k, cls, row, txt, det = '', extra = '') {
   };
 }
 
+// ------------------------------------------------- etiquetas humanas (B4, #7)
+// Los tipos de evento que emiten los crates (ea-bus, ea-boveda, ea-mcp,
+// ea-acciones, ea-web, ea-cli, ea-orchestrator) con su frase. El diario sigue
+// guardando el identificador técnico: la etiqueta solo se pinta.
+const EVENTOS = {
+  heartbeat: 'Latido del orquestador',
+  bus_crear: 'Trabajo creado',
+  bus_tomar: 'Trabajo tomado por el ejecutor',
+  bus_entregar: 'Informe entregado',
+  bus_reformular: 'Trabajo reformulado',
+  bus_cerrar: 'Trabajo cerrado',
+  bus_cancelar: 'Trabajo cancelado',
+  bus_cancelado_en_curso: 'Cancelación en curso',
+  bus_poner_en_espera: 'Trabajo puesto en espera',
+  bus_confirmar: 'Corrección confirmada',
+  boveda_escritura: 'Nota escrita en la bóveda',
+  boveda_creacion: 'Nota creada en la bóveda',
+  boveda_edicion: 'Nota editada en la bóveda',
+  boveda_renombrado: 'Nota renombrada',
+  boveda_promocion: 'Nota promovida a la región compartida',
+  boveda_papelera: 'Nota enviada a la papelera',
+  boveda_restauracion: 'Nota restaurada de la papelera',
+  boveda_papelera_vaciada: 'Papelera vaciada',
+  boveda_papelera_carpeta: 'Carpeta enviada a la papelera',
+  boveda_carpeta: 'Carpeta creada en la bóveda',
+  boveda_carpeta_renombrada: 'Carpeta renombrada',
+  boveda_carpeta_eliminada: 'Carpeta eliminada',
+  boveda_reindexado: 'Bóveda reindexada',
+  memoria_editada: 'Memoria editada',
+  memoria_creada: 'Memoria creada',
+  memoria_eliminada: 'Memoria eliminada',
+  memoria_renombrada: 'Memoria renombrada',
+  propuesta_encolada: 'Propuesta puesta en cola',
+  propuesta_decidida: 'Propuesta decidida',
+  accion_ejecutada: 'Acción ejecutada',
+  accion_fallida: 'Acción fallida',
+  accion_terminal_abierta: 'Terminal abierta para una acción',
+  ajustes_cambiados: 'Ajustes cambiados',
+  rutina_registrada: 'Rutina registrada',
+  biblioteca_cambio: 'Herramienta activada o desactivada',
+  equipo_despertado: 'Equipo despertado',
+  equipo_dormido: 'Equipo dormido',
+  equipo_sesion_abierta: 'Sesión de equipo abierta',
+  usuario_nota: 'Nota del usuario',
+  // Un mcp_<x> es la herramienta ea_<x>; su sufijo dice si fue simulada o denegada.
+  mcp_escribir_nota: 'Nota escrita por MCP',
+  mcp_escribir_nota_simulada: 'Nota simulada por MCP',
+  mcp_escribir_nota_denegada: 'Escritura de nota denegada por MCP',
+};
+const HERRAMIENTAS = {
+  status: 'Consulta del estado', listar_trabajos: 'Consulta de trabajos', ver_trabajo: 'Consulta de un trabajo',
+  listar_equipos: 'Consulta de equipos', ver_equipo: 'Consulta de un equipo', listar_diario: 'Consulta del diario',
+  biblioteca: 'Consulta de la biblioteca', buscar_notas: 'Búsqueda de notas', leer_nota: 'Lectura de nota',
+  promover_nota: 'Promoción de nota', encolar_rutina: 'Rutina encolada', registrar_rutina: 'Registro de rutina',
+  programar_rutina: 'Programación de rutina', desprogramar_rutina: 'Rutina desprogramada',
+  retirar_rutina: 'Retirada de rutina', restaurar_rutina: 'Restauración de rutina', eliminar_rutina: 'Eliminación de rutina',
+  reiniciar_servicio: 'Reinicio de servicio', limpiar_worktree: 'Limpieza de worktree',
+  activar_herramienta: 'Activación de herramienta', desactivar_herramienta: 'Desactivación de herramienta',
+  lanzar_sesion: 'Sesión lanzada',
+};
+// «a_b_c» → «A b c»: lo que se enseña de un identificador que no está en el mapa.
+const humaniza = s => { const t = String(s ?? '').replace(/_+/g, ' ').trim(); return t ? t[0].toUpperCase() + t.slice(1) : ''; };
+function eventoHumano(accion) {
+  if (EVENTOS[accion]) return EVENTOS[accion];
+  const m = /^mcp_([a-z_]+?)(_simulada|_denegada)?$/.exec(accion ?? '');
+  if (m) {
+    const base = HERRAMIENTAS[m[1]] ?? humaniza(m[1]);
+    return `${base}${m[2] === '_simulada' ? ', simulada' : m[2] === '_denegada' ? ', denegada' : ''} (MCP)`;
+  }
+  return humaniza(accion);
+}
+// La etiqueta con el identificador técnico en gris pequeño al lado.
+const eventoHtml = accion => `${esc(eventoHumano(accion))} <small class="ids">${esc(accion)}</small>`;
+// Una herramienta: «ea_listar_trabajos» → «Listar trabajos».
+const herramientaHumana = n => humaniza(String(n ?? '').replace(/^ea_/, ''));
+
+// Cómo se llama un trabajo donde solo hay su id: el título si el panel lo
+// tiene cargado; si no, el final del id («…a1b2c3»), que es lo distintivo.
+function nombreTrabajo(id) {
+  const t = st.trabajos?.find(x => x.id === id);
+  return t?.titulo || '…' + String(id).slice(-6);
+}
+
+// Truncado que deja ver el sufijo distintivo («ecosistema-asi…-38»): el
+// principio se recorta con puntos suspensivos y las últimas `cola` letras
+// siempre se ven. El texto completo va en el title de quien lo use.
+function truncaFinal(texto, cola = 4) {
+  const t = String(texto ?? '');
+  if (t.length <= cola + 6) return `<span class="tr"><span class="tr-a">${esc(t)}</span></span>`;
+  return `<span class="tr"><span class="tr-a">${esc(t.slice(0, -cola))}</span><span class="tr-z">${esc(t.slice(-cola))}</span></span>`;
+}
+
 // ---------------------------------------------------------- solo lectura
 // Sin clave de sesión el panel solo lee. En vez de marcar botón a botón, esta
 // lista dice qué acciones (`data-a`) escriben o lanzan algo (todas acaban en un
@@ -276,7 +369,7 @@ function eventos(lista) {
     const ex = extracto(e);
     return `<div class="ev"><span>${hora(e.ts)}</span>` +
       `<i class="${err ? 'hot' : ''}">${e.resultado === 'ok' ? '✓' : err ? '✕' : '·'}</i>` +
-      `<span>${esc(e.actor)}</span><span>${esc(e.accion)}</span><span>${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>` +
+      `<span>${esc(e.actor)}</span><span title="${esc(e.accion)}">${esc(eventoHumano(e.accion))}</span><span>${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>` +
       (ex ? `<span class="ex${err ? ' hot' : ''}">${esc(ex)}</span>` : '') + `</div>`;
   }).join('');
 }
@@ -491,35 +584,54 @@ function colorDiff(txt) {
   }).join('\n');
 }
 
+// La orden tal como se lanzó (objetivo, worktree, criterio, topes), plegada:
+// el objetivo puede ser un prompt de decenas de líneas.
+function ordenOriginal(t, d) {
+  const o = d.orden, abierto = st.ordenes.has(t.id);
+  const h = `<p class="et">${btn('orden', (abierto ? '▾' : '▸') + ' orden original', 'mostrar u ocultar el objetivo y los datos de la orden', { id: t.id }, 'l')}</p>`;
+  if (!abierto) return h;
+  return h + `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
+    `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
+    (d.estado?.ejecutado_por ? `<p class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</p>` : '') +
+    metaTrabajo(o, d.worktree);
+}
+
 function filasTrabajos(ts) {
   return ts.map(t => {
     const k = 'j' + t.id;
     const [pz, pzCls] = premio(t);
-    const row = estadoJ(t) + `<span class="n">${esc(t.id.slice(9, 15))}</span>` +
-      `<span class="x">${esc(t.titulo)}</span><span class="m w">${MODO[t.modo] ?? t.modo}${t.rutina ? ' · ' + esc(t.rutina.slug) + ' v' + t.rutina.version : ''}</span>` +
+    // El id no es columna: va en el title del título y en el detalle.
+    const row = estadoJ(t) +
+      `<span class="x" title="${esc(t.titulo)} · ${esc(t.id)}">${esc(t.titulo)}</span><span class="m w">${MODO[t.modo] ?? t.modo}${t.rutina ? ' · ' + esc(t.rutina.slug) + ' v' + t.rutina.version : ''}</span>` +
       `<span class="m ${pzCls}">${esc(pz || '—')}</span><span class="m">${reloj(t.actualizado)}</span>`;
     const d = st.detalle[k];
     let det = `<p class="m">${esc(t.id)} · creado ${hora(t.creado)}${t.detalle ? ' · ' + esc(t.detalle) : ''}</p>`;
     if (t.cancelando) det += `<p class="m hot">cancelando…: el ejecutor está parando al agente y soltará el worktree; ${NO_SE_DESHACE}.</p>`;
     if (d) {
+      // Orden de la ficha: resultado → acciones → informe → diff → historial,
+      // y la orden original (el objetivo, a menudo largo) plegada al final.
       const o = d.orden;
-      det += `<p class="et">objetivo</p><p class="tx">${esc(o.objetivo)}</p>` +
-        `<p class="m">${esc(o.worktree)}${o.criterio_exito ? ' · criterio: ' + esc(o.criterio_exito) : ''}${o.revisar_cada ? ' · revisa cada ' + o.revisar_cada : ''}</p>` +
-        (d.estado?.ejecutado_por ? `<p class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</p>` : '') +
-        metaTrabajo(o, d.worktree) +
-        (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
+      const [pz, pzCls] = premio(t, true);
+      det += `<div class="resultado">${estadoJ(t)}` +
+        (pz ? `<span class="${pzCls === 'pz' ? 'x' : pzCls || 'm'}">${esc(pz)}</span>` : '') +
+        (d.informe ? `<span class="m">${d.informe.fases_hechas} fases hechas · ${d.informe.duracion_s}s${d.informe.ejecutado_por ? ' · ' + porQuien(d.informe.ejecutado_por) : ''}</span>` : '') +
+        (d.estado?.ejecutado_por && !d.informe ? `<span class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</span>` : '') +
+        '</div>';
+      // El paquete de corrección se lee antes de decidir: va sobre los botones.
+      if (d.paquete) det += `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>`;
+      det += accionesTrabajo(t, d.informe);
+      if (FINAL.includes(t.estado)) det += botonClonar(t);
+      det += (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
         informeHtml(d) +
         resumenAgente(d) +
         planObra(t.id, d) +
-        (d.paquete ? `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>` : '') +
         (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
         `<p class="et">historial ${btn('ir-diario', '→ diario', 'los eventos de este trabajo en el diario', { id: t.id }, 'l')}</p><div class="evs">` + d.historial.map(h =>
-          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span>${esc(h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}${h.ejecutado_por ? ' · ' + esc(h.ejecutado_por.agente) : ''}</span></div>`).join('') + '</div>' +
-        accionesTrabajo(t, d.informe);
+          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span title="${esc(h.evento)}">${esc(EVENTOS['bus_' + h.evento] ?? h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}${h.ejecutado_por ? ' · ' + esc(h.ejecutado_por.agente) : ''}</span></div>`).join('') + '</div>' +
+        ordenOriginal(t, d);
     } else {
       det += accionesTrabajo(t, null);
     }
-    if (d && FINAL.includes(t.estado)) det += botonClonar(t);
     return fila(k, 'j', row, `${t.titulo} ${t.modo} ${t.id} ${EST[t.estado][1]} ${t.resultado ?? ''}`, det, FINAL.includes(t.estado) ? ' fin' : '');
   });
 }
@@ -557,7 +669,7 @@ function formMision() {
       : btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del ejecutor', {}, 'coin')) +
     btn('nueva-mision', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
   const nombre = obra ? 'obra' : 'misión';
-  const row = `<span class="est">${capsula(obra ? COLOR.obra : COLOR.mision)}nueva</span><span class="n">—</span>` +
+  const row = `<span class="est">${capsula(obra ? COLOR.obra : COLOR.mision)}nueva</span>` +
     `<span class="x">${esc(v.titulo || nombre + ' sin título')}</span><span class="m w">${nombre}</span>` +
     `<span class="m">${obra ? `${n.fases.length} ${n.fases.length === 1 ? 'fase' : 'fases'}` : 'para el ejecutor'}</span><span class="m"></span>`;
   return [suelto(`<article class="f o nueva"><div class="r j">${row}</div><div class="det">${det}</div></article>`, true)];
@@ -829,14 +941,14 @@ function filasDiario(evs) {
     const k = 'e' + e.id;
     const row = `<span class="m">${hora(e.ts)}</span>` +
       `<i class="${e.resultado === 'error' ? 'hot' : 'm'}">${e.resultado === 'ok' ? '✓' : e.resultado === 'error' ? '✕' : '·'}</i>` +
-      `<span class="m w">${esc(e.actor)}</span><span class="x">${esc(e.accion)}</span>` +
-      `<span class="n" title="${esc(e.trabajo ?? '')}">${e.trabajo ? esc(e.trabajo.slice(-8)) : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
-    const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${new Date(e.ts).toLocaleString()}</p>` +
+      `<span class="m w">${esc(e.actor)}</span><span class="x" title="${esc(e.accion)}">${eventoHtml(e.accion)}</span>` +
+      `<span class="n" title="${esc(e.trabajo ?? '')}">${e.trabajo ? esc(nombreTrabajo(e.trabajo)) : ''}</span><span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span>`;
+    const det = `<p class="m">#${e.id} · ${esc(e.actor)} · ${esc(e.accion)} · ${new Date(e.ts).toLocaleString()}</p>` +
       (e.detalle ? `<pre>${esc(pretty(e.detalle))}</pre>` : '') +
       (trabajoDe(e) ? `<p>${btn('ir-trabajo', '→ trabajo', 'ver el trabajo', { id: trabajoDe(e) }, 'l')}</p>` : '') +
       correccionesDiario(e) +
       enlacesEvento(e);
-    return fila(k, 'd', row, `${e.actor} ${e.accion} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
+    return fila(k, 'd', row, `${e.actor} ${e.accion} ${eventoHumano(e.accion)} ${e.trabajo ?? ''} ${e.detalle ?? ''}`, det);
   });
 }
 
@@ -2103,7 +2215,7 @@ function filasSistema(e, plano = false, ag = null) {
   if (!plano) out.push(filaServicios(ag?.plan));
   e.agentes.forEach((a, i) => {
     const modelo = a.modelo ?? 'su modelo propio';
-    const hizo = a.ultimo ? esc(a.ultimo.accion) + (a.ultimo_agente && a.ultimo_agente !== a.agente ? ` (${esc(a.ultimo_agente)})` : '') : 'sin actividad';
+    const hizo = a.ultimo ? esc(eventoHumano(a.ultimo.accion)) + (a.ultimo_agente && a.ultimo_agente !== a.agente ? ` (${esc(a.ultimo_agente)})` : '') : 'sin actividad';
     const row = `<i class="n">◈</i><span class="x">${esc(a.rol)}</span>` +
       `<span class="m" title="${esc(a.agente)} con ${esc(modelo)}"><b class="ag">${esc(a.agente_nombre || a.agente)}</b> · ${esc(modelo)} · ${hizo}</span>` +
       `<span class="m" title="${esc(a.ultimo?.accion ?? '')}">${reloj(a.ultimo?.ts)}</span><span></span>`;
@@ -2240,7 +2352,7 @@ function filasAcciones(hs) {
   return hs.map(h => {
     const c = st.consola[h.nombre] || {};
     const row = `<i class="${h.riesgo === 'irreversible' ? 'hot' : 'm'}" title="${h.riesgo}">${RIESGO[h.riesgo]}</i>` +
-      `<span class="x">${esc(h.nombre)}</span><span class="m">${esc(h.resumen)}</span><span class="m">${h.riesgo}</span>`;
+      `<span class="x" title="${esc(h.nombre)}">${esc(herramientaHumana(h.nombre))} <small class="ids">${esc(h.nombre)}</small></span><span class="m">${esc(h.resumen)}</span><span class="m">${h.riesgo}</span>`;
     let det;
     if (!h.supervisada) {
       det = '<p class="m">Herramienta de los agentes: se ejecuta al invocarla, sin confirmación. No se lanza desde aquí.</p>';
@@ -2301,7 +2413,7 @@ function historialHerramienta(hs) {
       (e.error ? ` · <span class="hot">${esc(e.error)}</span>` : '');
     return `<div class="ev"><span title="${esc(e.ts)}">${hora(e.ts)}</span>` +
       `<span class="${mal ? 'hot' : 'm'}" title="${esc(e.resultado ?? '')}">${mal ? '✕' : e.resultado === 'ok' ? '✓' : '·'}</span>` +
-      `<span>${btn('ir-evento', '#' + e.id, 'ir al evento #' + e.id + ' en el diario', { id: e.id }, 'l')} ${esc(e.accion)}${extra}</span>` +
+      `<span>${btn('ir-evento', '#' + e.id, 'ir al evento #' + e.id + ' en el diario', { id: e.id }, 'l')} <span title="${esc(e.accion)}">${esc(eventoHumano(e.accion))}</span>${extra}</span>` +
       `<span class="m" title="${esc(e.actor)}">${esc(e.actor)}</span>` +
       `<span class="m">${e.duracion_ms != null ? dur(e.duracion_ms) : ''}</span></div>`;
   }).join('') + '</div>';
@@ -2746,7 +2858,7 @@ function filaAjuste(c) {
 }
 
 function filasAjustes(d) {
-  const out = [suelto(`<p class="aj-cab m">${esc(d.fichero)}${d.existe ? '' : ' · aún no existe: todo sale de otras capas'}</p>` +
+  const out = [suelto(`<p class="aj-cab m">${esc(d.fichero)}${d.existe ? '' : ' · aún no has cambiado nada: se usan los valores por defecto y los de otras capas'}</p>` +
     d.avisos.map(a => `<p class="aj-cab hot">! ${esc(a)}</p>`).join(''), true)];
   out.push(columnas('aj', '<abbr title="✎ se cambia desde el panel · ⌨ solo desde una terminal · $ lo fija una variable de entorno">✎⌨$</abbr>', 'ajuste', 'valor', 'origen', 'aplica'));
   d.secciones.forEach(s => {
@@ -2952,7 +3064,7 @@ function construir() {
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
-    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'id', 'trabajo', 'modo', 'informe · avance', 'hace'),
+    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'trabajo', 'modo', 'informe · avance', 'hace'),
       filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
     case 'diario': return d ? [...formAnotar(), ...con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)), ...pieDiario(d)] : [];
     case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
@@ -3177,7 +3289,7 @@ function barraProyectos() {
       }).join('');
     const titulo = `${cwd} · ${st.proyecto === cwd ? 'pulsa para ver todos los proyectos' : 'pulsa para ver solo este proyecto'}`;
     return `<section class="pry${hot ? ' hot' : ''}${ocupada ? ' trab' : ''}${st.proyecto === cwd ? ' sel' : ''}${st.nuevos[cwd] > Date.now() ? ' nueva' : ''}" data-pry="${esc(cwd)}" title="${esc(titulo)}">` +
-      `<h3><i${ocupada ? ` style="color:${CLAUDE}"` : ''}>${ocupada ? '●' : '○'}</i><span class="n">${esc(etiqueta.get(cwd))}</span><span class="m">${resumen}</span></h3>${filas}</section>`;
+      `<h3><i${ocupada ? ` style="color:${CLAUDE}"` : ''}>${ocupada ? '●' : '○'}</i><span class="n" title="${esc(etiqueta.get(cwd))}">${truncaFinal(etiqueta.get(cwd), 4)}</span><span class="m">${resumen}</span></h3>${filas}</section>`;
   }).join('') || '<p class="vacio">Sin sesiones de Claude Code abiertas.</p>';
 
   const l = $('#proy-lista');
@@ -3632,6 +3744,8 @@ async function accion(b) {
       return;
     } else if (a === 'crear-mision') {
       try { await creaMision(); } catch (e) { if (st.nueva) st.nueva.err = e.message; }
+    } else if (a === 'orden') {
+      if (st.ordenes.has(id)) st.ordenes.delete(id); else st.ordenes.add(id);
     } else if (a === 'diff') {
       if (st.diffs[id] !== undefined) delete st.diffs[id];
       else st.diffs[id] = await ea.diff(id).catch(e => ({ error: e.message }));

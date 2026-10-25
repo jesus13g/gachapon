@@ -214,11 +214,13 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   display: grid; align-items: center; gap: 0 12px; min-height: 34px;
   padding: 0 10px; border-radius: 4px; cursor: default;
 }
-.r.j { grid-template-columns: 132px 60px 1fr 120px 200px 44px; }
-.r.d { grid-template-columns: 96px 18px 120px 1fr 56px 56px; }
+/* Trabajos: estado, modo e informe a su ancho natural (no se truncan); el título absorbe el resto. El id va en el title. */
+.r.j { grid-template-columns: 150px minmax(0, 1fr) 118px 196px 52px; }
+
+.r.d { grid-template-columns: 96px 18px 110px minmax(0, 1fr) 120px 56px; }
 .r.u { grid-template-columns: 18px minmax(120px, 220px) 40px 1fr 90px 140px 150px; min-height: 38px; }
 .r.p { grid-template-columns: 18px 48px 1fr 220px 44px 260px; }
-.r.s { grid-template-columns: 18px 190px 1fr 60px 120px; }
+.r.s { grid-template-columns: 18px 190px 1fr 116px 120px; }
 .r.b { grid-template-columns: 18px 1fr minmax(120px, 280px) 100px 48px; }
 .r.a { grid-template-columns: 18px minmax(160px, 240px) 1fr 110px; }
 .r.aj { grid-template-columns: 18px minmax(160px, 260px) 1fr 160px 120px; }
@@ -356,7 +358,8 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 /* Sobre una fila abierta (que ya lleva el fondo de los campos) los campos se hunden. */
 .det input, .det select { background: var(--bg); }
 .ev, .pa { display: grid; gap: 0 12px; font-size: 12.5px; line-height: 1.8; }
-.ev { grid-template-columns: 96px 18px 1fr 120px 56px; }
+.ev { grid-template-columns: 96px 18px minmax(0, 1fr) 120px max-content; }
+.ev > :nth-child(5) { white-space: nowrap; }
 .pa { grid-template-columns: 18px 150px 1fr; margin-left: 0; }
 /* el plan de una obra: una línea por fase, con su plan y su diff debajo */
 .fo { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; gap: 0 12px; font-size: 12.5px; line-height: 1.8; max-width: 900px; }
@@ -492,14 +495,20 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   #q { flex: 1 0 120px; }
   .r.u { grid-template-columns: 18px 1fr 40px 130px; }
   .r.u .m:nth-child(4), .r.u .m:nth-child(5), .r.u .m:nth-child(6) { display: none; }
-  .r.s { grid-template-columns: 18px 1fr 60px 120px; }
+  .r.s { grid-template-columns: 18px minmax(0, 1fr) auto auto; }
   .r.s > :nth-child(3) { display: none; }
   .hd { display: none !important; }
   main { padding: 0 9.6px; }
   .w { display: none; }
-  .r.j { grid-template-columns: 124px 1fr 44px; }
-  .r.j > :nth-child(2), .r.j > :nth-child(4), .r.j > :nth-child(5) { display: none; }
+  /* Trabajos en dos líneas: título y «hace» arriba; estado e informe debajo. */
+  .r.j { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "t t h" "e p p"; gap: 2px 10px; padding: 6px 10px; }
+  .r.j > :nth-child(1) { grid-area: e; }
+  .r.j > :nth-child(3) { display: none; }
+  .r.j > :nth-child(2) { grid-area: t; }
+  .r.j > :nth-child(4) { grid-area: p; justify-self: end; max-width: 100%; }
+  .r.j > :nth-child(5) { grid-area: h; }
   .r.d { grid-template-columns: 96px 18px 1fr 56px 56px; }
+  .r small.ids { display: none; }
   .r.p { grid-template-columns: 18px 1fr 200px; }
   .r.p > :nth-child(2), .r.p > :nth-child(4), .r.p > :nth-child(5) { display: none; }
   .r.b { grid-template-columns: 18px 1fr 100px 48px; }
@@ -512,7 +521,7 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   .r.aj > :nth-child(4), .r.aj > :nth-child(5) { display: none; }
   .r.a .m:nth-child(3) { display: none; }
   .det { padding-left: 38px; }
-  .ev { grid-template-columns: 64px 18px 1fr 48px; }
+  .ev { grid-template-columns: 64px 18px minmax(0, 1fr) auto; }
   .ev > :nth-child(4) { display: none; }
   .fo { grid-template-columns: 18px minmax(0, 1fr) auto; }
   .fo > span.m { display: none; }
@@ -687,3 +696,14 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
 
 abbr[title] { text-decoration: none; cursor: help; }
 @media (min-width: 1101px) { #rail #bproy { margin-top: 10px; } }
+
+/* ---- B4: etiquetas, truncado y ficha del trabajo ---- */
+/* identificador técnico junto a su etiqueta humana */
+small.ids { margin-left: 6px; font-size: 10.5px; color: var(--fg-lo); opacity: .8; }
+/* truncado que conserva el final («ecosistema-asi…-38»): ver truncaFinal() */
+.tr { display: flex; min-width: 0; }
+.tr-a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-z { flex: none; white-space: nowrap; }
+/* resultado de un trabajo, arriba de su ficha */
+.resultado { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 6px 0; }
+.resultado > span:not(.est) { overflow-wrap: anywhere; }
