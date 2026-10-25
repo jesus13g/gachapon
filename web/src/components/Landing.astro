@@ -1,7 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import ThreadLayer from './ThreadLayer.astro';
-import { copyFor, langOf, langs, pathFor } from '../i18n';
+import { copyFor, langOf, pathFor } from '../i18n';
 import Act00Boot from './scenes/Act00Boot.astro';
 import Act01Problem from './scenes/Act01Problem.astro';
 import Act02Roles from './scenes/Act02Roles.astro';
@@ -19,7 +19,7 @@ import Act13Interfaces from './scenes/Act13Interfaces.astro';
 import Act14System from './scenes/Act14System.astro';
 import Act15Final from './scenes/Act15Final.astro';
 const { acts, site, ui } = copyFor(Astro.currentLocale);
-const lang = langOf(Astro.currentLocale);
+const other = langOf(Astro.currentLocale) === 'es' ? 'en' : 'es';
 ---
 <Base>
   <header class="hud">
@@ -28,11 +28,10 @@ const lang = langOf(Astro.currentLocale);
       Gachapon
     </a>
     <nav class="hud__links" aria-label={ui.navProject}>
-      <span class="lang-switch" role="group" aria-label={ui.langLabel}>
-        {langs.map((l) => (
-          <a href={pathFor(l)} hreflang={l} lang={l} aria-label={ui.langNames[l]} aria-current={l === lang ? 'page' : undefined}>{l}</a>
-        ))}
-      </span>
+      <a class="lang-switch" href={pathFor(other)} hreflang={other} lang={other} title={ui.langSwitch} aria-label={ui.langSwitch} data-lang-switch>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" /><path d="M1.5 8h13M8 1.5c2 2 2.6 4.2 2.6 6.5S10 12.5 8 14.5M8 1.5C6 3.5 5.4 5.7 5.4 8S6 12.5 8 14.5" /></svg>
+        {other}
+      </a>
       <a href={site.repo} rel="noopener">GitHub</a>
     </nav>
   </header>
