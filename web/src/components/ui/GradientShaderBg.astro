@@ -2,7 +2,8 @@
 /**
  * Page-wide background: the grainy gradient shader on a fixed canvas behind everything,
  * under a dark veil so the light copy and the scenes keep their contrast.
- * Without WebGL the page keeps its plain graphite background.
+ * It only loads on desktop (wide screen, fine pointer, motion allowed); elsewhere, or without WebGL,
+ * the page keeps its plain graphite background.
  */
 ---
 <div class="shader-bg" aria-hidden="true">
@@ -36,7 +37,8 @@
 
 <script>
   const canvas = document.querySelector<HTMLCanvasElement>('.shader-bg__canvas');
-  if (canvas) {
+  // Desktop only: phones, touch screens and reduced motion never download three.js and keep the plain background.
+  if (canvas && matchMedia('(min-width: 900px) and (pointer: fine) and (prefers-reduced-motion: no-preference)').matches) {
     import('../../lib/gradient-shader')
       .then(({ createGradientShader }) => {
         if (createGradientShader(canvas)) document.documentElement.classList.add('has-shader');

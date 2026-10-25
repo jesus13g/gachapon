@@ -1,0 +1,82 @@
+<!doctype html>
+<!--
+  Share-card template (1200×630) for scripts/og/generar.mjs.
+  {{…}} placeholders are filled by the script from src/content/copy.*.ts; colours mirror src/styles/tokens.css.
+  Everything sits in a centred column so the card survives a square crop.
+-->
+<html lang="{{lang}}">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face {
+        font-family: 'Big Shoulders Display';
+        font-weight: 800;
+        src: url('{{fontDisplay800}}') format('woff2');
+      }
+      @font-face {
+        font-family: 'Big Shoulders Display';
+        font-weight: 900;
+        src: url('{{fontDisplay900}}') format('woff2');
+      }
+      @font-face {
+        font-family: 'Inter Tight';
+        font-weight: 100 900;
+        src: url('{{fontSans}}') format('woff2');
+      }
+      :root {
+        --bg: #090b0e;
+        --fg: #eceee9;
+        --fg-dim: #a3adb8;
+        --accent: #ff9a3c;
+        --line: #2c3743;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0 60px;
+        text-align: center;
+        color: var(--fg);
+        /* one soft accent glow behind the capsule; flat elsewhere so small previews stay crisp */
+        background: radial-gradient(circle at 50% 30%, rgba(255, 154, 60, 0.16), transparent 34%), var(--bg);
+        border-bottom: 10px solid var(--accent);
+      }
+      .icon { width: 128px; height: 128px; margin-bottom: 18px; }
+      .icon svg { width: 100%; height: 100%; display: block; }
+      .brand {
+        font: 900 32px/1 'Big Shoulders Display', sans-serif;
+        letter-spacing: 0.5em;
+        margin-right: -0.5em; /* keep the letter-spaced word optically centred */
+        color: var(--fg-dim);
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 26px 0 0;
+        font: 800 {{h1Size}}px/0.9 'Big Shoulders Display', sans-serif;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      h1 em { display: block; font-style: normal; color: var(--accent); }
+      p {
+        margin: 26px 0 0;
+        font: 500 28px/1.2 'Inter Tight', sans-serif;
+        color: var(--fg-dim);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="icon">{{icon}}</div>
+    <div class="brand">{{name}}</div>
+    <h1>{{h1}}<em>{{h1em}}</em></h1>
+    <p>{{support}}</p>
+  </body>
+</html>

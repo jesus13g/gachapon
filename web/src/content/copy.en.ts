@@ -19,10 +19,11 @@ export interface ActCopy {
 export const site = {
   lang: 'en',
   name: 'Gachapon',
-  title: 'Gachapon — Turn AI agents into a system',
+  title: 'Gachapon — Open-source AI agent orchestrator',
   description:
-    'Gachapon orchestrates AI agents: a capable planner thinks, a local model does the mechanical work, and a job bus, sandbox and append-only journal keep every step observable and under your control.',
-  ogAlt: 'Gachapon: a capsule travelling through a machine that coordinates a planner and a local executor.',
+    'Open-source orchestrator for AI agents: a capable planner thinks, a local model does the mechanical work, and every step stays sandboxed, logged and yours.',
+  ogImage: '/og.png',
+  ogAlt: 'Gachapon logo, an orange and white capsule, above the headline “Turn AI agents into a system.” and the line “The expensive model thinks. The local model works.”',
   repo: 'https://github.com/jesus13g/gachapon',
   docs: 'https://github.com/jesus13g/gachapon#readme',
   license: 'MIT License',
@@ -221,3 +222,13 @@ export const benefits = [
 
 /** Labels drawn inside the artwork, keyed by their English text (English needs no entries). */
 export const svg: Record<string, string> = {};
+
+/** The 404 page (one file for both languages on GitHub Pages, so it shows both copies). */
+export const notFound = {
+  title: 'Page not found — Gachapon',
+  description: 'This page does not exist. Go back to the Gachapon home page.',
+  kicker: 'Error 404 · job not found',
+  h: 'Page not found.',
+  p: 'The address you followed does not exist or has moved.',
+  home: 'Go to the home page in English',
+};
