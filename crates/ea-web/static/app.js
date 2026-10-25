@@ -42,7 +42,7 @@ const NOMBRE = {
   'sin-rol': 'agente sin rol', desconocido: 'cliente desconocido',
 };
 const TITULOS = {
-  inicio: ['Orquestador', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
+  inicio: ['Inicio', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
   trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su informe, el diff y lo que admite.'],
   diario: ['Diario', 'El registro de todo lo que ocurre en el ecosistema, lo más reciente arriba.'],
   rutinas: ['Rutinas', 'Máquinas de cápsulas amarillas, versionadas y registradas. Echa una ficha para lanzar una ahora sin esperar a su hora.'],
@@ -139,7 +139,8 @@ const st = {
 const esc = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const ms = t => (typeof t === 'number' ? t * 1000 : Date.parse(t));
+// Epoch en segundos (bus) o ya en milisegundos (sesiones de Claude Code).
+const ms = t => (typeof t === 'number' ? (t < 1e11 ? t * 1000 : t) : Date.parse(t));
 const p2 = n => String(n).padStart(2, '0');
 
 function unidades(s) {
@@ -2514,11 +2515,29 @@ function categoriaFicha(e) {
     '<p class="m">También con <b>ea ajustes establecer biblioteca.categorias=…</b>.</p>';
 }
 
+// Las herramientas con el mismo tipo y nombre en otro agente o en el ecosistema:
+// la biblioteca no guarda la relación de copia, así que se agrupa por nombre.
+function gemelosBib(e) {
+  return (st.datos?.elementos ?? []).filter(x => x.id !== e.id && x.tipo === e.tipo && x.nombre === e.nombre);
+}
+function marcaGemelosBib(e) {
+  const g = gemelosBib(e);
+  if (!g.length) return ['', ''];
+  const eco = g.find(x => x.agente === 'ecosistema');
+  const otros = [...new Set(g.map(x => nombreAgenteBib(x.agente)))].join(', ');
+  const corto = eco && e.agente !== 'ecosistema' ? '⧉ copia de ecosistema' : `⧉ ×${g.length + 1}`;
+  const largo = eco && e.agente !== 'ecosistema'
+    ? `copia de ecosistema/${e.nombre}: el original está en ${eco.ruta}`
+    : `mismo ${e.tipo} «${e.nombre}» también en: ${otros}`;
+  return [corto, largo];
+}
+
 function filaBib(e) {
+  const [dupCorto, dupLargo] = marcaGemelosBib(e);
   const [glifo, cls, tit] = ESTADO_BIB[e.activado] ?? ESTADO_BIB.desconocido;
   const u = usoBib(e.id);
   const usos = u ? `${u.total}` : st.bibUso?.mapa ? '—' : '…';
-  const row = `<i class="${cls}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(e.nombre)}">${esc(e.nombre)}</span>` +
+  const row = `<i class="${cls}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(e.nombre)}">${esc(e.nombre)}${dupCorto ? ` <small class="dup" title="${esc(dupLargo)}">${esc(dupCorto)}</small>` : ''}</span>` +
     `<span class="m">${esc(nombreAgenteBib(e.agente))}</span><span class="m" title="${esc(e.ambito)}">${esc(e.ambito)}</span>` +
     `<span class="m" title="${u ? 'último uso hace ' + esc(hace(u.ultimo)) : ''}">${usos}</span>`;
   const sesionOk = e.sesion.length > 0;
@@ -2526,6 +2545,7 @@ function filaBib(e) {
     `<p class="m">${esc(e.id)}</p>` +
     `<p class="m">${esc(e.tipo)} de ${esc(nombreAgenteBib(e.agente))} · ámbito ${esc(e.ambito)} · categoría <b>${esc(e.categoria)}</b> · ${esc(tit)}</p>` +
     `<p class="m">origen: ${esc(e.ruta)}</p>` +
+    (dupLargo ? `<p class="m">⧉ ${esc(dupLargo)}</p>` : '') +
     `<p class="m">se cambia: ${esc(MECANISMO_BIB[e.mecanismo] ?? e.mecanismo)}${e.version_formato ? ' · formato comprobado con la versión ' + esc(e.version_formato) : ''}</p>` +
     (e.nota ? `<p class="m">⧉ ${esc(e.nota)}</p>` : '') +
     defMcp(e.def_mcp) +
@@ -2575,13 +2595,14 @@ function filasBiblioteca(d) {
       const deT = deC.filter(e => e.tipo === t);
       if (!deT.length) continue;
       out.push(suelto(`<p class="bib-tipo m">${esc(plural)} · ${deT.length}</p>`));
-      out.push(...deT.map(filaBib));
+      // Los homónimos van juntos (mismo nombre, agentes distintos).
+      out.push(...[...deT].sort((a, b) => a.nombre.localeCompare(b.nombre) || a.agente.localeCompare(b.agente)).map(filaBib));
     }
   }
   return out;
 }
 
-// La barra: «▶ sesión con…» primero y los filtros, que se aplican aquí mismo.
+// La barra: «▶ sesión con…» como acción a la izquierda y los filtros, que se aplican aquí mismo.
 function barraBiblioteca() {
   const d = st.datos;
   const opcion = (v, t, actual) => `<option value="${esc(v)}"${v === (actual ?? '') ? ' selected' : ''}>${esc(t)}</option>`;
@@ -2589,11 +2610,17 @@ function barraBiblioteca() {
     `<select class="c${actual ? ' on' : ''}" data-bf="${campo}" title="${titulo}" aria-label="${titulo}">${ops.map(([v, t]) => opcion(v, t, actual)).join('')}</select>`;
   const agentes = [...new Set([...(d?.elementos ?? []).map(e => e.agente), st.bAgente].filter(Boolean))];
   const cats = [...new Set([...(d?.categorias ?? []), st.bCat].filter(Boolean))];
-  return `<button class="c${st.bibSes ? ' on' : ''}" data-a="bib-sesion" title="abrir una sesión de un agente con solo las herramientas que elijas" aria-pressed="${!!st.bibSes}">▶ sesión con…</button>` +
-    sel('agente', 'agente', [['', 'agente: todos'], ...agentes.map(a => [a, nombreAgenteBib(a)])], st.bAgente) +
+  const accion = `<button class="c${st.bibSes ? ' on' : ''}" data-a="bib-sesion" title="abrir una sesión de un agente con solo las herramientas que elijas" aria-pressed="${!!st.bibSes}">▶ sesión con…</button>`;
+  const filtros = sel('agente', 'agente', [['', 'agente: todos'], ...agentes.map(a => [a, nombreAgenteBib(a)])], st.bAgente) +
     sel('tipo', 'tipo', [['', 'tipo: todos'], ...TIPOS_BIB.map(([t, p]) => [t, p])], st.bTipo) +
     sel('categoria', 'categoría', [['', 'categoría: todas'], ...cats.map(c => [c, c])], st.bCat) +
     sel('estado', 'estado', [['', 'estado: todos'], ['si', '● activados'], ['no', '○ desactivados'], ['desconocido', '? desconocido']], st.bEstado);
+  const activos = [];
+  if (st.bAgente) activos.push(chipFiltro('bAgente', 'agente: ' + nombreAgenteBib(st.bAgente)));
+  if (st.bTipo) activos.push(chipFiltro('bTipo', 'tipo: ' + (TIPOS_BIB.find(([t]) => t === st.bTipo)?.[1] ?? st.bTipo)));
+  if (st.bCat) activos.push(chipFiltro('bCat', 'categoría: ' + st.bCat));
+  if (st.bEstado) activos.push(chipFiltro('bEstado', 'estado: ' + ({ si: 'activados', no: 'desactivados' }[st.bEstado] ?? 'desconocido')));
+  return barraAF(accion, filtros, activos);
 }
 
 // «▶ sesión con…»: abre el formulario (con `id` preelegido) o lo cierra.
@@ -3164,6 +3191,29 @@ function pieDiario(d) {
     'cargar los eventos anteriores, con los mismos filtros', {}, 'c')}</div>`, true)];
 }
 
+// El patrón de las barras de filtros: las acciones (crear, anotar…) a la
+// izquierda, un separador, los filtros con su etiqueta y, al final, un chip con
+// ✕ por cada filtro activo para quitarlo de un clic.
+const grupoFiltro = (etiqueta, html) => `<span class="fb-grp"><span class="fb-et">${etiqueta}</span>${html}</span>`;
+const chipFiltro = (clave, texto, titulo) =>
+  `<button class="c on chip" data-a="f-quitar" data-v="${clave}" title="quitar el filtro «${esc(titulo ?? texto)}»">${esc(texto)} <b aria-hidden="true">✕</b></button>`;
+const sep = '<span class="fb-sep" aria-hidden="true"></span>';
+function barraAF(acciones, filtros = '', activos = []) {
+  return (acciones ? `<span class="fb-acc">${acciones}</span>` : '') +
+    (acciones && filtros ? sep : '') +
+    (filtros ? `<span class="fb-fil" role="group" aria-label="filtros">${filtros}</span>` : '') +
+    (activos.length ? sep + `<span class="fb-act" role="group" aria-label="filtros activos">${activos.join('')}</span>` : '');
+}
+// Quita un filtro activo (chip ✕): la clave dice de qué barra es.
+function quitaFiltro(clave) {
+  const quita = {
+    actor: () => { st.dActor = null; }, resultado: () => { st.dResultado = null; }, accion: () => { st.dAccion = null; },
+    rango: () => { st.dFechas = false; st.dDesde = null; st.dHasta = null; },
+    bAgente: () => { st.bAgente = null; }, bTipo: () => { st.bTipo = null; }, bCat: () => { st.bCat = null; }, bEstado: () => { st.bEstado = null; },
+  }[clave];
+  quita?.();
+}
+
 function barraDiario() {
   const opcion = (v, t, actual) => `<option value="${esc(v)}"${v === (actual ?? '') ? ' selected' : ''}>${esc(t)}</option>`;
   const sel = (campo, titulo, ops, actual) =>
@@ -3173,7 +3223,7 @@ function barraDiario() {
   const rango = fechas ? 'fechas' : st.dDesde;
   const res = (v, g, t) => `<button class="c${st.dResultado === v ? ' on' : ''}" data-a="d-resultado" data-v="${v}" title="${t}" aria-pressed="${st.dResultado === v}">${g}</button>`;
   let h = sel('actor', 'quién', [['', 'quién: todos'], ...actores.map(a => [a, a])], st.dActor) +
-    res('ok', '✓', 'solo lo que salió bien') + res('error', '✕', 'solo los errores') +
+    grupoFiltro('resultado', res('ok', '✓', 'solo lo que salió bien') + res('error', '✕', 'solo los errores')) +
     sel('accion', 'familia de eventos', [['', 'qué: todo'], ...Object.entries(FAMILIAS)], st.dAccion) +
     sel('rango', 'cuándo', [['', 'cuándo: siempre'], ...Object.entries(RANGOS), ['fechas', 'fechas…']], rango);
   if (fechas) {
@@ -3181,36 +3231,41 @@ function barraDiario() {
     h += `<input type="date" class="c${d ? ' on' : ''}" data-df="desde" value="${esc(d)}" title="desde (incluido)" aria-label="Desde">` +
       `<input type="date" class="c${st.dHasta ? ' on' : ''}" data-df="hasta" value="${esc(st.dHasta ?? '')}" title="hasta (incluido)" aria-label="Hasta">`;
   }
-  if (st.dTrabajo) h += `<button class="c on" data-a="d-trabajo" title="solo los eventos del trabajo ${esc(st.dTrabajo)}; pulsa para quitarlo" aria-pressed="true">▣ ${esc(st.dTrabajo.slice(-8))} ✕</button>`;
   h += `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
-  return h;
+  const activos = [];
+  if (st.dActor) activos.push(chipFiltro('actor', 'quién: ' + st.dActor));
+  if (st.dResultado) activos.push(chipFiltro('resultado', st.dResultado === 'ok' ? 'resultado: ✓' : 'resultado: ✕'));
+  if (st.dAccion) activos.push(chipFiltro('accion', 'qué: ' + (Object.entries(FAMILIAS).find(([k]) => k === st.dAccion)?.[1] ?? st.dAccion)));
+  if (fechas || st.dDesde) activos.push(chipFiltro('rango', 'cuándo: ' + (fechas ? [st.dDesde, st.dHasta].map(x => x || '…').join(' → ') : RANGOS[st.dDesde] ?? st.dDesde)));
+  if (st.dTrabajo) activos.push(`<button class="c on chip" data-a="d-trabajo" title="solo los eventos del trabajo ${esc(st.dTrabajo)}; pulsa para quitarlo" aria-pressed="true">▣ ${esc(st.dTrabajo.slice(-8))} <b aria-hidden="true">✕</b></button>`);
+  return [h, activos];
 }
 
 function barra() {
   const fb = $('#fb');
   let h = '';
   if (st.sec === 'trabajos') {
-    // «＋ misión» va primero: los filtros pueden desbordar la barra.
-    h = `<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al ejecutor" aria-pressed="${!!st.nueva}">＋ misión</button>` +
-      Object.keys(EST).map(e =>
+    // «＋ misión» es una acción: va a la izquierda y separada de los filtros.
+    h = barraAF(`<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al ejecutor" aria-pressed="${!!st.nueva}">＋ misión</button>`,
+      grupoFiltro('estado', Object.keys(EST).map(e =>
         `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
-        `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('');
+        `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('')));
   } else if (st.sec === 'diario') {
     // «✎ anotar» va primero, como «＋ misión»: los filtros pueden desbordar.
     const on = !!st.anota && st.anota.corrige == null;
-    h = `<button class="c${on ? ' on' : ''}" data-a="d-anotar" title="anotar en el diario: dejar constancia de algo con actor usuario" aria-pressed="${on}">✎ anotar</button>` +
-      barraDiario();
+    const [filtros, activos] = barraDiario();
+    h = barraAF(`<button class="c${on ? ' on' : ''}" data-a="d-anotar" title="anotar en el diario: dejar constancia de algo con actor usuario" aria-pressed="${on}">✎ anotar</button>`, filtros, activos);
   } else if (st.sec === 'rutinas') {
     const on = st.rutEd?.slug === '';
-    h = `<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>` +
-      `<button class="c${st.rutRetiradas ? ' on' : ''}" data-a="rretiradas" title="las rutinas retiradas (en la papelera): se restauran desde su ficha" aria-pressed="${st.rutRetiradas}">▣ retiradas</button>`;
+    h = barraAF(`<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>`,
+      grupoFiltro('ver', `<button class="c${st.rutRetiradas ? ' on' : ''}" data-a="rretiradas" title="las rutinas retiradas (en la papelera): se restauran desde su ficha" aria-pressed="${st.rutRetiradas}">▣ retiradas</button>`));
   } else if (st.sec === 'propuestas') {
-    h = `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
-        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`;
+    h = barraAF('', grupoFiltro('ver', `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
+        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`));
   }
   else if (st.sec === 'biblioteca') h = barraBiblioteca();
   else if (st.sec === 'equipos') {
-    h = `<button class="c${st.eqNuevo ? ' on' : ''}" data-a="eq-nuevo" title="despertar un equipo de agentes" aria-pressed="${!!st.eqNuevo}">＋ despertar</button>`;
+    h = barraAF(`<button class="c${st.eqNuevo ? ' on' : ''}" data-a="eq-nuevo" title="despertar un equipo de agentes" aria-pressed="${!!st.eqNuevo}">＋ despertar</button>`);
   }
   if (fb.dataset.h !== h) { fb.dataset.h = h; fb.innerHTML = h; }
 }
@@ -3946,6 +4001,8 @@ async function accion(b) {
       st.dResultado = st.dResultado === v ? null : v;
     } else if (a === 'd-trabajo') {
       st.dTrabajo = null;
+    } else if (a === 'f-quitar') {
+      quitaFiltro(v);
     } else if (a === 'd-mas') {
       await masDiario();
     } else if (a === 'd-anotar' || a === 'd-corregir') {
@@ -4445,6 +4502,8 @@ addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
     }
   } catch { /* sin almacenamiento */ }
   aplicaEnlace(enlace); // la fila y los filtros del hash (de otra sección, se ignoran por defecto)
+  // En pantallas bajas la escena empieza plegada, salvo que el usuario ya eligiera.
+  try { if (localStorage.getItem('ea-escena-plegada') === null && innerHeight < 800) localStorage.setItem('ea-escena-plegada', '1'); } catch { /* sin almacenamiento */ }
   gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
   tour.montar({ ir, seccion: () => st.sec });
   marco();
