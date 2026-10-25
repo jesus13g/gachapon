@@ -249,7 +249,10 @@ ea diario listar --trabajo <id>            # qué pasó y quién lo hizo
 `ea --help` y `ea <comando> --help` describen todos los comandos; la referencia
 completa está en el [manual](docs/manual.md#uso).
 
-**Desde el panel**: `1`-`9` y `0` cambian de sección, `/` filtra, `?` abre la
+**Desde el panel**: **Actividad** (tecla `2`) reúne lo que te espera (las
+propuestas por aceptar o rechazar), un calendario y el archivador de cada día con
+los trabajos en tarjetas; **Rutinas** (`3`) las enseña en tarjetas y crea una
+nueva con un formulario. `1`-`9` y `0` cambian de sección, `/` filtra, `?` abre la
 ayuda y `t` un recorrido guiado por cada vista.
 
 ## Configuración

@@ -7,8 +7,8 @@ const GL_AJUSTES = '<svg class="gl" viewBox="0 0 24 24" fill="none" stroke="curr
 const GL_PAPELERA = '<svg class="gl" aria-hidden="true"><use href="#i-papelera"/></svg>';
 const GL_REINDEXAR = '<svg class="gl" aria-hidden="true"><use href="#i-reindexar"/></svg>';
 // Orden del raíl, por bloques: Trabajo · Conocimiento · Herramientas · Sistema.
-// Las teclas 1-9 y 0 siguen este orden; las dos que sobran (Diario, Ajustes) tienen letra.
-const SECCIONES = ['inicio', 'trabajos', 'propuestas', 'rutinas', 'equipos', 'boveda', 'memoria', 'biblioteca', 'acciones', 'sistema', 'diario', 'ajustes'];
+// Las teclas 1-9 y 0 siguen este orden (0 es el Diario); el Diario también va con `d` y Ajustes, con `a`.
+const SECCIONES = ['inicio', 'actividad', 'rutinas', 'equipos', 'boveda', 'memoria', 'biblioteca', 'acciones', 'sistema', 'diario', 'ajustes'];
 const TECLA_SECCION = { diario: 'd', ajustes: 'a' };
 // Un glifo = un significado (los iconos del raíl son SVG: #i-<sección> en index.html).
 //   ○ ◐ ◕ ● ⊘   estado de un trabajo: en cola, ejecutando, en revisión, cerrado, cancelado
@@ -20,7 +20,7 @@ const TECLA_SECCION = { diario: 'd', ajustes: 'a' };
 //   candado SVG  solo lectura (sin clave de sesión)
 //   ✓ ✕ !        hecho/aceptado, fallo/rechazado, atención
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
-const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm', equipos: 'q' };
+const DETALLE = { inicio: 'j', actividad: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm', equipos: 'q' };
 const RIESGO = { lectura: '□', reversible: '◧', irreversible: '■' };
 // Estados de un trabajo: glifo y palabra. El orden es el del recorrido.
 const EST = {
@@ -45,10 +45,9 @@ const NOMBRE = {
 };
 const TITULOS = {
   inicio: ['Inicio', 'Las colas, quién tiene el worktree y por dónde va cada cápsula: en cola → ejecutando → en revisión → en espera → cerrado.'],
-  trabajos: ['Trabajos', 'Cada trabajo es una cápsula: misión, obra o rutina. Ábrela para ver su informe, el diff y lo que admite.'],
+  actividad: ['Actividad', 'Lo que te espera arriba; debajo, el calendario y el archivador de cada día con sus trabajos en tarjetas.'],
   diario: ['Diario', 'El registro de todo lo que ocurre en el ecosistema, lo más reciente arriba.'],
   rutinas: ['Rutinas', 'Máquinas de cápsulas amarillas, versionadas y registradas. Echa una ficha para lanzar una ahora sin esperar a su hora.'],
-  propuestas: ['Propuestas', 'Cambios que un agente quiere hacer y que necesitan tu visto bueno.'],
   acciones: ['Acciones', 'Las herramientas del ecosistema. Simula primero para ver qué pasaría; después ejecuta.'],
   sistema: ['Sistema', 'Los servicios que mantienen el ecosistema en marcha y qué agente ocupa cada rol. Despliega un rol para cambiar de agente.'],
   boveda: ['Bóveda', 'Las notas de los agentes y las tuyas, como en Obsidian. Elige una en el árbol; ✎ (Ctrl+E) la edita y ⋯ tiene el resto. El buscador busca también dentro del contenido.'],
@@ -61,17 +60,13 @@ const TITULOS = {
 // mutan usan un data-a de MUTA y se apagan en solo lectura).
 const irSec = (sec, txt, titulo) => btn('ir-sec', txt, titulo, { id: sec });
 const VACIO_ACC = {
-  trabajos: () => btn('nueva-mision', '＋ misión', 'encargar una misión al ejecutor', {}, 'coin'),
-  rutinas: () => btn('rnueva', '＋ rutina', 'rutina nueva: abre el editor con una plantilla TOML', {}, 'coin'),
-  propuestas: () => irSec('trabajos', 'ir a Trabajos', 'ver los trabajos del ecosistema'),
+  rutinas: () => btn('nueva-rutina', '＋ nueva rutina', 'rutina nueva: un formulario que genera su rutina.toml', {}, 'coin'),
   equipos: () => btn('eq-nuevo', '＋ despertar', 'despertar un equipo de agentes', {}, 'coin'),
   diario: () => btn('d-anotar', '✎ anotar', 'anotar en el diario: dejar constancia de algo con actor usuario', {}, 'coin'),
 };
 const VACIO = {
-  trabajos: 'No hay trabajos. Encarga una misión, o desde el planificador con /mision, /obra o /rutina.',
   diario: 'El diario está vacío: se llena solo cuando algo ocurre. También puedes dejar una anotación.',
   rutinas: 'No hay rutinas registradas. Crea una, o pídele al planificador /rutina (ea rutina registrar).',
-  propuestas: 'Nada espera tu decisión. Las propuestas aparecen cuando un agente quiere cambiar algo.',
   boveda: 'No hay notas.',
   memoria: 'Ningún proyecto tiene memoria (~/.claude/projects/*/memory).',
   equipos: 'No hay equipos. Despierta uno para repartir trabajo entre varios agentes (o con ea equipo despertar).',
@@ -100,9 +95,19 @@ const st = {
   vis: [],             // claves visibles, en orden
   html: '',
   q: '',
-  filtroEstado: null,
-  nueva: null,         // formulario «＋ misión» abierto: { v: valores, form: ea.nuevoTrabajo(), err }
-  propTodas: false,
+  nueva: null,         // formulario «＋ misión» (en su diálogo): { v: valores, form: ea.nuevoTrabajo(), err }
+  // Actividad (spec 022, B7): día elegido (null: hoy), mes del calendario
+  // (null: el del día), pestaña del archivador, agrupar por estado o modo y
+  // la propuesta pendiente elegida en la franja «Te espera».
+  dia: null,
+  mes: null,
+  grupo: null,
+  agrupar: 'estado',
+  propSel: null,
+  // El diálogo abierto: { tipo: 'trabajo' | 'decididas' | 'mision' | 'rutina' | 'rutina-nueva', id }.
+  dlg: null,
+  dlgOrigen: null,     // qué botón lo abrió, para devolverle el foco al cerrar
+  diaDeDlg: null,      // el trabajo del diálogo cuyo día ya se eligió
   latidos: false,
   // Filtros del diario (van al servidor y al hash, ver PARAMS.diario).
   dActor: null,
@@ -131,7 +136,8 @@ const st = {
   rutHor: {},          // por rutina: { v: OnCalendar escrito, sim, quitar, err }: ver horarioRutina()
   wtLimp: {},          // por trabajo: { sim, err }: limpiar su worktree propio, ver worktreeHtml()
   rutRet: {},          // por rutina: { herr, sim, err }: retirar o restaurar, ver retiroRutina()
-  rutRetiradas: false, // la barra de Rutinas enseña las retiradas en vez de las activas
+  rutFiltro: null,     // la píldora de Rutinas: null (todas), programadas, manuales, problemas, retiradas
+  rutNueva: null,      // el diálogo «＋ nueva rutina»: ver formRutinaNueva()
   ed: {},              // estado de cada editor (memoria, bóveda): ver ed()
   bAgente: null, bTipo: null, bCat: null, bEstado: null, // filtros de la biblioteca (van al hash)
   bibUso: null,        // uso de la biblioteca: { mapa: id -> uso, en, cargando }
@@ -320,6 +326,7 @@ const MUTA = new Set([
   'decidir', 'simular', 'ejecutar', 'terminal', 'reiniciar', 'poner-rol',
   // rutinas
   'lanzar', 'rprevia', 'rvalidar', 'rregistrar', 'rnueva', 'red', 'rretiro', 'rhguardar', 'rhquitar',
+  'nueva-rutina', 'rn-probar', 'rn-registrar', 'rn-programar',
   // equipos
   'eq-nuevo', 'eq-despertar', 'eq-dormir',
   // ajustes
@@ -335,7 +342,7 @@ const MUTA = new Set([
 ]);
 // Campos que solo existen para preparar una escritura.
 const CAMPOS_ESCRITURA = 'textarea.nota, textarea.editor, [data-rff], [data-aj], [data-rent], [data-rhor], [data-bcat], [data-bs-el], ' +
-  '[data-an], [data-nm], [data-nf], [data-eq], [data-eqm], [data-eqr], [data-mc], [data-ed], input.ren';
+  '[data-an], [data-nm], [data-nf], [data-eq], [data-eqm], [data-eqr], [data-mc], [data-ed], [data-rn], [data-rne], input.ren';
 function aplicaLectura(raiz = document) {
   const sin = !ea.escritura();
   if (!sin && !document.querySelector('[data-lectura]')) return;
@@ -609,6 +616,41 @@ function ordenOriginal(t, d) {
     metaTrabajo(o, d.worktree);
 }
 
+// La ficha de un trabajo: en línea bajo su fila (Inicio) o en el diálogo de
+// Actividad. Sin el detalle cargado, lo que da la lista y sus botones.
+function detalleTrabajo(t) {
+  const k = 'j' + t.id;
+  const d = st.detalle[k];
+  let det = `<p class="m">${esc(t.id)} · creado ${hora(t.creado)}${t.detalle ? ' · ' + esc(t.detalle) : ''}</p>`;
+  if (t.cancelando) det += `<p class="m hot">cancelando…: el ejecutor está parando al agente y soltará el worktree; ${NO_SE_DESHACE}.</p>`;
+  if (d) {
+    // Orden de la ficha: resultado → acciones → informe → diff → historial,
+    // y la orden original (el objetivo, a menudo largo) plegada al final.
+    const o = d.orden;
+    const [pz, pzCls] = premio(t, true);
+    det += `<div class="resultado">${estadoJ(t)}` +
+      (pz ? `<span class="${pzCls === 'pz' ? 'x' : pzCls || 'm'}">${esc(pz)}</span>` : '') +
+      (d.informe ? `<span class="m">${d.informe.fases_hechas} fases hechas · ${d.informe.duracion_s}s${d.informe.ejecutado_por ? ' · ' + porQuien(d.informe.ejecutado_por) : ''}</span>` : '') +
+      (d.estado?.ejecutado_por && !d.informe ? `<span class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</span>` : '') +
+      '</div>';
+    // El paquete de corrección se lee antes de decidir: va sobre los botones.
+    if (d.paquete) det += `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>`;
+    det += accionesTrabajo(t, d.informe);
+    if (FINAL.includes(t.estado)) det += botonClonar(t);
+    det += (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
+      informeHtml(d) +
+      resumenAgente(d) +
+      planObra(t.id, d) +
+      (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
+      `<p class="et">historial ${btn('ir-diario', '→ diario', 'los eventos de este trabajo en el diario', { id: t.id }, 'l')}</p><div class="evs">` + d.historial.map(h =>
+        `<div class="ev"><span>${hora(h.ts)}</span><i></i><span title="${esc(h.evento)}">${esc(EVENTOS['bus_' + h.evento] ?? h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}${h.ejecutado_por ? ' · ' + esc(h.ejecutado_por.agente) : ''}</span></div>`).join('') + '</div>' +
+      ordenOriginal(t, d);
+  } else {
+    det += accionesTrabajo(t, null);
+  }
+  return det;
+}
+
 function filasTrabajos(ts) {
   return ts.map(t => {
     const k = 'j' + t.id;
@@ -617,45 +659,19 @@ function filasTrabajos(ts) {
     const row = estadoJ(t) +
       `<span class="x" title="${esc(t.titulo)} · ${esc(t.id)}">${esc(t.titulo)}</span><span class="m w">${MODO[t.modo] ?? t.modo}${t.rutina ? ' · ' + esc(t.rutina.slug) + ' v' + t.rutina.version : ''}</span>` +
       `<span class="m ${pzCls}">${esc(pz || '—')}</span><span class="m">${reloj(t.actualizado)}</span>`;
-    const d = st.detalle[k];
-    let det = `<p class="m">${esc(t.id)} · creado ${hora(t.creado)}${t.detalle ? ' · ' + esc(t.detalle) : ''}</p>`;
-    if (t.cancelando) det += `<p class="m hot">cancelando…: el ejecutor está parando al agente y soltará el worktree; ${NO_SE_DESHACE}.</p>`;
-    if (d) {
-      // Orden de la ficha: resultado → acciones → informe → diff → historial,
-      // y la orden original (el objetivo, a menudo largo) plegada al final.
-      const o = d.orden;
-      const [pz, pzCls] = premio(t, true);
-      det += `<div class="resultado">${estadoJ(t)}` +
-        (pz ? `<span class="${pzCls === 'pz' ? 'x' : pzCls || 'm'}">${esc(pz)}</span>` : '') +
-        (d.informe ? `<span class="m">${d.informe.fases_hechas} fases hechas · ${d.informe.duracion_s}s${d.informe.ejecutado_por ? ' · ' + porQuien(d.informe.ejecutado_por) : ''}</span>` : '') +
-        (d.estado?.ejecutado_por && !d.informe ? `<span class="m">ejecutado por ${porQuien(d.estado.ejecutado_por)}</span>` : '') +
-        '</div>';
-      // El paquete de corrección se lee antes de decidir: va sobre los botones.
-      if (d.paquete) det += `<p class="et hot">paquete de corrección</p><pre class="tx">${esc(d.paquete)}</pre>`;
-      det += accionesTrabajo(t, d.informe);
-      if (FINAL.includes(t.estado)) det += botonClonar(t);
-      det += (o.notas_revision?.length && t.estado !== 'en_revision' ? '<p class="et">notas de revisión</p>' + o.notas_revision.map(n => `<p class="tx">${esc(n)}</p>`).join('') : '') +
-        informeHtml(d) +
-        resumenAgente(d) +
-        planObra(t.id, d) +
-        (d.informe?.commit_inicio ? diffHtml(t.id) : '') +
-        `<p class="et">historial ${btn('ir-diario', '→ diario', 'los eventos de este trabajo en el diario', { id: t.id }, 'l')}</p><div class="evs">` + d.historial.map(h =>
-          `<div class="ev"><span>${hora(h.ts)}</span><i></i><span title="${esc(h.evento)}">${esc(EVENTOS['bus_' + h.evento] ?? h.evento)}</span><span>${esc(EST[h.estado]?.[1] ?? h.estado)}</span><span>${h.iteracion ? 'it. ' + h.iteracion : ''}${h.ejecutado_por ? ' · ' + esc(h.ejecutado_por.agente) : ''}</span></div>`).join('') + '</div>' +
-        ordenOriginal(t, d);
-    } else {
-      det += accionesTrabajo(t, null);
-    }
+    const det = st.abiertos.has(k) ? detalleTrabajo(t) : '';
     return fila(k, 'j', row, `${t.titulo} ${t.modo} ${t.id} ${EST[t.estado][1]} ${t.resultado ?? ''}`, det, FINAL.includes(t.estado) ? ' fin' : '');
   });
 }
 
 
-// El formulario «＋ misión», en línea encima de la lista. Lo escrito vive en
-// st.nueva.v (el sondeo repinta). El criterio solo se envía: lo ejecuta el
-// sistema al final de cada iteración, nunca esta página.
+// El formulario «＋ misión», en su diálogo de Actividad. Lo escrito vive en
+// st.nueva.v (el sondeo repinta; cerrar el diálogo no lo pierde, «descartar»
+// sí). El criterio solo se envía: lo ejecuta el sistema al final de cada
+// iteración, nunca esta página.
 function formMision() {
   const n = st.nueva;
-  if (!n) return [];
+  if (!n) return '';
   const v = n.v, t = n.form.techo, obra = n.modo === 'obra';
   const min = Math.max(1, Math.floor(t.tiempo_s / 60));
   const campo = (c, ph, extra = '') =>
@@ -680,12 +696,8 @@ function formMision() {
     '<div class="acc">' + (obra
       ? btn('crear-mision', '▶ encolar obra', 'crear la obra y ponerla en la cola del ejecutor', {}, 'coin')
       : btn('crear-mision', '▶ encolar misión', 'crear la misión y ponerla en la cola del ejecutor', {}, 'coin')) +
-    btn('nueva-mision', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
-  const nombre = obra ? 'obra' : 'misión';
-  const row = `<span class="est">${capsula(obra ? COLOR.obra : COLOR.mision)}nueva</span>` +
-    `<span class="x">${esc(v.titulo || nombre + ' sin título')}</span><span class="m w">${nombre}</span>` +
-    `<span class="m">${obra ? `${n.fases.length} ${n.fases.length === 1 ? 'fase' : 'fases'}` : 'para el ejecutor'}</span><span class="m"></span>`;
-  return [suelto(`<article class="f o nueva"><div class="r j">${row}</div><div class="det">${det}</div></article>`, true)];
+    btn('nm-descartar', '✕ descartar', 'cerrar el formulario sin crear nada') + '</div></div>';
+  return det;
 }
 
 // Lo opcional del formulario que toca a los equipos (spec 019): el servidor
@@ -735,9 +747,9 @@ async function creaMision() {
     }
     : { modo: 'mision', titulo: v.titulo ?? '', worktree: v.worktree ?? '', objetivo: v.objetivo ?? '', criterio: v.criterio ?? '', topes, ...deEquipo(v) });
   st.nueva = null;
-  st.filtroEstado = null;
+  st.dlg = null;
   avisa(`✓ ${obra ? 'obra' : 'misión'} ${t.id.slice(9, 15)} en la cola del ejecutor`, true);
-  abre('trabajos', 'j' + t.id);
+  abre('actividad', 'j' + t.id);
 }
 
 // ----------------------------------------------- «＋ misión» en modo obra
@@ -845,7 +857,8 @@ async function clonaTrabajo(id) {
   if (o.modo === 'rutina') avisos.push(`viene de la rutina ${o.rutina?.slug ?? ''}: se lanza como misión normal, no como rutina`);
   if (o.skills?.length || o.fases?.some(f => f.skills?.length)) avisos.push('las skills de la orden original no se copian (desde la web no se eligen)');
   if (it > techo.iteraciones || min > minTecho) avisos.push('los topes se han recortado al techo de ajustes.toml');
-  if (st.sec !== 'trabajos' && ir('trabajos') === false) return;
+  if (st.sec !== 'actividad' && ir('actividad') === false) return;
+  fijaDialogo({ tipo: 'mision' });
   st.nueva = {
     form, err: null, modo: obra ? 'obra' : 'mision', fases, aviso: avisos.join(' · '),
     v: {
@@ -856,7 +869,6 @@ async function clonaTrabajo(id) {
   st.html = '';
   document.activeElement?.blur();
   pintar();
-  $('#lista').scrollTop = 0;
   $('[data-nm="titulo"]')?.focus();
 }
 
@@ -898,7 +910,7 @@ function destinosEvento(e) {
   };
   const ac = e.accion ?? '';
   const prop = de('propuesta', /^\d+$/);
-  pon('propuestas', prop, '→ propuesta #' + prop, 'ver la propuesta en ◇ Propuestas');
+  pon('propuestas', prop, '→ propuesta #' + prop, 'ver la propuesta en Actividad');
   const mcp = /^mcp_([a-z_]+?)(_simulada|_denegada)?$/.exec(ac);
   const h = de('herramienta', /^ea_[a-z_]+$/) ?? (mcp ? 'ea_' + mcp[1] : null);
   pon('acciones', h, '→ ' + esc(h), 'ver la herramienta en ▶ Acciones');
@@ -924,7 +936,7 @@ function destinosEvento(e) {
 }
 
 // Los botones de los destinos de un evento (ver destinosEvento). Los datos
-// van en data-dsec y data-dfila: data-f ya es el filtro de estado de Trabajos.
+// van en data-dsec y data-dfila; una propuesta va con ir-prop (a Actividad).
 function enlacesEvento(e) {
   const ds = destinosEvento(e);
   if (!ds.length) return '';
@@ -1026,40 +1038,90 @@ function formEntradas(r) {
   return h;
 }
 
-function filasRutinas(rs) {
-  return rs.map(r => {
-    const k = 'r' + r.slug;
-    // Una máquina de cápsulas amarillas: con halo si la última se atascó,
-    // apagada si su rutina.toml no se puede leer.
-    const suyos = st.trabajos.filter(t => t.rutina?.slug === r.slug);
-    const atascada = suyos.some(t => t.estado === 'en_espera') || r.ultima?.estado === 'en_espera';
-    const enCola = suyos.some(t => t.estado === 'en_cola');
-    const retirada = r.ubicacion && r.ubicacion !== 'activa';
-    const desc = retirada ? (r.ubicacion === 'retirada' ? 'retirada · en la papelera' : 'sin fichero en rutinas_dir')
-      : r.error ?? (r.descripcion ?? '') + (atascada ? ' · la última se atascó' : '');
-    const row = capsula(COLOR.rutina, r.error ? 'averiada' : atascada ? 'hot' : '') +
-      `<span class="x">${esc(r.slug)}</span><span class="m">v${r.version}</span>` +
-      `<span class="m ${r.error || atascada ? 'hot' : ''}">${esc(desc)}</span>` +
-      `<span class="m"${r.calendario ? ` title="${esc('OnCalendar=' + r.calendario)}"` : ''}>${r.proxima && !r.error ? en(r.proxima) : ''}</span>` +
-      ultimaRutina(r.ultima) +
-      (retirada ? '<span class="m fuera">retirada</span>'
-        : r.error ? '<span class="hot fuera">fuera de servicio</span>'
-        : btn('lanzar', enCola ? '✓ en cola' : '<span class="ranura" aria-hidden="true"><i></i></span>Lanzar rutina',
-          `Lanzar ahora la rutina ${r.slug} con las entradas de su ficha: crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin'));
-    const d = st.detalle[k];
-    const editando = st.rutEd?.slug === r.slug;
-    const det = d && retirada ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}</p>` +
-      retiroRutina(r) + ejecucionesRutina(d.ejecuciones) + `<pre class="toml">${esc(d.contenido ?? '')}</pre>` + versionesHtml(r.slug)
-      : d ? `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
-      ejecucionesRutina(d.ejecuciones) +
-      formEntradas(r) +
-      horarioRutina(r) +
-      (editando ? editorRutina()
-        : `<div class="acc">${btn('red', '✎ nueva versión', 'edita el TOML y registra una versión nueva (la versión ya va subida en uno)', { slug: r.slug })}</div>` +
-          `<pre class="toml">${esc(d.contenido ?? '')}</pre>`) +
-      versionesHtml(r.slug) + retiroRutina(r) : '';
-    return fila(k, 'u', row, `${r.slug} ${r.descripcion ?? ''}`, det);
+// Una máquina de cápsulas amarillas: con halo si la última se atascó,
+// apagada si su rutina.toml no se puede leer.
+const suyosR = r => st.trabajos.filter(t => t.rutina?.slug === r.slug);
+const retiradaR = r => !!r.ubicacion && r.ubicacion !== 'activa';
+const atascadaR = r => suyosR(r).some(t => t.estado === 'en_espera') || r.ultima?.estado === 'en_espera';
+const programadaR = r => !!r.calendario || r.timer === 'active';
+const problemasR = r => !!r.error || atascadaR(r) || (!!r.ultima && ejMal(r.ultima));
+
+// Las píldoras de Rutinas: [clave, etiqueta, de qué lista, filtro].
+const RUT_FILTROS = [
+  [null, 'Todas', 'activas', () => true],
+  ['programadas', 'Programadas', 'activas', programadaR],
+  ['manuales', 'Manuales', 'activas', r => !programadaR(r)],
+  ['problemas', 'Con problemas', 'activas', problemasR],
+  ['retiradas', 'Retiradas', 'retiradas', () => true],
+];
+
+// Lo que antes era la ficha desplegada de una rutina; ahora, su diálogo «Detalles».
+function detalleRutina(r) {
+  const d = st.detalle['r' + r.slug];
+  if (!d) return '<p class="m">cargando…</p>';
+  const editando = st.rutEd?.slug === r.slug;
+  if (retiradaR(r)) {
+    return `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}</p>` +
+      retiroRutina(r) + ejecucionesRutina(d.ejecuciones) + `<pre class="toml">${esc(d.contenido ?? '')}</pre>` + versionesHtml(r.slug);
+  }
+  return `<p class="m">versión ${d.version} · ${esc(r.worktree ?? '')}${r.criterio_exito ? ' · criterio: ' + esc(r.criterio_exito) : ''}</p>` +
+    ejecucionesRutina(d.ejecuciones) +
+    formEntradas(r) +
+    horarioRutina(r) +
+    (editando ? editorRutina()
+      : `<div class="acc">${btn('red', '✎ nueva versión', 'edita el TOML y registra una versión nueva (la versión ya va subida en uno)', { slug: r.slug })}</div>` +
+        `<pre class="toml">${esc(d.contenido ?? '')}</pre>`) +
+    versionesHtml(r.slug) + retiroRutina(r);
+}
+
+// El horario de una tarjeta: la próxima ejecución, el OnCalendar o «manual».
+function horarioTarjeta(r) {
+  if (retiradaR(r)) return ['sin horario: retirada', ''];
+  if (r.error) return ['fuera de servicio: ' + r.error, 'hot'];
+  if (r.proxima) {
+    const d = new Date(ms(r.proxima));
+    const dia = diaDe(r.proxima) === hoyStr() ? 'hoy' : `${d.getDate()} ${MESES[d.getMonth()].slice(0, 3)}`;
+    return [`${r.calendario ? esc(r.calendario) + ' · ' : ''}próxima ${dia} ${p2(d.getHours())}:${p2(d.getMinutes())}`, 'prog'];
+  }
+  if (r.calendario) return [esc(r.calendario) + (r.timer && r.timer !== 'active' ? ' · timer ' + esc(r.timer) : ''), 'prog'];
+  return ['manual', ''];
+}
+
+// Las últimas ejecuciones en cápsulas pequeñas, de la más vieja a la más nueva.
+function historialTarjeta(r) {
+  const ts = suyosR(r).slice().sort((a, b) => ms(b.creado) - ms(a.creado)).slice(0, 8).reverse();
+  const caps = ts.map(t => {
+    const mal = t.estado === 'en_espera' || t.resultado === 'bloqueado';
+    return `<span title="${esc(`${hora(t.creado)} · ${EST[t.estado]?.[1] ?? t.estado}${mal ? ' · falló' : ''}`)}">` +
+      capsula(mal ? '#ff5c5c' : COLOR.rutina, t.estado === 'ejecutando' ? 'run' : t.estado === 'cancelado' ? 'cancelada' : '', 12) + '</span>';
   });
+  while (caps.length < 8) caps.unshift('<span class="hc-vacia" aria-hidden="true"></span>');
+  return `<span class="hist" role="img" aria-label="últimas ${ts.length} ejecuciones">${caps.join('')}</span>`;
+}
+
+function tarjetaRutina(r) {
+  const atascada = atascadaR(r), retirada = retiradaR(r);
+  const espera = suyosR(r).find(t => t.estado === 'en_espera');
+  const enCola = suyosR(r).some(t => t.estado === 'en_cola');
+  const [cuando, cuandoCls] = horarioTarjeta(r);
+  const desc = retirada ? (r.ubicacion === 'retirada' ? 'Retirada: está en la papelera con sus versiones.' : 'Sin fichero en rutinas_dir.')
+    : r.descripcion || '(sin descripción)';
+  let acc = '';
+  if (retirada) acc += retiroRutina(r);
+  else if (espera) acc += `<div class="acc" data-j="${esc(espera.id)}">${btn('confirmar', 'Confirmar corrección', `confirmar el paquete de corrección de ${r.slug}: pasa al planificador`, { id: espera.id }, 'coin hot')}</div>`;
+  else if (!r.error) {
+    acc += btn('lanzar', enCola ? '✓ en cola' : '<span class="ranura" aria-hidden="true"><i></i></span>Lanzar rutina',
+      `Lanzar ahora la rutina ${r.slug} con sus entradas por defecto (las cambias en Detalles): crea un trabajo; el orquestador lo recoge en segundos`, { slug: r.slug }, enCola ? 'coin ya' : 'coin');
+  }
+  acc += btn('ver-rutina', 'Detalles', `entradas, horario, versiones y retiro de ${r.slug}`, { slug: r.slug });
+  return `<article class="tr-r${atascada ? ' hot' : ''}${retirada ? ' fin' : ''}${r.error ? ' rota' : ''}">` +
+    `<header>${capsula(COLOR.rutina, r.error ? 'averiada' : atascada ? 'hot' : retirada ? 'cerrada' : '', 22)}` +
+    `<h3><button class="tj-tit" data-a="ver-rutina" data-slug="${esc(r.slug)}" title="abrir los detalles de ${esc(r.slug)}">${esc(r.slug)}</button></h3>` +
+    `<span class="ver">v${r.version}</span></header>` +
+    `<p class="desc">${esc(desc)}</p>` +
+    `<p class="cuando ${cuandoCls}"><svg class="gl" aria-hidden="true"><use href="#i-reloj"/></svg> <span>${cuando}</span></p>` +
+    `<p class="ult">${historialTarjeta(r)}<span class="grow"></span>${r.ultima ? ultimaRutina(r.ultima) : '<span class="m">sin ejecuciones</span>'}</p>` +
+    `<div class="tr-acc">${acc}</div></article>`;
 }
 
 // ------------------------------------------- horario de una rutina (R4)
@@ -1370,9 +1432,30 @@ function botonesPropuesta(p) {
   let acc = '';
   // Irreversible: la web solo abre la terminal; la frase se escribe allí.
   if (irrev) acc += btn('terminal', '⌨ terminal', `irreversible: abre una terminal con ea propuestas decidir ${p.id}; allí se confirma escribiendo «confirmo ${p.id}»`, { id: p.id }, 'hot');
-  else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
+  else if (ac) acc += btn('decidir', armada ? '✓ confirmar' : '✓ aceptar y ejecutar', armada ? 'confirmar: ejecuta ' + ac.herramienta : 'aceptar (ejecuta la acción; pide confirmar)', { id: p.id, v: 'aceptar', ac: 1 }, armada ? 'coin hot' : 'coin');
   else acc += btn('decidir', '✓ aceptar', 'aceptar', { id: p.id, v: 'aceptar' }, 'coin');
   return acc + btn('decidir', '✕ rechazar', 'rechazar', { id: p.id, v: 'rechazar' }, 'hot');
+}
+
+// Lo que cuenta una propuesta: descripción, herramienta, riesgo y quién la
+// propuso, la simulación (el diff coloreado si lo hay), el aviso de las
+// irreversibles, cómo se ejecutó y lo que produjo la recién aceptada (A1).
+function cuerpoPropuesta(p) {
+  const ac = p.accion, pend = p.estado === 'pendiente', r = st.propRes;
+  const irrev = ac && ac.riesgo === 'irreversible';
+  const falla = p.ejecutada && p.ejecutada.estado === 'fallida';
+  // Registrar una rutina lleva el TOML entero: su simulación ya trae el diff.
+  const conToml = typeof ac?.argumentos?.toml === 'string';
+  let det = conToml && p.descripcion === ac.simulacion ? '' : `<p class="tx">${esc(p.descripcion)}</p>`;
+  if (ac) {
+    det += `<p class="m">${esc(herramientaHumana(ac.herramienta))} <small class="ids">${esc(ac.herramienta)}</small> · riesgo ${RIESGO[ac.riesgo] ?? ''} ${esc(ac.riesgo)} · propuesta por ${esc(p.proponente ?? '?')} · ${hora(p.creada)}</p>` +
+      (conToml ? `<p class="m">toml: ${ac.argumentos.toml.length} caracteres</p>` : `<p class="m">${esc(JSON.stringify(ac.argumentos))}</p>`) +
+      `<p class="et">simulación</p><pre class="diff">${colorDiff(ac.simulacion)}</pre>`;
+    if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>, o pulsa ⌨ terminal y escribe allí «confirmo ${p.id}».</p>`;
+  }
+  if (p.ejecutada) det += `<p class="${falla ? 'hot' : 'tx'}">Ejecución ${esc(p.ejecutada.estado)}: ${esc(p.ejecutada.detalle ?? '')}</p>`;
+  if (r && r.id === p.id && ac) det += enlacesResultado(ac.herramienta, r.resultado);
+  return det;
 }
 
 function filasPropuestas(ps) {
@@ -1384,28 +1467,13 @@ function filasPropuestas(ps) {
     const k = 'p' + p.id;
     const pend = p.estado === 'pendiente';
     const ac = p.accion;
-    const irrev = ac && ac.riesgo === 'irreversible';
     const falla = p.ejecutada && p.ejecutada.estado === 'fallida';
     const glifo = pend ? '◇' : falla ? '!' : p.estado === 'aceptada' ? '✓' : '✕';
-    // Aceptar una propuesta con acción la ejecuta: pide confirmar (segundo
-    // clic). Una irreversible no se confirma desde aquí, solo en terminal.
-    const armada = st.armado && st.armado.n === k && st.armado.hasta > Date.now();
     const acc = botonesPropuesta(p);
     const quien = ac ? `${ac.herramienta} [${ac.riesgo}]` : '';
     const row = `<span title="${glifo} ${p.estado}${p.ejecutada ? ' · ' + p.ejecutada.estado : ''}">${capsula(COLOR.propuesta, falla ? 'hot' : pend ? '' : 'cerrada', 18, true)}</span><span class="n">#${p.id}</span>` +
       `<span class="x">${esc(p.descripcion)}</span><span class="m w">${esc(quien)}</span><span class="m">${reloj(p.creada)}</span><span class="bs">${acc}</span>`;
-    // Registrar una rutina lleva el TOML entero: su simulación ya trae el diff.
-    const conToml = typeof ac?.argumentos?.toml === 'string';
-    let det = conToml && p.descripcion === ac.simulacion ? '' : `<p class="tx">${esc(p.descripcion)}</p>`;
-    if (ac) {
-      det += `<p class="m">${esc(ac.herramienta)} · riesgo ${esc(ac.riesgo)} · propuesta por ${esc(p.proponente ?? '?')}</p>` +
-        (conToml ? `<p class="m">toml: ${ac.argumentos.toml.length} caracteres</p><p class="et">simulación</p><pre class="diff">${colorDiff(ac.simulacion)}</pre>`
-          : `<p class="m">${esc(JSON.stringify(ac.argumentos))}</p><p class="tx">Simulación: ${esc(ac.simulacion)}</p>`);
-      if (irrev && pend) det += `<p class="hot">Irreversible: confírmala desde la terminal con <b>ea propuestas decidir ${p.id} --aceptar</b>, o pulsa ⌨ terminal y escribe allí «confirmo ${p.id}».</p>`;
-    }
-    if (p.ejecutada) det += `<p class="${falla ? 'hot' : 'tx'}">Ejecución ${esc(p.ejecutada.estado)}: ${esc(p.ejecutada.detalle ?? '')}</p>`;
-    if (r && r.id === p.id && ac) det += enlacesResultado(ac.herramienta, r.resultado);
-    if (p.decidida) det += `<p class="m">${hora(p.decidida)}</p>`;
+    const det = cuerpoPropuesta(p) + (p.decidida ? `<p class="m">decidida ${hora(p.decidida)}</p>` : '');
     return fila(k, 'p', row, `${p.descripcion} ${quien} ${p.estado}`, det, pend ? '' : ' fin');
   });
 }
@@ -2986,6 +3054,616 @@ const columnas = (cls, ...nombres) =>
 
 const barraViva = '<div class="bar" role="progressbar" aria-label="en marcha"><i></i></div>';
 
+// ----------------------------------------------------------------- actividad
+//
+// Actividad (spec 022, B7) reúne lo que antes eran Trabajos y Propuestas.
+// Arriba, la franja «Te espera» con las propuestas pendientes; debajo, el
+// calendario del mes y el archivador del día elegido, con los trabajos en
+// tarjetas por carpetas. El detalle completo de un trabajo va en un diálogo.
+// Solo datos reales: los trabajos del bus (st.trabajos, ya filtrados por
+// proyecto), las propuestas y las rutinas con su timer.
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+// El día local (AAAA-MM-DD) de un instante; null si no se entiende.
+const diaDe = t => {
+  const d = new Date(ms(t));
+  return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+};
+const hoyStr = () => diaDe(Date.now());
+const fechaDe = s => { const [a, m, d] = s.split('-').map(Number); return new Date(a, m - 1, d); };
+const horaCorta = t => { const d = new Date(ms(t)); return Number.isNaN(d.getTime()) ? '' : `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+// El día que enseña el archivador: el elegido o, si no hay, hoy.
+const diaVisto = () => st.dia || hoyStr();
+
+// Agrupa una lista en un Map por la clave que da `f`.
+function agrupa(xs, f) {
+  const m = new Map();
+  for (const x of xs) {
+    const k = f(x);
+    if (!k) continue;
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(x);
+  }
+  return m;
+}
+
+// Lo que el filtro de texto ( / ) mira de cada cosa.
+const textoTrabajo = t => `${t.titulo} ${MODO[t.modo] ?? t.modo} ${t.id} ${EST[t.estado]?.[1] ?? ''} ${t.resultado ?? ''} ${t.rutina?.slug ?? ''} ${t.ejecutado_por?.agente ?? ''}`.toLowerCase();
+const textoProp = p => `#${p.id} ${p.descripcion} ${p.accion?.herramienta ?? ''} ${p.estado} ${p.proponente ?? ''}`.toLowerCase();
+
+// ------------------------------------------ rutinas programadas (puntos huecos)
+//
+// Las ejecuciones futuras de una rutina salen del OnCalendar de su timer
+// cuando es una forma sencilla («daily», «weekly», «*-*-* 07:00»,
+// «Mon..Fri *-*-* 09:00», «Sun 03:00»…). Con cualquier otra expresión solo se
+// marca el día de su próxima ejecución (`proxima`, de systemd): nada inventado.
+const DSEM = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+function patronCalendario(c) {
+  const s = String(c ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!s) return null;
+  if (s === 'daily') return { dias: null, hora: '00:00' };
+  if (s === 'weekly') return { dias: new Set([1]), hora: '00:00' };
+  const m = /^(?:([a-z.,]+) )?(?:\*-\*-\* )?(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
+  if (!m || Number(m[2]) > 23 || Number(m[3]) > 59) return null;
+  let dias = null;
+  if (m[1]) {
+    dias = new Set();
+    for (const parte of m[1].split(',')) {
+      const [x, y] = parte.split('..');
+      const a = DSEM[x.slice(0, 3)], b = y == null ? a : DSEM[y.slice(0, 3)];
+      if (a == null || b == null) return null;
+      for (let i = a; ; i = (i + 1) % 7) { dias.add(i); if (i === b) break; }
+    }
+  }
+  return { dias, hora: `${p2(m[2])}:${m[3]}` };
+}
+
+// Las rutinas que se lanzarán solas el día `dia` (hoy, solo las que faltan).
+function programadasDe(rutinas, dia) {
+  const hoy = hoyStr();
+  if (dia < hoy) return [];
+  const ahora = horaCorta(Date.now());
+  const out = [];
+  for (const r of rutinas) {
+    if (r.error || retiradaR(r)) continue;
+    if (r.timer && r.timer !== 'active') continue; // un timer parado no lanza nada
+    const pat = patronCalendario(r.calendario);
+    let h = null;
+    if (pat) {
+      const desde = r.proxima ? diaDe(r.proxima) : null;
+      if ((!desde || dia >= desde) && (!pat.dias || pat.dias.has(fechaDe(dia).getDay()))) h = pat.hora;
+    } else if (r.proxima && diaDe(r.proxima) === dia) h = horaCorta(r.proxima);
+    if (!h || (dia === hoy && h <= ahora)) continue;
+    out.push({ prog: true, r, hora: h });
+  }
+  return out.sort((a, b) => a.hora.localeCompare(b.hora));
+}
+
+// --------------------------------------------------------- franja «Te espera»
+
+function franjaEspera(props, q) {
+  const pendientes = props.filter(p => p.estado === 'pendiente').sort((a, b) => a.id - b.id);
+  // La recién aceptada (A1) sigue a la vista con lo que produjo.
+  const r = st.propRes;
+  const todas = r && !pendientes.some(p => p.id === r.id) ? [...pendientes, r] : pendientes;
+  const vis = q ? todas.filter(p => textoProp(p).includes(q)) : todas;
+  const n = pendientes.length;
+  const cab = `<div class="fr-cab">${capsula(COLOR.propuesta, '', 16, true)}<h2>Te espera</h2>` +
+    (n ? `<b class="cuenta">${n}</b><span class="m">elige una para ver qué hará; aceptar la ejecuta</span>`
+      : '<span class="m">nada espera tu decisión: cuando un agente proponga algo, aparecerá aquí</span>') +
+    `<span class="grow"></span>${btn('ver-decididas', 'ver decididas →', 'el historial de las propuestas ya decididas', {}, 'l')}</div>`;
+  if (!vis.length) {
+    return `<section class="fr-espera vacia" aria-label="Te espera">${cab}` +
+      (q && todas.length ? `<p class="m">ninguna propuesta pendiente coincide con «${esc(st.q.trim())}»</p>` : '') + '</section>';
+  }
+  const sel = vis.find(p => String(p.id) === String(st.propSel)) ?? vis[0];
+  const pastillas = vis.map(p => {
+    const on = p === sel, ac = p.accion;
+    const irrev = ac?.riesgo === 'irreversible';
+    return `<button class="pill${on ? ' on' : ''}" data-a="act-prop" data-id="${p.id}" aria-pressed="${on}" aria-controls="fr-det" title="${esc(p.descripcion)}">` +
+      `${capsula(COLOR.propuesta, p.estado === 'pendiente' ? '' : 'cerrada', 14, true)}<span class="n">#${p.id}</span>` +
+      `<span class="x">${esc(p.descripcion)}</span>` +
+      (ac ? `<span class="riesgo${irrev ? ' hot' : ''}">${RIESGO[ac.riesgo] ?? ''} ${esc(ac.riesgo)}</span>` : '') +
+      `<time>${horaCorta(p.creada)}</time></button>`;
+  }).join('');
+  const acc = botonesPropuesta(sel) ||
+    `<p class="m">${sel.estado === 'aceptada' ? '✓ aceptada' : esc(sel.estado)}${sel.decidida ? ' · ' + hora(sel.decidida) : ''}</p>`;
+  return `<section class="fr-espera" aria-label="Te espera">${cab}<div class="pills" role="group" aria-label="Propuestas pendientes">${pastillas}</div>` +
+    `<div class="fr-det" id="fr-det"><div class="det">${cuerpoPropuesta(sel)}</div><div class="fr-acc">${acc}</div></div></section>`;
+}
+
+// ------------------------------------------------------------------ calendario
+
+function calendarioHtml(porDia, propsDia, rutinas) {
+  const hoy = hoyStr(), dia = diaVisto();
+  const mes = st.mes ?? dia.slice(0, 7);
+  const [a, m] = mes.split('-').map(Number);
+  const n = new Date(a, m, 0).getDate();
+  const hueco = (new Date(a, m - 1, 1).getDay() + 6) % 7; // lunes primero
+  let celdas = [['L', 'lunes'], ['M', 'martes'], ['X', 'miércoles'], ['J', 'jueves'], ['V', 'viernes'], ['S', 'sábado'], ['D', 'domingo']]
+    .map(([l, t]) => `<abbr class="cal-sem" title="${t}">${l}</abbr>`).join('') + '<span aria-hidden="true"></span>'.repeat(hueco);
+  let total = 0;
+  for (let d = 1; d <= n; d++) {
+    const k = `${mes}-${p2(d)}`;
+    const ts = porDia.get(k) ?? [], ps = propsDia.get(k) ?? [], prog = k >= hoy ? programadasDe(rutinas, k) : [];
+    if (k <= hoy) total += ts.length;
+    const puntos = [
+      ...ts.map(t => `<i style="--c:${COLOR[t.modo] ?? '#8f949c'}"></i>`),
+      ...ps.map(() => `<i style="--c:${COLOR.propuesta}"></i>`),
+      ...prog.map(() => `<i class="hueco" style="--c:${COLOR.rutina}"></i>`),
+    ];
+    const resto = puntos.length > 12 ? `<b>+${puntos.length - 11}</b>` : '';
+    const partes = [
+      ts.length ? `${ts.length} ${ts.length === 1 ? 'trabajo' : 'trabajos'}` : '',
+      ps.length ? `${ps.length} ${ps.length === 1 ? 'propuesta' : 'propuestas'}` : '',
+      prog.length ? `${prog.length} ${prog.length === 1 ? 'programada' : 'programadas'}` : '',
+    ].filter(Boolean);
+    const et = `${d} de ${MESES[m - 1]}${k === hoy ? ' (hoy)' : ''}: ${partes.join(', ') || 'nada'}`;
+    celdas += `<button class="cal-d${k === dia ? ' sel' : ''}${k === hoy ? ' hoy' : ''}${k > hoy ? ' fut' : ''}" data-a="act-dia" data-v="${k}" aria-pressed="${k === dia}" aria-label="${esc(et)}" title="${esc(et)}">` +
+      `<span class="num">${d}</span><span class="pts" aria-hidden="true">${(resto ? puntos.slice(0, 11) : puntos).join('')}${resto}</span></button>`;
+  }
+  const esteMes = mes === hoy.slice(0, 7);
+  const ley = (c, t, hue = false) => `<span><i class="${hue ? 'hueco' : ''}" style="--c:${c}"></i>${t}</span>`;
+  return `<section class="cal" aria-label="Calendario">` +
+    `<div class="cal-nav">${btn('act-mes', '‹', 'mes anterior', { v: -1 }, 'cal-b')}<h2>${MESES[m - 1]} ${a}</h2>` +
+    `${btn('act-mes', '›', 'mes siguiente', { v: 1 }, 'cal-b')}${btn('act-hoy', 'hoy', 'volver a hoy', {}, 'cal-b hoyb')}</div>` +
+    `<div class="cal-grid">${celdas}</div>` +
+    `<p class="cal-ley">${ley(COLOR.mision, 'misión')}${ley(COLOR.obra, 'obra')}${ley(COLOR.rutina, 'rutina')}${ley(COLOR.propuesta, 'propuesta')}${ley(COLOR.rutina, 'programada', true)}</p>` +
+    `<p class="m cal-res">${total} ${total === 1 ? 'trabajo' : 'trabajos'} en ${MESES[m - 1]}${esteMes ? ' hasta hoy' : ''} · pulsa un día para abrir su archivador</p></section>`;
+}
+
+// ------------------------------------------------------------------ archivador
+
+// Las carpetas del archivador: [clave, etiqueta, color del punto, quién entra].
+const GRUPOS_ESTADO = [
+  ['espera', 'Te espera', 'var(--hot)', x => !x.prog && (x.estado === 'en_revision' || x.estado === 'en_espera')],
+  ['curso', 'En curso', COLOR.obra, x => !x.prog && (x.estado === 'en_cola' || x.estado === 'ejecutando')],
+  ['prog', 'Programadas', COLOR.rutina, x => !!x.prog],
+  ['cerrados', 'Cerrados', 'var(--fg-lo)', x => !x.prog && FINAL.includes(x.estado)],
+];
+const GRUPOS_MODO = [
+  ['mision', 'Misiones', COLOR.mision, x => !x.prog && x.modo === 'mision'],
+  ['obra', 'Obras', COLOR.obra, x => !x.prog && x.modo === 'obra'],
+  ['rutina', 'Rutinas', COLOR.rutina, x => !!x.prog || x.modo === 'rutina'],
+];
+const gruposActividad = () => (st.agrupar === 'modo' ? GRUPOS_MODO : GRUPOS_ESTADO);
+const grupoDe = x => gruposActividad().find(g => g[3](x))?.[0] ?? null;
+
+// Los botones que admite un trabajo en su tarjeta. Reformular necesita una
+// nota y Confirmar corrección admite contexto: eso se escribe en el diálogo.
+function accionesTarjeta(t) {
+  const b = (a, g, tt, cls = '') => btn(a, g, tt, { id: t.id }, cls);
+  let h = '';
+  if (t.estado === 'en_revision') {
+    h += b('cerrar', 'Cerrar', 'cerrar el trabajo: darlo por bueno', 'coin');
+    if (t.modo === 'obra' && t.obra_completa === false) h += b('continuar', 'Continuar', 'continuar: la obra sigue con las fases que quedan');
+    h += b('ver-trabajo', 'Reformular…', 'abrir el detalle para escribir la nota con la que se reformula');
+  } else if (t.estado === 'en_espera') {
+    h += b('confirmar', 'Confirmar corrección', 'confirmar: pasa el paquete de corrección al planificador (en el detalle puedes añadir contexto)', 'coin hot');
+  }
+  if (!FINAL.includes(t.estado)) h += b('cancelar', 'Cancelar', `cancelar el trabajo (segundo clic para confirmar)${t.estado === 'ejecutando' ? '; ' + NO_SE_DESHACE : ''}`, 'hot');
+  else h += b('ver-trabajo', 'Informe', 'abrir el informe, el diff y el historial');
+  return `<div class="acc" data-j="${esc(t.id)}">${h}</div>`;
+}
+
+function tarjetaTrabajo(t, dia) {
+  const [pz, pzCls] = premio(t, true);
+  const fin = FINAL.includes(t.estado), fallo = falloJ(t);
+  const rut = t.rutina ? ` · ${esc(t.rutina.slug)} v${t.rutina.version}` : '';
+  let fases = '';
+  if (t.modo === 'obra' && t.fases_total) {
+    const act = Math.min(t.fase_actual ?? 1, t.fases_total);
+    fases = `<span class="fases" role="img" aria-label="${esc(avance(t))}">` + Array.from({ length: t.fases_total }, (_, i) => {
+      const n = i + 1;
+      return `<i class="${t.obra_completa || n < act ? 'hecha' : n === act && !fin ? 'actual' : ''}"></i>`;
+    }).join('') + '</span>';
+  }
+  const cuando = diaDe(t.creado) === dia ? horaCorta(t.creado) : hora(t.creado);
+  return `<article class="tj ${t.estado}${fin ? ' fin' : ''}${fallo ? ' fallo' : ''}" data-tj="${esc(t.id)}" style="--modo:${COLOR[t.modo] ?? '#8f949c'}">` +
+    `<header>${capsulaJ(t, 16)}<span>${MODO[t.modo] ?? esc(t.modo)}</span>` +
+    `<span class="est ${t.estado}${fallo ? ' fallo' : ''}">· ${t.cancelando ? 'cancelando…' : EST[t.estado][1] + (fallo ? ' · falló' : '')}</span>` +
+    `<span class="grow"></span><time title="creado ${esc(hora(t.creado))}">${cuando}</time></header>` +
+    `<h3><button class="tj-tit" data-a="ver-trabajo" data-id="${esc(t.id)}" title="abrir el detalle: informe, diff, plan e historial">${esc(t.titulo)}</button></h3>` +
+    `<p class="m" title="${esc(t.id)}">#${esc(t.id)}${rut}${t.ejecutado_por ? ' · ' + porQuien(t.ejecutado_por) : ''}</p>` +
+    fases + (t.estado === 'ejecutando' ? barraViva : '') +
+    (pz ? `<p class="pz-l ${pzCls}">${esc(pz)}</p>` : '') +
+    accionesTarjeta(t) + '</article>';
+}
+
+function tarjetaProgramada(x) {
+  const r = x.r;
+  return `<article class="tj prog" style="--modo:${COLOR.rutina}">` +
+    `<header>${capsula(COLOR.rutina, 'cerrada', 16)}<span>rutina</span><span class="est">· programada</span><span class="grow"></span><time>${x.hora}</time></header>` +
+    `<h3><button class="tj-tit" data-a="ir-a" data-dsec="rutinas" data-dfila="${esc(r.slug)}" title="ver la rutina en Rutinas">${esc(r.slug)}</button></h3>` +
+    `<p class="m">v${r.version}${r.descripcion ? ' · ' + esc(r.descripcion) : ''}</p>` +
+    `<p class="pz-l">se lanzará sola${r.calendario ? ' · OnCalendar=' + esc(r.calendario) : ''}</p>` +
+    `<div class="acc">${btn('ir-a', 'Ver rutina', 'abrir la rutina en Rutinas', { dsec: 'rutinas', dfila: r.slug })}</div></article>`;
+}
+
+function archivadorHtml(items, dia, nProps) {
+  const hoy = hoyStr(), f = fechaDe(dia);
+  const titulo = `${SEMANA[f.getDay()]} ${f.getDate()} de ${MESES[f.getMonth()]}${dia === hoy ? ' · hoy' : ''}`;
+  const nT = items.filter(x => !x.prog).length, nP = items.length - nT;
+  const resumen = [
+    nT ? `${nT} ${nT === 1 ? 'trabajo' : 'trabajos'}` : '',
+    nP ? `${nP} ${nP === 1 ? 'programada' : 'programadas'}` : '',
+    nProps ? `${nProps} ${nProps === 1 ? 'propuesta' : 'propuestas'}` : '',
+  ].filter(Boolean).join(' · ');
+  const defs = gruposActividad();
+  const llenos = defs.filter(g => items.some(g[3]));
+  const activo = llenos.find(g => g[0] === st.grupo) ?? llenos[0];
+  const seg = ['estado', 'modo'].map(v =>
+    `<button class="b${st.agrupar === v ? ' on' : ''}" data-a="act-agrupar" data-v="${v}" aria-pressed="${st.agrupar === v}" title="agrupar las tarjetas por ${v}">por ${v}</button>`).join('');
+  let h = `<div class="arch-cab"><h2>${titulo}</h2><span class="m">${resumen}</span><span class="grow"></span>` +
+    `<span class="seg" role="group" aria-label="Agrupar las tarjetas">${seg}</span>` +
+    btn('nueva-mision', '＋ misión', 'encargar una misión u obra al ejecutor', {}, 'coin') + '</div>';
+  if (!activo) {
+    const q = st.q.trim();
+    const txt = q ? `Nada de este día coincide con «${esc(q)}».`
+      : dia === hoy ? 'Hoy no hay trabajos todavía. Encarga una misión con ＋ misión, o lanza una rutina.'
+        : dia > hoy ? 'No hay nada programado ese día.' : 'Ese día no hubo trabajos. Elige otro día con puntos en el calendario.';
+    return h + `<div class="arch-panel vacio-p"><p class="vacio">${txt}</p></div>`;
+  }
+  h += '<div class="carpetas" role="tablist" aria-label="Carpetas del día">' + llenos.map(g => {
+    const on = g === activo;
+    return `<button role="tab" id="pest-${g[0]}" class="pest${on ? ' on' : ''}" data-a="act-grupo" data-v="${g[0]}" aria-selected="${on}" aria-controls="arch-panel" tabindex="${on ? 0 : -1}">` +
+      `<i style="background:${g[2]}"></i>${g[1]}<b>${items.filter(g[3]).length}</b></button>`;
+  }).join('') + '</div>';
+  return h + `<div class="arch-panel" id="arch-panel" role="tabpanel" aria-labelledby="pest-${activo[0]}"><div class="tarjetas">` +
+    items.filter(activo[3]).map(x => (x.prog ? tarjetaProgramada(x) : tarjetaTrabajo(x, dia))).join('') + '</div></div>';
+}
+
+// ---------------------------------------------------------------- diálogos
+//
+// Un diálogo por vez (st.dlg), pintado con la lista: hereda el repintado, los
+// campos que no se pisan al escribir y el modo solo lectura. Atrapa el foco,
+// Esc o el velo lo cierran y el foco vuelve al botón que lo abrió.
+
+function dialogoHtml(titulo, cuerpo, { cap = '', cls = '', pie = '' } = {}) {
+  return suelto(`<div class="dlg-capa" data-dlg-capa><section class="dlg ${cls}" role="dialog" aria-modal="true" aria-labelledby="dlg-tit" tabindex="-1">` +
+    `<header class="dlg-cab">${cap}<h2 id="dlg-tit">${titulo}</h2><span class="grow"></span>` +
+    `<button class="ico dlg-x" data-a="dlg-cerrar" title="Cerrar (Esc)" aria-label="Cerrar (Esc)">✕</button></header>` +
+    `<div class="dlg-cuerpo">${cuerpo}</div>${pie ? `<footer class="dlg-pie">${pie}</footer>` : ''}</section></div>`, true);
+}
+
+// Qué botón abrió el diálogo, como selector, para devolverle el foco.
+function selectorFoco(el) {
+  const d = el?.dataset;
+  if (!d) return null;
+  if (d.k) return `[data-k="${CSS.escape(d.k)}"]`;
+  if (!d.a) return d.s ? `#rail [data-s="${CSS.escape(d.s)}"]` : null;
+  return `[data-a="${CSS.escape(d.a)}"]` + ['id', 'slug', 'v', 'dfila'].filter(c => d[c] != null)
+    .map(c => `[data-${c}="${CSS.escape(d[c])}"]`).join('');
+}
+
+// Abre el diálogo `D` en lugar del que hubiera (la fila del enlace se suelta).
+function fijaDialogo(D, origen = document.activeElement) {
+  if (st.enlace) { st.abiertos.delete(st.enlace); st.enlace = null; }
+  st.dlg = D;
+  st.diaDeDlg = null;
+  st.dlgFoco = true;
+  if (origen && !origen.closest?.('.dlg')) st.dlgOrigen = selectorFoco(origen);
+}
+
+// Abre el diálogo de una fila enlazable (un trabajo en Actividad, una rutina
+// en Rutinas): va al hash y crea una entrada del historial.
+async function abreDialogoFila(tipo, k) {
+  fijaDialogo({ tipo, id: k.slice(1) });
+  st.abiertos.add(k);
+  st.enlace = k;
+  escribeHash(true);
+  st.html = '';
+  pintar();
+  await cargaDetalle(k);
+  st.html = '';
+  pintar();
+}
+
+function cierraDialogo() {
+  const D = st.dlg;
+  if (!D) return;
+  st.dlg = null;
+  st.diaDeDlg = null;
+  if (st.enlace) { st.abiertos.delete(st.enlace); st.enlace = null; }
+  if (D.tipo === 'decididas') for (const k of [...st.abiertos]) if (k[0] === 'p') st.abiertos.delete(k);
+  if (document.activeElement?.closest('.dlg')) document.activeElement.blur();
+  escribeHash(false);
+  st.html = '';
+  pintar();
+  const o = st.dlgOrigen ? $(st.dlgOrigen) : null;
+  st.dlgOrigen = null;
+  o?.focus({ preventScroll: true });
+}
+
+// Los elementos que pueden tener el foco dentro de `el` (con o sin los apagados).
+const enfocables = (el, todos = false) => $$('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])', el)
+  .filter(x => todos || (!x.disabled && x.getClientRects().length));
+
+function dialogosActividad(d) {
+  const D = st.dlg;
+  if (!D) return [];
+  if (D.tipo === 'trabajo') {
+    const t = st.todos.find(x => x.id === D.id);
+    if (!t) return [dialogoHtml('Trabajo', `<p class="m">No hay ningún trabajo ${esc(D.id)} en el bus (o aún no ha cargado).</p>`)];
+    return [dialogoHtml(esc(t.titulo), `<div class="det">${detalleTrabajo(t)}</div>`, { cap: capsulaJ(t, 20), cls: 'dlg-ancho' })];
+  }
+  if (D.tipo === 'decididas') {
+    const q = st.q.trim().toLowerCase();
+    const ds = (d.propuestas ?? []).filter(p => p.estado !== 'pendiente' && (!q || textoProp(p).includes(q))).sort((a, b) => b.id - a.id);
+    const cuerpo = ds.length ? `<div class="lista-dlg">${filasPropuestas(ds).map(f => f.html).join('')}</div>`
+      : `<p class="vacio">${q ? `Ninguna propuesta decidida coincide con «${esc(st.q.trim())}».` : 'Todavía no se ha decidido ninguna propuesta.'}</p>`;
+    return [dialogoHtml('Propuestas decididas', cuerpo, { cap: capsula(COLOR.propuesta, 'cerrada', 20, true), cls: 'dlg-ancho' })];
+  }
+  if (D.tipo === 'mision') {
+    if (!st.nueva) { st.dlg = null; return []; }
+    const obra = st.nueva.modo === 'obra';
+    return [dialogoHtml(obra ? 'Nueva obra' : 'Nueva misión', `<div class="det">${formMision()}</div>`, { cap: capsula(obra ? COLOR.obra : COLOR.mision, '', 20), cls: 'dlg-ancho' })];
+  }
+  return [];
+}
+
+function construirActividad(d) {
+  const q = st.q.trim().toLowerCase();
+  const props = d.propuestas ?? [];
+  // La propuesta de un enlace que ya no está pendiente se busca entre las decididas.
+  if (st.propSel != null) {
+    const id = String(st.propSel);
+    const pendiente = props.some(p => String(p.id) === id && p.estado === 'pendiente') || String(st.propRes?.id) === id;
+    if (!pendiente) {
+      const p = props.find(x => String(x.id) === id);
+      if (p) {
+        if (!st.dlg) fijaDialogo({ tipo: 'decididas' }, null);
+        st.abiertos.add('p' + p.id);
+      }
+      st.propSel = null;
+    }
+  }
+  // El trabajo del diálogo lleva su día al archivador (al llegar por un enlace,
+  // desde otra sección o recién creado): hoy si sigue activo, si no el suyo.
+  if (st.dlg?.tipo === 'trabajo' && st.diaDeDlg !== st.dlg.id) {
+    const t = st.todos.find(x => x.id === st.dlg.id);
+    if (t) {
+      st.diaDeDlg = t.id;
+      st.dia = ACTIVOS.includes(t.estado) ? null : diaDe(t.creado);
+      st.mes = null;
+      st.grupo = grupoDe(t);
+    }
+  }
+  const ts = q ? st.trabajos.filter(t => textoTrabajo(t).includes(q)) : st.trabajos;
+  const porDia = agrupa(ts, t => diaDe(t.creado));
+  const propsDia = agrupa(q ? props.filter(p => textoProp(p).includes(q)) : props, p => diaDe(p.creada));
+  const rutinas = (d.rutinas ?? []).filter(r => !q || `${r.slug} ${r.descripcion ?? ''}`.toLowerCase().includes(q));
+  const dia = diaVisto(), hoy = hoyStr();
+  // Hoy enseña también lo que sigue activo de otros días.
+  const delDia = ts.filter(t => diaDe(t.creado) === dia || (dia === hoy && ACTIVOS.includes(t.estado)))
+    .sort((a, b) => ms(b.creado) - ms(a.creado));
+  const items = [...delDia, ...programadasDe(rutinas, dia)];
+  const html = franjaEspera(props, q) +
+    `<div class="act-cuerpo">${calendarioHtml(porDia, propsDia, rutinas)}` +
+    `<section class="arch" aria-label="Archivador del día">${archivadorHtml(items, dia, (propsDia.get(dia) ?? []).length)}</section></div>`;
+  return [suelto(html, true), ...dialogosActividad(d)];
+}
+
+// ---------------------------------------------------------------- rutinas
+//
+// Rutinas en tarjetas, con píldoras de filtro en la barra. «Detalles» abre
+// en un diálogo lo que antes era la ficha desplegada; «＋ nueva rutina», un
+// formulario que genera el rutina.toml con los campos reales de ea-bus.
+
+function construirRutinas(d) {
+  const q = st.q.trim().toLowerCase();
+  const [, et, lista, fil] = RUT_FILTROS.find(f => f[0] === st.rutFiltro) ?? RUT_FILTROS[0];
+  const rs = (d[lista] ?? []).filter(fil).filter(r => !q || `${r.slug} ${r.descripcion ?? ''}`.toLowerCase().includes(q));
+  let html;
+  if (rs.length) html = `<div class="tarjetas rutinas">${rs.map(tarjetaRutina).join('')}</div>`;
+  else if (q) html = `<p class="vacio">Nada coincide con «${esc(st.q.trim())}».</p>`;
+  else if (!st.rutFiltro && !(d.activas ?? []).length) html = `<p class="vacio">${VACIO.rutinas}<span class="vacio-acc">${VACIO_ACC.rutinas()}</span></p>`;
+  else html = `<p class="vacio">Ninguna rutina en «${et}».</p>`;
+  return [suelto(html, true), ...dialogosRutinas(d)];
+}
+
+function dialogosRutinas(d) {
+  const D = st.dlg;
+  if (!D) return [];
+  if (D.tipo === 'rutina') {
+    const r = [...(d.activas ?? []), ...(d.retiradas ?? [])].find(x => x.slug === D.id);
+    if (!r) return [dialogoHtml(esc(D.id), `<p class="m">La rutina «${esc(D.id)}» no está registrada (o aún no ha cargado).</p>`)];
+    return [dialogoHtml(`${esc(r.slug)} <span class="ver">v${r.version}</span>`, `<div class="det">${detalleRutina(r)}</div>`,
+      { cap: capsula(COLOR.rutina, r.error ? 'averiada' : atascadaR(r) ? 'hot' : retiradaR(r) ? 'cerrada' : '', 20), cls: 'dlg-ancho' })];
+  }
+  if (D.tipo === 'rutina-nueva') {
+    if (!st.rutNueva) { st.dlg = null; return []; }
+    return [dialogoHtml('Nueva rutina', formRutinaNueva(), { cap: capsula(COLOR.rutina, '', 20), cls: 'dlg-ancho dlg-rn', pie: pieRutinaNueva() })];
+  }
+  return [];
+}
+
+// ------------------------------------------------- «＋ nueva rutina» (formulario)
+//
+// st.rutNueva: { v: campos, entradas: [[clave, valor]…], cuando, val, err,
+// armado, reg, hsim, herr, modo, worktrees }. El TOML se genera en vivo; el
+// horario no va en el TOML (es el timer de systemd, aparte): tras registrar,
+// se simula ea_programar_rutina y el usuario lo confirma con otro clic.
+
+const RN_CUANDO = [['manual', 'Manual'], ['dia', 'Cada día'], ['semana', 'Cada semana'], ['cal', 'OnCalendar…']];
+const RN_DSEM = [['Mon', 'lunes'], ['Tue', 'martes'], ['Wed', 'miércoles'], ['Thu', 'jueves'], ['Fri', 'viernes'], ['Sat', 'sábado'], ['Sun', 'domingo']];
+
+const rutinaVacia = worktrees => ({
+  v: { slug: '', descripcion: '', pasos: '', criterio: '', salida: '', worktree: st.proyecto ?? '', hora: '08:00', dsem: 'Mon', cal: '' },
+  entradas: [], cuando: 'manual', val: null, err: null, armado: null, reg: null, hsim: null, herr: null, modo: null, worktrees,
+});
+
+// Una cadena TOML básica, con sus escapes.
+const qToml = s => '"' + String(s).replace(/[\\"\u0000-\u001f\u007f]/g, c => ({ '\\': '\\\\', '"': '\\"', '\n': '\\n', '\t': '\\t', '\r': '\\r' }[c]
+  ?? '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))) + '"';
+const claveToml = k => (/^[A-Za-z0-9_-]+$/.test(k) ? k : qToml(k));
+const pasosNueva = N => (N.v.pasos ?? '').split('\n').map(s => s.trim()).filter(Boolean);
+
+function tomlRutina(N) {
+  const v = N.v, t = s => String(s ?? '').trim();
+  let x = `[rutina]\nslug = ${qToml(t(v.slug))}\nversion = 1\n`;
+  if (t(v.descripcion)) x += `descripcion = ${qToml(t(v.descripcion))}\n`;
+  x += `worktree = ${qToml(t(v.worktree))}\ncriterio_exito = ${qToml(t(v.criterio))}\n`;
+  if (t(v.salida)) x += `salida_esperada = ${qToml(t(v.salida))}\n`;
+  const ents = N.entradas.filter(([k]) => t(k));
+  if (ents.length) x += '\n[entradas]\n' + ents.map(([k, val]) => `${claveToml(t(k))} = ${qToml(val ?? '')}`).join('\n') + '\n';
+  for (const p of pasosNueva(N)) x += `\n[[pasos]]\ntexto = ${qToml(p)}\n`;
+  return x;
+}
+
+function calendarioNueva(N) {
+  const h = /^\d{2}:\d{2}$/.test(N.v.hora ?? '') ? N.v.hora : '08:00';
+  if (N.cuando === 'dia') return `*-*-* ${h}:00`;
+  if (N.cuando === 'semana') return `${N.v.dsem || 'Mon'} *-*-* ${h}:00`;
+  if (N.cuando === 'cal') return (N.v.cal ?? '').trim();
+  return '';
+}
+
+function faltaNueva(N) {
+  const v = N.v, f = [];
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test((v.slug ?? '').trim())) f.push('un slug válido ([A-Za-z0-9_-], 64 como mucho)');
+  if (!(v.criterio ?? '').trim()) f.push('el criterio de éxito (un criterio vacío no es éxito)');
+  if (!pasosNueva(N).length) f.push('al menos un paso');
+  if (!/^(\/|[A-Za-z]:[\\/])/.test((v.worktree ?? '').trim())) f.push('el worktree, como ruta absoluta');
+  if (N.cuando === 'cal' && !calendarioNueva(N)) f.push('la expresión OnCalendar');
+  return f;
+}
+
+function avisoNueva(N) {
+  const f = faltaNueva(N), c = calendarioNueva(N);
+  if (f.length) return 'Falta ' + f.join(', ') + '.';
+  return c ? `Se registrará y después se programará con un timer: ${c} (lo confirmas tú).` : 'Sin horario: se lanza a mano desde su tarjeta.';
+}
+
+const lineaCal = N => {
+  const c = calendarioNueva(N);
+  return c ? `horario (timer de systemd, aparte del TOML): OnCalendar=${c}` : 'sin horario: se lanza a mano desde su tarjeta';
+};
+
+// El TOML con color: secciones en el acento y el criterio en verde.
+const colorToml = txt => esc(txt).split('\n').map(l =>
+  /^\[/.test(l) ? `<span class="d-h">${l}</span>` : /^criterio_exito /.test(l) ? `<span class="d-mas">${l}</span>` : l).join('\n');
+
+function formRutinaNueva() {
+  const N = st.rutNueva;
+  if (N.modo === 'toml') {
+    st.rutEd ??= { slug: '', base: '', texto: tomlRutina(N), val: null, err: null, armado: null };
+    return `<div class="det">${editorRutina()}<div class="acc">${btn('rn-form', '← volver al formulario', 'vuelve al formulario; los cambios hechos en el TOML se pierden')}</div></div>`;
+  }
+  if (N.reg) {
+    return `<div class="det"><p class="tx">✓ <b>${esc(N.reg.rutina)}</b> registrada (versión ${N.reg.version}).</p>` +
+      (N.hsim ? `<p class="et">horario: ${esc(calendarioNueva(N))}</p><p class="tx">${esc(N.hsim.texto)}</p>` : '') +
+      (N.herr ? `<p class="hot">✕ ${esc(N.herr)}</p>` : '') +
+      `<div class="acc">${N.hsim ? btn('rn-programar', '◷ programar', 'segundo paso: programa el timer como dice la simulación', {}, 'coin') : ''}` +
+      `${btn('rn-fin', N.hsim ? 'dejarla manual' : 'ver la rutina', 'cierra este diálogo y abre los detalles de la rutina (allí se programa el horario cuando quieras)')}</div></div>`;
+  }
+  const v = N.v;
+  const campo = (c, et, extra = '') => `<label class="rn-c"><span>${et}</span><input data-rn="${c}" value="${esc(v[c] ?? '')}"${extra}></label>`;
+  const cuando = RN_CUANDO.map(([k, et]) =>
+    `<button class="b pild${N.cuando === k ? ' on' : ''}" data-a="rn-cuando" data-v="${k}" aria-pressed="${N.cuando === k}">${et}</button>`).join('');
+  const conHora = N.cuando === 'dia' || N.cuando === 'semana';
+  const form = '<div class="rn-form">' +
+    '<div class="rn-fila">' + campo('slug', 'nombre (slug)', ' maxlength="64" spellcheck="false" autocomplete="off" placeholder="limpiar-worktrees"') +
+    campo('descripcion', 'descripción', ' maxlength="300" placeholder="qué hace, en una línea"') + '</div>' +
+    `<label class="rn-c"><span>pasos: lo que hará el ejecutor, uno por línea ({entrada} se sustituye)</span><textarea data-rn="pasos" rows="4" maxlength="20000">${esc(v.pasos ?? '')}</textarea></label>` +
+    campo('criterio', 'criterio de éxito: un comando que ejecuta el sistema, nunca el agente', ' class="cr" maxlength="2000" spellcheck="false" placeholder="test -s {salida}"') +
+    campo('salida', 'salida esperada (opcional): qué debe quedar hecho y dónde', ' maxlength="2000"') +
+    '<fieldset class="rn-ents"><legend>entradas: clave = valor por defecto (se pueden cambiar al lanzar)</legend>' +
+    N.entradas.map(([k, x], i) => `<div class="rn-ent"><input data-rne="${i}" data-ec="0" value="${esc(k)}" aria-label="nombre de la entrada ${i + 1}" placeholder="clave" spellcheck="false" maxlength="64">` +
+      `<span aria-hidden="true">=</span><input data-rne="${i}" data-ec="1" value="${esc(x)}" aria-label="valor por defecto de la entrada ${i + 1}" placeholder="valor por defecto" maxlength="1024">` +
+      btn('rn-ent-quitar', '✕', `quitar la entrada ${i + 1}`, { n: i }, 'hot') + '</div>').join('') +
+    (N.entradas.length < 32 ? btn('rn-ent-mas', '＋ entrada', 'añadir una entrada', {}, 'l') : '') + '</fieldset>' +
+    `<fieldset class="rn-cuando"><legend>cuándo se lanza</legend><div class="rn-chips" role="group" aria-label="Cuándo se lanza">${cuando}` +
+    (N.cuando === 'semana' ? `<label class="rn-in">el <select data-rn="dsem" aria-label="día de la semana">${RN_DSEM.map(([k, et]) => `<option value="${k}"${v.dsem === k ? ' selected' : ''}>${et}</option>`).join('')}</select></label>` : '') +
+    (conHora ? `<label class="rn-in">a las <input type="time" data-rn="hora" value="${esc(v.hora ?? '08:00')}" aria-label="hora"></label>` : '') +
+    (N.cuando === 'cal' ? `<label class="rn-in rn-cal">OnCalendar <input data-rn="cal" value="${esc(v.cal ?? '')}" placeholder="Mon..Fri *-*-* 09:00" spellcheck="false" maxlength="200" aria-label="expresión OnCalendar"></label>` : '') +
+    '</div></fieldset>' +
+    campo('worktree', 'worktree: ruta absoluta del repo donde trabaja', ' list="rn-wt" spellcheck="false" maxlength="4096"') +
+    `<datalist id="rn-wt">${(N.worktrees ?? []).map(w => `<option value="${esc(w)}"></option>`).join('')}</datalist></div>`;
+  let prev = `<aside class="rn-prev" aria-label="Vista previa"><p class="et">rutina.toml · versión 1</p>` +
+    `<pre class="toml rn-toml" id="rn-toml">${colorToml(tomlRutina(N))}</pre><p class="m" id="rn-cal">${esc(lineaCal(N))}</p>` +
+    `<p class="m">Se guarda en rutinas_dir y queda en el historial de versiones. Lanzarla crea un trabajo para el ejecutor. ` +
+    `${btn('rn-toml', '✎ editar el TOML a mano', 'pasa este TOML al editor de siempre (con validar y registrar)', {}, 'l')}</p>`;
+  if (N.val) {
+    prev += `<p class="tx sal">✓ válida: <b>${esc(N.val.rutina)}</b> v${N.val.version}${N.val.anterior ? ` (ya registrada: v${N.val.anterior.version})` : ' · rutina nueva'} · criterio: <b>${esc(N.val.previa.criterio)}</b></p>` +
+      `<p class="et sal">orden con las entradas por defecto</p><pre class="toml sal">${esc(N.val.previa.objetivo)}</pre>`;
+  }
+  if (N.err) prev += `<p class="hot sal">✕ ${esc(N.err)}</p>`;
+  return `<div class="rn">${form}${prev}</aside></div>`;
+}
+
+function pieRutinaNueva() {
+  const N = st.rutNueva;
+  if (N.modo === 'toml' || N.reg) return '';
+  const armada = N.armado && N.armado > Date.now();
+  return `<span class="rn-aviso${faltaNueva(N).length ? ' hot' : ''}" id="rn-aviso" aria-live="polite">${esc(avisoNueva(N))}</span>` +
+    btn('rn-descartar', 'Descartar', 'cierra el formulario y borra lo escrito') +
+    btn('rn-probar', '◌ Probar', 'valida la definición como al registrar y muestra la orden que recibirá el ejecutor, sin escribir nada') +
+    btn('rn-registrar', armada ? '✓ confirmar registro' : 'Registrar rutina', armada ? 'segundo clic: registra la rutina' : 'registra la rutina (pide confirmar)', {}, armada ? 'coin hot' : 'coin');
+}
+
+// Lo escrito en el formulario: TOML, horario y aviso al día sin repintar
+// (el campo con el foco no se toca); lo validado deja de valer.
+function alEscribirRutinaNueva() {
+  const N = st.rutNueva;
+  N.val = N.err = N.armado = null;
+  st.html = '';
+  const dlg = $('#filas .dlg');
+  if (!dlg) return;
+  $$('.sal', dlg).forEach(n => n.remove());
+  const t = $('#rn-toml', dlg);
+  if (t) t.innerHTML = colorToml(tomlRutina(N));
+  const c = $('#rn-cal', dlg);
+  if (c) c.textContent = lineaCal(N);
+  const a = $('#rn-aviso', dlg);
+  if (a) { a.textContent = avisoNueva(N); a.classList.toggle('hot', faltaNueva(N).length > 0); }
+  const r = $('[data-a="rn-registrar"]', dlg);
+  if (r) { r.textContent = 'Registrar rutina'; r.className = 'b coin'; }
+}
+
+async function accionRutinaNueva(a, b) {
+  const N = st.rutNueva;
+  if (!N) return;
+  const { v, n } = b.dataset;
+  if (a === 'rn-cuando') { N.cuando = v; N.val = N.err = N.armado = null; }
+  else if (a === 'rn-ent-mas') N.entradas.push(['', '']);
+  else if (a === 'rn-ent-quitar') N.entradas.splice(Number(n), 1);
+  else if (a === 'rn-toml') { st.rutEd = { slug: '', base: '', texto: tomlRutina(N), val: null, err: null, armado: null }; N.modo = 'toml'; }
+  else if (a === 'rn-form') { N.modo = null; st.rutEd = null; }
+  else if (a === 'rn-probar') {
+    N.val = N.err = N.armado = null;
+    try { N.val = await ea.validarRutina(tomlRutina(N)); } catch (e) { if (e.status === 403) throw e; N.err = e.message; }
+  } else if (a === 'rn-registrar') {
+    const falta = faltaNueva(N);
+    if (falta.length) { N.err = avisoNueva(N); N.armado = null; return; }
+    // Segundo clic para confirmar, como en el editor de versiones.
+    if (!(N.armado && N.armado > Date.now())) {
+      N.armado = Date.now() + 4000;
+      setTimeout(() => { st.html = ''; pintar(); }, 4100);
+      return;
+    }
+    N.armado = null;
+    let r;
+    try { r = await ea.registrarRutina(tomlRutina(N)); } catch (e) { if (e.status === 403) throw e; N.val = null; N.err = e.message; }
+    if (!r) return;
+    avisa(`✓ ${r.rutina}: registrada la versión ${r.version}`, true);
+    const cal = calendarioNueva(N);
+    if (!cal) { st.rutNueva = null; await abreDialogoFila('rutina', 'r' + r.rutina); return; }
+    N.reg = r;
+    // El horario se simula (systemd lo valida); programarlo es otro clic.
+    try { N.hsim = await ea.simular('ea_programar_rutina', { slug: r.rutina, calendario: cal }); } catch (e) { if (e.status === 403) throw e; N.herr = e.message; }
+  } else if (a === 'rn-programar' && N.reg && N.hsim) {
+    let r;
+    try { r = await ea.ejecutar('ea_programar_rutina', N.hsim.argumentos, N.hsim.precondicion); } catch (e) { if (e.status === 403) throw e; N.hsim = null; N.herr = e.message; }
+    if (r) { avisa('✓ ' + r.texto, true); const slug = N.reg.rutina; st.rutNueva = null; await abreDialogoFila('rutina', 'r' + slug); }
+  } else if (a === 'rn-fin' && N.reg) {
+    const slug = N.reg.rutina;
+    st.rutNueva = null;
+    await abreDialogoFila('rutina', 'r' + slug);
+  }
+}
+
 // ------------------------------------------------------------------- portada
 
 // Una columna de la portada: la máquina de un agente, con su placa y la
@@ -3076,10 +3754,10 @@ function bandejaHtml() {
   const esp = st.trabajos.filter(t => t.estado === 'en_espera');
   const n = props.length + rev.length + esp.length;
   if (!n) return '<p class="te-vacia">Nada te espera. Cuando un agente proponga algo o entregue un trabajo, aparecerá aquí.' +
-    `<span class="vacio-acc">${irSec('trabajos', 'ir a Trabajos', 'ver los trabajos; desde ahí se encarga una misión con ＋ misión')}${irSec('rutinas', 'ir a Rutinas', 'ver o lanzar las rutinas')}</span></p>`;
+    `<span class="vacio-acc">${irSec('actividad', 'ir a Actividad', 'el calendario y los trabajos de cada día; desde ahí se encarga una misión con ＋ misión')}${irSec('rutinas', 'ir a Rutinas', 'ver o lanzar las rutinas')}</span></p>`;
   const fila = (cap, tag, tit, acc, hot = false) =>
     `<div class="te-fila${hot ? ' hot' : ''}">${cap}<span class="te-tag">${tag}</span><span class="x">${tit}</span><span class="bs">${acc}</span></div>`;
-  const ficha = t => btn('ir-trabajo', 'Revisar', 'abrir la ficha del trabajo', { id: t.id }, 'l');
+  const ficha = t => btn('ir-trabajo', 'Revisar', 'abrir el trabajo en Actividad', { id: t.id }, 'l');
   const filas = [
     ...esp.map(t => fila(capsulaJ(t, 16), 'corrección', esc(t.rutina ? t.rutina.slug + ' falló' : t.titulo), ficha(t), true)),
     ...rev.map(t => fila(capsulaJ(t, 16), MODO[t.modo] ?? t.modo, esc(t.titulo),
@@ -3132,12 +3810,9 @@ function construir() {
   switch (st.sec) {
     case 'inicio': return d ? filasInicio(d) : [];
     case 'acciones': return d ? con(columnas('a', '', 'herramienta', 'qué hace', 'riesgo'), filasAcciones(d)) : [];
-    case 'trabajos': return d ? [...formMision(), ...con(columnas('j', 'estado', 'trabajo', 'modo', 'informe · avance', 'hace'),
-      filasTrabajos(st.filtroEstado ? d.filter(t => t.estado === st.filtroEstado) : d))] : [];
+    case 'actividad': return d ? construirActividad(d) : [];
     case 'diario': return d ? [...formAnotar(), ...con(columnas('d', 'hora', '', 'quién', 'qué hizo', 'trabajo', 'duró'), filasDiario(d)), ...pieDiario(d)] : [];
-    case 'rutinas': return d ? [...(st.rutEd?.slug === '' ? [suelto(`<div class="det rnueva">${editorRutina()}</div>`, true)] : []),
-      ...con(columnas('u', '', 'rutina', 'versión', 'qué hace', 'próxima', 'última', ''), filasRutinas(d))] : [];
-    case 'propuestas': return d ? con(columnas('p', '', 'nº', 'qué propone', 'con qué', 'hace', 'tu decisión'), filasPropuestas(d)) : [];
+    case 'rutinas': return d ? construirRutinas(d) : [];
     case 'biblioteca': return d ? filasBiblioteca(d) : [];
     case 'equipos': return d ? filasEquipos(d) : [];
     case 'ajustes': return d ? filasAjustes(d) : [];
@@ -3147,8 +3822,6 @@ function construir() {
 
 // -------------------------------------------------------------------- pintado
 
-// La cápsula de cada filtro de estado: el color solo la distingue de sus vecinas.
-const FILTRO = { en_cola: COLOR.mision, ejecutando: COLOR.obra, en_revision: COLOR.obra, en_espera: COLOR.rutina, cerrado: COLOR.obra, cancelado: COLOR.mision };
 
 // Los filtros del diario, que se aplican en el servidor. Los actores y las
 // familias son los que escribe el código (spec 009, «Familias de eventos»).
@@ -3285,24 +3958,20 @@ function barraDiario() {
 function barra() {
   const fb = $('#fb');
   let h = '';
-  if (st.sec === 'trabajos') {
-    // «＋ misión» es una acción: va a la izquierda y separada de los filtros.
-    h = barraAF(`<button class="c${st.nueva ? ' on' : ''}" data-a="nueva-mision" title="encargar una misión al ejecutor" aria-pressed="${!!st.nueva}">＋ misión</button>`,
-      grupoFiltro('estado', Object.keys(EST).map(e =>
-        `<button class="c${st.filtroEstado === e ? ' on' : ''}" data-f="${e}" title="${EST[e][1]}" aria-pressed="${st.filtroEstado === e}">` +
-        `${capsula(FILTRO[e], IC[e] ?? '', 16)}${EST[e][1]} ${st.trabajos.filter(t => t.estado === e).length}</button>`).join('')));
-  } else if (st.sec === 'diario') {
+  if (st.sec === 'diario') {
     // «✎ anotar» va primero, como «＋ misión»: los filtros pueden desbordar.
     const on = !!st.anota && st.anota.corrige == null;
     const [filtros, activos] = barraDiario();
     h = barraAF(`<button class="c${on ? ' on' : ''}" data-a="d-anotar" title="anotar en el diario: dejar constancia de algo con actor usuario" aria-pressed="${on}">✎ anotar</button>`, filtros, activos);
   } else if (st.sec === 'rutinas') {
-    const on = st.rutEd?.slug === '';
-    h = barraAF(`<button class="c${on ? ' on' : ''}" data-a="rnueva" title="rutina nueva: abre el editor con una plantilla TOML" aria-pressed="${on}">＋ rutina</button>`,
-      grupoFiltro('ver', `<button class="c${st.rutRetiradas ? ' on' : ''}" data-a="rretiradas" title="las rutinas retiradas (en la papelera): se restauran desde su ficha" aria-pressed="${st.rutRetiradas}">▣ retiradas</button>`));
-  } else if (st.sec === 'propuestas') {
-    h = barraAF('', grupoFiltro('ver', `<button class="c${st.propTodas ? '' : ' on'}" data-a="prop" data-v="0" title="solo las que esperan tu decisión" aria-pressed="${!st.propTodas}">◇ pendientes</button>` +
-        `<button class="c${st.propTodas ? ' on' : ''}" data-a="prop" data-v="1" title="también las ya decididas" aria-pressed="${st.propTodas}">∗ todas</button>`));
+    // «＋ nueva rutina» a la izquierda; las píldoras, con cuántas hay en cada una.
+    const d = st.datos;
+    h = barraAF(`<button class="coin" data-a="nueva-rutina" title="rutina nueva: un formulario que genera su rutina.toml">＋ nueva rutina</button>`,
+      RUT_FILTROS.map(([k, et, lista, f]) => {
+        const n = d ? (d[lista] ?? []).filter(f).length : '';
+        const on = st.rutFiltro === k;
+        return `<button class="c pild${on ? ' on' : ''}${k === 'problemas' && n ? ' hay' : ''}" data-a="rut-filtro" data-v="${k ?? ''}" aria-pressed="${on}" title="${et}">${et} <b>${n}</b></button>`;
+      }).join(''));
   }
   else if (st.sec === 'biblioteca') h = barraBiblioteca();
   else if (st.sec === 'equipos') {
@@ -3336,14 +4005,14 @@ function cabecera() {
   $('title', o).textContent = latido;
   o.setAttribute('aria-label', latido);
 
-  // Trabajos que esperan a alguien: revisión del planificador o tu confirmación.
+  // Lo que te espera en Actividad: propuestas pendientes, trabajos en revisión
+  // y paquetes de corrección en espera (lo mismo que cuenta «Te espera»).
   const atentos = st.trabajos.filter(t => t.estado === 'en_revision' || t.estado === 'en_espera').length;
   const esperan = st.trabajos.filter(t => t.estado === 'en_espera').length;
-  const bt = $('[data-s=trabajos] b'), bp = $('[data-s=propuestas] b');
-  bt.textContent = atentos || '';
-  bt.className = esperan ? 'hot' : '';
-  bp.textContent = e.propuestas_pendientes || '';
-  bp.className = '';
+  const ba = $('[data-s=actividad] b');
+  const n = atentos + (e.propuestas_pendientes || 0);
+  ba.textContent = n || '';
+  ba.className = n ? 'hot' : '';
   document.title = esperan ? `! ${esperan}` : e.propuestas_pendientes ? `◇ ${e.propuestas_pendientes}` : 'ea';
 }
 
@@ -3477,23 +4146,39 @@ function pintar() {
   st.vis = vis.map(f => f.k).filter(Boolean);
   if (st.sel && !st.vis.includes(st.sel)) st.sel = null;
 
-  const vacio = q ? `Nada coincide con «${esc(st.q.trim())}».`
-    : st.sec === 'trabajos' && st.filtroEstado ? `Ningún trabajo ${EST[st.filtroEstado][1]}. Quita el filtro para ver el resto.`
-    : st.sec === 'propuestas' && st.propTodas ? 'No hay propuestas.'
-      : st.sec === 'rutinas' && st.rutRetiradas ? 'No hay rutinas retiradas.' : VACIO[st.sec] ?? 'Nada que mostrar.';
-  const sinFiltro = !q && !(st.sec === 'propuestas' && st.propTodas) && !(st.sec === 'rutinas' && st.rutRetiradas);
-  const acc = st.sec === 'trabajos' && st.filtroEstado && !q ? `<button class="b" data-f="${st.filtroEstado}" title="quitar el filtro de estado">✕ quitar filtro</button>`
-    : sinFiltro ? VACIO_ACC[st.sec]?.() ?? '' : '';
+  const vacio = q ? `Nada coincide con «${esc(st.q.trim())}».` : VACIO[st.sec] ?? 'Nada que mostrar.';
+  const acc = q ? '' : VACIO_ACC[st.sec]?.() ?? '';
   const html = st.vis.length || st.sec === 'inicio' || vis.some(f => f.fijo) ? vis.map(f => f.html).join('')
     : `<p class="vacio">${vacio}${acc ? `<span class="vacio-acc">${acc}</span>` : ''}</p>`;
   if (html !== st.html) {
     const lista = $('#lista');
     const y = lista.scrollTop;
-    const foco = document.activeElement?.matches('#filas [data-k]') ? document.activeElement.dataset.k : null;
+    // El foco vuelve a donde estaba: la misma fila o el mismo botón; dentro de
+    // un diálogo, al mismo puesto del recorrido con Tab.
+    const ae = document.activeElement;
+    const enFilas = ae && $('#filas').contains(ae) && ae !== document.body;
+    const dlgViejo = enFilas ? ae.closest('.dlg') : null;
+    const sel = enFilas ? selectorFoco(ae) : null;
+    const pos = dlgViejo ? enfocables(dlgViejo, true).indexOf(ae) : -1;
+    const yDlg = $('#filas .dlg-cuerpo')?.scrollTop ?? 0;
     st.html = html;
     $('#filas').innerHTML = html; // la escena, encima, no se repinta
     lista.scrollTop = y;
-    if (foco) $(`#filas [data-k="${CSS.escape(foco)}"]`)?.focus({ preventScroll: true });
+    const dlg = $('#filas .dlg');
+    if (dlg) {
+      const cuerpo = $('.dlg-cuerpo', dlg);
+      if (cuerpo && !st.dlgFoco) cuerpo.scrollTop = yDlg;
+    }
+    const raiz = dlg ?? $('#filas');
+    let nuevo = sel ? $(sel, raiz) : null;
+    if (!nuevo && dlg && dlgViejo && pos >= 0) nuevo = enfocables(dlg, true)[pos];
+    if (nuevo) nuevo.focus({ preventScroll: true });
+    else if (dlgViejo && dlg) dlg.focus({ preventScroll: true });
+  }
+  // Un diálogo recién abierto se lleva el foco (y el de antes se recuerda).
+  if (st.dlgFoco) {
+    const dlg = $('#filas .dlg');
+    if (dlg) { st.dlgFoco = false; if (!dlg.contains(document.activeElement)) dlg.focus({ preventScroll: true }); }
   }
   // La fila de un enlace profundo: que se vea en cuanto llega.
   if (st.irA) {
@@ -3524,7 +4209,10 @@ async function cargaSeccion() {
     const [propuestas, colas, semaforos, diario, ecosistema] = await Promise.all([
       ea.propuestas({ pendientes: true }), ea.colas(), ea.semaforos(), ea.diario({ limite: 30 }), ea.ecosistema()]);
     datos = { propuestas, colas, semaforos, diario, ecosistema, sesiones: st.proyecto ? st.sesiones.filter(s => s.cwd === st.proyecto) : st.sesiones };
-  } else if (sec === 'trabajos') datos = st.trabajos;
+  } else if (sec === 'actividad') {
+    const [propuestas, rutinas] = await Promise.all([ea.propuestas(), ea.rutinas().catch(() => [])]);
+    datos = { propuestas, rutinas };
+  }
   else if (sec === 'acciones') datos = await ea.acciones();
   else if (sec === 'sistema') {
     const [ag, plan, ws] = await Promise.all([ea.agentes(), ea.serviciosPlan().catch(() => null), ea.worktrees().catch(() => [])]);
@@ -3543,8 +4231,10 @@ async function cargaSeccion() {
     datos = await ea.ajustes();
     aplicaCliente(datos.cliente);
   }
-  else if (sec === 'rutinas') datos = await ea.rutinas(st.rutRetiradas);
-  else if (sec === 'propuestas') datos = await ea.propuestas({ pendientes: !st.propTodas });
+  else if (sec === 'rutinas') {
+    const [activas, retiradas] = await Promise.all([ea.rutinas(false), ea.rutinas(true).catch(() => [])]);
+    datos = { activas, retiradas };
+  }
   else if (EDITOR[sec]) {
     datos = await EDITOR[sec].datos();
     if (ed(sec).sel) await cargaDetalle(ed(sec).sel);
@@ -3637,14 +4327,25 @@ function marco() {
 // ------------------------------------------------------- enlaces profundos
 //
 // El hash dice la sección, la fila desplegada y los filtros (la gramática,
-// en enlaces.js): #trabajos/<id>, #diario?latidos=1&q=texto. Al cargar y al
+// en enlaces.js): #actividad/<id>, #diario?latidos=1&q=texto. Al cargar y al
 // cambiar el hash (atrás, adelante, un enlace) se aplica; al navegar se
 // reescribe: cambiar de sección o abrir una fila crea una entrada del
 // historial, lo demás la reemplaza (pintar() lo mantiene al día).
 
 // Prefijo de la clave de las filas que se pueden enlazar, por sección. Bóveda
 // y Memoria no llevan fila: su nota abierta la recuerda el navegador.
-const FILA = { inicio: 'j', trabajos: 'j', diario: 'e', rutinas: 'r', propuestas: 'p', acciones: 'a', sistema: 's', biblioteca: 'l', equipos: 'q', ajustes: 'g' };
+const FILA = { inicio: 'j', actividad: 'j', diario: 'e', rutinas: 'r', acciones: 'a', sistema: 's', biblioteca: 'l', equipos: 'q', ajustes: 'g' };
+// Las secciones cuya fila enlazada no se despliega en línea, sino en un diálogo.
+const DLG_FILA = { actividad: 'trabajo', rutinas: 'rutina' };
+
+// Los enlaces de antes de Actividad (spec 022, B7) siguen valiendo: los
+// avisos del orquestador y del escritorio abren #trabajos/<id>, y el diario
+// enlazaba #propuestas/<n>. Llevan a lo mismo dentro de Actividad.
+function traduceEnlace(e) {
+  if (e.sec === 'trabajos') return { sec: 'actividad', fila: e.fila, params: { q: e.params.q } };
+  if (e.sec === 'propuestas') return { sec: 'actividad', fila: null, params: { q: e.params.q, propuesta: e.fila ?? undefined, decididas: e.params.todas } };
+  return e;
+}
 
 // Los parámetros de cada sección en el hash: nombre -> { lee(valor), escribe() }.
 // `lee` recibe el texto del hash (undefined si no está: el valor por
@@ -3657,7 +4358,16 @@ const texto = (campo, vale = () => true) => ({
   escribe: () => st[campo] || null,
 });
 const PARAMS = {
-  trabajos: { estado: texto('filtroEstado', v => v in EST) },
+  // El día del archivador (hoy no se escribe), la propuesta elegida en la
+  // franja y el diálogo de las decididas.
+  actividad: {
+    dia: { lee: v => { st.dia = v && FECHA.test(v) && v !== hoyStr() ? v : null; st.mes = null; }, escribe: () => (st.dia && st.dia !== hoyStr() ? st.dia : null) },
+    propuesta: texto('propSel', v => /^\d{1,12}$/.test(v)),
+    decididas: {
+      lee: v => { if (v === '1') { if (!st.dlg) st.dlg = { tipo: 'decididas' }; } else if (st.dlg?.tipo === 'decididas') st.dlg = null; },
+      escribe: () => (st.dlg?.tipo === 'decididas' ? '1' : null),
+    },
+  },
   diario: {
     actor: texto('dActor', v => /^[a-z0-9_-]{1,64}$/.test(v)),
     resultado: texto('dResultado', v => v === 'ok' || v === 'error'),
@@ -3669,7 +4379,6 @@ const PARAMS = {
     trabajo: texto('dTrabajo', v => /^[\w.-]{1,128}$/.test(v)),
     latidos: bandera('latidos'),
   },
-  propuestas: { todas: bandera('propTodas') },
   biblioteca: {
     agente: texto('bAgente', v => /^[a-z0-9-]{1,32}$/.test(v)),
     tipo: texto('bTipo', v => TIPOS_BIB.some(([t]) => t === v)),
@@ -3679,7 +4388,9 @@ const PARAMS = {
   // La versión elegida en la ficha enlazada (ver versionesHtml); diff=1, su
   // diff con la anterior. Solo se escribe si es de la fila del enlace.
   rutinas: {
-    retiradas: bandera('rutRetiradas'),
+    filtro: texto('rutFiltro', v => RUT_FILTROS.some(([k]) => k === v)),
+    // Los enlaces de antes (?retiradas=1) abren la píldora de las retiradas.
+    retiradas: { lee: v => { if (v === '1') st.rutFiltro = 'retiradas'; }, escribe: () => null },
     version: {
       lee: v => { st.rutVerSel = /^[1-9]\d{0,8}$/.test(v ?? '') ? { slug: null, n: Number(v), diff: false } : null; },
       escribe: () => { const s = st.rutVerSel, f = st.enlace?.startsWith('r') ? st.enlace.slice(1) : null; return s && f && selVersion(f) === s ? String(s.n) : null; },
@@ -3716,14 +4427,18 @@ function aplicaEnlace({ fila, params }) {
   const pre = FILA[st.sec];
   const k = pre && fila != null ? pre + fila : null;
   if (st.enlace && st.enlace !== k) st.abiertos.delete(st.enlace);
-  if (k) { st.abiertos.add(k); st.sel = k; st.irA = k; }
+  const tipo = DLG_FILA[st.sec];
+  if (k) { st.abiertos.add(k); st.sel = k; if (!tipo) st.irA = k; }
   st.enlace = k;
+  // En Actividad y Rutinas, la fila del enlace es un diálogo.
+  if (tipo && k) { st.dlg = { tipo, id: fila }; st.dlgFoco = true; }
+  else if (tipo && st.dlg?.tipo === tipo) st.dlg = null;
 }
 
 // El hash cambió desde fuera (atrás, adelante, un enlace, la barra de direcciones).
 function alCambiarHash(hash) {
   if (hash.replace(/^#/, '') === hashActual()) return;
-  const e = enlaces.leer(hash);
+  const e = traduceEnlace(enlaces.leer(hash));
   const sec = SECCIONES.includes(e.sec) ? e.sec : st.sec;
   if (sec !== st.sec) { ir(sec, e); return; }
   aplicaEnlace(e);
@@ -3739,6 +4454,8 @@ function ir(sec, enlace = null) {
   if (sec !== st.sec && !sueltaBorradores()) { escribeHash(false); return false; }
   const cambia = sec !== st.sec;
   if (cambia) st.propRes = null;
+  st.dlg = null;
+  st.diaDeDlg = null;
   st.sec = sec;
   st.datos = null;
   st.html = '';
@@ -3805,12 +4522,45 @@ function abre(sec, k) {
   if (ir(sec) === false) return;
   st.abiertos.add(k);
   st.sel = k;
-  if (FILA[sec] && k.startsWith(FILA[sec])) { st.enlace = k; st.irA = k; escribeHash(false); }
+  if (FILA[sec] && k.startsWith(FILA[sec])) {
+    st.enlace = k;
+    if (!DLG_FILA[sec]) st.irA = k;
+    if (DLG_FILA[sec]) { st.dlg = { tipo: DLG_FILA[sec], id: k.slice(FILA[sec].length) }; st.dlgFoco = true; }
+    escribeHash(false);
+  }
 }
 
 
+// Los gestos que solo cambian la vista (sin pedir nada al servidor): se
+// repintan al momento, sin esperar al sondeo. true si era uno de ellos.
+function accionVista(a, b) {
+  const { v, id } = b.dataset;
+  if (a === 'dlg-cerrar') { cierraDialogo(); return true; }
+  if (a === 'act-prop') st.propSel = String(id);
+  else if (a === 'act-dia') { st.dia = v === hoyStr() ? null : v; st.grupo = null; }
+  else if (a === 'act-hoy') { st.dia = null; st.mes = null; st.grupo = null; }
+  else if (a === 'act-mes') {
+    const [y, m] = (st.mes ?? diaVisto().slice(0, 7)).split('-').map(Number);
+    const f = new Date(y, m - 1 + Number(v), 1);
+    st.mes = `${f.getFullYear()}-${p2(f.getMonth() + 1)}`;
+  } else if (a === 'act-grupo') st.grupo = v;
+  else if (a === 'act-agrupar') {
+    st.agrupar = v === 'modo' ? 'modo' : 'estado';
+    st.grupo = null;
+    try { localStorage.setItem('ea-actividad-agrupar', st.agrupar); } catch { /* sin almacenamiento */ }
+  } else if (a === 'rut-filtro') st.rutFiltro = v || null;
+  else if (a === 'ver-decididas') { fijaDialogo({ tipo: 'decididas' }, b); escribeHash(true); }
+  else if (a === 'nm-descartar') { st.nueva = null; cierraDialogo(); return true; }
+  else if (a === 'rn-descartar') { st.rutNueva = null; if (st.rutEd?.slug === '') st.rutEd = null; cierraDialogo(); return true; }
+  else return false;
+  st.html = '';
+  pintar();
+  return true;
+}
+
 async function accion(b) {
   const { a, id, v, slug, n, h, k: clave } = b.dataset;
+  if (accionVista(a, b)) return;
   try {
     if (['cerrar', 'cancelar', 'continuar', 'reformular', 'confirmar'].includes(a)) {
       const caja = b.closest('[data-j]');
@@ -3834,15 +4584,35 @@ async function accion(b) {
       await clonaTrabajo(id);
       return;
     } else if (a === 'nueva-mision') {
-      if (st.nueva) st.nueva = null;
-      else {
+      // En su diálogo de Actividad; cerrarlo guarda lo escrito hasta «descartar».
+      if (!st.nueva) {
         const form = await ea.nuevoTrabajo();
         const equipos = await ea.equipos().catch(() => []);
         st.nueva = { form, equipos, err: null, modo: 'mision', fases: [faseVacia()], v: { worktree: st.proyecto ?? '', iteraciones: form.defecto.iteraciones, minutos: Math.max(1, Math.round(form.defecto.tiempo_s / 60)) } };
       }
+      if (st.sec !== 'actividad' && ir('actividad') === false) return;
+      fijaDialogo({ tipo: 'mision' }, b);
       st.html = '';
       pintar();
       $('[data-nm="titulo"]')?.focus();
+      return;
+    } else if (a === 'nueva-rutina') {
+      if (!st.rutNueva) st.rutNueva = rutinaVacia(await ea.nuevoTrabajo().then(f => f.worktrees).catch(() => []));
+      if (st.sec !== 'rutinas' && ir('rutinas') === false) return;
+      fijaDialogo({ tipo: 'rutina-nueva' }, b);
+      st.html = '';
+      pintar();
+      $('[data-rn="slug"]')?.focus();
+      return;
+    } else if (a.startsWith('rn-')) {
+      await accionRutinaNueva(a, b);
+    } else if (a === 'ver-trabajo') {
+      if (st.sec !== 'actividad') { abre('actividad', 'j' + id); return; }
+      await abreDialogoFila('trabajo', 'j' + id);
+      return;
+    } else if (a === 'ver-rutina') {
+      if (st.sec !== 'rutinas') { abre('rutinas', 'r' + slug); return; }
+      await abreDialogoFila('rutina', 'r' + slug);
       return;
     } else if (a === 'nm-equipo') {
       if (st.nueva) st.nueva.eqAbierto = !st.nueva.eqAbierto;
@@ -3872,9 +4642,10 @@ async function accion(b) {
       }
       st.armado = null;
       const p = await ea.decidir(id, v);
-      // Con lo que produjo (A1): la fila se queda abierta con sus enlaces.
+      // Con lo que produjo (A1): la fila (o la pastilla de Actividad) se
+      // queda a la vista con sus enlaces.
       st.propRes = p.resultado ? p : null;
-      if (p.resultado) st.abiertos.add(k);
+      if (p.resultado) { st.abiertos.add(k); st.propSel = String(p.id); }
       if (p.ejecutada) avisa(`${p.ejecutada.estado}: ${p.ejecutada.detalle ?? ''}`, p.ejecutada.estado === 'ejecutada');
     } else if (a === 'lanzar') {
       // Con lo escrito en la ficha; los fallos se quedan junto al formulario.
@@ -3948,8 +4719,8 @@ async function accion(b) {
         st.rutEd = null;
         delete st.rutEnt[r.rutina];
         avisa(`✓ ${r.rutina}: registrada la versión ${r.version}`, true);
-        st.abiertos.add('r' + r.rutina);
-        st.sel = 'r' + r.rutina;
+        // Desde «＋ nueva rutina» (TOML a mano), a los detalles de la registrada.
+        if (st.dlg?.tipo === 'rutina-nueva') { st.rutNueva = null; await abreDialogoFila('rutina', 'r' + r.rutina); }
       }
     } else if (a === 'rhguardar' || a === 'rhquitar') {
       await accionHorario(a, slug, b);
@@ -3957,8 +4728,6 @@ async function accion(b) {
       await accionWorktree(id);
     } else if (a === 'rretiro') {
       await accionRetiro(slug, v);
-    } else if (a === 'rretiradas') {
-      st.rutRetiradas = !st.rutRetiradas;
     } else if (a === 'reiniciar') {
       if (st.armado && st.armado.n === n && st.armado.hasta > Date.now()) {
         st.armado = null;
@@ -4007,8 +4776,7 @@ async function accion(b) {
     } else if (a.startsWith('eq-')) {
       await accionEquipo(a, b);
     } else if (a === 'ir-trabajo') {
-      st.filtroEstado = null;
-      abre('trabajos', 'j' + id);
+      abre('actividad', 'j' + id);
       return;
     } else if (a === 'ir-sec') {
       ir(id);
@@ -4017,8 +4785,8 @@ async function accion(b) {
       ir('diario', { fila: null, params: { trabajo: id } });
       return;
     } else if (a === 'ir-prop') {
-      st.propTodas = true;
-      abre('propuestas', 'p' + id);
+      // A la franja «Te espera» si sigue pendiente; si no, a las decididas.
+      ir('actividad', { fila: null, params: { propuesta: String(id) } });
       return;
     } else if (a === 'terminal') {
       // Solo abre la ventana con el comando de la CLI; la confirmación
@@ -4073,8 +4841,6 @@ async function accion(b) {
     } else if (a === 'ir-evento') {
       ir('diario', { fila: String(id), params: {} });
       return;
-    } else if (a === 'prop') {
-      st.propTodas = v === '1';
     }
   } catch (e) {
     avisa(e.message);
@@ -4209,20 +4975,18 @@ function tema(cambiar = false) {
 const AYUDA_VISTA = {
   inicio: ['Lo vivo de un vistazo.', [
     '<b>Te espera (N)</b>: propuestas, trabajos por revisar y paquetes de corrección que necesitan tu decisión.',
-    '<b>La escena</b>: una máquina por agente activo; cada cápsula es un trabajo. Pulsa una para abrir su ficha.',
+    '<b>La escena</b>: una máquina por agente activo; cada cápsula es un trabajo. Pulsa una para abrirla en Actividad.',
     '<b>Colas y semáforo</b>: qué espera al ejecutor y quién tiene el worktree.',
     '<b>Tablero</b>: en cola → ejecutando → en revisión → en espera → cerrado.']],
-  trabajos: ['Misiones, obras y rutinas.', [
-    '<b>Pulsa una fila</b> (o Enter) para abrir la ficha: informe, fases, diff e historial.',
-    '<b>Cerrar</b> da el trabajo por bueno; <b>Reformular</b> lo devuelve con nota; <b>Cancelar</b> pide segundo clic.',
-    '<b>＋ misión</b> encarga una nueva; las cápsulas de arriba filtran por estado.']],
-  propuestas: ['Cambios que un agente quiere hacer.', [
-    '<b>✓ aceptar</b> ejecuta la acción (pide confirmar); <b>✕</b> la rechaza.',
-    'Las irreversibles llevan <b>⌨</b>: solo se confirman en una terminal.',
-    '<b>∗ todas</b> enseña también las ya decididas.']],
+  actividad: ['Qué te espera y qué pasó cada día.', [
+    '<b>Te espera</b>: elige una propuesta para ver qué hará; <b>✓ aceptar y ejecutar</b> pide un segundo clic y las irreversibles llevan <b>⌨</b> (solo en terminal). <b>ver decididas →</b> abre el historial.',
+    '<b>Calendario</b>: un punto por trabajo (rojo misión, azul obra, amarillo rutina), rosa por propuesta y hueco amarillo por rutina programada. Pulsa un día para abrir su archivador.',
+    '<b>Archivador</b>: carpetas Te espera, En curso, Programadas y Cerrados (o por modo). Cada tarjeta trae sus botones; su título abre el detalle (informe, diff, historial) en un diálogo.',
+    '<b>＋ misión</b> encarga una misión u obra; <b>Esc</b> cierra el diálogo.']],
   rutinas: ['Procesos repetibles y versionados.', [
-    '<b>▶ Lanzar rutina</b> la ejecuta ahora: es lo único que crea trabajo desde aquí.',
-    '<b>＋ rutina</b> abre el editor con una plantilla; <b>▣ retiradas</b> muestra las de la papelera.']],
+    '<b>▶ Lanzar rutina</b> la ejecuta ahora con sus entradas por defecto: es lo único que crea trabajo desde aquí.',
+    'Las píldoras filtran (programadas, manuales, con problemas, retiradas); <b>Detalles</b> abre entradas, horario, versiones y retiro.',
+    '<b>＋ nueva rutina</b> abre un formulario que genera el rutina.toml; registrarla pide un segundo clic y el horario se confirma aparte.']],
   equipos: ['Grupos de agentes que trabajan a la vez.', [
     '<b>●</b> despierto, <b>○</b> dormido; ábrelo para ver presencia, cola y entregas.',
     '<b>＋ despertar</b> crea un equipo; <b>◌ dormir</b> lo apaga y devuelve lo pendiente a la cola.']],
@@ -4254,7 +5018,7 @@ function ayudaVista() {
   const [titulo] = TITULOS[st.sec] ?? [st.sec];
   const [que, puntos] = AYUDA_VISTA[st.sec] ?? ['', []];
   $('#ayuda-vista').innerHTML = `<h2>${esc(titulo)}</h2><p class="ay-que">${esc(que)}</p><ul>${puntos.map(p => `<li>${p}</li>`).join('')}</ul>` +
-    '<p class="ay-atajos">Atajos: <kbd>1–9</kbd> <kbd>0</kbd> secciones · <kbd>/</kbd> filtrar · <kbd>j</kbd>/<kbd>k</kbd> moverse · <kbd>Esc</kbd> cerrar · <kbd>t</kbd> recorrido</p>';
+    '<p class="ay-atajos">Atajos: <kbd>1–9</kbd> <kbd>0</kbd> secciones (2 Actividad, 3 Rutinas) · <kbd>/</kbd> filtrar · <kbd>j</kbd>/<kbd>k</kbd> moverse · <kbd>Esc</kbd> cerrar · <kbd>t</kbd> recorrido</p>';
 }
 
 // Invitación discreta al recorrido en la primera visita (se recuerda al cerrarla).
@@ -4298,7 +5062,7 @@ document.addEventListener('click', ev => {
   if (t.closest('#bproy')) return proyectos(true);
   if (t.closest('[data-plegar-proy]')) return proyectos(true);
   const pt = t.closest('[data-pt]');
-  if (pt) return abre('trabajos', 'j' + pt.dataset.pt);
+  if (pt) return abre('actividad', 'j' + pt.dataset.pt);
   const pry = t.closest('[data-pry]');
   if (pry) { elige(pry.dataset.pry); barraProyectos(); pintar(); return tick(); }
   if (t.closest('#fproy')) { elige(null); barraProyectos(); pintar(); return tick(); }
@@ -4306,12 +5070,8 @@ document.addEventListener('click', ev => {
   const tb = t.closest('[data-tour]');
   if (tb) return tour.iniciar(tb.dataset.tour === 'vista' ? st.sec : null);
   if (t.closest('#ayuda')) { if (!t.closest('.hoja') || t.closest('[data-cerrar]')) ayuda(false); return; }
-  const f = t.closest('button[data-f]');
-  if (f) {
-    st.filtroEstado = st.filtroEstado === f.dataset.f ? null : f.dataset.f;
-    st.html = '';
-    return tick();
-  }
+  // El velo de un diálogo lo cierra.
+  if (t.matches('[data-dlg-capa]')) return cierraDialogo();
   const b = t.closest('button[data-a]');
   if (b) return accion(b);
   const enlace = t.closest('a.ml');
@@ -4321,6 +5081,9 @@ document.addEventListener('click', ev => {
     return;
   }
   if (t.closest('input, select, textarea, .acc, .nota')) return;
+  // Una tarjeta de Actividad abre su diálogo (su título es el botón de teclado).
+  const tj = t.closest('[data-tj]');
+  if (tj && !t.closest('a, label')) return accion({ dataset: { a: 'ver-trabajo', id: tj.dataset.tj } });
   const ad = t.closest('[data-ad]');
   if (ad) return plegar(ad.dataset.ad);
   const af = t.closest('[data-af]');
@@ -4346,6 +5109,15 @@ $('#lista').addEventListener('input', ev => {
       $('.sin-guardar', nota)?.toggleAttribute('hidden', !sucio(e));
       if (!e.conflicto) $('[data-si-sucio]', nota)?.toggleAttribute('hidden', !sucio(e));
     }
+    return;
+  }
+  // El formulario «＋ nueva rutina»: el TOML de la derecha se rehace al teclear.
+  const rn = ev.target.closest('[data-rn], [data-rne]');
+  if (rn && st.rutNueva) {
+    const N = st.rutNueva;
+    if (rn.dataset.rn !== undefined) N.v[rn.dataset.rn] = rn.value;
+    else if (N.entradas[rn.dataset.rne]) N.entradas[rn.dataset.rne][Number(rn.dataset.ec)] = rn.value;
+    alEscribirRutinaNueva();
     return;
   }
   // El editor de una rutina: lo validado deja de valer al cambiar el texto.
@@ -4508,6 +5280,22 @@ document.addEventListener('keydown', ev => {
   const enCampo = t.matches('input, textarea, select');
   if (ev.key === 'Escape' && !$('#ayuda').hidden) return ayuda(false);
   if (ev.key === 'Escape' && masAbierto()) return masCierra(true);
+  // Con un diálogo abierto: Esc lo cierra, Tab no sale de él y las teclas de
+  // sección no cambian lo que hay debajo.
+  const dlg = $('#filas .dlg');
+  if (dlg) {
+    if (ev.key === 'Escape') { ev.preventDefault(); cierraDialogo(); return; }
+    if (ev.key === 'Tab') {
+      const xs = enfocables(dlg);
+      if (!xs.length) { ev.preventDefault(); dlg.focus(); return; }
+      const i = xs.indexOf(document.activeElement);
+      if (ev.shiftKey && (i <= 0)) { ev.preventDefault(); xs[xs.length - 1].focus(); }
+      else if (!ev.shiftKey && (i === xs.length - 1 || i < 0)) { ev.preventDefault(); xs[0].focus(); }
+      return;
+    }
+    if (!enCampo && (ev.key === 'Enter' || ev.key === ' ') && t.matches('#lista [data-k]')) { ev.preventDefault(); st.sel = t.dataset.k; alterna(t.dataset.k); }
+    return;
+  }
   if (EDITOR[st.sec]) {
     const E = ed();
     const tecla = ev.key.toLowerCase();
@@ -4583,7 +5371,17 @@ document.addEventListener('keydown', ev => {
     return;
   }
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
-  if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('trabajos', 'j' + t.dataset.pt); return; }
+  if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('actividad', 'j' + t.dataset.pt); return; }
+  // Las carpetas del archivador: ← → Inicio Fin entre pestañas.
+  if (t.matches('[role=tab][data-a="act-grupo"]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) {
+    ev.preventDefault();
+    const ps = $$('[role=tab][data-a="act-grupo"]');
+    const i = ps.indexOf(t);
+    const j = ev.key === 'Home' ? 0 : ev.key === 'End' ? ps.length - 1 : (i + (ev.key === 'ArrowRight' ? 1 : -1) + ps.length) % ps.length;
+    accionVista('act-grupo', ps[j]);
+    $(`[role=tab][data-v="${CSS.escape(ps[j].dataset.v)}"]`)?.focus();
+    return;
+  }
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('#lista [data-k]')) { ev.preventDefault(); st.sel = t.dataset.k; alterna(t.dataset.k); return; }
   if (/^[0-9]$/.test(ev.key)) { const sec = SECCIONES[(Number(ev.key) + 9) % 10]; if (sec) ir(sec); return; }
   const porLetra = Object.keys(TECLA_SECCION).find(k => TECLA_SECCION[k] === ev.key);
@@ -4609,9 +5407,10 @@ addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
 // -------------------------------------------------------------------- arranque
 
 {
-  const enlace = enlaces.leer(location.hash);
+  const enlace = traduceEnlace(enlaces.leer(location.hash));
   if (SECCIONES.includes(enlace.sec)) st.sec = enlace.sec;
   try {
+    if (localStorage.getItem('ea-actividad-agrupar') === 'modo') st.agrupar = 'modo';
     // Las claves antiguas de la memoria (ea-mem-*) pasan a ea-memoria-*.
     for (const [viejo, nuevo] of [['ea-mem-plegados', 'ea-memoria-plegados'], ['ea-mem-sel', 'ea-memoria-sel']]) {
       const v = localStorage.getItem(viejo);
@@ -4629,7 +5428,8 @@ addEventListener('hashchange', ev => alCambiarHash(new URL(ev.newURL).hash));
   aplicaEnlace(enlace); // la fila y los filtros del hash (de otra sección, se ignoran por defecto)
   // En pantallas bajas la escena empieza plegada, salvo que el usuario ya eligiera.
   try { if (localStorage.getItem('ea-escena-plegada') === null && innerHeight < 800) localStorage.setItem('ea-escena-plegada', '1'); } catch { /* sin almacenamiento */ }
-  gasha.montar($('#escena'), { alAbrir: k => { st.sel = k; alterna(k); } });
+  // Una cápsula de la escena lleva a Actividad: el diálogo del trabajo o la propuesta en la franja.
+  gasha.montar($('#escena'), { alAbrir: k => (k[0] === 'p' ? ir('actividad', { fila: null, params: { propuesta: k.slice(1) } }) : abre('actividad', k)) });
   tour.montar({ ir, seccion: () => st.sec });
   marco();
   tema();

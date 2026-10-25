@@ -868,6 +868,7 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     assert_eq!(v[0]["modo"], "mision");
     assert_eq!(v[0]["estado"], "en_cola");
     assert!(v[0]["resultado"].is_null());
+    assert!(v[0]["ejecutado_por"].is_null(), "nadie lo ha tomado aún");
     assert!(std::path::Path::new(v[0]["worktree"].as_str().unwrap()).ends_with(std::path::Path::new(tmp!()).file_name().unwrap()));
 
     let (_, c) = get(&f, "/api/colas").await;
@@ -898,6 +899,11 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     let (_, sem) = get(&f, "/api/semaforos").await;
     assert_eq!(sem[0]["trabajo"], id.as_str());
     assert_eq!(sem[0]["agente"], "modelo-local");
+
+    // Al tomarlo, la lista dice con qué agente y modelo (las tarjetas de Actividad).
+    bus.tomar_con(&id, ea_bus::EjecutadoPor { agente: "qwen-code".into(), modelo: "qwen3-coder-30b".into() }).unwrap();
+    let (_, l) = get(&f, "/api/trabajos").await;
+    assert_eq!(l[0]["ejecutado_por"], json!({ "agente": "qwen-code", "modelo": "qwen3-coder-30b" }));
 
     // Cancelado con el semáforo aún cogido: «cancelando…» hasta que se suelte.
     let cancelando = |l: &Value| l.as_array().unwrap().iter().find(|t| t["id"] == id.as_str()).unwrap()["cancelando"].clone();
