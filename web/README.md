@@ -9,6 +9,8 @@ npm run build    # astro check + production build
 SITE_URL=https://example.com SITE_BASE=/ npm run build   # real origin for canonical / OG / sitemap
 ```
 
+Optional: `PUBLIC_GOOGLE_SITE_VERIFICATION` and `PUBLIC_BING_SITE_VERIFICATION` add the Search Console / Bing Webmaster meta tags. The Pages workflow reads them from the repository variables `GOOGLE_SITE_VERIFICATION` and `BING_SITE_VERIFICATION` (Settings → Secrets and variables → Actions → Variables); unset, no tag is emitted.
+
 - `src/content/copy.en.ts`, `copy.es.ts` — all copy, English at `/` and Spanish at `/es/` (Astro i18n routing). Same shape in both; `svg` maps each English label of the artwork to its translation
 - `src/i18n.ts` — `copyFor(Astro.currentLocale)` for the copy, `tr()` for artwork labels, `pathFor()` for the language button next to GitHub (it keeps the current chapter). A new language: add `copy.xx.ts`, list it in `i18n.ts` and `astro.config.mjs`, and add `src/pages/xx/index.astro`
 - `src/components/Landing.astro` — the page itself, shared by `src/pages/index.astro` and `src/pages/es/index.astro`

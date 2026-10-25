@@ -1,0 +1,48 @@
+---
+// GitHub Pages serves this single file with a 404 status for any missing path, in either language,
+// so it carries both copies and links back to both home pages. It stays out of the index and the sitemap.
+import Base from '../layouts/Base.astro';
+import { copyFor, pathFor } from '../i18n';
+
+const en = copyFor('en').notFound;
+const es = copyFor('es').notFound;
+---
+<Base title={en.title} description={en.description} noindex>
+  <main id="story" class="nf">
+    <section class="nf__block" lang="en">
+      <p class="kicker">{en.kicker}</p>
+      <h1>{en.h}</h1>
+      <p>{en.p}</p>
+      <a class="btn btn--primary" href={pathFor('en')} hreflang="en">{en.home}</a>
+    </section>
+    <section class="nf__block" lang="es">
+      <p class="kicker">{es.kicker}</p>
+      <h2>{es.h}</h2>
+      <p>{es.p}</p>
+      <a class="btn btn--ghost" href={pathFor('es')} hreflang="es">{es.home}</a>
+    </section>
+  </main>
+</Base>
+
+<style>
+  .nf {
+    position: relative;
+    z-index: 9;
+    display: grid;
+    align-content: center;
+    gap: 3rem;
+    min-height: 100svh;
+    max-width: 44rem;
+    padding: 4rem var(--gutter);
+  }
+  .nf h1,
+  .nf h2 {
+    margin: 0;
+    font: 800 clamp(2.2rem, 5vw, 4rem) / 0.92 var(--display);
+    text-transform: uppercase;
+  }
+  .nf p:not(.kicker) {
+    margin: 1rem 0 1.4rem;
+    color: var(--fg-dim);
+  }
+</style>

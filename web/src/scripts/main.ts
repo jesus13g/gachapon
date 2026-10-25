@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { applyCrops, cinema, inview, type Director } from './director';
+import { applyCrops, cinema, inview, onIdle, type Director } from './director';
 
 gsap.registerPlugin(ScrollTrigger);
 ScrollTrigger.config({ ignoreMobileResize: true });
@@ -28,9 +28,13 @@ mm.add(
       try {
         if (wide) {
           const glOk = innerWidth >= 1100 && !matchMedia('(pointer: coarse)').matches;
+          // three.js and the 3D capsule load once the first paint is done and the main thread is free
+          if (glOk) await new Promise<void>((r) => onIdle(() => r()));
           const mod = glOk ? await import('../lib/capsule3d').catch(() => null) : null;
           if (cancelled) return;
           d = cinema(mod ? mod.createCapsule3D : null);
+          await d.ready;
+          if (cancelled) return;
         } else {
           html.classList.remove('is-cinema');
           d = inview();
@@ -38,6 +42,8 @@ mm.add(
         html.classList.add('is-ready');
       } catch (err) {
         console.error('[gachapon] experience failed, falling back to the static story', err);
+        d?.destroy();
+        d = null;
         html.classList.remove('is-cinema');
         applyCrops(!wide);
       }

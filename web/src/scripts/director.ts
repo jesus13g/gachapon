@@ -45,7 +45,7 @@ function makeCtx(tl: gsap.core.Timeline, sc: HTMLElement, mode: Ctx['mode'], sta
 function tooltips(root: HTMLElement) {
   const tip = document.createElement('div');
   tip.className = 'tip';
-  tip.setAttribute('role', 'tooltip');
+  tip.setAttribute('aria-hidden', 'true');
   document.body.appendChild(tip);
   const over = (e: Event) => {
     const t = (e.target as Element).closest?.('[data-hint]') as HTMLElement | null;
@@ -92,7 +92,19 @@ function enterExit(kind: Transition, o: string) {
   }
 }
 
+/** Run `fn` when the main thread is idle (or soon, where requestIdleCallback is missing); returns a cancel. */
+export function onIdle(fn: (deadline?: IdleDeadline) => void, timeout = 1000): () => void {
+  if ('requestIdleCallback' in window) {
+    const id = requestIdleCallback(fn, { timeout });
+    return () => cancelIdleCallback(id);
+  }
+  const id = setTimeout(fn, 1);
+  return () => clearTimeout(id);
+}
+
 export interface Director {
+  /** Settles once the experience is fully set up (the cinema builds its acts across idle slices). */
+  ready?: Promise<void>;
   destroy(): void;
 }
 
@@ -122,6 +134,8 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
   // lazy: false — a tween must read its start values only after the previous ones have rendered, or a jump
   // (fast scroll, chapter rail, deep link) records stale positions and capsules land in the wrong place.
   const master = gsap.timeline({ paused: false, defaults: { ease: 'none', lazy: false } });
+  // held still while the acts are built across idle slices; ScrollTrigger drives it from then on
+  master.pause();
   // anchor so the timeline's total duration equals `total` units
   master.set({}, {}, total);
 
@@ -146,12 +160,14 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
   }
   if (!gl) canvas.remove();
 
-  /* build every act */
+  /* build every act, in story order, a few at a time while the main thread is idle (no single long task);
+     the pin and the scrub start once all of them exist, so every tween is in place exactly as before */
   const arts = scenes.map((s) => $<HTMLElement>('.scene__art', s)!);
   const copies = scenes.map((s) => $<HTMLElement>('.scene__copy, .hero-copy, .final-copy', s));
   gsap.set(thread, { x: STORY[0].start[0], y: STORY[0].start[1], autoAlpha: 0 });
 
-  scenes.forEach((sc, i) => {
+  const buildAct = (i: number) => {
+    const sc = scenes[i];
     const cfg = STORY[i];
     const S = starts[i];
     const E = S + cfg.len;
@@ -196,84 +212,111 @@ export function cinema(create3D: typeof createCapsule3D | null): Director {
     }
 
     builder?.(ctx, { pose, gl: !!gl });
-  });
-
-  /* live scenes (CSS animations + visibility) */
-  const setLive = (t: number) => {
-    scenes.forEach((s, i) => {
-      const live = t >= starts[i] - TR - 0.5 && t <= starts[i] + STORY[i].len + TR + 0.5;
-      if (live !== s.classList.contains('is-live')) {
-        s.classList.toggle('is-live', live);
-        s.style.visibility = live ? 'visible' : 'hidden';
-      }
-    });
   };
-  scenes.forEach((s, i) => {
-    s.style.visibility = i === 0 ? 'visible' : 'hidden';
-    if (i === 0) s.classList.add('is-live');
-  });
 
-  /* pin + scrub */
-  const st = ScrollTrigger.create({
-    trigger: stage,
-    start: 'top top',
-    end: () => `+=${(total / 100) * SCROLL.stretch * innerHeight}`,
-    pin: true,
-    pinSpacing: true,
-    scrub: SCROLL.scrub,
-    anticipatePin: 1,
-    invalidateOnRefresh: true,
-    animation: master,
-    onRefresh: () => {
+  let st: ScrollTrigger | null = null;
+  let next = 0;
+  let stopIdle = () => {};
+  let settle!: (err?: unknown) => void;
+  const ready = new Promise<void>((ok, fail) => (settle = (err) => (err ? fail(err) : ok())));
+  const step = (deadline?: IdleDeadline) => {
+    try {
+      do buildAct(next++);
+      while (next < scenes.length && deadline && deadline.timeRemaining() > 8);
+      if (next < scenes.length) stopIdle = onIdle(step, 50);
+      else {
+        play();
+        settle();
+      }
+    } catch (err) {
+      settle(err);
+    }
+  };
+  buildAct(next++);
+  stopIdle = onIdle(step, 50);
+
+  function play() {
+    /* live scenes (CSS animations + visibility) */
+    const setLive = (t: number) => {
+      scenes.forEach((s, i) => {
+        const live = t >= starts[i] - TR - 0.5 && t <= starts[i] + STORY[i].len + TR + 0.5;
+        if (live !== s.classList.contains('is-live')) {
+          s.classList.toggle('is-live', live);
+          s.style.visibility = live ? 'visible' : 'hidden';
+        }
+      });
+    };
+    scenes.forEach((s, i) => {
+      s.style.visibility = i === 0 ? 'visible' : 'hidden';
+      if (i === 0) s.classList.add('is-live');
+    });
+
+    /* pin + scrub */
+    const trig = ScrollTrigger.create({
+      trigger: stage,
+      start: 'top top',
+      end: () => `+=${(total / 100) * SCROLL.stretch * innerHeight}`,
+      pin: true,
+      pinSpacing: true,
+      scrub: SCROLL.scrub,
+      anticipatePin: 1,
+      invalidateOnRefresh: true,
+      animation: master,
+      onRefresh: () => {
+        setLive(master.time());
+        updateRail(master.time());
+      },
+    });
+    st = trig;
+    master.pause();
+    // the scrub eases behind the scroll, so follow the timeline itself, not the scroll events
+    master.eventCallback('onUpdate', () => {
       setLive(master.time());
       updateRail(master.time());
-    },
-  });
-  master.pause();
-  // the scrub eases behind the scroll, so follow the timeline itself, not the scroll events
-  master.eventCallback('onUpdate', () => {
-    setLive(master.time());
-    updateRail(master.time());
-  });
+    });
 
-  /* chapter rail */
-  const rail = $('.rail')!;
-  const railBtns = $$<HTMLButtonElement>('button', rail);
-  let cur = -1;
-  function updateRail(t: number) {
-    let idx = 0;
-    for (let i = 0; i < starts.length; i++) if (t >= starts[i] - 1) idx = i;
-    if (idx === cur) return;
-    cur = idx;
-    railBtns.forEach((b, i) => b.setAttribute('aria-current', String(i === idx)));
+    /* chapter rail */
+    const rail = $('.rail')!;
+    const railBtns = $$<HTMLButtonElement>('button', rail);
+    let cur = -1;
+    function updateRail(t: number) {
+      let idx = 0;
+      for (let i = 0; i < starts.length; i++) if (t >= starts[i] - 1) idx = i;
+      if (idx === cur) return;
+      cur = idx;
+      railBtns.forEach((b, i) => b.setAttribute('aria-current', String(i === idx)));
+    }
+    const goto = (i: number) => {
+      const y = trig.start + ((starts[i] + TR + 1) / total) * (trig.end - trig.start);
+      window.scrollTo({ top: y, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    };
+    railBtns.forEach((b, i) => {
+      const h = () => goto(i);
+      b.addEventListener('click', h);
+      cleanups.push(() => b.removeEventListener('click', h));
+    });
+    cleanups.push(tooltips(stage));
+
+    // deep link: #bus etc.
+    const hash = location.hash.slice(1);
+    const hi = STORY.findIndex((a) => a.id === hash);
+    if (hi > 0) requestAnimationFrame(() => {
+      ScrollTrigger.refresh();
+      goto(hi);
+    });
+
+    const ro = new ResizeObserver(() => gl?.resize());
+    ro.observe(stage);
+    cleanups.push(() => ro.disconnect());
   }
-  const goto = (i: number) => {
-    const y = st.start + ((starts[i] + TR + 1) / total) * (st.end - st.start);
-    window.scrollTo({ top: y, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-  };
-  railBtns.forEach((b, i) => {
-    const h = () => goto(i);
-    b.addEventListener('click', h);
-    cleanups.push(() => b.removeEventListener('click', h));
-  });
-  cleanups.push(tooltips(stage));
 
-  // deep link: #bus etc.
-  const hash = location.hash.slice(1);
-  const hi = STORY.findIndex((a) => a.id === hash);
-  if (hi > 0) requestAnimationFrame(() => {
-    ScrollTrigger.refresh();
-    goto(hi);
-  });
-
-  const ro = new ResizeObserver(() => gl?.resize());
-  ro.observe(stage);
-  cleanups.push(() => ro.disconnect());
 
   return {
+    ready,
     destroy() {
+      stopIdle();
       cleanups.forEach((f) => f());
-      st.kill();
+      st?.kill();
       master.kill();
       gl?.dispose();
       canvas.remove();
