@@ -6,10 +6,11 @@ import type { ActCopy } from './copy.en';
 export const site = {
   lang: 'es',
   name: 'Gachapon',
-  title: 'Gachapon — Convierte agentes de IA en un sistema',
+  title: 'Gachapon — Orquestador libre de agentes de IA',
   description:
-    'Gachapon orquesta agentes de IA: un planificador capaz piensa, un modelo local hace el trabajo mecánico, y un bus de trabajos, un sandbox y un diario append-only mantienen cada paso a la vista y bajo tu control.',
-  ogAlt: 'Gachapon: una cápsula que recorre una máquina que coordina a un planificador y a un ejecutor local.',
+    'Orquestador libre de agentes de IA: un planificador capaz piensa, un modelo local hace el trabajo mecánico y cada paso queda aislado, registrado y en tus manos.',
+  ogImage: '/og-es.png',
+  ogAlt: 'Logotipo de Gachapon, una cápsula naranja y blanca, sobre el titular «Convierte agentes de IA en un sistema.» y la frase «El modelo caro piensa. El modelo local trabaja.»',
   repo: 'https://github.com/jesus13g/gachapon',
   docs: 'https://github.com/jesus13g/gachapon#readme',
   license: 'Licencia MIT',
@@ -210,6 +211,8 @@ export const benefits = [
 export const svg: Record<string, string> = {
   // shared pieces
   'GACHAPON · ORCHESTRATOR': 'GACHAPON · ORQUESTADOR',
+  TURN: 'TURNO',
+  ORDER: 'ORDEN',
   DONE: 'HECHO',
   'queue · state · lock': 'cola · estado · semáforo',
   // 01 · problem
@@ -464,4 +467,14 @@ export const svg: Record<string, string> = {
   mcp: 'mcp',
   command: 'comando',
   extension: 'extensión',
+};
+
+/** Página 404 (un solo fichero para los dos idiomas en GitHub Pages, así que muestra ambos textos). */
+export const notFound = {
+  title: 'Página no encontrada — Gachapon',
+  description: 'Esta página no existe. Vuelve a la portada de Gachapon.',
+  kicker: 'Error 404 · trabajo no encontrado',
+  h: 'Página no encontrada.',
+  p: 'La dirección que has seguido no existe o ha cambiado de sitio.',
+  home: 'Ir a la portada en español',
 };

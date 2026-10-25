@@ -12,8 +12,8 @@
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <symbol id="i-inicio" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/></symbol>
-  <symbol id="i-trabajos" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16"/><path d="M12 4v-.01"/></symbol>
-  <symbol id="i-propuestas" viewBox="0 0 24 24"><path d="M12 3l8 9-8 9-8-9z"/></symbol>
+  <symbol id="i-actividad" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></symbol>
+  <symbol id="i-reloj" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></symbol>
   <symbol id="i-rutinas" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4.5h-4.5"/></symbol>
   <symbol id="i-equipos" viewBox="0 0 24 24"><circle cx="9" cy="9" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="8" r="2.2"/><path d="M16.5 13.2c2.6 0 4.5 1.7 4.5 4.3"/></symbol>
   <symbol id="i-boveda" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/></symbol>
@@ -32,26 +32,23 @@
 <nav id="rail" aria-label="Secciones">
   <div class="grp" role="group" aria-label="Trabajo"><em>Trabajo</em>
     <button data-s="inicio" title="Inicio (tecla 1)"><i><svg class="gl" aria-hidden="true"><use href="#i-inicio"/></svg></i><span>Inicio</span></button>
-    <button data-s="trabajos" title="Trabajos (tecla 2)"><i><svg class="gl" aria-hidden="true"><use href="#i-trabajos"/></svg></i><span>Trabajos</span><b></b></button>
-    <button data-s="propuestas" title="Propuestas (tecla 3)"><i><svg class="gl" aria-hidden="true"><use href="#i-propuestas"/></svg></i><span>Propuestas</span><b></b></button>
-    <button data-s="rutinas" title="Rutinas (tecla 4)"><i><svg class="gl" aria-hidden="true"><use href="#i-rutinas"/></svg></i><span>Rutinas</span></button>
+    <button data-s="actividad" title="Actividad: propuestas, calendario y trabajos de cada día (tecla 2)"><i><svg class="gl" aria-hidden="true"><use href="#i-actividad"/></svg></i><span>Actividad</span><b></b></button>
+    <button data-s="rutinas" title="Rutinas (tecla 3)"><i><svg class="gl" aria-hidden="true"><use href="#i-rutinas"/></svg></i><span>Rutinas</span></button>
+    <button data-s="equipos" title="Equipos de agentes (tecla 4)"><i><svg class="gl" aria-hidden="true"><use href="#i-equipos"/></svg></i><span>Equipos</span></button>
   </div>
   <button id="bmas" aria-expanded="false" aria-controls="mas-hoja" aria-haspopup="true" title="Más secciones"><i><svg class="gl" aria-hidden="true"><use href="#i-mas"/></svg></i><span>Más</span><b></b></button>
   <div id="mas-hoja">
-   <div class="grp cont" role="group" aria-label="Trabajo (más)"><em>Trabajo</em>
-    <button data-s="equipos" title="Equipos de agentes (tecla 5)"><i><svg class="gl" aria-hidden="true"><use href="#i-equipos"/></svg></i><span>Equipos</span></button>
-   </div>
    <div class="grp" role="group" aria-label="Conocimiento"><em>Conocimiento</em>
-    <button data-s="boveda" title="Bóveda (tecla 6)"><i><svg class="gl" aria-hidden="true"><use href="#i-boveda"/></svg></i><span>Bóveda</span></button>
-    <button data-s="memoria" title="Memoria de Claude Code (tecla 7)"><i><svg class="gl" aria-hidden="true"><use href="#i-memoria"/></svg></i><span>Memoria</span></button>
+    <button data-s="boveda" title="Bóveda (tecla 5)"><i><svg class="gl" aria-hidden="true"><use href="#i-boveda"/></svg></i><span>Bóveda</span></button>
+    <button data-s="memoria" title="Memoria de Claude Code (tecla 6)"><i><svg class="gl" aria-hidden="true"><use href="#i-memoria"/></svg></i><span>Memoria</span></button>
    </div>
    <div class="grp" role="group" aria-label="Herramientas"><em>Herramientas</em>
-    <button data-s="biblioteca" title="Biblioteca de herramientas (tecla 8)"><i><svg class="gl" aria-hidden="true"><use href="#i-biblioteca"/></svg></i><span>Biblioteca</span></button>
-    <button data-s="acciones" title="Acciones (tecla 9)"><i><svg class="gl" aria-hidden="true"><use href="#i-acciones"/></svg></i><span>Acciones</span></button>
+    <button data-s="biblioteca" title="Biblioteca de herramientas (tecla 7)"><i><svg class="gl" aria-hidden="true"><use href="#i-biblioteca"/></svg></i><span>Biblioteca</span></button>
+    <button data-s="acciones" title="Acciones (tecla 8)"><i><svg class="gl" aria-hidden="true"><use href="#i-acciones"/></svg></i><span>Acciones</span></button>
    </div>
    <div class="grp" role="group" aria-label="Sistema"><em>Sistema</em>
-    <button data-s="sistema" title="Sistema (tecla 0)"><i><svg class="gl" aria-hidden="true"><use href="#i-sistema"/></svg></i><span>Sistema</span></button>
-    <button data-s="diario" title="Diario (tecla d)"><i><svg class="gl" aria-hidden="true"><use href="#i-diario"/></svg></i><span>Diario</span></button>
+    <button data-s="sistema" title="Sistema (tecla 9)"><i><svg class="gl" aria-hidden="true"><use href="#i-sistema"/></svg></i><span>Sistema</span></button>
+    <button data-s="diario" title="Diario (tecla 0 o d)"><i><svg class="gl" aria-hidden="true"><use href="#i-diario"/></svg></i><span>Diario</span></button>
     <button data-s="ajustes" title="Ajustes (tecla a)"><i><svg class="gl" aria-hidden="true"><use href="#i-ajustes"/></svg></i><span>Ajustes</span></button>
    </div>
   </div>
@@ -97,13 +94,13 @@
     <ol>
       <li><b>El planificador formaliza.</b> Con <i>/mision</i>, <i>/obra</i> o <i>/rutina</i> deja una orden en la cola del ejecutor. Esta página no lanza trabajo nuevo, salvo las rutinas.</li>
       <li><b>El ejecutor trabaja.</b> El orquestador toma la orden, trabaja en el worktree (con su semáforo) y entrega un informe.</li>
-      <li><b>El planificador revisa.</b> Cierra el trabajo, lo reformula con una nota o, en una obra, lo deja continuar. Tú también puedes hacerlo desde la ficha.</li>
+      <li><b>El planificador revisa.</b> Cierra el trabajo, lo reformula con una nota o, en una obra, lo deja continuar. Tú también puedes hacerlo desde su tarjeta en Actividad.</li>
       <li><b>Tú decides lo que falla.</b> Si una rutina falla, su paquete de corrección queda en espera hasta que lo confirmes (con contexto si quieres).</li>
     </ol>
     <p class="m">Si ves <b><svg class="gl" aria-hidden="true"><use href="#i-candado"/></svg> solo lectura</b>, la página no tiene clave de sesión: puedes mirarlo todo, pero los botones que cambian algo están apagados. Ábrela con <i>ea-escritorio</i> o <i>ea-web-open</i> para poder cambiar cosas.</p>
 
     <h2>La escena</h2>
-    <p class="nota-esc">Arriba de la portada, cada agente activo es una máquina de gashapon y cada trabajo una cápsula. Las máquinas aparecen y se apagan solas: una sesión de Claude Code, el ejecutor del orquestador o un miembro de un equipo despierto. Las pequeñas, unidas por un cable, son sus subagentes. El color de la tapa, el emblema y la faja dicen de qué familia es (Claude, Qwen, Codex, OpenCode, Antigravity, local o desconocida). Las luces dicen el estado: fijas si espera, recorriendo la tapa si trabaja, apagadas si ha terminado. Las principales cuelgan del raíl del bus: por él viajan las cápsulas entre quien planifica y quien ejecuta (el tramo con trabajo en curso se ilumina) y los pulsos de cada evento del diario hasta el orquestador. La pila tras el cristal es su cola y la cápsula de la boca, lo que está ejecutando. <i>TÚ</i>, en el raíl, recoge lo que espera tu decisión. Pulsa una cápsula para abrir su ficha.</p>
+    <p class="nota-esc">Arriba de la portada, cada agente activo es una máquina de gashapon y cada trabajo una cápsula. Las máquinas aparecen y se apagan solas: una sesión de Claude Code, el ejecutor del orquestador o un miembro de un equipo despierto. Las pequeñas, unidas por un cable, son sus subagentes. El color de la tapa, el emblema y la faja dicen de qué familia es (Claude, Qwen, Codex, OpenCode, Antigravity, local o desconocida). Las luces dicen el estado: fijas si espera, recorriendo la tapa si trabaja, apagadas si ha terminado. Las principales cuelgan del raíl del bus: por él viajan las cápsulas entre quien planifica y quien ejecuta (el tramo con trabajo en curso se ilumina) y los pulsos de cada evento del diario hasta el orquestador. La pila tras el cristal es su cola y la cápsula de la boca, lo que está ejecutando. <i>TÚ</i>, en el raíl, recoge lo que espera tu decisión. Pulsa una cápsula para abrirla en Actividad.</p>
     <dl class="leyenda">
       <dt>cápsula</dt><dd>la mitad de arriba es el modo: roja misión, azul obra, amarilla rutina, rosa propuesta (con rombo). Gira si se ejecuta, lleva halo si espera, se apaga al cerrarse</dd>
       <dt>placa</dt><dd>el nombre de cada agente, como en la tapa de su máquina; la pegatina azul COLA dice cuántas cápsulas esperan</dd>
@@ -148,36 +145,36 @@
     </dl>
 
     <h2>Secciones</h2>
-    <p class="nota-esc">El raíl las agrupa en cuatro bloques: Trabajo, Conocimiento, Herramientas y Sistema. En pantallas estrechas muestra Inicio, Trabajos, Propuestas y Rutinas, y el botón <i>Más</i> abre el resto (con su aviso si algo de dentro espera).</p>
+    <p class="nota-esc">El raíl las agrupa en cuatro bloques: Trabajo, Conocimiento, Herramientas y Sistema. En pantallas estrechas muestra Inicio, Actividad, Rutinas y Equipos, y el botón <i>Más</i> abre el resto (con su aviso si algo de dentro espera).</p>
     <dl class="leyenda">
       <dt class="grupo">Trabajo</dt><dd></dd>
       <dt><svg class="gl" aria-hidden="true"><use href="#i-inicio"/></svg> Inicio <kbd>1</kbd></dt><dd>la escena de los agentes activos, colas, semáforo del worktree y tablero de trabajos</dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-trabajos"/></svg> Trabajos <kbd>2</kbd></dt><dd>misiones, obras y rutinas; ficha con informe, diff y acciones</dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-propuestas"/></svg> Propuestas <kbd>3</kbd></dt><dd>cambios que esperan tu visto bueno</dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-rutinas"/></svg> Rutinas <kbd>4</kbd></dt><dd>las rutinas registradas, con su versión; se pueden lanzar</dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-equipos"/></svg> Equipos <kbd>5</kbd></dt><dd>los grupos de agentes despertados para una tarea: miembros con su rol, quién está despierto (●), en qué trabaja, su cola y lo que han entregado. <i>＋ despertar</i> crea un equipo (y abre una terminal por cada planificador y revisor si lo pides) y <i>◌ dormir</i> lo apaga devolviendo lo pendiente a la cola del ejecutor; ambos piden confirmar</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-actividad"/></svg> Actividad <kbd>2</kbd></dt><dd>arriba, <i>Te espera</i>: las propuestas pendientes (aceptar o rechazar) y <i>ver decididas →</i>; debajo, el calendario (un punto por trabajo y propuesta, hueco por rutina programada) y el archivador del día con los trabajos en tarjetas por carpetas. El título de una tarjeta abre su detalle (informe, diff, historial) en un diálogo; <i>＋ misión</i> encarga una nueva</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-rutinas"/></svg> Rutinas <kbd>3</kbd></dt><dd>las rutinas en tarjetas, con su horario y sus últimas ejecuciones; píldoras para filtrar, <i>▶ Lanzar rutina</i>, <i>Detalles</i> (entradas, horario, versiones, retiro) y <i>＋ nueva rutina</i>, un formulario que genera su rutina.toml</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-equipos"/></svg> Equipos <kbd>4</kbd></dt><dd>los grupos de agentes despertados para una tarea: miembros con su rol, quién está despierto (●), en qué trabaja, su cola y lo que han entregado. <i>＋ despertar</i> crea un equipo (y abre una terminal por cada planificador y revisor si lo pides) y <i>◌ dormir</i> lo apaga devolviendo lo pendiente a la cola del ejecutor; ambos piden confirmar</dd>
       <dt class="grupo">Conocimiento</dt><dd></dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-boveda"/></svg> Bóveda <kbd>6</kbd></dt><dd>las notas como en Obsidian: árbol por regiones, se leen y se editan (✎; la firma no cambia); ＋ nota en la compartida, ＋ carpeta, papelera que restaura; ⋯ renombra o mueve, promueve, copia la ruta, la muestra en el explorador o la manda a la papelera; el ⋯ de una carpeta la renombra o la manda a la papelera; vaciar la papelera se confirma en una terminal</dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-memoria"/></svg> Memoria <kbd>7</kbd></dt><dd>la memoria de Claude Code: árbol de proyectos y notas; se lee, se edita (✎), ＋ memoria crea una nueva (con su cabecera y su línea en MEMORY.md), y ⋯ renombra, copia la ruta, la muestra en el explorador o la elimina</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-boveda"/></svg> Bóveda <kbd>5</kbd></dt><dd>las notas como en Obsidian: árbol por regiones, se leen y se editan (✎; la firma no cambia); ＋ nota en la compartida, ＋ carpeta, papelera que restaura; ⋯ renombra o mueve, promueve, copia la ruta, la muestra en el explorador o la manda a la papelera; el ⋯ de una carpeta la renombra o la manda a la papelera; vaciar la papelera se confirma en una terminal</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-memoria"/></svg> Memoria <kbd>6</kbd></dt><dd>la memoria de Claude Code: árbol de proyectos y notas; se lee, se edita (✎), ＋ memoria crea una nueva (con su cabecera y su línea en MEMORY.md), y ⋯ renombra, copia la ruta, la muestra en el explorador o la elimina</dd>
       <dt class="grupo">Herramientas</dt><dd></dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-biblioteca"/></svg> Biblioteca <kbd>8</kbd></dt><dd>las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo, con filtros y su uso por actor. En la ficha, <i>⏻ desactivar / activar</i> simula primero y pide aceptar (los MCP de Claude Code solo se acotan en una sesión), <i>▶ sesión con…</i> abre una terminal con solo las herramientas que elijas y <i>✎ categoría</i> le da una propia. Los secretos de un MCP nunca salen: solo los nombres de sus variables y cabeceras</dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-acciones"/></svg> Acciones <kbd>9</kbd></dt><dd>herramientas: simular y ejecutar a mano</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-biblioteca"/></svg> Biblioteca <kbd>7</kbd></dt><dd>las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo, con filtros y su uso por actor. En la ficha, <i>⏻ desactivar / activar</i> simula primero y pide aceptar (los MCP de Claude Code solo se acotan en una sesión), <i>▶ sesión con…</i> abre una terminal con solo las herramientas que elijas y <i>✎ categoría</i> le da una propia. Los secretos de un MCP nunca salen: solo los nombres de sus variables y cabeceras</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-acciones"/></svg> Acciones <kbd>8</kbd></dt><dd>herramientas: simular y ejecutar a mano</dd>
       <dt class="grupo">Sistema</dt><dd></dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-sistema"/></svg> Sistema <kbd>0</kbd></dt><dd>servicios y agentes; reiniciar un servicio</dd>
-      <dt><svg class="gl" aria-hidden="true"><use href="#i-diario"/></svg> Diario <kbd>d</kbd></dt><dd>el registro de cada cosa que ocurre</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-sistema"/></svg> Sistema <kbd>9</kbd></dt><dd>servicios y agentes; reiniciar un servicio</dd>
+      <dt><svg class="gl" aria-hidden="true"><use href="#i-diario"/></svg> Diario <kbd>0</kbd> <kbd>d</kbd></dt><dd>el registro de cada cosa que ocurre</dd>
       <dt><svg class="gl" aria-hidden="true"><use href="#i-ajustes"/></svg> Ajustes <kbd>a</kbd></dt><dd>cómo se comporta el ecosistema (ajustes.toml), con el origen de cada valor. ✎ se cambia aquí (segundo clic para confirmar; los topes solo bajan), ⌨ solo en una terminal con <i>ea ajustes</i>, $ lo fija una variable de entorno</dd>
     </dl>
 
     <h2>Teclado</h2>
     <dl class="leyenda">
-      <dt>1 – 9, 0</dt><dd>cambiar de sección, en el orden del raíl (1 Inicio … 9 Acciones, 0 Sistema)</dd>
-      <dt>d, a</dt><dd>ir al Diario y a Ajustes (las dos que no caben en los números)</dd>
+      <dt>1 – 9, 0</dt><dd>cambiar de sección, en el orden del raíl (1 Inicio, 2 Actividad, 3 Rutinas, 4 Equipos … 9 Sistema, 0 Diario)</dd>
+      <dt>d, a</dt><dd>ir al Diario y a Ajustes (Ajustes no cabe en los números)</dd>
       <dt>/</dt><dd>filtrar o buscar</dd>
       <dt>j / k</dt><dd>bajar y subir por la lista</dd>
-      <dt>Tab</dt><dd>recorrer filas y tarjetas; Enter abre la que tiene el foco</dd>
+      <dt>Tab</dt><dd>recorrer filas y tarjetas; Enter abre la que tiene el foco. Dentro de un diálogo, Tab no sale de él</dd>
+      <dt>← →</dt><dd>en Actividad, cambiar de carpeta del archivador</dd>
       <dt>Enter</dt><dd>abrir o cerrar la fila seleccionada</dd>
       <dt>p</dt><dd>plegar o desplegar la barra de proyectos; pulsa un proyecto para ver solo sus trabajos y su diario</dd>
-      <dt>Esc</dt><dd>cerrar lo abierto</dd>
+      <dt>Esc</dt><dd>cerrar lo abierto (también un diálogo; lo escrito en un formulario se guarda hasta «descartar»)</dd>
       <dt>Ctrl+E</dt><dd>en Memoria y Bóveda, alternar lectura y edición (el borrador no se pierde)</dd>
       <dt>Ctrl+S</dt><dd>guardar la nota que se está editando (Esc sale del editor sin descartar)</dd>
       <dt>?</dt><dd>esta ayuda</dd>

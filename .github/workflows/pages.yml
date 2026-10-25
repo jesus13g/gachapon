@@ -33,6 +33,8 @@ jobs:
         env:
           SITE_URL: https://jesus13g.github.io
           SITE_BASE: /gachapon
+          PUBLIC_GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
+          PUBLIC_BING_SITE_VERIFICATION: ${{ vars.BING_SITE_VERIFICATION }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist

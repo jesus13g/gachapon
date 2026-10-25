@@ -1,43 +1,85 @@
 ---
-// The Gachapon machine as a precision instrument: dome, bus conduits, slots. Hero (dormant) and final (lit).
+// The Gachapon machine as a precision instrument: dome, status panel, crank, order slot, outlet. Hero (dormant) and final (lit).
+// Drawn in its own 460 × 800 space and placed so the dome centre lands on (1130, 330), where the 3D capsule lives.
 import Capsule from './Capsule.astro';
 import FlowPath from './FlowPath.astro';
 import { tr } from '../i18n';
+import { uid } from '../lib/uid';
 const t = tr(Astro.currentLocale);
 interface Props { lit?: boolean; k?: string }
 const { lit = false, k = 'machine' } = Astro.props;
+const domeClip = uid('machine-dome');
+const outClip = uid('machine-out');
+// the pile settles at the bottom of the dome, one colour per role: [x, y, rot, state]
 const caps = [
-  [-70, 40, 20], [-20, 80, -35], [40, 60, 12], [88, 20, -50], [-96, -20, 55], [10, -10, -15], [-40, -70, 30], [60, -60, 65],
-];
+  [170, 352, -12, 'active'], [232, 362, 8, 'exec'], [294, 350, 18, 'planner'], [132, 318, -35, 'exec'], [200, 324, 22, 'idle'],
+  [262, 320, -8, 'active'], [324, 312, 40, 'exec'], [232, 290, -20, 'planner'], [172, 288, 15, 'idle'], [290, 282, -30, 'idle'],
+] as const;
+// status panel: the role each LED takes once the machine wakes up
+const leds = [['PLN', 'planner'], ['BUS', 'active'], ['EXE', 'exec'], ['LOG', 'idle'], ['SBX', 'ok']] as const;
 ---
 <g data-k={k} class:list={['machine', !lit && 'is-dormant']} data-state={lit ? 'active' : 'idle'}>
   <g data-k={`${k}-conduits`}>
-    <FlowPath d="M930 460 H800" state={lit ? 'active' : 'idle'} id={`${k}-in`} />
-    <FlowPath d="M1330 460 H1460 V690 H1560" state={lit ? 'active' : 'idle'} />
+    <FlowPath d="M932 460 H800" state={lit ? 'active' : 'idle'} id={`${k}-in`} />
+    <FlowPath d="M1328 460 H1460 V690 H1560" state={lit ? 'active' : 'idle'} />
   </g>
-  <rect class="steel" x="930" y="104" width="400" height="696" rx="30" />
-  <rect x="946" y="120" width="368" height="664" rx="20" fill="none" stroke="var(--line)" stroke-dasharray="2 7" />
-  <g data-k={`${k}-dome`}>
-    <circle cx="1130" cy="330" r="188" fill="#07090c" stroke="var(--line-hi)" stroke-width="3" />
-    <circle class="spin-slow" cx="1130" cy="330" r="200" fill="none" stroke="var(--accent)" stroke-opacity=".5" stroke-width="2" stroke-dasharray="2 18" />
-    <circle cx="1130" cy="330" r="168" fill="none" stroke="var(--line)" stroke-width="1.5" />
-    <g transform="translate(1130 330)" data-k={`${k}-pile`} opacity="0.28">
-      {caps.map(([x, y, r]) => <Capsule x={x} y={y} rot={r} s={0.62} state={lit ? 'exec' : 'idle'} />)}
+  <g class="machine__art" transform="translate(1130 330) scale(0.9) translate(-230 -230)">
+    <defs>
+      <clipPath id={domeClip}><circle cx="230" cy="230" r="150" /></clipPath>
+      <clipPath id={outClip}><rect x="140" y="652" width="180" height="66" rx="14" /></clipPath>
+    </defs>
+    <rect class="steel" x="10" y="10" width="440" height="780" rx="32" />
+    <path d="M42 12 H418" stroke="var(--line-hi)" stroke-width="1.5" stroke-linecap="round" />
+    <g class="machine__screw">
+      <circle cx="36" cy="36" r="5" /><circle cx="424" cy="36" r="5" /><circle cx="36" cy="764" r="5" /><circle cx="424" cy="764" r="5" />
     </g>
-  </g>
-  <g transform="translate(1130 560)">
-    <rect x="-150" y="-26" width="300" height="52" rx="6" fill="#0b0e12" stroke="var(--line)" />
-    {['PLN', 'BUS', 'EXE', 'LOG', 'SBX'].map((t, i) => (
-      <g transform={`translate(${-112 + i * 56} 0)`}>
-        <circle class="led machine__led" r="6" data-state={lit ? (i === 2 ? 'exec' : i === 0 ? 'planner' : 'active') : 'idle'} />
-        <text class="t-sm" y="22" text-anchor="middle" style="font-size:10px">{t}</text>
+
+    <g data-k={`${k}-dome`}>
+      <circle class="spin-slow" cx="230" cy="230" r="176" fill="none" stroke="var(--line)" stroke-width="8" stroke-dasharray="1.5 13.86" />
+      <path d="M224 42 H236 L230 52 Z" fill="var(--accent)" />
+      <circle cx="230" cy="230" r="160" fill="url(#g-glass)" stroke="var(--line-hi)" stroke-width="3" />
+      <g data-k={`${k}-pile`} class="machine__pile" clip-path={`url(#${domeClip})`}>
+        {caps.map(([x, y, r, s]) => <Capsule x={x} y={y} rot={r} s={0.53} state={s} />)}
+      </g>
+      <circle cx="230" cy="230" r="150" fill="none" stroke="var(--steel-2)" stroke-width="1.5" />
+      <path d="M118 178 A122 122 0 0 1 196 104 M112 212 A122 122 0 0 1 114 200" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width="10" stroke-linecap="round" />
+    </g>
+    <rect x="206" y="388" width="48" height="26" fill="#0b0e12" stroke="var(--line)" />
+
+    <rect x="40" y="420" width="380" height="68" rx="10" fill="#0b0e12" stroke="var(--line)" />
+    <path d="M116 430 V478 M192 430 V478 M268 430 V478 M344 430 V478" stroke="var(--steel-2)" />
+    {leds.map(([label, on], i) => (
+      <g class="machine__led" transform={`translate(${78 + i * 76} 444)`} data-on={on} data-state={lit ? on : 'idle'}>
+        <circle class="led-halo" r="13" />
+        <circle class="led" r="7" />
+        <text class="machine__label" y="31" text-anchor="middle">{label}</text>
       </g>
     ))}
+
+    <circle cx="140" cy="566" r="50" fill="var(--steel-0)" stroke="var(--line-hi)" stroke-width="2" />
+    <circle cx="140" cy="566" r="36" fill="none" stroke="var(--line)" stroke-dasharray="2 6" />
+    <g data-k={`${k}-crank`} transform={lit ? undefined : 'rotate(-90 140 566)'}>
+      <rect x="98" y="557" width="84" height="18" rx="9" fill="var(--steel-2)" stroke="var(--line-hi)" transform="rotate(-28 140 566)" />
+    </g>
+    <circle class="machine__knob" cx="140" cy="566" r="11" />
+    <circle cx="140" cy="566" r="4" fill="#0b0e12" />
+    <text class="machine__label machine__label--sm" x="140" y="636" text-anchor="middle">{t('TURN')}</text>
+
+    <rect x="250" y="520" width="140" height="92" rx="10" fill="var(--steel-0)" stroke="var(--line)" />
+    <rect x="313" y="534" width="14" height="52" rx="4" fill="#07090c" stroke="var(--line-hi)" />
+    <path class="machine__slot-line" d="M320 542 V578" />
+    <text class="machine__label machine__label--sm" x="320" y="602" text-anchor="middle">{t('ORDER')}</text>
+
+    <rect x="140" y="652" width="180" height="66" rx="14" fill="#05070a" stroke="var(--line-hi)" stroke-width="2" />
+    <g clip-path={`url(#${outClip})`}>
+      <g data-k={`${k}-out`} opacity={lit ? undefined : 0}>
+        <Capsule x={230} y={698} rot={-6} s={0.61} state="active" />
+      </g>
+    </g>
+    <rect x="150" y="660" width="160" height="16" rx="4" fill="var(--steel-0)" opacity=".9" />
+    <path class="steel" d="M120 718 H340 L354 738 H106 Z" />
+
+    <rect x="112" y="752" width="236" height="24" rx="4" fill="var(--steel-0)" stroke="var(--line)" />
+    <text class="machine__label machine__label--sm" x="230" y="768" text-anchor="middle" style="letter-spacing:.2em">{t('GACHAPON · ORCHESTRATOR')}</text>
   </g>
-  <g transform="translate(1130 690)">
-    <rect x="-96" y="-40" width="192" height="78" rx="12" fill="#07090c" stroke="var(--line-hi)" stroke-width="2" />
-    <rect x="-84" y="8" width="168" height="18" rx="4" fill="none" stroke="var(--accent)" stroke-opacity={lit ? 0.9 : 0.25} />
-    <path d="M-108 40 H108 L120 62 H-120 Z" class="steel" />
-  </g>
-  <text class="t-sm" x="1130" y="782" text-anchor="middle" style="font-size:11px;letter-spacing:.3em">{t('GACHAPON · ORCHESTRATOR')}</text>
 </g>

@@ -13,7 +13,7 @@
   /* text */
   --fg: #eceee9;
   --fg-dim: #a3adb8;
-  --fg-faint: #66717e;
+  --fg-faint: #768190;
 
   /* meaning — every state keeps its colour across the whole page */
   --accent: #ff9a3c; /* Gachapon / the system */
@@ -40,4 +40,5 @@
   --t-led: 1.4s;
   --t-heart: 2.8s;
   --t-flow: 0.9s;
+  --t-wake: 0.6s;
 }

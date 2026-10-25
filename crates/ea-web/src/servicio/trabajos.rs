@@ -32,6 +32,7 @@ fn resumen(bus: &Bus, id: &str, en_curso: &HashSet<String>) -> Option<TrabajoRes
         fases_total: orden.fases.len(),
         iteracion: estado.iteracion,
         detalle: estado.detalle,
+        ejecutado_por: estado.ejecutado_por,
         resultado: informe.as_ref().map(|i| match i.resultado {
             ea_bus::ResultadoInforme::Terminado => "terminado",
             ea_bus::ResultadoInforme::Bloqueado => "bloqueado",

@@ -20,9 +20,12 @@ export const boot: ActBuilder = (c, { pose, gl }) => {
   intro.add(() => {
     machine?.classList.remove('is-dormant');
     machine?.querySelectorAll('.conduit').forEach((e) => e.setAttribute('data-state', 'active'));
-    machine?.querySelectorAll('.machine__led').forEach((e, i) => e.setAttribute('data-state', i === 0 ? 'planner' : i === 2 ? 'exec' : 'active'));
+    machine?.querySelectorAll<HTMLElement>('.machine__led').forEach((e) => e.setAttribute('data-state', e.dataset.on ?? 'active'));
   }, 1.1);
   intro.to($('[data-k=machine-conduits]'), { opacity: 1, duration: 0.6 }, 1.1);
+  // the crank takes its turn and the outlet releases a capsule
+  intro.fromTo($('[data-k=machine-crank]'), { rotation: -90, svgOrigin: '140 566' }, { rotation: 0, svgOrigin: '140 566', duration: 0.5, ease: EASE.lock }, 1.1);
+  intro.fromTo($('[data-k=machine-out]'), { opacity: 0, y: -50 }, { opacity: 1, y: 0, duration: 0.45, ease: EASE.transfer }, 1.35);
   if (gl) {
     pose.a = 1;
     intro.fromTo(pose, { boot: 0, pop: 0.6 }, { boot: 1, pop: 1, duration: 1.1, ease: 'power3.out' }, 1.0);
