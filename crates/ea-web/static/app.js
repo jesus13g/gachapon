@@ -4,13 +4,25 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
 const GL_AJUSTES = '<svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 5.4L10.9 3.1L13.1 3.1L13.5 5.4L15.7 6.3L17.5 4.9L19.1 6.5L17.7 8.3L18.6 10.5L20.9 10.9L20.9 13.1L18.6 13.5L17.7 15.7L19.1 17.5L17.5 19.1L15.7 17.7L13.5 18.6L13.1 20.9L10.9 20.9L10.5 18.6L8.3 17.7L6.5 19.1L4.9 17.5L6.3 15.7L5.4 13.5L3.1 13.1L3.1 10.9L5.4 10.5L6.3 8.3L4.9 6.5L6.5 4.9L8.3 6.3Z"/><circle cx="12" cy="12" r="3"/></svg>';
-const SECCIONES = ['inicio', 'trabajos', 'diario', 'rutinas', 'propuestas', 'acciones', 'sistema', 'boveda', 'memoria', 'biblioteca', 'equipos', 'ajustes'];
+// Orden del raíl, por bloques: Trabajo · Conocimiento · Herramientas · Sistema.
+// Las teclas 1-9 y 0 siguen este orden; las dos que sobran (Diario, Ajustes) tienen letra.
+const SECCIONES = ['inicio', 'trabajos', 'propuestas', 'rutinas', 'equipos', 'boveda', 'memoria', 'biblioteca', 'acciones', 'sistema', 'diario', 'ajustes'];
+const TECLA_SECCION = { diario: 'd', ajustes: 'a' };
+// Un glifo = un significado (los iconos del raíl son SVG: #i-<sección> en index.html).
+//   ○ ◐ ◕ ● ⊘   estado de un trabajo: en cola, ejecutando, en revisión, cerrado, cancelado
+//   □ ◧ ■        riesgo de una herramienta: lee, reversible, irreversible
+//   ◇            una propuesta (el rombo de la cápsula rosa de la escena)
+//   ¶ ◆ ◈        árbol de notas: nota, región compartida, promovida;  ≡ índice de la memoria
+//   ✎ ⌨ $        Ajustes: se cambia aquí, solo en terminal, lo fija una variable de entorno
+//   ● ○ ?        Biblioteca: activado, desactivado, no se sabe
+//   candado SVG  solo lectura (sin clave de sesión)
+//   ✓ ✕ !        hecho/aceptado, fallo/rechazado, atención
 // Qué filas de cada sección tienen un detalle que pedir al servidor (por prefijo de clave).
 const DETALLE = { inicio: 'j', trabajos: 'j', rutinas: 'r', acciones: 'a', boveda: 'b', memoria: 'm', equipos: 'q' };
-const RIESGO = { lectura: '○', reversible: '◐', irreversible: '●' };
+const RIESGO = { lectura: '□', reversible: '◧', irreversible: '■' };
 // Estados de un trabajo: glifo y palabra. El orden es el del recorrido.
 const EST = {
-  en_cola: ['○', 'en cola'], ejecutando: ['◐', 'ejecutando'], en_revision: ['◇', 'en revisión'],
+  en_cola: ['○', 'en cola'], ejecutando: ['◐', 'ejecutando'], en_revision: ['◕', 'en revisión'],
   en_espera: ['!', 'en espera'], cerrado: ['●', 'cerrado'], cancelado: ['⊘', 'cancelado'],
 };
 const FINAL = ['cerrado', 'cancelado'];
@@ -1590,7 +1602,7 @@ EDITOR.memoria = {
         d: p.id, etiqueta: et.get(p.id), titulo: p.cwd ?? p.id, cuenta: p.ficheros.length,
         hijos: fs.map(f => ({
           k: claveMem(p.id, f.nombre), nombre: f.nombre.replace(/\.md$/, ''), titulo: f.descripcion ?? f.titulo ?? f.nombre,
-          icono: f.nombre === INDICE ? '≡' : '◇', iconoTitulo: f.nombre === INDICE ? 'índice de las memorias' : 'memoria',
+          icono: f.nombre === INDICE ? '≡' : '¶', iconoTitulo: f.nombre === INDICE ? 'índice de las memorias' : 'memoria',
         })),
       };
     }).filter(g => g.hijos.length);
@@ -1847,8 +1859,8 @@ EDITOR.boveda = {
       dir(carpetaDe(n.ruta)).hijos.push({
         k: 'b' + n.ruta, nombre: n.ruta.split('/').pop().replace(/\.md$/, ''),
         titulo: n.titulo + (n.autor ? ' · ' + (NOMBRE[n.autor] ?? n.autor) : ''),
-        icono: n.region === 'compartida' ? '◆' : promovida ? '◈' : '◇',
-        iconoTitulo: n.region + (promovida ? ' · promovida' : ''),
+        icono: n.region === 'compartida' ? '◆' : promovida ? '◈' : '¶',
+        iconoTitulo: (n.region === 'compartida' ? 'región compartida' : promovida ? 'promovida' : 'nota') + (n.region !== 'compartida' ? ' · ' + n.region : ''),
       });
     }
     const ordena = n => {
@@ -2442,7 +2454,7 @@ function filasBiblioteca(d) {
     out.push(suelto(`<p class="aj-cab m" title="${esc(d.avisos.join('\n'))}">${d.avisos.length} ${d.avisos.length === 1 ? 'aviso' : 'avisos'} al leer: ${esc(d.avisos[0])}${d.avisos.length > 1 ? ' …' : ''}</p>`, true));
   }
   if (!els.length) return out;
-  out.push(columnas('l', '', 'nombre', 'agente', 'ámbito', 'usos'));
+  out.push(columnas('l', '<abbr title="● activado · ○ desactivado · ? no se sabe si está activado">●○?</abbr>', 'nombre', 'agente', 'ámbito', 'usos'));
   const cats = [...new Set(els.map(e => e.categoria))].sort((a, b) => a.localeCompare(b));
   for (const c of cats) {
     const deC = els.filter(e => e.categoria === c);
@@ -2702,7 +2714,7 @@ async function accionEquipo(a, b) {
 function filaAjuste(c) {
   const fijada = !!c.fijada_por;
   const web = c.edicion === 'web' && !fijada;
-  const [glifo, tit] = fijada ? ['⊘', `la fija la variable ${c.fijada_por}`] : web ? ['◐', 'se cambia desde aquí'] : ['⌨', 'solo desde una terminal (ea ajustes)'];
+  const [glifo, tit] = fijada ? ['$', `la fija la variable de entorno ${c.fijada_por}`] : web ? ['✎', 'se cambia desde aquí'] : ['⌨', 'solo desde una terminal (ea ajustes)'];
   const reinicia = c.aplica === 'reinicio';
   const row = `<i class="${fijada ? 'n' : 'm'}" title="${esc(tit)}">${glifo}</i><span class="x" title="${esc(c.clave)}">${esc(c.titulo)}</span>` +
     `<span class="${c.origen.tipo === 'defecto' ? 'm' : 'x'}" title="${esc(valorAj(c.valor))}">${esc(valorAj(c.valor))}</span>` +
@@ -2736,7 +2748,7 @@ function filaAjuste(c) {
 function filasAjustes(d) {
   const out = [suelto(`<p class="aj-cab m">${esc(d.fichero)}${d.existe ? '' : ' · aún no existe: todo sale de otras capas'}</p>` +
     d.avisos.map(a => `<p class="aj-cab hot">! ${esc(a)}</p>`).join(''), true)];
-  out.push(columnas('aj', '', 'ajuste', 'valor', 'origen', 'aplica'));
+  out.push(columnas('aj', '<abbr title="✎ se cambia desde el panel · ⌨ solo desde una terminal · $ lo fija una variable de entorno">✎⌨$</abbr>', 'ajuste', 'valor', 'origen', 'aplica'));
   d.secciones.forEach(s => {
     if (!s.claves.length) return;
     out.push(grupo(GL_AJUSTES, esc(s.titulo), 0), ...s.claves.map(filaAjuste));
@@ -2848,7 +2860,7 @@ function tableroJ() {
   return suelto('<div class="tablero t5">' +
     col('○ En cola', 'esperan al ejecutor', por('en_cola')) +
     col('◐ Ejecutando', 'el ejecutor trabaja', por('ejecutando')) +
-    col('◇ En revisión', 'esperan al planificador', por('en_revision')) +
+    col('◕ En revisión', 'esperan al planificador', por('en_revision')) +
     col('! En espera', 'esperan tu confirmación', por('en_espera')) +
     col('● Cerrados', 'los últimos, con su informe', cerrados) + '</div>');
 }
@@ -3355,6 +3367,33 @@ async function tick() {
 
 // ------------------------------------------------------------------ acciones
 
+// «Más» del raíl en pantallas estrechas: una hoja con las secciones que no caben en la barra.
+// Los botones son los mismos del raíl (contadores y sección activa incluidos).
+function masAbierto() { return $('#rail').classList.contains('mas'); }
+function masCierra(foco = false) {
+  if (!masAbierto()) return;
+  $('#rail').classList.remove('mas');
+  $('#bmas').setAttribute('aria-expanded', 'false');
+  if (foco) $('#bmas').focus();
+}
+function masAlterna() {
+  if (masAbierto()) return masCierra(true);
+  $('#rail').classList.add('mas');
+  $('#bmas').setAttribute('aria-expanded', 'true');
+  ($('#mas-hoja button.on') ?? $('#mas-hoja button'))?.focus();
+}
+// El aviso de «Más» resume los contadores de lo que esconde (rojo si alguno lo es).
+function masAviso() {
+  const bs = $$('#mas-hoja b').filter(b => b.textContent);
+  const b = $('#bmas b');
+  const n = bs.reduce((a, x) => a + (parseInt(x.textContent, 10) || 1), 0);
+  const txt = n ? String(n) : '', cls = bs.some(x => x.classList.contains('hot')) ? 'hot' : '';
+  if (b.textContent !== txt) b.textContent = txt;
+  if (b.className !== cls) b.className = cls;
+}
+new MutationObserver(masAviso).observe($('#mas-hoja'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+$('#rail').addEventListener('focusout', ev => { if (masAbierto() && ev.relatedTarget && !$('#rail').contains(ev.relatedTarget)) masCierra(); });
+
 // Lo que cambia con la sección fuera de la lista: título y cuadros.
 function marco() {
   const [nombre] = TITULOS[st.sec];
@@ -3366,6 +3405,7 @@ function marco() {
     b.classList.toggle('on', b.dataset.s === st.sec);
     if (b.dataset.s === st.sec) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
+  masCierra();
   $('#barra').hidden = st.sec === 'inicio'; // la portada no es una lista que filtrar
   $('#escena').hidden = st.sec !== 'inicio';
   $('#lista').classList.toggle('vista-mem', !!EDITOR[st.sec]);
@@ -3956,6 +3996,8 @@ document.addEventListener('click', ev => {
   const E = EDITOR[st.sec] && ed();
   if (E?.menu && !t.closest('.menu, [data-a="menu-nota"]')) { E.menu = false; pintar(); }
   if (E?.menuCarpeta && !t.closest('.menu, [data-a="carpeta-menu"]')) { E.menuCarpeta = null; pintar(); }
+  if (masAbierto() && !t.closest('#rail')) masCierra();
+  if (t.closest('#bmas')) return masAlterna();
   const rail = t.closest('#rail button[data-s]');
   if (rail) return ir(rail.dataset.s);
   if (t.closest('#bayuda')) return ayuda($('#ayuda').hidden);
@@ -4171,6 +4213,7 @@ document.addEventListener('keydown', ev => {
   const t = ev.target;
   const enCampo = t.matches('input, textarea, select');
   if (ev.key === 'Escape' && !$('#ayuda').hidden) return ayuda(false);
+  if (ev.key === 'Escape' && masAbierto()) return masCierra(true);
   if (EDITOR[st.sec]) {
     const E = ed();
     const tecla = ev.key.toLowerCase();
@@ -4248,14 +4291,12 @@ document.addEventListener('keydown', ev => {
   if (enCampo || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('[data-pt]')) { ev.preventDefault(); abre('trabajos', 'j' + t.dataset.pt); return; }
   if ((ev.key === 'Enter' || ev.key === ' ') && t.matches('#lista [data-k]')) { ev.preventDefault(); st.sel = t.dataset.k; alterna(t.dataset.k); return; }
-  if (ev.key === '0') { ir('ajustes'); return; }
-  const n = Number(ev.key);
-  if (n >= 1 && n <= 9 && n <= SECCIONES.length) { ir(SECCIONES[n - 1]); return; }
+  if (/^[0-9]$/.test(ev.key)) { const sec = SECCIONES[(Number(ev.key) + 9) % 10]; if (sec) ir(sec); return; }
+  const porLetra = Object.keys(TECLA_SECCION).find(k => TECLA_SECCION[k] === ev.key);
+  if (porLetra) { ir(porLetra); return; }
   if (ev.key === 'p') proyectos(true);
   else if (ev.key === '?') { ev.preventDefault(); ayuda($('#ayuda').hidden); }
   else if (ev.key === 't') tour.iniciar();
-  else if (ev.key === 'b') ir('biblioteca');
-  else if (ev.key === 'e') ir('equipos');
   else if (ev.key === '/') { ev.preventDefault(); $('#q').focus(); }
   else if (ev.key === 'j') mover(1);
   else if (ev.key === 'k') mover(-1);

@@ -46,10 +46,26 @@ i { font-style: normal; text-align: center; }
   width: 84px; height: 52px; padding: 0; color: var(--fg-lo); border-radius: 0;
 }
 #rail i { font-size: 18px; line-height: 1; }
+@media (max-width: 1200px) { #rail button { width: 68px; } #rail b { right: 8px; } }
+@media (max-width: 1100px) { #rail .grp { padding-top: 0; } #rail .grp em { display: none; } #rail .grp + .grp:not(.cont)::before { top: 8px; bottom: 8px; } }
 #rail span { font-size: 11px; }
 /* glifo SVG (Ajustes): mide como un glifo de texto, hereda el color */
-.gl { width: 1em; height: 1em; vertical-align: -.125em; }
+.gl { width: 1em; height: 1em; vertical-align: -.125em; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 #rail i { display: flex; align-items: center; justify-content: center; }
+#rail i .gl { width: 20px; height: 20px; }
+/* grupos del raíl: Trabajo · Conocimiento · Herramientas · Sistema */
+#rail .grp { position: relative; display: flex; gap: 4px; padding-top: 10px; }
+#rail .grp + .grp:not(.cont), #rail #mas-hoja { margin-left: 0; }
+#rail .grp + .grp:not(.cont) { margin-left: 8px; padding-left: 9px; }
+#rail .grp + .grp:not(.cont)::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 6px; width: 1px; background: var(--line); }
+#rail .grp em { position: absolute; top: 0; left: 10px; font-style: normal; font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--fg-dim); white-space: nowrap; pointer-events: none; }
+#rail .grp.cont em { display: none; }
+#rail .grp + .grp:not(.cont) em { left: 19px; }
+#rail #mas-hoja { display: contents; }
+#rail #bmas { display: none; }
+.hoja kbd { font: inherit; color: var(--fg-dim); margin-left: 4px; }
+.hoja dt.grupo { grid-column: 1 / -1; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); margin-top: 6px; }
+.hoja dt.grupo + dd { display: none; }
 #rail button:hover { color: var(--fg-hi); background: none; }
 #rail button.on { color: var(--fg-hi); }
 #rail button.on::before {
@@ -443,9 +459,26 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   #rail #bproy { margin-left: 0; }
   #rail #bproy::after { display: none; }
   #rail { gap: 0; padding: 4px 0; justify-content: space-around; }
-  #rail button { width: 44px; }
+  #rail button { width: 56px; }
   #rail span { display: none; }
-  #rail b { right: 4px; }
+  #rail b { right: 6px; }
+  #rail .grp { padding-top: 0; gap: 0; }
+  #rail #bmas { display: flex; }
+  #rail #bmas.on { color: var(--fg-hi); }
+  /* «Más»: hoja con el resto de secciones agrupadas, sobre la barra */
+  #rail #mas-hoja { display: none; }
+  #rail.mas #mas-hoja {
+    display: block; position: fixed; left: 8px; right: 8px; bottom: 66px; z-index: 6; max-height: calc(100vh - 90px); overflow-y: auto;
+    padding: 8px 10px 10px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .4);
+  }
+  #rail.mas #mas-hoja .grp { display: block; padding: 0; margin: 0; }
+  #rail.mas #mas-hoja .grp + .grp::before { display: none; }
+  #rail.mas #mas-hoja .grp em { display: block; position: static; margin: 8px 2px 2px; }
+  #rail.mas #mas-hoja .grp.cont em { display: block; }
+  #rail.mas #mas-hoja .grp > button { display: inline-flex; flex-direction: row; gap: 8px; width: auto; min-width: 44%; height: 44px; padding: 0 10px; justify-content: flex-start; }
+  #rail.mas #mas-hoja .grp > button.on::before { left: 0; right: auto; top: 10px; bottom: 10px; width: 3px; height: auto; border-radius: 0 3px 3px 0; }
+  #rail.mas #mas-hoja span { display: inline; }
+  #rail.mas #mas-hoja b { top: 6px; right: auto; left: 26px; }
   #aviso { left: 12px; max-width: calc(100vw - 24px); }
   .actores, .tablero { grid-template-columns: 1fr; }
   .tablero.t5 { grid-template-columns: 1fr; }
@@ -651,3 +684,6 @@ button.coin .ranura i { display: block; width: 3px; height: 11px; border-radius:
   .ev.rv > :nth-child(3) { display: none; }
   .ev.rv > :nth-child(4) { display: block; }
 }
+
+abbr[title] { text-decoration: none; cursor: help; }
+@media (min-width: 1101px) { #rail #bproy { margin-top: 10px; } }
