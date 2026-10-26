@@ -104,18 +104,18 @@ mod pruebas {
     fn destinos_de_un_paquete_por_sistema() {
         let home = Path::new("/home/ana");
         let l = destinos(Sistema::Linux, &Origen::Paquete, home, sin_var);
-        assert_eq!(l.bin, PathBuf::from("/home/ana/.local/share/ecosistema-asistente/bin"));
-        assert_eq!(l.flujo, PathBuf::from("/home/ana/.local/share/ecosistema-asistente/flujo"));
-        assert_eq!(l.datos, PathBuf::from("/home/ana/.local/share/ecosistema-asistente"));
+        assert_eq!(l.bin.to_string_lossy().replace('\\', "/"), "/home/ana/.local/share/ecosistema-asistente/bin");
+        assert_eq!(l.flujo.to_string_lossy().replace('\\', "/"), "/home/ana/.local/share/ecosistema-asistente/flujo");
+        assert_eq!(l.datos.to_string_lossy().replace('\\', "/"), "/home/ana/.local/share/ecosistema-asistente");
 
         let x = destinos(Sistema::Linux, &Origen::Paquete, home, |n| (n == "XDG_DATA_HOME").then(|| "/datos".to_string()));
-        assert_eq!(x.bin, PathBuf::from("/datos/ecosistema-asistente/bin"));
+        assert_eq!(x.bin.to_string_lossy().replace('\\', "/"), "/datos/ecosistema-asistente/bin");
         // Una XDG_DATA_HOME relativa no vale (la especificación XDG la ignora).
         let r = destinos(Sistema::Linux, &Origen::Paquete, home, |n| (n == "XDG_DATA_HOME").then(|| "datos".to_string()));
         assert_eq!(r.bin, l.bin);
 
         let m = destinos(Sistema::MacOs, &Origen::Paquete, Path::new("/Users/ana"), sin_var);
-        assert_eq!(m.bin, PathBuf::from("/Users/ana/Library/Application Support/ecosistema-asistente/bin"));
+        assert_eq!(m.bin.to_string_lossy().replace('\\', "/"), "/Users/ana/Library/Application Support/ecosistema-asistente/bin");
 
         let w = destinos(Sistema::Windows, &Origen::Paquete, Path::new("C:/Users/ana"), |n| {
             (n == "LOCALAPPDATA").then(|| "C:/Users/ana/AppData/Local".to_string())
@@ -131,7 +131,7 @@ mod pruebas {
         let d = destinos(Sistema::Linux, &Origen::Clon { repo: repo.clone() }, Path::new("/home/ana"), sin_var);
         assert_eq!(d.bin, repo.join("target/release"));
         assert_eq!(d.flujo, repo.join("agentes/flujo"));
-        assert_eq!(d.datos, PathBuf::from("/home/ana/.local/share/ecosistema-asistente"));
+        assert_eq!(d.datos.to_string_lossy().replace('\\', "/"), "/home/ana/.local/share/ecosistema-asistente");
     }
 
     #[test]

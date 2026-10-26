@@ -306,7 +306,10 @@ mod pruebas {
     #[test]
     fn el_guion_de_systemd_es_idempotente() {
         let Some(sh) = ea_plataforma::rutas::buscar_en_path("sh") else { return };
-        if ea_plataforma::rutas::buscar_en_path("sed").is_none() || ea_plataforma::Sistema::actual() == ea_plataforma::Sistema::Windows {
+        // El guion corre dentro de WSL, con el `sed` de GNU (`sed -i`
+        // sin sufijo, `a` en una línea): el de macOS o BSD no vale aquí.
+        let gnu = std::process::Command::new("sed").arg("--version").output().is_ok_and(|s| s.status.success());
+        if !gnu || ea_plataforma::Sistema::actual() == ea_plataforma::Sistema::Windows {
             return;
         }
         let d = tempfile::tempdir().unwrap();
