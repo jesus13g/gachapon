@@ -473,6 +473,14 @@ pub enum Paso {
     /// Windows).
     EscribirUtf16 { ruta: PathBuf, contenido: String },
     Borrar(PathBuf),
+    /// Copia un fichero (sustituye el destino; conserva los permisos). Crea
+    /// la carpeta del destino si falta.
+    Copiar { origen: PathBuf, destino: PathBuf },
+    /// Hace que `destino` apunte a `origen` (`ea_plataforma::fs::enlazar`:
+    /// enlace simbólico; en Windows sin privilegio, una copia). Si ya hay un
+    /// enlace o un fichero en `destino`, lo sustituye; una carpeta real no
+    /// se toca y es un error.
+    Enlazar { origen: PathBuf, destino: PathBuf },
     /// Una orden externa; con `tolerar`, si falla se sigue (p. ej. parar lo
     /// que ya estaba parado). Con `reintentos`, si falla se vuelve a probar
     /// (hasta ese número de veces más) con una espera corta entre intentos
@@ -487,6 +495,8 @@ impl Paso {
             Paso::CrearDir(d) => format!("crear la carpeta {}", d.display()),
             Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } => format!("escribir {}", ruta.display()),
             Paso::Borrar(r) => format!("borrar {}", r.display()),
+            Paso::Copiar { origen, destino } => format!("copiar {} a {}", origen.display(), destino.display()),
+            Paso::Enlazar { origen, destino } => format!("enlazar {} → {}", destino.display(), origen.display()),
             Paso::Ejecutar { argv, tolerar, .. } => format!("ejecutar {}{}", argv.join(" "), if *tolerar { " (si falla, se sigue)" } else { "" }),
         }
     }
@@ -705,6 +715,8 @@ pub fn aplicar_con_espera(
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(format!("no se pudo borrar {}: {e}", r.display())),
             },
+            Paso::Copiar { origen, destino } => copiar(origen, destino)?,
+            Paso::Enlazar { origen, destino } => enlazar(origen, destino)?,
             Paso::Ejecutar { argv, tolerar, reintentos } => {
                 let mut resultado = correr(argv);
                 for _ in 0..*reintentos {
@@ -724,6 +736,37 @@ pub fn aplicar_con_espera(
         hecho.push(paso.describir());
     }
     Ok(hecho)
+}
+
+fn crear_padre(ruta: &Path) -> Result<(), String> {
+    match ruta.parent() {
+        Some(d) if !d.as_os_str().is_empty() => std::fs::create_dir_all(d).map_err(|e| format!("no se pudo crear {}: {e}", d.display())),
+        _ => Ok(()),
+    }
+}
+
+fn copiar(origen: &Path, destino: &Path) -> Result<(), String> {
+    crear_padre(destino)?;
+    // Un enlace en el destino se quita antes: copiar a través de él
+    // escribiría en el fichero apuntado.
+    if std::fs::symlink_metadata(destino).is_ok_and(|m| m.file_type().is_symlink()) {
+        std::fs::remove_file(destino).map_err(|e| format!("no se pudo quitar el enlace {}: {e}", destino.display()))?;
+    }
+    std::fs::copy(origen, destino).map(|_| ()).map_err(|e| format!("no se pudo copiar {} a {}: {e}", origen.display(), destino.display()))
+}
+
+fn enlazar(origen: &Path, destino: &Path) -> Result<(), String> {
+    crear_padre(destino)?;
+    if let Ok(m) = std::fs::symlink_metadata(destino) {
+        if m.file_type().is_symlink() || m.is_file() {
+            std::fs::remove_file(destino)
+                .or_else(|e| std::fs::remove_dir(destino).map_err(|_| e))
+                .map_err(|e| format!("no se pudo sustituir {}: {e}", destino.display()))?;
+        } else {
+            return Err(format!("{} es una carpeta real; no se sustituye por un enlace", destino.display()));
+        }
+    }
+    ea_plataforma::fs::enlazar(origen, destino).map(|_| ()).map_err(|e| format!("no se pudo enlazar {}: {e}", destino.display()))
 }
 
 /// Lanza una orden externa de verdad (sin shell) y devuelve su error.
