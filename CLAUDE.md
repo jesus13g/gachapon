@@ -37,6 +37,8 @@ cargo test --workspace     # toda la suite (unas 380 pruebas)
 cargo test -p ea-bus       # un solo crate
 systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en release (Linux)
 ./target/release/ea servicios ver|instalar|desinstalar   # unidades con la ruta real: systemd --user, launchd (macOS) o schtasks (Windows)
+./instalar.sh              # instalación en un paso desde el clon (compila y ejecuta `ea instalar`; spec 023)
+./target/release/ea instalar|desinstalar   # todo: binarios, PATH, adaptadores, MCP, hook, servicios y app (TTY y una confirmación)
 ```
 
 `ea` no está en el `PATH`: usa `./target/release/ea`. Los servicios `systemd
@@ -61,10 +63,16 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 
 Fuera de `crates/`: `escritorio/` (app de escritorio `ea-escritorio`, spec 021;
 crate propio **fuera del workspace**, con su `Cargo.toml` y su CI; se compila con
-`cargo build --release --manifest-path escritorio/Cargo.toml`), `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
+`cargo build --release --manifest-path escritorio/Cargo.toml`), `instalador/`
+(`gachapon-instalar.exe`, spec 023; también fuera del workspace: lleva dentro los
+binarios de Windows de `GACHAPON_BINARIOS` y lanza `ea instalar`), `instalar.sh` e
+`instalar.ps1` (los scripts de un paso; Pages los sirve y `release.yml` publica los
+paquetes al subir un tag `v*`), `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
 `/revisar`, `/equipo`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
 vivas), `claude/hooks/` (envoltorio del hook de subagentes; el trabajo lo hace `ea hook subagentes`), `qwen/skills/`
-(skills cortas de Qwen) y `bench/` (banco de pruebas en Python, ajeno a los
+(skills cortas de Qwen; `ea instalar` las copia a `agente.skills.dir` y lleva
+embebidos `claude/skills`, `agentes/` y `qwen/skills`: al añadir un fichero ahí, una
+prueba de `ea-acciones` exige registrarlo en `instalacion/recursos.rs`) y `bench/` (banco de pruebas en Python, ajeno a los
 binarios).
 
 Estado en ejecución: ajustes en `~/.config/ecosistema-asistente/ajustes.toml`

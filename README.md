@@ -99,8 +99,9 @@ uno en la nube. Un mismo agente no ocupa los dos roles a la vez.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Rust stable y Git | sí | sí | sí |
-| Sandbox del ejecutor | `bubblewrap` (`bwrap`) | incluido (`sandbox-exec`) | no hay: usa **WSL2** |
+| Rust stable | solo para compilar desde el código | ídem | ídem |
+| Git | sí | sí | sí |
+| Sandbox del ejecutor | `bubblewrap` (`bwrap`) | incluido (`sandbox-exec`) | no hay: usa **WSL2** (el instalador lo prepara) |
 | Servicios | `systemd --user` | `launchd` | Programador de tareas |
 
 Además:
@@ -115,86 +116,97 @@ Además:
 - Para la app de escritorio en Linux: WebKitGTK 4.1 (`libwebkit2gtk-4.1`) y
   `libayatana-appindicator3`.
 
+El instalador detecta todo esto y ofrece instalar lo que falte con tu gestor de
+paquetes (`pacman`, `apt`, `dnf`, `zypper`, `brew` o `winget`).
+
 ## Inicio rápido
 
-Los comandos son para Linux; macOS es igual salvo `bwrap`. En Windows, sigue los
-pasos dentro de WSL2.
+### 1. Instala en un paso
 
-### 1. Compila
+**Linux y macOS:**
+
+```bash
+curl -fsSL https://jesus13g.github.io/gachapon/instalar.sh | sh
+```
+
+**Windows** (PowerShell; o descarga y ejecuta `gachapon-instalar.exe` de la
+[última Release](https://github.com/jesus13g/gachapon/releases/latest)):
+
+```powershell
+irm https://jesus13g.github.io/gachapon/instalar.ps1 | iex
+```
+
+El instalador (`ea instalar`) hace esto:
+
+1. Comprueba lo que hace falta: sandbox, WebView, git, `llama-server`, el modelo
+   local y los agentes.
+2. Ofrece instalar lo que falte. Cada oferta pide su propia confirmación.
+3. Enseña el plan completo y pide **una** confirmación escrita.
+4. Deja instalados:
+   - los binarios, con `ea` en el `PATH`;
+   - los servicios (`systemd --user`, `launchd` o el Programador de tareas) en
+     marcha;
+   - la app de escritorio en el menú del sistema, arrancando con la sesión;
+   - las skills del ejecutor;
+   - el adaptador de cada agente que tengas instalado;
+   - el MCP y el hook de subagentes en Claude Code.
+5. Comprueba que el panel y el MCP responden y ofrece abrir la app.
+
+En **Windows** pregunta la vía:
+
+- **WSL2 (recomendada).** Instala WSL si falta; pide permiso de administrador y
+  un reinicio, y después sigue solo. Pone gachapon dentro de WSL con el mismo
+  aislamiento que en Linux y la app de escritorio nativa en Windows.
+- **Nativa.** Sin aislamiento del ejecutor. Solo se instala si escribes
+  `sin sandbox`.
+
+Los binarios no están firmados: SmartScreen avisará («Más información →
+Ejecutar de todos modos»).
+
+Hay dos cosas que el instalador no puede hacer por ti, y te las recuerda al
+final con la orden exacta:
+
+- **Iniciar sesión** en cada agente (por ejemplo, `claude`).
+- **Arrancar el modelo local.** Si tu GPU tiene memoria suficiente, ofrece
+  descargarlo, y te da la orden de `llama-server` (por defecto se espera en
+  `http://127.0.0.1:8080/v1` con el nombre `qwen3-coder-30b`). ¿Otro modelo u
+  otro puerto? `ea ajustes establecer modelos.local.nombre=mi-modelo
+  modelos.local.base_url=http://127.0.0.1:8081/v1` (se aplica en caliente).
+
+Repetir el comando **actualiza** sin duplicar nada. `ea desinstalar` lo quita
+todo, salvo tus datos (base de datos, bóveda y ajustes).
+
+### 2. Desde el código (desarrollo)
 
 ```bash
 git clone https://github.com/jesus13g/gachapon.git
 cd gachapon
-cargo build --release
+./instalar.sh
 ```
 
-Los binarios quedan en `target/release/` (`ea`, `ea-orchestrator`, `ea-mcp`,
-`ea-web`). `ea` no se instala en el `PATH`: llámalo como `./target/release/ea`
-o crea un alias:
+Compila en release (también la app, si están sus dependencias) y ejecuta
+`target/release/ea instalar`. En este modo los servicios usan `target/release`:
+tras un `cargo build --release` basta reiniciarlos. Si el clon está en
+`~/Proyectos/ecosistema-asistente`, las skills de Claude Code quedan enlazadas al
+repo. La instalación paso a paso está en el manual
+([Instalación por sistema](docs/manual.md#instalación-por-sistema)).
 
-```bash
-alias ea="$PWD/target/release/ea"
-```
-
-### 2. Arranca el modelo local
-
-```bash
-llama-server -m /ruta/a/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
-  --alias qwen3-coder-30b --host 127.0.0.1 --port 8080 --jinja -c 65536
-```
-
-¿Otro modelo, otro puerto? Díselo a gachapon (se aplica en caliente):
-
-```bash
-ea ajustes establecer modelos.local.nombre=mi-modelo modelos.local.base_url=http://127.0.0.1:8081/v1
-```
-
-### 3. Instala los servicios
-
-```bash
-ea servicios ver        # qué instalaría; no cambia nada
-ea servicios instalar   # pide confirmación escrita en la terminal
-```
-
-Esto registra y arranca `ea-orchestrator`, `ea-mcp` y `ea-web` en el gestor de
-servicios de tu sistema, con la ruta real de los binarios. Comprueba que todo
-está en marcha:
+### 3. Comprueba
 
 ```bash
 ea status     # orquestador, roles, trabajos, colas y semáforos
 ea agentes    # qué agente ocupa cada rol y si su modelo responde
 ```
 
-### 4. Conecta el planificador
+¿Usas Codex, OpenCode o Antigravity como planificador? Si están en el `PATH`
+al instalar, sus adaptadores se instalan solos; los detalles están en el manual
+([Adaptadores del planificador](docs/manual.md#adaptadores-del-planificador)).
 
-Registra el servidor MCP y enlaza las skills en Claude Code:
+El panel se abre con la app de escritorio, que le pasa la clave de sesión y
+así puedes aceptar propuestas y lanzar trabajos. En el navegador
+(`http://localhost:8092`) funciona en **solo lectura**.
 
-```bash
-claude mcp add --transport http --scope user ea-ecosistema http://127.0.0.1:8765/mcp
-
-mkdir -p ~/.claude/skills
-for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
-done
-```
-
-¿Usas Codex, OpenCode o Antigravity como planificador? Sus adaptadores están en
-`agentes/`; los pasos, en el manual ([Adaptadores del
-planificador](docs/manual.md#adaptadores-del-planificador)).
-
-### 5. Abre el panel
-
-```bash
-cargo build --release --manifest-path escritorio/Cargo.toml
-./escritorio/target/release/ea-escritorio
-```
-
-La app de escritorio entrega al panel su clave de sesión, así que puedes
-aceptar propuestas y lanzar trabajos desde él. Si lo abres en el navegador
-(`http://localhost:8092`) funciona en **solo lectura**; en Linux con Hyprland,
-`crates/ea-web/bin/ea-web-open` lo abre con la clave.
-
-### 6. Lanza tu primera misión
+### 4. Lanza tu primera misión
 
 Desde Claude Code, en cualquier repositorio:
 

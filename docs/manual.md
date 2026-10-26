@@ -27,6 +27,7 @@ En los ejemplos, `ea` es `./target/release/ea` (no se instala en el `PATH`).
 - [Hook de subagentes](#hook-de-subagentes)
 - [Skills de Qwen](#skills-de-qwen)
 - [Instalación por sistema](#instalación-por-sistema)
+  - [Instalación en un paso](#instalación-en-un-paso)
   - [Requisitos](#requisitos)
   - [Compilar e instalar los servicios](#compilar-e-instalar-los-servicios)
   - [Dónde queda cada cosa](#dónde-queda-cada-cosa)
@@ -400,8 +401,9 @@ Las instrucciones del planificador son una **guía neutral común** más un
 | revisar | Consume la cola del planificador (`ea cola planificador`): `ea trabajo ver`, `diff` si hace falta, y cierra, reformula o continúa |
 | equipo | Dentro de un equipo despierto: el planificador parte el objetivo y reparte con `ea trabajo crear --equipo --asignar … --worktree-propio`; el revisor revisa su cola y solo propone |
 
-Los adaptadores se instalan con enlaces simbólicos (nada se instala solo en tu
-HOME; los comandos se ejecutan desde la raíz del repo). Un agente solo necesita
+`ea instalar` instala el adaptador de cada agente que esté en el `PATH` (ver
+[Instalación en un paso](#instalación-en-un-paso)). A mano, se instalan con
+enlaces simbólicos (los comandos se ejecutan desde la raíz del repo). Un agente solo necesita
 el suyo, y solo si va a ser planificador.
 
 | Agente | Adaptador | Formato | Destino |
@@ -553,7 +555,8 @@ release** (`cargo build --release`): un `ea` anterior no tiene el subcomando
 Qwen corre con `--bare`, así que no carga nada por su cuenta. Tiene una batería
 propia de skills cortas (~150-250 tokens cada una) en `qwen/skills/<nombre>.md`:
 `explorar`, `rust`, `python`, `tests`, `depurar`, `refactor`, `shell`,
-`documentar` y `resumir`. Ninguna va activa por defecto. Cada trabajo lleva en su
+`documentar` y `resumir`. `ea instalar` las copia a `agente.skills.dir` (por
+defecto `<config>/qwen-skills`). Ninguna va activa por defecto. Cada trabajo lleva en su
 orden el campo `skills` (y cada fase de una obra puede llevar las suyas), y el
 orquestador inyecta solo esas en el system prompt de Qwen con
 `--append-system-prompt`. El texto inyectado queda en
@@ -596,6 +599,134 @@ Linux, macOS y Windows (spec 020, issue #2). El comportamiento en Linux no
 cambia. El aislamiento por sistema lo fija la
 [enmienda 1.5.0 de la constitución](#limitaciones-y-garantías-por-sistema),
 aprobada el 2026-10-22.
+
+### Instalación en un paso
+
+Spec 023. Un solo comando por sistema consigue los binarios y le pasa el
+control a `ea instalar`, que hace todo lo demás:
+
+| Sistema | Comando |
+|---|---|
+| Linux y macOS | `curl -fsSL https://jesus13g.github.io/gachapon/instalar.sh \| sh` |
+| Windows | `gachapon-instalar.exe` de la última Release, o `irm https://jesus13g.github.io/gachapon/instalar.ps1 \| iex` |
+| Desde un clon | `./instalar.sh` (compila y ejecuta `target/release/ea instalar`) |
+
+Cada uno consigue los binarios de una forma distinta:
+
+- **`instalar.sh` desde un clon:** compila el workspace y `escritorio/`; si la
+  app no compila por falta de WebKitGTK, sigue sin ella.
+- **`instalar.sh` fuera de un clon:** descarga
+  `gachapon-<objetivo>.tar.gz` de la última Release, comprueba su SHA-256 con
+  `SHA256SUMS` y lo extrae en un temporal.
+  - Objetivos: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` y
+    `universal-apple-darwin`.
+  - `GACHAPON_VERSION=v1.2.3` fija una versión.
+- **`gachapon-instalar.exe`:** lleva dentro los binarios de Windows, los extrae
+  en `%TEMP%` y ejecuta `ea.exe instalar` en la misma consola.
+
+```text
+ea instalar [--via wsl|nativa] [--distro Ubuntu] [--sin-escritorio] [--sin-dependencias] [--continuar]
+ea desinstalar [--esperar]
+```
+
+**Qué hace `ea instalar`:**
+
+1. **Exige una terminal real.** Sin TTY no hace nada. Tampoco instala como
+   root: los servicios son del usuario.
+2. **Dependencias** (salvo con `--sin-dependencias`). Detecta lo que falta y
+   ofrece cada pieza con su propia pregunta:
+   - el sandbox (`bwrap`);
+   - WebKitGTK y la bandeja (Linux), WebView2 y el `sh` de Git for Windows;
+   - `git` y `llama-server`;
+   - el modelo por defecto, si la VRAM o la memoria unificada da para él (la
+     lista de descargas vive en `ea-ajustes`, art. VII);
+   - Claude Code y Qwen Code.
+
+   Lo que pide `sudo` o UAC lo avisa antes.
+3. **Plan y una confirmación.** Enseña todos los pasos con sus rutas y pide una
+   sola confirmación escrita.
+4. **Aplica**, en este orden:
+   1. para los servicios instalados;
+   2. copia los binarios (según el origen, abajo);
+   3. pone `ea` en el `PATH`;
+   4. crea `ajustes.toml` si no existe;
+   5. copia las guías `agentes/flujo` y las skills del ejecutor a
+      `agente.skills.dir`;
+   6. instala el adaptador de cada agente del catálogo que esté en el `PATH`;
+   7. registra el MCP (`claude mcp add … ea-ecosistema`) y fusiona el hook de
+      subagentes en `~/.claude/settings.json` (deja una copia `.bak`);
+   8. instala y arranca los servicios;
+   9. crea la entrada de la app en el menú y fija `escritorio.al_iniciar = true`.
+5. **Verifica.** Espera a que respondan `ea-web` y `ea-mcp`, enseña los
+   agentes, lista lo que queda en tus manos (iniciar sesión en cada agente y
+   arrancar el modelo, con la orden exacta) y ofrece abrir la app.
+
+**Según el origen de los binarios:**
+
+| | Desde un paquete (Release) | Desde un clon (`target/release`) |
+|---|---|---|
+| Binarios | Se copian a `~/.local/share/ecosistema-asistente/bin` (Linux), `~/Library/Application Support/ecosistema-asistente/bin` (macOS) o `%LOCALAPPDATA%\Programs\gachapon` (Windows) | Se quedan en `target/release`: recompilar y reiniciar los servicios basta |
+| `ea` en el `PATH` | Enlace en `~/.local/bin/ea` (si esa carpeta no está en el `PATH`, añade un bloque marcado a `~/.profile` o `~/.zprofile`); en Windows, el `PATH` del usuario | Igual, apuntando al `ea` del clon |
+| Guías y adaptadores | Copiados, con la ruta real de las guías | Enlazados al repo si el clon está en `~/Proyectos/ecosistema-asistente`; si no, copiados con la ruta del clon |
+
+**Entrada de la app en el menú:**
+
+- **Linux:** `~/.local/share/applications/ea-escritorio.desktop`.
+- **macOS:** `~/Applications/gachapon.app`.
+- **Windows:** acceso `gachapon` en el menú Inicio.
+
+**Repetir `ea instalar` actualiza.** Para los servicios, sustituye los binarios
+y no duplica nada:
+
+- el hook se compara por su orden;
+- los fragmentos de `AGENTS.md` van entre `<!-- gachapon:inicio -->` y
+  `<!-- gachapon:fin -->`;
+- el MCP no se vuelve a registrar.
+
+**`ea desinstalar`** quita lo que puso `ea instalar`: servicios, menú y
+autoarranque, adaptadores (solo los suyos), hook, MCP, el enlace del `PATH` y
+los binarios copiados. **No borra datos**: base de datos, bóveda, ajustes y bus
+se quedan, y te dice dónde están.
+
+**Windows: dos vías.** `ea instalar` pregunta cuál (o se elige con `--via`):
+
+- **`wsl` (recomendada):**
+  1. Si falta WSL2, lo instala con permiso de administrador (UAC) y deja una
+     entrada `RunOnce` para seguir solo tras el reinicio (`--continuar`).
+  2. Activa `systemd` en la distribución (`/etc/wsl.conf`).
+  3. Instala dentro la parte de Linux con `instalar.sh --sin-escritorio`.
+  4. En Windows pone solo `ea-escritorio.exe`, con su acceso y el ajuste
+     `escritorio.wsl = "<distribución>"`.
+
+  Con ese ajuste, la app lee la clave del panel desde WSL por la salida de
+  `wsl.exe` y mantiene viva la distribución mientras está abierta. Si no, WSL la
+  apaga por inactividad y los servicios caen. El reenvío de `localhost` de WSL2
+  tiene que estar activo (lo está por defecto; el instalador avisa si
+  `.wslconfig` lo apaga).
+- **`nativa`:** como Linux en lo demás, pero el ejecutor queda **sin sandbox**.
+  Solo se instala si escribes `sin sandbox` cuando lo pide; entonces fija
+  `agente.sandbox = false` (art. VIII).
+
+**Publicación.** `.github/workflows/release.yml` se dispara al subir un tag
+`v*`. Construye los cuatro objetivos (glibc de Ubuntu 22.04; macOS universal) y
+publica en la Release:
+
+- `gachapon-<objetivo>.tar.gz`, o `.zip` en Windows;
+- `gachapon-instalar.exe`;
+- `SHA256SUMS`.
+
+`pages.yml` copia `instalar.sh` e `instalar.ps1` a la web.
+
+**Límites:**
+
+- Los binarios no están firmados. SmartScreen avisa en Windows; en macOS, lo
+  descargado con `curl` no lleva cuarentena.
+- En distribuciones con una glibc más antigua que la de Ubuntu 22.04, compila
+  desde el clon.
+- macOS y Windows no se han probado en máquinas reales.
+
+Los pasos manuales de abajo siguen valiendo y son lo que `ea instalar` hace por
+ti.
 
 ### Requisitos
 
