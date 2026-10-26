@@ -475,6 +475,9 @@ pub enum Paso {
     /// Como `Escribir`, con bytes (el icono PNG de la app).
     EscribirBytes { ruta: PathBuf, contenido: Vec<u8> },
     Borrar(PathBuf),
+    /// Quita una carpeta solo si está vacía; si no lo está, no existe o no es
+    /// una carpeta, se sigue sin error (desinstalar no borra lo ajeno).
+    QuitarDirVacio(PathBuf),
     /// Copia un fichero (sustituye el destino; conserva los permisos). Crea
     /// la carpeta del destino si falta.
     Copiar { origen: PathBuf, destino: PathBuf },
@@ -499,6 +502,7 @@ impl Paso {
                 format!("escribir {}", ruta.display())
             }
             Paso::Borrar(r) => format!("borrar {}", r.display()),
+            Paso::QuitarDirVacio(d) => format!("quitar la carpeta {} si queda vacía", d.display()),
             Paso::Copiar { origen, destino } => format!("copiar {} a {}", origen.display(), destino.display()),
             Paso::Enlazar { origen, destino } => format!("enlazar {} → {}", destino.display(), origen.display()),
             Paso::Ejecutar { argv, tolerar, .. } => format!("ejecutar {}{}", argv.join(" "), if *tolerar { " (si falla, se sigue)" } else { "" }),
@@ -720,8 +724,18 @@ pub fn aplicar_con_espera(
             Paso::Borrar(r) => match std::fs::remove_file(r) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // En Windows un enlace a carpeta (o una unión) se quita con
+                // `remove_dir`, que no sigue el enlace.
+                Err(e) if std::fs::symlink_metadata(r).is_ok_and(|m| m.file_type().is_symlink()) => {
+                    std::fs::remove_dir(r).map_err(|_| format!("no se pudo borrar {}: {e}", r.display()))?
+                }
                 Err(e) => return Err(format!("no se pudo borrar {}: {e}", r.display())),
             },
+            Paso::QuitarDirVacio(d) => {
+                if std::fs::symlink_metadata(d).is_ok_and(|m| m.is_dir()) {
+                    let _ = std::fs::remove_dir(d);
+                }
+            }
             Paso::Copiar { origen, destino } => copiar(origen, destino)?,
             Paso::Enlazar { origen, destino } => enlazar(origen, destino)?,
             Paso::Ejecutar { argv, tolerar, reintentos } => {
@@ -1096,6 +1110,38 @@ mod pruebas {
         std::fs::create_dir(&carpeta).unwrap();
         assert!(aplicar(&[Paso::Enlazar { origen: b, destino: carpeta.clone() }], &mut sin_ordenes).is_err());
         assert!(carpeta.is_dir());
+    }
+
+    #[test]
+    fn quitar_dir_vacio_solo_quita_carpetas_vacias() {
+        let d = tempfile::tempdir().unwrap();
+        let vacia = d.path().join("vacia");
+        let llena = d.path().join("llena");
+        std::fs::create_dir_all(&vacia).unwrap();
+        std::fs::create_dir_all(&llena).unwrap();
+        std::fs::write(llena.join("del-usuario.md"), "x").unwrap();
+        let pasos = [
+            Paso::QuitarDirVacio(vacia.clone()),
+            Paso::QuitarDirVacio(llena.clone()),
+            Paso::QuitarDirVacio(d.path().join("no-existe")),
+            Paso::QuitarDirVacio(llena.join("del-usuario.md")),
+        ];
+        aplicar(&pasos, &mut |_| Ok(())).unwrap();
+        assert!(!vacia.exists());
+        assert!(llena.join("del-usuario.md").is_file());
+    }
+
+    #[test]
+    fn borrar_quita_un_enlace_a_carpeta_sin_tocar_lo_apuntado() {
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("f"), "x").unwrap();
+        let enlace = d.path().join("enlace");
+        aplicar(&[Paso::Enlazar { origen: real.clone(), destino: enlace.clone() }], &mut |_| Ok(())).unwrap();
+        aplicar(&[Paso::Borrar(enlace.clone())], &mut |_| Ok(())).unwrap();
+        assert!(std::fs::symlink_metadata(&enlace).is_err());
+        assert!(real.join("f").is_file());
     }
 
     #[test]

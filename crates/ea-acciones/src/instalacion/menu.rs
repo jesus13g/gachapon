@@ -133,8 +133,8 @@ pub fn plan_quitar_menu(ctx: &Contexto) -> Vec<Paso> {
         Sistema::Windows => vec![Paso::Borrar(ruta_lnk(&ctx.home))],
         Sistema::MacOs => {
             let app = ruta_app(&ctx.home);
-            // `rmdir` solo quita carpetas vacías: si el usuario metió algo, se queda.
-            let rmdir = |d: PathBuf| Paso::Ejecutar { argv: vec!["rmdir".into(), d.display().to_string()], tolerar: true, reintentos: 0 };
+            // Solo carpetas vacías: si el usuario metió algo, se queda.
+            let rmdir = Paso::QuitarDirVacio;
             vec![
                 Paso::Borrar(app.join("Contents/MacOS").join(BINARIO_ESCRITORIO)),
                 Paso::Borrar(app.join("Contents/Info.plist")),

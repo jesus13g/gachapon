@@ -420,11 +420,16 @@ fn quitar_montaje(ctx: &Contexto, sonda: &dyn Sonda, m: &Montaje, p: &mut Vec<Pa
             p.push(Paso::Borrar(destino));
             continue;
         }
+        let mut es_carpeta = false;
         for r in rs {
             let ruta = unir(&base, &r.ruta[m.prefijo.len()..]);
+            es_carpeta |= ruta != destino;
             if sonda.leer(&ruta).is_some_and(|c| es_nuestro(&c, r, ctx)) {
                 p.push(Paso::Borrar(ruta));
             }
+        }
+        if es_carpeta {
+            p.push(Paso::QuitarDirVacio(destino));
         }
     }
 }
