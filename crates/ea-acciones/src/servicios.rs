@@ -472,6 +472,8 @@ pub enum Paso {
     /// Como `Escribir`, pero en UTF-16 LE con BOM (el XML de las tareas de
     /// Windows).
     EscribirUtf16 { ruta: PathBuf, contenido: String },
+    /// Como `Escribir`, con bytes (el icono PNG de la app).
+    EscribirBytes { ruta: PathBuf, contenido: Vec<u8> },
     Borrar(PathBuf),
     /// Copia un fichero (sustituye el destino; conserva los permisos). Crea
     /// la carpeta del destino si falta.
@@ -493,7 +495,9 @@ impl Paso {
     pub fn describir(&self) -> String {
         match self {
             Paso::CrearDir(d) => format!("crear la carpeta {}", d.display()),
-            Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } => format!("escribir {}", ruta.display()),
+            Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } | Paso::EscribirBytes { ruta, .. } => {
+                format!("escribir {}", ruta.display())
+            }
             Paso::Borrar(r) => format!("borrar {}", r.display()),
             Paso::Copiar { origen, destino } => format!("copiar {} a {}", origen.display(), destino.display()),
             Paso::Enlazar { origen, destino } => format!("enlazar {} → {}", destino.display(), origen.display()),
@@ -707,6 +711,9 @@ pub fn aplicar_con_espera(
             Paso::Escribir { ruta, contenido } => {
                 ea_bus::escribir_atomico(ruta, contenido.as_bytes()).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
             }
+            Paso::EscribirBytes { ruta, contenido } => {
+                ea_bus::escribir_atomico(ruta, contenido).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
+            }
             Paso::EscribirUtf16 { ruta, contenido } => {
                 ea_bus::escribir_atomico(ruta, &plist::utf16_le_con_bom(contenido)).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
             }
@@ -752,7 +759,17 @@ fn copiar(origen: &Path, destino: &Path) -> Result<(), String> {
     if std::fs::symlink_metadata(destino).is_ok_and(|m| m.file_type().is_symlink()) {
         std::fs::remove_file(destino).map_err(|e| format!("no se pudo quitar el enlace {}: {e}", destino.display()))?;
     }
-    std::fs::copy(origen, destino).map(|_| ()).map_err(|e| format!("no se pudo copiar {} a {}: {e}", origen.display(), destino.display()))
+    // A un temporal al lado y después se renombra: copiar encima de un
+    // binario que está corriendo falla en Linux («Text file busy»); el
+    // renombrado deja al proceso vivo con el fichero viejo.
+    let nombre = destino.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let temporal = destino.with_file_name(format!(".{nombre}.nuevo"));
+    let error = |e: std::io::Error| format!("no se pudo copiar {} a {}: {e}", origen.display(), destino.display());
+    std::fs::copy(origen, &temporal).map_err(error)?;
+    std::fs::rename(&temporal, destino).map_err(|e| {
+        let _ = std::fs::remove_file(&temporal);
+        error(e)
+    })
 }
 
 fn enlazar(origen: &Path, destino: &Path) -> Result<(), String> {
@@ -1027,5 +1044,66 @@ mod pruebas {
             Err("Input/output error".into())
         }, Duration::ZERO);
         assert!(r.is_err() && total == 6, "el intento inicial y 5 reintentos");
+    }
+
+    fn sin_ordenes(_: &[String]) -> Result<(), String> {
+        Err("no se esperaban órdenes".into())
+    }
+
+    #[test]
+    fn copiar_crea_la_carpeta_y_sustituye() {
+        let d = tempfile::tempdir().unwrap();
+        let origen = d.path().join("ea");
+        std::fs::write(&origen, "nuevo").unwrap();
+        let destino = d.path().join("bin/sub/ea");
+        std::fs::create_dir_all(destino.parent().unwrap()).unwrap();
+        std::fs::write(&destino, "viejo").unwrap();
+        aplicar(&[Paso::Copiar { origen: origen.clone(), destino: destino.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read_to_string(&destino).unwrap(), "nuevo");
+        // Sin temporales sueltos.
+        assert_eq!(std::fs::read_dir(destino.parent().unwrap()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn copiar_sobre_un_enlace_no_escribe_en_lo_apuntado() {
+        let d = tempfile::tempdir().unwrap();
+        let apuntado = d.path().join("apuntado");
+        std::fs::write(&apuntado, "intacto").unwrap();
+        let destino = d.path().join("enlace");
+        if ea_plataforma::fs::enlazar(&apuntado, &destino).unwrap() != ea_plataforma::fs::TipoEnlace::Simbolico {
+            return; // Windows sin privilegio: no hay enlace que probar.
+        }
+        let origen = d.path().join("origen");
+        std::fs::write(&origen, "nuevo").unwrap();
+        aplicar(&[Paso::Copiar { origen, destino: destino.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read_to_string(&apuntado).unwrap(), "intacto");
+        assert_eq!(std::fs::read_to_string(&destino).unwrap(), "nuevo");
+    }
+
+    #[test]
+    fn enlazar_sustituye_un_enlace_pero_no_una_carpeta() {
+        let d = tempfile::tempdir().unwrap();
+        let a = d.path().join("a");
+        let b = d.path().join("b");
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        let enlace = d.path().join("bin/ea");
+        aplicar(&[Paso::Enlazar { origen: a, destino: enlace.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read_to_string(&enlace).unwrap(), "a");
+        aplicar(&[Paso::Enlazar { origen: b.clone(), destino: enlace.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read_to_string(&enlace).unwrap(), "b");
+        let carpeta = d.path().join("carpeta");
+        std::fs::create_dir(&carpeta).unwrap();
+        assert!(aplicar(&[Paso::Enlazar { origen: b, destino: carpeta.clone() }], &mut sin_ordenes).is_err());
+        assert!(carpeta.is_dir());
+    }
+
+    #[test]
+    fn escribir_bytes_deja_los_bytes() {
+        let d = tempfile::tempdir().unwrap();
+        let ruta = d.path().join("datos/icono.png");
+        let bytes = vec![0x89, b'P', b'N', b'G', 0, 255];
+        aplicar(&[Paso::EscribirBytes { ruta: ruta.clone(), contenido: bytes.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read(&ruta).unwrap(), bytes);
     }
 }
