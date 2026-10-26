@@ -469,6 +469,13 @@ pub fn pista_acceso_denegado(error: &str) -> String {
 pub enum Paso {
     CrearDir(PathBuf),
     Escribir { ruta: PathBuf, contenido: String },
+    /// Como `Escribir`, pero si `ruta` es un enlace simbólico escribe en el
+    /// fichero apuntado en vez de sustituir el enlace: para los ficheros
+    /// personales que se editan (perfil del shell, `AGENTS.md`,
+    /// `settings.json`), que pueden ser dotfiles de stow o chezmoi. Las
+    /// unidades y demás ficheros propios usan `Escribir`, que sustituye el
+    /// enlace (p. ej. el de una unidad a la plantilla del repo).
+    EditarPersonal { ruta: PathBuf, contenido: String },
     /// Como `Escribir`, pero en UTF-16 LE con BOM (el XML de las tareas de
     /// Windows).
     EscribirUtf16 { ruta: PathBuf, contenido: String },
@@ -504,6 +511,7 @@ impl Paso {
             Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } | Paso::EscribirBytes { ruta, .. } => {
                 format!("escribir {}", ruta.display())
             }
+            Paso::EditarPersonal { ruta, .. } => format!("editar {}", ruta.display()),
             Paso::Borrar(r) => format!("borrar {}", r.display()),
             Paso::QuitarDirVacio(d) => format!("quitar la carpeta {} si queda vacía", d.display()),
             Paso::Copiar { origen, destino } => format!("copiar {} a {}", origen.display(), destino.display()),
@@ -717,6 +725,9 @@ pub fn aplicar_con_espera(
         match paso {
             Paso::CrearDir(d) => std::fs::create_dir_all(d).map_err(|e| format!("no se pudo crear {}: {e}", d.display()))?,
             Paso::Escribir { ruta, contenido } => {
+                ea_bus::escribir_atomico(ruta, contenido.as_bytes()).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
+            }
+            Paso::EditarPersonal { ruta, contenido } => {
                 let ruta = &a_traves_de_enlace(ruta);
                 ea_bus::escribir_atomico(ruta, contenido.as_bytes()).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
             }
@@ -1130,6 +1141,27 @@ mod pruebas {
         std::fs::create_dir(&carpeta).unwrap();
         assert!(aplicar(&[Paso::Enlazar { origen: b, destino: carpeta.clone() }], &mut sin_ordenes).is_err());
         assert!(carpeta.is_dir());
+    }
+
+    #[test]
+    fn escribir_sustituye_el_enlace_y_editar_personal_escribe_a_traves() {
+        let d = tempfile::tempdir().unwrap();
+        // Una unidad enlazada a la plantilla del repo: la plantilla no se toca.
+        let plantilla = d.path().join("plantilla.service");
+        std::fs::write(&plantilla, "plantilla").unwrap();
+        let unidad = d.path().join("ea-web.service");
+        aplicar(&[Paso::Enlazar { origen: plantilla.clone(), destino: unidad.clone() }], &mut |_| Ok(())).unwrap();
+        aplicar(&[Paso::Escribir { ruta: unidad.clone(), contenido: "nueva".into() }], &mut |_| Ok(())).unwrap();
+        assert_eq!(std::fs::read_to_string(&plantilla).unwrap(), "plantilla");
+        assert!(!std::fs::symlink_metadata(&unidad).unwrap().file_type().is_symlink());
+        // Un dotfile enlazado (stow): se edita el apuntado y el enlace sigue.
+        let real = d.path().join("dotfiles-profile");
+        std::fs::write(&real, "viejo").unwrap();
+        let perfil = d.path().join(".profile");
+        aplicar(&[Paso::Enlazar { origen: real.clone(), destino: perfil.clone() }], &mut |_| Ok(())).unwrap();
+        aplicar(&[Paso::EditarPersonal { ruta: perfil.clone(), contenido: "nuevo".into() }], &mut |_| Ok(())).unwrap();
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "nuevo");
+        assert!(std::fs::symlink_metadata(&perfil).unwrap().file_type().is_symlink());
     }
 
     #[test]

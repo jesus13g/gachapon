@@ -414,7 +414,7 @@ mod pruebas {
     }
 
     fn escribe(x: &Paso, fin: &str) -> bool {
-        matches!(x, Paso::Escribir { ruta, .. } if ruta.ends_with(fin))
+        matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } if ruta.ends_with(fin))
     }
 
     #[test]
@@ -429,9 +429,9 @@ mod pruebas {
         let parar = posicion(&p, |x| lleva(x, "stop"));
         let copia = posicion(&p, |x| matches!(x, Paso::Copiar { destino, .. } if destino.ends_with("bin/ea-web")));
         let enlace = posicion(&p, |x| matches!(x, Paso::Enlazar { destino, .. } if destino == Path::new("/home/ana/.local/bin/ea")));
-        let toml = posicion(&p, |x| matches!(x, Paso::Escribir { ruta, .. } if ruta == &ajustes()));
+        let toml = posicion(&p, |x| matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } if ruta == &ajustes()));
         let unidad = posicion(&p, |x| {
-            matches!(x, Paso::Escribir { ruta, contenido } if ruta.ends_with("ea-web.service") && contenido.contains("/home/ana/.local/share/ecosistema-asistente/bin/ea-web"))
+            matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("ea-web.service") && contenido.contains("/home/ana/.local/share/ecosistema-asistente/bin/ea-web"))
         });
         let desktop = posicion(&p, |x| escribe(x, "ea-escritorio.desktop"));
         assert!(parar < copia && copia < enlace && enlace < toml && toml < unidad && unidad < desktop);
@@ -440,7 +440,7 @@ mod pruebas {
         // El escritorio se copia porque está en el paquete.
         assert!(p.iter().any(|x| matches!(x, Paso::Copiar { destino, .. } if destino.ends_with("bin/ea-escritorio"))));
         // Sin ~/.local/bin en el PATH, el bloque en ~/.profile.
-        assert!(p.iter().any(|x| matches!(x, Paso::Escribir { ruta, contenido } if ruta.ends_with(".profile") && contenido.contains(ruta_usuario::MARCA_INICIO))));
+        assert!(p.iter().any(|x| matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with(".profile") && contenido.contains(ruta_usuario::MARCA_INICIO))));
     }
 
     #[test]
@@ -450,7 +450,7 @@ mod pruebas {
         sonda.path = Some("/usr/bin".into());
         let primero = plan_instalar_todo(&ctx, &entorno(Sistema::Linux), &ajustes(), &sonda).unwrap();
         let perfil = primero.iter().find_map(|x| match x {
-            Paso::Escribir { ruta, contenido } if ruta.ends_with(".profile") => Some(contenido.clone()),
+            Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with(".profile") => Some(contenido.clone()),
             _ => None,
         });
         // Segunda vez: el perfil ya tiene el bloque y los ajustes existen.
@@ -458,7 +458,7 @@ mod pruebas {
         sonda.existen.insert(ajustes());
         let segundo = plan_instalar_todo(&ctx, &entorno(Sistema::Linux), &ajustes(), &sonda).unwrap();
         assert!(!segundo.iter().any(|x| escribe(x, ".profile")));
-        assert!(!segundo.iter().any(|x| matches!(x, Paso::Escribir { ruta, .. } if ruta == &ajustes())));
+        assert!(!segundo.iter().any(|x| matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } if ruta == &ajustes())));
         // Y con ~/.local/bin ya en el PATH, ni se mira el perfil.
         sonda.ficheros.clear();
         sonda.path = Some("/home/ana/.local/bin:/usr/bin".into());
@@ -478,7 +478,7 @@ mod pruebas {
         assert!(p.iter().any(|x| {
             matches!(x, Paso::Enlazar { origen, destino } if origen.ends_with("escritorio/target/release/ea-escritorio") && destino == &repo.join("target/release/ea-escritorio"))
         }));
-        assert!(p.iter().any(|x| matches!(x, Paso::Escribir { ruta, contenido } if ruta.ends_with("ea-web.service") && contenido.contains("/src/gachapon/target/release/ea-web"))));
+        assert!(p.iter().any(|x| matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("ea-web.service") && contenido.contains("/src/gachapon/target/release/ea-web"))));
     }
 
     #[test]

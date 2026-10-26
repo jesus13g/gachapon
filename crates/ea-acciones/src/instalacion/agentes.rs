@@ -340,7 +340,7 @@ fn plan_fragmento(ctx: &Contexto, sonda: &dyn Sonda, f: &Fragmento, p: &mut Vec<
     let fragmento = reescribir_ruta_flujo(r.contenido, &ctx.destinos.flujo);
     let nuevo = poner_fragmento_con(actual.as_deref(), &fragmento, &[r.contenido]);
     if actual.as_deref() != Some(nuevo.as_str()) {
-        p.push(Paso::Escribir { ruta, contenido: nuevo });
+        p.push(Paso::EditarPersonal { ruta, contenido: nuevo });
     }
 }
 
@@ -356,7 +356,7 @@ fn plan_claude(ctx: &Contexto, sonda: &dyn Sonda, p: &mut Vec<Paso>) {
         if actual.is_some() {
             p.push(Paso::Copiar { origen: ruta.clone(), destino: ruta.with_extension("json.gachapon.bak") });
         }
-        p.push(Paso::Escribir { ruta, contenido: nuevo });
+        p.push(Paso::EditarPersonal { ruta, contenido: nuevo });
     }
 }
 
@@ -459,7 +459,7 @@ pub fn plan_quitar_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Result<Vec<Paso
         for f in a.fragmentos {
             let ruta = unir(&ctx.home, f.destino);
             if let Some(nuevo) = super::leer_para_reescribir(sonda, &ruta).ok().flatten().as_deref().and_then(quitar_fragmento) {
-                p.push(if nuevo.trim().is_empty() { Paso::Borrar(ruta) } else { Paso::Escribir { ruta, contenido: nuevo } });
+                p.push(if nuevo.trim().is_empty() { Paso::Borrar(ruta) } else { Paso::EditarPersonal { ruta, contenido: nuevo } });
             }
         }
     }
@@ -470,7 +470,7 @@ pub fn plan_quitar_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Result<Vec<Paso
     let ruta = ruta_settings(ctx);
     if let Some(Ok(Some(nuevo))) = super::leer_para_reescribir(sonda, &ruta).ok().flatten().map(|t| quitar_hook(&t)) {
         p.push(Paso::Copiar { origen: ruta.clone(), destino: ruta.with_extension("json.gachapon.bak") });
-        p.push(Paso::Escribir { ruta, contenido: nuevo });
+        p.push(Paso::EditarPersonal { ruta, contenido: nuevo });
     }
     if destino_enlace(&ctx.skills_dir).is_some_and(|d| d.ends_with(Path::new("qwen").join("skills"))) {
         p.push(Paso::Borrar(ctx.skills_dir.clone()));
@@ -537,7 +537,7 @@ mod pruebas {
     }
 
     fn escrituras(p: &[Paso]) -> Vec<&PathBuf> {
-        p.iter().filter_map(|x| if let Paso::Escribir { ruta, .. } = x { Some(ruta) } else { None }).collect()
+        p.iter().filter_map(|x| if let Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } = x { Some(ruta) } else { None }).collect()
     }
 
     #[test]
@@ -555,7 +555,7 @@ mod pruebas {
         let p = plan_agentes(&c, &s).unwrap();
         let skill = c.home.join(".claude/skills/mision/SKILL.md");
         let contenido = p.iter().find_map(|x| match x {
-            Paso::Escribir { ruta, contenido } if *ruta == skill => Some(contenido),
+            Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if *ruta == skill => Some(contenido),
             _ => None,
         });
         let contenido = contenido.expect("escribe la skill");
@@ -575,7 +575,7 @@ mod pruebas {
         s.salidas.insert("claude mcp get ea-ecosistema".into(), "ea-ecosistema: http…".into());
         // Simula lo ya instalado: aplicar las escrituras en la sonda.
         for x in plan_agentes(&c, &s).unwrap() {
-            if let Paso::Escribir { ruta, contenido } = x {
+            if let Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } = x {
                 s.ficheros.insert(ruta, contenido);
             }
         }
@@ -629,7 +629,7 @@ mod pruebas {
         let settings = c.home.join(".claude/settings.json");
         let s = Falsa { binarios: vec!["claude"], ilegibles: vec![settings.clone()], ..Default::default() };
         let p = plan_agentes(&c, &s).unwrap();
-        assert!(!p.iter().any(|x| matches!(x, Paso::Escribir { ruta, .. } | Paso::Copiar { destino: ruta, .. } if ruta.starts_with(&settings))));
+        assert!(!p.iter().any(|x| matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } | Paso::Copiar { destino: ruta, .. } if ruta.starts_with(&settings))));
         assert!(avisos_agentes(&c, &s).iter().any(|a| a.contains("no se puede leer")));
     }
 
@@ -652,7 +652,7 @@ mod pruebas {
         s.ficheros.insert(settings.clone(), "{}".into());
         let p = plan_agentes(&c, &s).unwrap();
         let i = p.iter().position(|x| matches!(x, Paso::Copiar { destino, .. } if destino.ends_with("settings.json.gachapon.bak"))).unwrap();
-        let j = p.iter().position(|x| matches!(x, Paso::Escribir { ruta, .. } if *ruta == settings)).unwrap();
+        let j = p.iter().position(|x| matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } if *ruta == settings)).unwrap();
         assert!(i < j);
     }
 
@@ -684,7 +684,7 @@ mod pruebas {
         s.ficheros.insert(ruta.clone(), format!("# Reglas mías\n{}", r.contenido));
         let p = plan_agentes(&c, &s).unwrap();
         let nuevo = p.iter().find_map(|x| match x {
-            Paso::Escribir { ruta: q, contenido } if *q == ruta => Some(contenido.clone()),
+            Paso::Escribir { ruta: q, contenido } | Paso::EditarPersonal { ruta: q, contenido } if *q == ruta => Some(contenido.clone()),
             _ => None,
         });
         let nuevo = nuevo.unwrap();
@@ -728,7 +728,7 @@ mod pruebas {
         let p = plan_agentes(&c, &s).unwrap();
         assert!(!p.iter().any(|x| matches!(x, Paso::Enlazar { destino, .. } if destino.starts_with(c.home.join(".gemini")))));
         let regla = p.iter().find_map(|x| match x {
-            Paso::Escribir { ruta, contenido } if ruta.ends_with("rules/ea-planificador.md") => Some(contenido),
+            Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("rules/ea-planificador.md") => Some(contenido),
             _ => None,
         });
         assert!(regla.unwrap().contains("/srv/gachapon/agentes/flujo/"));
@@ -742,7 +742,7 @@ mod pruebas {
         s.ficheros.insert(c.home.join(".claude/settings.json"), r#"{"model":"opus"}"#.into());
         s.ficheros.insert(c.home.join(".claude/skills/otra/SKILL.md"), "ajena".into());
         for x in plan_agentes(&c, &s).unwrap() {
-            if let Paso::Escribir { ruta, contenido } = x {
+            if let Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } = x {
                 s.ficheros.insert(ruta, contenido);
             }
         }
@@ -753,9 +753,9 @@ mod pruebas {
         assert!(!q.contains(&Paso::Borrar(c.home.join(".claude/skills/otra/SKILL.md"))));
         assert!(q.contains(&Paso::Borrar(c.skills_dir.join("rust.md"))));
         // El AGENTS.md vuelve a lo de antes; el settings, sin hooks.
-        assert!(q.contains(&Paso::Escribir { ruta: c.home.join(".codex/AGENTS.md"), contenido: "# Mío\n".into() }));
+        assert!(q.contains(&Paso::EditarPersonal { ruta: c.home.join(".codex/AGENTS.md"), contenido: "# Mío\n".into() }));
         let settings = q.iter().find_map(|x| match x {
-            Paso::Escribir { ruta, contenido } if ruta.ends_with("settings.json") => Some(contenido.clone()),
+            Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("settings.json") => Some(contenido.clone()),
             _ => None,
         });
         let v: Value = serde_json::from_str(&settings.unwrap()).unwrap();

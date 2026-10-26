@@ -138,7 +138,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+          # Un tag con guion (v0.1.0-prueba.1) es de prueba: prerelease en
+          # borrador, que nunca pasa a ser la «última» que descarga instalar.sh.
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "${GITHUB_REF_NAME#*-}" != "$GITHUB_REF_NAME" ]; then
+            gh release create "$GITHUB_REF_NAME" salida/* --draft --prerelease --title "Prueba $GITHUB_REF_NAME" \
+              --notes "Release de prueba del commit $GITHUB_SHA."
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
             gh release create "$GITHUB_REF_NAME" salida/* --title "gachapon $GITHUB_REF_NAME" --generate-notes
           else
             gh release create "prueba-$GITHUB_RUN_NUMBER" salida/* --draft --prerelease \

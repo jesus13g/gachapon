@@ -129,7 +129,7 @@ pub fn plan_ruta(ctx: &Contexto, sonda: &dyn Sonda) -> Vec<Paso> {
         if let Ok(actual) = leer_para_reescribir(sonda, &perfil)
             && let Some(contenido) = con_bloque(actual.as_deref())
         {
-            p.push(Paso::Escribir { ruta: perfil, contenido });
+            p.push(Paso::EditarPersonal { ruta: perfil, contenido });
         }
     }
     p
@@ -186,7 +186,7 @@ pub fn plan_quitar_ruta(ctx: &Contexto, sonda: &dyn Sonda) -> Vec<Paso> {
     }
     let perfil = perfil_shell(ctx.sistema, &ctx.home, sonda);
     if let Some(contenido) = leer_para_reescribir(sonda, &perfil).ok().flatten().as_deref().and_then(sin_bloque) {
-        p.push(Paso::Escribir { ruta: perfil, contenido });
+        p.push(Paso::EditarPersonal { ruta: perfil, contenido });
     }
     p
 }
