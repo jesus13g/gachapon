@@ -654,7 +654,8 @@ ea desinstalar [--esperar]
       `agente.skills.dir`;
    6. instala el adaptador de cada agente del catálogo que esté en el `PATH`;
    7. registra el MCP (`claude mcp add … ea-ecosistema`) y fusiona el hook de
-      subagentes en `~/.claude/settings.json` (deja una copia `.bak`);
+      subagentes en `~/.claude/settings.json` (deja una copia
+      `settings.json.gachapon.bak`);
    8. instala y arranca los servicios;
    9. crea la entrada de la app en el menú y fija `escritorio.al_iniciar = true`.
 5. **Verifica.** Espera a que respondan `ea-web` y `ea-mcp`, enseña los
@@ -674,6 +675,18 @@ ea desinstalar [--esperar]
 - **Linux:** `~/.local/share/applications/ea-escritorio.desktop`.
 - **macOS:** `~/Applications/gachapon.app`.
 - **Windows:** acceso `gachapon` en el menú Inicio.
+
+**Lo ajeno no se pisa:**
+
+- un fichero que no se puede leer como texto (`~/.profile`, `AGENTS.md`,
+  `settings.json`) no se reescribe: el plan lo avisa y queda para hacerlo a
+  mano;
+- un `~/.local/bin/ea` que no es de gachapon se deja;
+- los dotfiles que son enlaces (stow, chezmoi) se escriben a través del enlace;
+- en Linux, si existe `~/.bash_profile` (o `~/.bash_login`), el bloque del
+  `PATH` va ahí, porque bash ya no lee `~/.profile`;
+- el modelo se descarga a un `.parcial` que se reanuda, y solo se renombra al
+  terminar.
 
 **Repetir `ea instalar` actualiza.** Para los servicios, sustituye los binarios
 y no duplica nada:
