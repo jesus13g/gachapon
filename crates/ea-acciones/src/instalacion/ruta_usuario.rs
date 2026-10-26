@@ -30,20 +30,14 @@ pub fn perfil_shell(sistema: Sistema, home: &Path) -> PathBuf {
 /// y `$HOME` sin expandir, que es como suele quedar en los perfiles.
 pub fn en_path(path: &str, dir: &Path, home: &Path, sistema: Sistema) -> bool {
     let sep = if sistema == Sistema::Windows { ';' } else { ':' };
-    let normal = |s: &str| {
-        let s = s.trim().trim_end_matches(['/', '\\']);
-        let s = s.strip_prefix("~/").map(|r| home.join(r)).or_else(|| s.strip_prefix("$HOME/").map(|r| home.join(r)));
-        s
-    };
     let objetivo = dir.to_string_lossy().trim_end_matches(['/', '\\']).to_string();
     path.split(sep).any(|e| {
-        let e2 = e.trim().trim_end_matches(['/', '\\']);
-        let expandido = normal(e).map(|p| p.to_string_lossy().into_owned());
+        let e = e.trim().trim_end_matches(['/', '\\']);
         if sistema == Sistema::Windows {
-            e2.eq_ignore_ascii_case(&objetivo)
-        } else {
-            e2 == objetivo || expandido.as_deref() == Some(objetivo.as_str())
+            return e.eq_ignore_ascii_case(&objetivo);
         }
+        let expandido = e.strip_prefix("~/").or_else(|| e.strip_prefix("$HOME/")).map(|r| home.join(r).to_string_lossy().into_owned());
+        e == objetivo || expandido.as_deref() == Some(objetivo.as_str())
     })
 }
 
