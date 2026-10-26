@@ -40,6 +40,11 @@ fn main() -> Result<()> {
                 ServiciosAccion::Desinstalar { esperar } => commands::al_final(esperar, commands::servicios::desinstalar()),
             };
         }
+        Command::Instalar { via, distro, sin_escritorio, sin_dependencias, continuar } => {
+            let via = via.as_deref().map(commands::instalar::Via::desde).transpose()?;
+            return commands::instalar::instalar(commands::instalar::Opciones { via, distro, sin_escritorio, sin_dependencias, continuar });
+        }
+        Command::Desinstalar { esperar } => return commands::al_final(esperar, commands::instalar::desinstalar()),
         Command::Equipo { accion } => {
             return match accion {
                 EquipoAccion::Despertar { todos, miembro, titulo, objetivo, worktree, sin_terminal } => {
@@ -162,7 +167,7 @@ fn main() -> Result<()> {
         },
         Command::Worktree { accion: WorktreeAccion::Limpiar { id } } => commands::worktree::limpiar(&mut store, &id)?,
         Command::Tui => tui::run(&mut store)?,
-        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Servicios { .. } | Command::Hook { .. } | Command::Equipo { .. } | Command::Worktree { accion: WorktreeAccion::Listar { .. } } => unreachable!("se atiende antes de abrir la base"),
+        Command::Ajustes { .. } | Command::Agentes { .. } | Command::Servicios { .. } | Command::Instalar { .. } | Command::Desinstalar { .. } | Command::Hook { .. } | Command::Equipo { .. } | Command::Worktree { accion: WorktreeAccion::Listar { .. } } => unreachable!("se atiende antes de abrir la base"),
     }
 
     Ok(())

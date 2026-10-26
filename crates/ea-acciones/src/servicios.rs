@@ -469,10 +469,33 @@ pub fn pista_acceso_denegado(error: &str) -> String {
 pub enum Paso {
     CrearDir(PathBuf),
     Escribir { ruta: PathBuf, contenido: String },
+    /// Como `Escribir`, pero si `ruta` es un enlace simbólico escribe en el
+    /// fichero apuntado en vez de sustituir el enlace: para los ficheros
+    /// personales que se editan (perfil del shell, `AGENTS.md`,
+    /// `settings.json`), que pueden ser dotfiles de stow o chezmoi. Las
+    /// unidades y demás ficheros propios usan `Escribir`, que sustituye el
+    /// enlace (p. ej. el de una unidad a la plantilla del repo).
+    EditarPersonal { ruta: PathBuf, contenido: String },
     /// Como `Escribir`, pero en UTF-16 LE con BOM (el XML de las tareas de
     /// Windows).
     EscribirUtf16 { ruta: PathBuf, contenido: String },
+    /// Como `Escribir`, con bytes (el icono PNG de la app).
+    EscribirBytes { ruta: PathBuf, contenido: Vec<u8> },
     Borrar(PathBuf),
+    /// Quita una carpeta solo si está vacía; si no lo está, no existe o no es
+    /// una carpeta, se sigue sin error (desinstalar no borra lo ajeno).
+    QuitarDirVacio(PathBuf),
+    /// Copia un fichero (sustituye el destino; conserva los permisos). Crea
+    /// la carpeta del destino si falta.
+    Copiar { origen: PathBuf, destino: PathBuf },
+    /// Hace que `destino` apunte a `origen` (`ea_plataforma::fs::enlazar`:
+    /// enlace simbólico; en Windows sin privilegio, una copia). Si ya hay un
+    /// enlace o un fichero en `destino`, lo sustituye; una carpeta real no
+    /// se toca y es un error.
+    Enlazar { origen: PathBuf, destino: PathBuf },
+    /// Renombra (mueve dentro del mismo sistema de ficheros); sustituye el
+    /// destino. Para dejar en su sitio una descarga ya completa.
+    Renombrar { origen: PathBuf, destino: PathBuf },
     /// Una orden externa; con `tolerar`, si falla se sigue (p. ej. parar lo
     /// que ya estaba parado). Con `reintentos`, si falla se vuelve a probar
     /// (hasta ese número de veces más) con una espera corta entre intentos
@@ -485,8 +508,15 @@ impl Paso {
     pub fn describir(&self) -> String {
         match self {
             Paso::CrearDir(d) => format!("crear la carpeta {}", d.display()),
-            Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } => format!("escribir {}", ruta.display()),
+            Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } | Paso::EscribirBytes { ruta, .. } => {
+                format!("escribir {}", ruta.display())
+            }
+            Paso::EditarPersonal { ruta, .. } => format!("editar {}", ruta.display()),
             Paso::Borrar(r) => format!("borrar {}", r.display()),
+            Paso::QuitarDirVacio(d) => format!("quitar la carpeta {} si queda vacía", d.display()),
+            Paso::Copiar { origen, destino } => format!("copiar {} a {}", origen.display(), destino.display()),
+            Paso::Enlazar { origen, destino } => format!("enlazar {} → {}", destino.display(), origen.display()),
+            Paso::Renombrar { origen, destino } => format!("renombrar {} a {}", origen.display(), destino.display()),
             Paso::Ejecutar { argv, tolerar, .. } => format!("ejecutar {}{}", argv.join(" "), if *tolerar { " (si falla, se sigue)" } else { "" }),
         }
     }
@@ -697,14 +727,36 @@ pub fn aplicar_con_espera(
             Paso::Escribir { ruta, contenido } => {
                 ea_bus::escribir_atomico(ruta, contenido.as_bytes()).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
             }
+            Paso::EditarPersonal { ruta, contenido } => {
+                let ruta = &a_traves_de_enlace(ruta);
+                ea_bus::escribir_atomico(ruta, contenido.as_bytes()).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
+            }
+            Paso::EscribirBytes { ruta, contenido } => {
+                ea_bus::escribir_atomico(ruta, contenido).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
+            }
             Paso::EscribirUtf16 { ruta, contenido } => {
                 ea_bus::escribir_atomico(ruta, &plist::utf16_le_con_bom(contenido)).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
             }
             Paso::Borrar(r) => match std::fs::remove_file(r) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // En Windows un enlace a carpeta (o una unión) se quita con
+                // `remove_dir`, que no sigue el enlace.
+                Err(e) if std::fs::symlink_metadata(r).is_ok_and(|m| m.file_type().is_symlink()) => {
+                    std::fs::remove_dir(r).map_err(|_| format!("no se pudo borrar {}: {e}", r.display()))?
+                }
                 Err(e) => return Err(format!("no se pudo borrar {}: {e}", r.display())),
             },
+            Paso::QuitarDirVacio(d) => {
+                // Si no está vacía, lo que queda no es nuestro: se deja.
+                if std::fs::symlink_metadata(d).is_ok_and(|m| m.is_dir()) {
+                    let _ = std::fs::remove_dir(d);
+                }
+            }
+            Paso::Copiar { origen, destino } => copiar(origen, destino)?,
+            Paso::Enlazar { origen, destino } => enlazar(origen, destino)?,
+            Paso::Renombrar { origen, destino } => std::fs::rename(origen, destino)
+                .map_err(|e| format!("no se pudo renombrar {} a {}: {e}", origen.display(), destino.display()))?,
             Paso::Ejecutar { argv, tolerar, reintentos } => {
                 let mut resultado = correr(argv);
                 for _ in 0..*reintentos {
@@ -724,6 +776,59 @@ pub fn aplicar_con_espera(
         hecho.push(paso.describir());
     }
     Ok(hecho)
+}
+
+/// Escribir con temporal y renombrado sustituiría un enlace simbólico por
+/// un fichero normal (dotfiles gestionados con stow o chezmoi): se escribe
+/// en el fichero apuntado. Un enlace roto se sustituye.
+fn a_traves_de_enlace(ruta: &Path) -> PathBuf {
+    if std::fs::symlink_metadata(ruta).is_ok_and(|m| m.file_type().is_symlink()) {
+        if let Ok(real) = std::fs::canonicalize(ruta) {
+            return real;
+        }
+    }
+    ruta.to_path_buf()
+}
+
+fn crear_padre(ruta: &Path) -> Result<(), String> {
+    match ruta.parent() {
+        Some(d) if !d.as_os_str().is_empty() => std::fs::create_dir_all(d).map_err(|e| format!("no se pudo crear {}: {e}", d.display())),
+        _ => Ok(()),
+    }
+}
+
+fn copiar(origen: &Path, destino: &Path) -> Result<(), String> {
+    crear_padre(destino)?;
+    // Un enlace en el destino se quita antes: copiar a través de él
+    // escribiría en el fichero apuntado.
+    if std::fs::symlink_metadata(destino).is_ok_and(|m| m.file_type().is_symlink()) {
+        std::fs::remove_file(destino).map_err(|e| format!("no se pudo quitar el enlace {}: {e}", destino.display()))?;
+    }
+    // A un temporal al lado y después se renombra: copiar encima de un
+    // binario que está corriendo falla en Linux («Text file busy»); el
+    // renombrado deja al proceso vivo con el fichero viejo.
+    let nombre = destino.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let temporal = destino.with_file_name(format!(".{nombre}.nuevo"));
+    let error = |e: std::io::Error| format!("no se pudo copiar {} a {}: {e}", origen.display(), destino.display());
+    std::fs::copy(origen, &temporal).map_err(error)?;
+    std::fs::rename(&temporal, destino).map_err(|e| {
+        let _ = std::fs::remove_file(&temporal);
+        error(e)
+    })
+}
+
+fn enlazar(origen: &Path, destino: &Path) -> Result<(), String> {
+    crear_padre(destino)?;
+    if let Ok(m) = std::fs::symlink_metadata(destino) {
+        if m.file_type().is_symlink() || m.is_file() {
+            std::fs::remove_file(destino)
+                .or_else(|e| std::fs::remove_dir(destino).map_err(|_| e))
+                .map_err(|e| format!("no se pudo sustituir {}: {e}", destino.display()))?;
+        } else {
+            return Err(format!("{} es una carpeta real; no se sustituye por un enlace", destino.display()));
+        }
+    }
+    ea_plataforma::fs::enlazar(origen, destino).map(|_| ()).map_err(|e| format!("no se pudo enlazar {}: {e}", destino.display()))
 }
 
 /// Lanza una orden externa de verdad (sin shell) y devuelve su error.
@@ -984,5 +1089,119 @@ mod pruebas {
             Err("Input/output error".into())
         }, Duration::ZERO);
         assert!(r.is_err() && total == 6, "el intento inicial y 5 reintentos");
+    }
+
+    fn sin_ordenes(_: &[String]) -> Result<(), String> {
+        Err("no se esperaban órdenes".into())
+    }
+
+    #[test]
+    fn copiar_crea_la_carpeta_y_sustituye() {
+        let d = tempfile::tempdir().unwrap();
+        let origen = d.path().join("ea");
+        std::fs::write(&origen, "nuevo").unwrap();
+        let destino = d.path().join("bin/sub/ea");
+        std::fs::create_dir_all(destino.parent().unwrap()).unwrap();
+        std::fs::write(&destino, "viejo").unwrap();
+        aplicar(&[Paso::Copiar { origen: origen.clone(), destino: destino.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read_to_string(&destino).unwrap(), "nuevo");
+        // Sin temporales sueltos.
+        assert_eq!(std::fs::read_dir(destino.parent().unwrap()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn copiar_sobre_un_enlace_no_escribe_en_lo_apuntado() {
+        let d = tempfile::tempdir().unwrap();
+        let apuntado = d.path().join("apuntado");
+        std::fs::write(&apuntado, "intacto").unwrap();
+        let destino = d.path().join("enlace");
+        if ea_plataforma::fs::enlazar(&apuntado, &destino).unwrap() != ea_plataforma::fs::TipoEnlace::Simbolico {
+            return; // Windows sin privilegio: no hay enlace que probar.
+        }
+        let origen = d.path().join("origen");
+        std::fs::write(&origen, "nuevo").unwrap();
+        aplicar(&[Paso::Copiar { origen, destino: destino.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read_to_string(&apuntado).unwrap(), "intacto");
+        assert_eq!(std::fs::read_to_string(&destino).unwrap(), "nuevo");
+    }
+
+    #[test]
+    fn enlazar_sustituye_un_enlace_pero_no_una_carpeta() {
+        let d = tempfile::tempdir().unwrap();
+        let a = d.path().join("a");
+        let b = d.path().join("b");
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        let enlace = d.path().join("bin/ea");
+        aplicar(&[Paso::Enlazar { origen: a, destino: enlace.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read_to_string(&enlace).unwrap(), "a");
+        aplicar(&[Paso::Enlazar { origen: b.clone(), destino: enlace.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read_to_string(&enlace).unwrap(), "b");
+        let carpeta = d.path().join("carpeta");
+        std::fs::create_dir(&carpeta).unwrap();
+        assert!(aplicar(&[Paso::Enlazar { origen: b, destino: carpeta.clone() }], &mut sin_ordenes).is_err());
+        assert!(carpeta.is_dir());
+    }
+
+    #[test]
+    fn escribir_sustituye_el_enlace_y_editar_personal_escribe_a_traves() {
+        let d = tempfile::tempdir().unwrap();
+        // Una unidad enlazada a la plantilla del repo: la plantilla no se toca.
+        let plantilla = d.path().join("plantilla.service");
+        std::fs::write(&plantilla, "plantilla").unwrap();
+        let unidad = d.path().join("ea-web.service");
+        aplicar(&[Paso::Enlazar { origen: plantilla.clone(), destino: unidad.clone() }], &mut |_| Ok(())).unwrap();
+        aplicar(&[Paso::Escribir { ruta: unidad.clone(), contenido: "nueva".into() }], &mut |_| Ok(())).unwrap();
+        assert_eq!(std::fs::read_to_string(&plantilla).unwrap(), "plantilla");
+        assert!(!std::fs::symlink_metadata(&unidad).unwrap().file_type().is_symlink());
+        // Un dotfile enlazado (stow): se edita el apuntado y el enlace sigue.
+        let real = d.path().join("dotfiles-profile");
+        std::fs::write(&real, "viejo").unwrap();
+        let perfil = d.path().join(".profile");
+        aplicar(&[Paso::Enlazar { origen: real.clone(), destino: perfil.clone() }], &mut |_| Ok(())).unwrap();
+        aplicar(&[Paso::EditarPersonal { ruta: perfil.clone(), contenido: "nuevo".into() }], &mut |_| Ok(())).unwrap();
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "nuevo");
+        assert!(std::fs::symlink_metadata(&perfil).unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn quitar_dir_vacio_solo_quita_carpetas_vacias() {
+        let d = tempfile::tempdir().unwrap();
+        let vacia = d.path().join("vacia");
+        let llena = d.path().join("llena");
+        std::fs::create_dir_all(&vacia).unwrap();
+        std::fs::create_dir_all(&llena).unwrap();
+        std::fs::write(llena.join("del-usuario.md"), "x").unwrap();
+        let pasos = [
+            Paso::QuitarDirVacio(vacia.clone()),
+            Paso::QuitarDirVacio(llena.clone()),
+            Paso::QuitarDirVacio(d.path().join("no-existe")),
+            Paso::QuitarDirVacio(llena.join("del-usuario.md")),
+        ];
+        aplicar(&pasos, &mut |_| Ok(())).unwrap();
+        assert!(!vacia.exists());
+        assert!(llena.join("del-usuario.md").is_file());
+    }
+
+    #[test]
+    fn borrar_quita_un_enlace_a_carpeta_sin_tocar_lo_apuntado() {
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("f"), "x").unwrap();
+        let enlace = d.path().join("enlace");
+        aplicar(&[Paso::Enlazar { origen: real.clone(), destino: enlace.clone() }], &mut |_| Ok(())).unwrap();
+        aplicar(&[Paso::Borrar(enlace.clone())], &mut |_| Ok(())).unwrap();
+        assert!(std::fs::symlink_metadata(&enlace).is_err());
+        assert!(real.join("f").is_file());
+    }
+
+    #[test]
+    fn escribir_bytes_deja_los_bytes() {
+        let d = tempfile::tempdir().unwrap();
+        let ruta = d.path().join("datos/icono.png");
+        let bytes = vec![0x89, b'P', b'N', b'G', 0, 255];
+        aplicar(&[Paso::EscribirBytes { ruta: ruta.clone(), contenido: bytes.clone() }], &mut sin_ordenes).unwrap();
+        assert_eq!(std::fs::read(&ruta).unwrap(), bytes);
     }
 }

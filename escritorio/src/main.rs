@@ -13,6 +13,7 @@ mod espera;
 mod fragmento;
 mod origen;
 mod vigia;
+mod wsl;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -25,10 +26,28 @@ use url::Url;
 use ea_ajustes::Entorno;
 use vigia::{Estado, VigiaClave, VigiaTrabajos};
 
+/// De dónde sale la clave de sesión del panel.
+#[derive(Clone)]
+enum FuenteClave {
+    /// El fichero del directorio de ejecución (lo normal).
+    Fichero(Option<PathBuf>),
+    /// Una distribución de WSL (Windows con `escritorio.wsl`, spec 023).
+    Wsl(String),
+}
+
+impl FuenteClave {
+    fn leer(&self) -> Option<String> {
+        match self {
+            FuenteClave::Fichero(f) => f.as_deref().and_then(clave::leer),
+            FuenteClave::Wsl(d) => wsl::leer_clave(d),
+        }
+    }
+}
+
 /// Estado compartido del shell (gestionado por Tauri).
 struct Compartido {
     puerto: u16,
-    fichero_clave: Option<PathBuf>,
+    fuente: FuenteClave,
     /// Contador para dar una etiqueta nueva a cada ventana que se recrea.
     generacion: AtomicUsize,
     /// Hay bandeja: cerrar oculta. Si no, cerrar termina.
@@ -71,7 +90,7 @@ fn crear_ventana(app: &AppHandle, panel: bool, fragmento: Option<&str>, visible:
             false
         });
     if panel {
-        let clave = c.fichero_clave.as_deref().and_then(clave::leer);
+        let clave = c.fuente.leer();
         let guion = clave::guion_inicio(clave.as_deref());
         if !guion.is_empty() {
             b = b.initialization_script(guion);
@@ -125,6 +144,7 @@ pub fn al_elegir_menu(app: &AppHandle, id: &str) {
         }
         "salir" => {
             avisos::borrar_presencia();
+            wsl::soltar();
             app.exit(0);
         }
         otro => {
@@ -242,17 +262,24 @@ fn avisar_notify_send(titulo: &str, cuerpo: &str) -> Option<bool> {
 
 /// El hilo del vigía: estado, clave, página de espera y avisos.
 fn vigilar(app: AppHandle) {
-    let (puerto, fichero) = {
+    let (puerto, fuente) = {
         let c = compartido(&app);
-        (c.puerto, c.fichero_clave.clone())
+        (c.puerto, c.fuente.clone())
     };
-    let inicial = fichero.as_deref().and_then(clave::leer);
-    let mut clave = VigiaClave::nuevo(inicial);
+    let mut clave = VigiaClave::nuevo(fuente.leer());
+    // En modo WSL leer la clave lanza un `wsl.exe`: no en cada vuelta.
+    let cada = if matches!(fuente, FuenteClave::Wsl(_)) { wsl::VUELTAS_POR_LECTURA } else { 1 };
+    let mut vuelta: u32 = 0;
     let mut trabajos = VigiaTrabajos::default();
     let mut ultimo: Option<Estado> = None;
     let mut motivo_enviado = String::new();
     loop {
         std::thread::sleep(vigia::PERIODO);
+        // Si el `sleep` que mantiene viva la distribución murió (p. ej. tras
+        // `wsl --shutdown`), se vuelve a lanzar.
+        if let FuenteClave::Wsl(d) = &fuente {
+            wsl::mantener_viva(d);
+        }
         let respuesta = api::obtener(puerto, "estado");
         let estado = match &respuesta {
             Ok(v) => vigia::estado_de(v),
@@ -285,11 +312,12 @@ fn vigilar(app: AppHandle) {
                 let a = app.clone();
                 let _ = app.run_on_main_thread(move || pasar_al_panel(&a));
                 // La ventana nueva ya lleva la clave de este momento.
-                clave = VigiaClave::nuevo(fichero.as_deref().and_then(clave::leer));
+                clave = VigiaClave::nuevo(fuente.leer());
             }
             Ok(_) => {
-                if let Some(f) = fichero.as_deref()
-                    && let Some(nueva) = clave.comprobar(f)
+                vuelta = vuelta.wrapping_add(1);
+                if vuelta.is_multiple_of(cada)
+                    && let Some(nueva) = clave.comprobar_valor(fuente.leer())
                 {
                     let a = app.clone();
                     let _ = app.run_on_main_thread(move || {
@@ -314,7 +342,12 @@ fn vigilar(app: AppHandle) {
 fn main() {
     let ajustes = ea_ajustes::cargar();
     let puerto = ajustes.red.puerto_web;
-    let fichero_clave = ea_ajustes::dir_ejecucion(&Entorno::Proceso).map(|d| ea_ajustes::fichero_clave_web(&d));
+    let distro_wsl = wsl::distro_activa(&ajustes.escritorio.wsl, cfg!(windows));
+    let fuente = match &distro_wsl {
+        Some(d) => FuenteClave::Wsl(d.clone()),
+        None => FuenteClave::Fichero(ea_ajustes::dir_ejecucion(&Entorno::Proceso).map(|d| ea_ajustes::fichero_clave_web(&d))),
+    };
+    let pagina_espera = espera::html(distro_wsl.as_deref());
     let argv: Vec<String> = std::env::args().collect();
     let oculto = argv.iter().skip(1).any(|a| a == "--oculto");
     let inicial = fragmento::de_argumentos(&argv);
@@ -327,17 +360,21 @@ fn main() {
             let _ = app.run_on_main_thread(move || mostrar(&app2, f.as_deref()));
         }))
         .plugin(tauri_plugin_notification::init())
-        .register_uri_scheme_protocol(espera::PROTOCOLO, |_ctx, _peticion| {
+        .register_uri_scheme_protocol(espera::PROTOCOLO, move |_ctx, _peticion| {
             Response::builder()
                 .header("Content-Type", "text/html; charset=utf-8")
-                .body(espera::HTML.as_bytes().to_vec())
+                .body(pagina_espera.as_bytes().to_vec())
                 .expect("la respuesta de la página de espera es válida")
         })
         .setup(move |app| {
             let handle = app.handle().clone();
+            // Mientras la app vive, WSL no apaga la distribución (spec 023).
+            if let Some(d) = &distro_wsl {
+                wsl::mantener_viva(d);
+            }
             app.manage(Compartido {
                 puerto,
-                fichero_clave,
+                fuente,
                 generacion: AtomicUsize::new(0),
                 bandeja: AtomicBool::new(false),
                 panel: AtomicBool::new(false),
@@ -371,6 +408,7 @@ fn main() {
         Ok(app) => app.run(|_app, ev| {
             if let RunEvent::Exit = ev {
                 avisos::borrar_presencia();
+                wsl::soltar();
             }
         }),
         Err(e) => {

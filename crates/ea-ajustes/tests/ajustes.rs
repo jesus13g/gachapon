@@ -523,3 +523,23 @@ fn el_paralelo_vale_uno_por_defecto_va_de_1_a_8_y_solo_se_cambia_desde_la_termin
     establecer(&f, Canal::Terminal, None, &cambio("orquestador.paralelo", json!(3))).unwrap();
     assert_eq!(cargar_de(&f).ajustes.orquestador.paralelo, 3);
 }
+
+// ------------------------------------------------- 023: instalación
+
+#[test]
+fn la_distribucion_de_wsl_vale_vacia_por_defecto_y_solo_se_cambia_desde_la_terminal() {
+    let (_d, f) = fuentes();
+    assert_eq!(cargar_de(&f).ajustes.escritorio.wsl, "");
+    let c = clave("escritorio.wsl").unwrap();
+    assert_eq!(interpretar(c, "Ubuntu-24.04").unwrap(), json!("Ubuntu-24.04"));
+    assert_eq!(interpretar(c, "").unwrap(), json!(""));
+    let largo = "a".repeat(65);
+    for malo in ["con espacio", "a;b", "x/y", largo.as_str()] {
+        assert!(interpretar(c, malo).is_err(), "{malo}");
+    }
+    assert!(establecer(&f, Canal::Web, Some(""), &cambio("escritorio.wsl", json!("Ubuntu"))).is_err());
+    establecer(&f, Canal::Terminal, None, &cambio("escritorio.wsl", json!("Ubuntu"))).unwrap();
+    assert_eq!(cargar_de(&f).ajustes.escritorio.wsl, "Ubuntu");
+    establecer(&f, Canal::Terminal, None, &cambio("escritorio.wsl", json!(""))).unwrap();
+    assert_eq!(cargar_de(&f).ajustes.escritorio.wsl, "");
+}
