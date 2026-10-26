@@ -6,6 +6,7 @@ pub mod boveda;
 pub mod diario;
 pub mod equipo;
 pub mod hook;
+pub mod instalar;
 pub mod propuestas;
 pub mod qwen_skills;
 pub mod rutinas;
