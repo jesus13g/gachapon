@@ -108,8 +108,12 @@ mod pruebas {
         assert_eq!(l.flujo.to_string_lossy().replace('\\', "/"), "/home/ana/.local/share/ecosistema-asistente/flujo");
         assert_eq!(l.datos.to_string_lossy().replace('\\', "/"), "/home/ana/.local/share/ecosistema-asistente");
 
+        // `/datos` solo es absoluta donde corre la prueba si es Unix (en
+        // Windows le falta la unidad y se ignora, como debe).
         let x = destinos(Sistema::Linux, &Origen::Paquete, home, |n| (n == "XDG_DATA_HOME").then(|| "/datos".to_string()));
-        assert_eq!(x.bin.to_string_lossy().replace('\\', "/"), "/datos/ecosistema-asistente/bin");
+        if Path::new("/datos").is_absolute() {
+            assert_eq!(x.bin.to_string_lossy().replace('\\', "/"), "/datos/ecosistema-asistente/bin");
+        }
         // Una XDG_DATA_HOME relativa no vale (la especificación XDG la ignora).
         let r = destinos(Sistema::Linux, &Origen::Paquete, home, |n| (n == "XDG_DATA_HOME").then(|| "datos".to_string()));
         assert_eq!(r.bin, l.bin);
