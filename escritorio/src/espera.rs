@@ -10,6 +10,24 @@ pub const PROTOCOLO: &str = "ea-espera";
 /// La página, embebida.
 pub const HTML: &str = include_str!("espera.html");
 
+/// El párrafo de ayuda de la página (cómo ver y cargar los servicios).
+const AYUDA: &str = "<p id=\"ayuda\">Para ver el estado de los servicios: <code>ea servicios ver</code>. Para cargarlos: <code>ea servicios instalar</code>.</p>";
+
+/// La página que se sirve. En modo WSL (spec 023) la ayuda nombra la
+/// distribución: los servicios corren dentro de ella con `systemd --user`.
+pub fn html(wsl: Option<&str>) -> String {
+    match wsl {
+        None => HTML.to_string(),
+        Some(d) => {
+            // El nombre ya viene validado ([A-Za-z0-9._-]); nada que escapar.
+            let ayuda = format!(
+                "<p id=\"ayuda\">Los servicios corren en WSL (<code>{d}</code>). Para ver su estado: <code>wsl -d {d} -- systemctl --user status ea-web</code>. Si no están instalados: <code>wsl -d {d} -- ~/.local/bin/ea servicios instalar</code>.</p>"
+            );
+            HTML.replace(AYUDA, &ayuda)
+        }
+    }
+}
+
 /// URL de la página de espera según el sistema (en Windows, WebView2 sirve
 /// los protocolos propios como `http://<protocolo>.localhost/`).
 pub fn url_espera() -> String {
@@ -49,6 +67,16 @@ mod tests {
         assert!(HTML.contains("id=\"motivo\""));
         assert!(HTML.contains("ea servicios"));
         assert!(!HTML.contains("<script src"), "sin recursos externos");
+    }
+
+    #[test]
+    fn en_modo_wsl_la_ayuda_nombra_la_distribucion() {
+        assert_eq!(html(None), HTML);
+        assert!(HTML.contains(AYUDA), "el párrafo de ayuda sigue en la página");
+        let h = html(Some("Ubuntu"));
+        assert!(h.contains("wsl -d Ubuntu -- systemctl --user status ea-web"));
+        assert!(!h.contains("<code>ea servicios ver</code>"));
+        assert!(h.contains("id=\"motivo\""));
     }
 
     #[test]

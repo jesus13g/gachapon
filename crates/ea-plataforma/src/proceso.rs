@@ -96,6 +96,22 @@ pub fn preparar_grupo(cmd: &mut Command) {
     }
 }
 
+/// Prepara la orden para que no abra ninguna ventana de consola (Windows
+/// `CREATE_NO_WINDOW`, p. ej. `wsl.exe` lanzado desde la app de escritorio).
+/// En los demás sistemas no hace nada. Llamar antes de `spawn`.
+pub fn sin_ventana(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
 /// Gemelo de [`preparar_grupo`] para `tokio::process::Command`.
 #[cfg(feature = "tokio")]
 pub fn preparar_grupo_tokio(cmd: &mut tokio::process::Command) {
@@ -274,6 +290,16 @@ mod tests {
         let pid = hijo.id();
         hijo.wait().unwrap();
         assert!(!vive(pid));
+    }
+
+    #[test]
+    fn una_orden_sin_ventana_sigue_ejecutandose() {
+        let mut h = Command::new(if cfg!(windows) { "cmd" } else { "true" });
+        if cfg!(windows) {
+            h.args(["/C", "exit 0"]);
+        }
+        sin_ventana(&mut h);
+        assert!(h.status().unwrap().success());
     }
 
     #[cfg(unix)]
