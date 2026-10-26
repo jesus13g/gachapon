@@ -153,6 +153,12 @@ pub fn plan_linux_dentro(distro: &str, url_script: &str) -> Vec<Paso> {
 /// los ajustes), no este plan.
 pub fn plan_escritorio_windows(ctx: &Contexto, distro: &str) -> Vec<Paso> {
     debug_assert!(distro_valida(distro));
+    // Tras el reinicio (`RunOnce`) o al repetir, el `ea.exe` que corre ya es
+    // el instalado: copiarlo encima de sí mismo falla en Windows.
+    let misma = |a: &Path, b: &Path| a.to_string_lossy().trim_end_matches(['\\', '/']).eq_ignore_ascii_case(b.to_string_lossy().trim_end_matches(['\\', '/']));
+    if misma(&ctx.exes_origen, &ctx.destinos.bin) {
+        return Vec::new();
+    }
     match ctx.origen {
         Origen::Paquete => ["ea-escritorio.exe", "ea.exe"]
             .iter()

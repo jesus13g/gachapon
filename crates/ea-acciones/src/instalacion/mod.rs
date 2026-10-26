@@ -81,6 +81,22 @@ pub trait Sonda {
         let _ = ruta;
         None
     }
+    /// ¿Existe pero no se puede leer como texto (permisos, no es UTF-8)?
+    /// Un fichero así no se reescribe: se perdería lo que hay.
+    fn ilegible(&self, ruta: &Path) -> bool {
+        let _ = ruta;
+        false
+    }
+}
+
+/// El contenido de un fichero que un plan va a reescribir: `Ok(None)` si no
+/// existe, `Err` si existe y no se puede leer (entonces el paso se omite y
+/// se avisa: reescribirlo perdería lo que hay).
+pub fn leer_para_reescribir(sonda: &dyn Sonda, ruta: &Path) -> Result<Option<String>, String> {
+    if sonda.ilegible(ruta) {
+        return Err(format!("{} no se puede leer como texto: no se toca (hazlo a mano)", ruta.display()));
+    }
+    Ok(sonda.leer(ruta))
 }
 
 /// La sonda de verdad.
@@ -116,6 +132,10 @@ impl Sonda for SondaReal {
 
     fn destino_enlace(&self, ruta: &Path) -> Option<PathBuf> {
         std::fs::read_link(ruta).ok()
+    }
+
+    fn ilegible(&self, ruta: &Path) -> bool {
+        std::fs::metadata(ruta).is_ok_and(|m| m.is_file()) && std::fs::read_to_string(ruta).is_err()
     }
 }
 
@@ -247,7 +267,7 @@ pub fn plan_instalar_todo(ctx: &Contexto, servicios: &Entorno, ajustes_toml: &Pa
 }
 
 /// Cerrar `ea-escritorio` si está abierto (tolerante).
-fn plan_parar_escritorio(ctx: &Contexto) -> Vec<Paso> {
+pub fn plan_parar_escritorio(ctx: &Contexto) -> Vec<Paso> {
     let argv: Vec<String> = match ctx.sistema {
         Sistema::Windows => vec!["taskkill".into(), "/IM".into(), "ea-escritorio.exe".into(), "/F".into()],
         _ => vec!["pkill".into(), "-x".into(), "ea-escritorio".into()],
@@ -319,6 +339,35 @@ mod pruebas {
         fn destino_enlace(&self, ruta: &Path) -> Option<PathBuf> {
             self.enlaces.get(ruta).cloned()
         }
+    }
+
+    #[test]
+    fn un_ea_ajeno_en_local_bin_no_se_pisa() {
+        let ctx = contexto(Sistema::Linux, Origen::Paquete);
+        let enlace = ctx.home.join(".local/bin/ea");
+        let tiene_enlace = |s: &SondaFalsa| ruta_usuario::plan_ruta(&ctx, s).iter().any(|p| matches!(p, Paso::Enlazar { destino, .. } if *destino == enlace));
+        let path = Some(format!("/usr/bin:{}", ctx.home.join(".local/bin").display()));
+        // Un fichero normal ajeno.
+        let s = SondaFalsa { existen: HashSet::from([enlace.clone()]), path: path.clone(), ..Default::default() };
+        assert!(!tiene_enlace(&s));
+        assert!(!ruta_usuario::avisos_ruta(&ctx, &s).is_empty());
+        // Un enlace a otro programa.
+        let s = SondaFalsa {
+            existen: HashSet::from([enlace.clone()]),
+            enlaces: HashMap::from([(enlace.clone(), PathBuf::from("/opt/otro/ea"))]),
+            path: path.clone(),
+            ..Default::default()
+        };
+        assert!(!tiene_enlace(&s));
+        // El nuestro (o nada) sí.
+        let s = SondaFalsa {
+            existen: HashSet::from([enlace.clone()]),
+            enlaces: HashMap::from([(enlace.clone(), ctx.destinos.bin.join("ea"))]),
+            path: path.clone(),
+            ..Default::default()
+        };
+        assert!(tiene_enlace(&s));
+        assert!(tiene_enlace(&SondaFalsa { path, ..Default::default() }));
     }
 
     fn contexto(sistema: Sistema, origen: Origen) -> Contexto {

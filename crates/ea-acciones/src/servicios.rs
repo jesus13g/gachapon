@@ -486,6 +486,9 @@ pub enum Paso {
     /// enlace o un fichero en `destino`, lo sustituye; una carpeta real no
     /// se toca y es un error.
     Enlazar { origen: PathBuf, destino: PathBuf },
+    /// Renombra (mueve dentro del mismo sistema de ficheros); sustituye el
+    /// destino. Para dejar en su sitio una descarga ya completa.
+    Renombrar { origen: PathBuf, destino: PathBuf },
     /// Una orden externa; con `tolerar`, si falla se sigue (p. ej. parar lo
     /// que ya estaba parado). Con `reintentos`, si falla se vuelve a probar
     /// (hasta ese número de veces más) con una espera corta entre intentos
@@ -505,6 +508,7 @@ impl Paso {
             Paso::QuitarDirVacio(d) => format!("quitar la carpeta {} si queda vacía", d.display()),
             Paso::Copiar { origen, destino } => format!("copiar {} a {}", origen.display(), destino.display()),
             Paso::Enlazar { origen, destino } => format!("enlazar {} → {}", destino.display(), origen.display()),
+            Paso::Renombrar { origen, destino } => format!("renombrar {} a {}", origen.display(), destino.display()),
             Paso::Ejecutar { argv, tolerar, .. } => format!("ejecutar {}{}", argv.join(" "), if *tolerar { " (si falla, se sigue)" } else { "" }),
         }
     }
@@ -713,6 +717,7 @@ pub fn aplicar_con_espera(
         match paso {
             Paso::CrearDir(d) => std::fs::create_dir_all(d).map_err(|e| format!("no se pudo crear {}: {e}", d.display()))?,
             Paso::Escribir { ruta, contenido } => {
+                let ruta = &a_traves_de_enlace(ruta);
                 ea_bus::escribir_atomico(ruta, contenido.as_bytes()).map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
             }
             Paso::EscribirBytes { ruta, contenido } => {
@@ -739,6 +744,8 @@ pub fn aplicar_con_espera(
             }
             Paso::Copiar { origen, destino } => copiar(origen, destino)?,
             Paso::Enlazar { origen, destino } => enlazar(origen, destino)?,
+            Paso::Renombrar { origen, destino } => std::fs::rename(origen, destino)
+                .map_err(|e| format!("no se pudo renombrar {} a {}: {e}", origen.display(), destino.display()))?,
             Paso::Ejecutar { argv, tolerar, reintentos } => {
                 let mut resultado = correr(argv);
                 for _ in 0..*reintentos {
@@ -758,6 +765,18 @@ pub fn aplicar_con_espera(
         hecho.push(paso.describir());
     }
     Ok(hecho)
+}
+
+/// Escribir con temporal y renombrado sustituiría un enlace simbólico por
+/// un fichero normal (dotfiles gestionados con stow o chezmoi): se escribe
+/// en el fichero apuntado. Un enlace roto se sustituye.
+fn a_traves_de_enlace(ruta: &Path) -> PathBuf {
+    if std::fs::symlink_metadata(ruta).is_ok_and(|m| m.file_type().is_symlink()) {
+        if let Ok(real) = std::fs::canonicalize(ruta) {
+            return real;
+        }
+    }
+    ruta.to_path_buf()
 }
 
 fn crear_padre(ruta: &Path) -> Result<(), String> {

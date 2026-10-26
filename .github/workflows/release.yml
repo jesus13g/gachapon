@@ -20,8 +20,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Solo lectura por defecto: los trabajos que compilan ejecutan los build.rs
+# de todas las dependencias. Escribe solo `publicar`.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -116,6 +118,8 @@ jobs:
           if-no-files-found: error
 
   publicar:
+    permissions:
+      contents: write
     name: publicar
     needs: construir
     runs-on: ubuntu-latest

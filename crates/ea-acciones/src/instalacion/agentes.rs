@@ -266,13 +266,19 @@ pub fn quitar_hook(settings: &str) -> Result<Option<String>, String> {
     for (evento, accion) in [("SubagentStart", "start"), ("SubagentStop", "stop")] {
         let buscada = format!("hook subagentes {accion}");
         if let Some(lista) = hooks.get_mut(evento).and_then(Value::as_array_mut) {
-            let antes = lista.len();
-            lista.retain(|e| !ordenes(e).any(|o| o.contains(&buscada)));
-            if lista.len() != antes {
-                cambia = true;
-                if lista.is_empty() {
-                    hooks.remove(evento);
+            // Dentro de cada entrada solo se quitan nuestras órdenes; la
+            // entrada desaparece solo si se queda sin ninguna.
+            for e in lista.iter_mut() {
+                if let Some(hs) = e.get_mut("hooks").and_then(Value::as_array_mut) {
+                    let antes = hs.len();
+                    hs.retain(|h| !h.get("command").and_then(Value::as_str).is_some_and(|o| o.contains(&buscada)));
+                    cambia |= hs.len() != antes;
                 }
+            }
+            let antes = lista.len();
+            lista.retain(|e| e.get("hooks").and_then(Value::as_array).is_none_or(|hs| !hs.is_empty()));
+            if lista.len() != antes && lista.is_empty() {
+                hooks.remove(evento);
             }
         }
     }
@@ -330,7 +336,7 @@ fn plan_montaje(ctx: &Contexto, sonda: &dyn Sonda, m: &Montaje, p: &mut Vec<Paso
 fn plan_fragmento(ctx: &Contexto, sonda: &dyn Sonda, f: &Fragmento, p: &mut Vec<Paso>) {
     let Some(r) = recursos::recurso(f.recurso) else { return };
     let ruta = unir(&ctx.home, f.destino);
-    let actual = sonda.leer(&ruta);
+    let Ok(actual) = super::leer_para_reescribir(sonda, &ruta) else { return };
     let fragmento = reescribir_ruta_flujo(r.contenido, &ctx.destinos.flujo);
     let nuevo = poner_fragmento_con(actual.as_deref(), &fragmento, &[r.contenido]);
     if actual.as_deref() != Some(nuevo.as_str()) {
@@ -345,10 +351,10 @@ fn plan_claude(ctx: &Contexto, sonda: &dyn Sonda, p: &mut Vec<Paso>) {
         p.push(Paso::Ejecutar { argv: argv.iter().map(|s| s.to_string()).collect(), tolerar: false, reintentos: 0 });
     }
     let ruta = ruta_settings(ctx);
-    let actual = sonda.leer(&ruta);
+    let Ok(actual) = super::leer_para_reescribir(sonda, &ruta) else { return };
     if let Ok(Some(nuevo)) = fusionar_hook(actual.as_deref(), &orden_ea(ctx)) {
         if actual.is_some() {
-            p.push(Paso::Copiar { origen: ruta.clone(), destino: ruta.with_extension("json.bak") });
+            p.push(Paso::Copiar { origen: ruta.clone(), destino: ruta.with_extension("json.gachapon.bak") });
         }
         p.push(Paso::Escribir { ruta, contenido: nuevo });
     }
@@ -395,13 +401,21 @@ pub fn avisos_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Vec<String> {
     let mut v = Vec::new();
     if binario_presente(sonda, "claude") {
         let ruta = ruta_settings(ctx);
-        if let Err(e) = fusionar_hook(sonda.leer(&ruta).as_deref(), &orden_ea(ctx)) {
+        let leido = super::leer_para_reescribir(sonda, &ruta);
+        if let Err(e) = leido.and_then(|t| fusionar_hook(t.as_deref(), &orden_ea(ctx))) {
             v.push(format!(
                 "{}: {e}. No se toca; añade a mano el hook de subagentes (SubagentStart/SubagentStop) con «{}» y «{}».",
                 ruta.display(),
                 orden_hook(&orden_ea(ctx), "start"),
                 orden_hook(&orden_ea(ctx), "stop"),
             ));
+        }
+    }
+    for a in ADAPTADORES.iter().filter(|a| binario_presente(sonda, a.bin)) {
+        for f in a.fragmentos {
+            if let Err(e) = super::leer_para_reescribir(sonda, &unir(&ctx.home, f.destino)) {
+                v.push(format!("{e}; el fragmento de gachapon queda por poner"));
+            }
         }
     }
     let ausentes: Vec<&str> = ADAPTADORES.iter().filter(|a| !binario_presente(sonda, a.bin)).map(|a| a.id).collect();
@@ -444,7 +458,7 @@ pub fn plan_quitar_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Result<Vec<Paso
         }
         for f in a.fragmentos {
             let ruta = unir(&ctx.home, f.destino);
-            if let Some(nuevo) = sonda.leer(&ruta).as_deref().and_then(quitar_fragmento) {
+            if let Some(nuevo) = super::leer_para_reescribir(sonda, &ruta).ok().flatten().as_deref().and_then(quitar_fragmento) {
                 p.push(if nuevo.trim().is_empty() { Paso::Borrar(ruta) } else { Paso::Escribir { ruta, contenido: nuevo } });
             }
         }
@@ -454,8 +468,8 @@ pub fn plan_quitar_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Result<Vec<Paso
         p.push(Paso::Ejecutar { argv: argv.iter().map(|s| s.to_string()).collect(), tolerar: true, reintentos: 0 });
     }
     let ruta = ruta_settings(ctx);
-    if let Some(Ok(Some(nuevo))) = sonda.leer(&ruta).map(|t| quitar_hook(&t)) {
-        p.push(Paso::Copiar { origen: ruta.clone(), destino: ruta.with_extension("json.bak") });
+    if let Some(Ok(Some(nuevo))) = super::leer_para_reescribir(sonda, &ruta).ok().flatten().map(|t| quitar_hook(&t)) {
+        p.push(Paso::Copiar { origen: ruta.clone(), destino: ruta.with_extension("json.gachapon.bak") });
         p.push(Paso::Escribir { ruta, contenido: nuevo });
     }
     if destino_enlace(&ctx.skills_dir).is_some_and(|d| d.ends_with(Path::new("qwen").join("skills"))) {
@@ -482,9 +496,13 @@ mod pruebas {
         ficheros: HashMap<PathBuf, String>,
         binarios: Vec<&'static str>,
         salidas: HashMap<String, String>,
+        ilegibles: Vec<PathBuf>,
     }
 
     impl Sonda for Falsa {
+        fn ilegible(&self, r: &Path) -> bool {
+            self.ilegibles.iter().any(|i| i == r)
+        }
         fn binario(&self, n: &str) -> Option<PathBuf> {
             self.binarios.contains(&n).then(|| PathBuf::from("/usr/bin").join(n))
         }
@@ -606,13 +624,34 @@ mod pruebas {
     }
 
     #[test]
+    fn un_settings_ilegible_no_se_reescribe_y_se_avisa() {
+        let c = ctx(Origen::Paquete);
+        let settings = c.home.join(".claude/settings.json");
+        let s = Falsa { binarios: vec!["claude"], ilegibles: vec![settings.clone()], ..Default::default() };
+        let p = plan_agentes(&c, &s).unwrap();
+        assert!(!p.iter().any(|x| matches!(x, Paso::Escribir { ruta, .. } | Paso::Copiar { destino: ruta, .. } if ruta.starts_with(&settings))));
+        assert!(avisos_agentes(&c, &s).iter().any(|a| a.contains("no se puede leer")));
+    }
+
+    #[test]
+    fn quitar_hook_respeta_las_ordenes_ajenas_de_la_misma_entrada() {
+        let t = r#"{"hooks":{"SubagentStart":[{"matcher":"*","hooks":[
+            {"type":"command","command":"/x/ea hook subagentes start"},
+            {"type":"command","command":"mi-script.sh"}]}]}}"#;
+        let n = quitar_hook(t).unwrap().unwrap();
+        assert!(n.contains("mi-script.sh"));
+        assert!(!n.contains("hook subagentes start"));
+        assert!(n.contains("SubagentStart"));
+    }
+
+    #[test]
     fn settings_previo_se_copia_antes() {
         let c = ctx(Origen::Paquete);
         let mut s = Falsa { binarios: vec!["claude"], ..Default::default() };
         let settings = c.home.join(".claude/settings.json");
         s.ficheros.insert(settings.clone(), "{}".into());
         let p = plan_agentes(&c, &s).unwrap();
-        let i = p.iter().position(|x| matches!(x, Paso::Copiar { destino, .. } if destino.ends_with("settings.json.bak"))).unwrap();
+        let i = p.iter().position(|x| matches!(x, Paso::Copiar { destino, .. } if destino.ends_with("settings.json.gachapon.bak"))).unwrap();
         let j = p.iter().position(|x| matches!(x, Paso::Escribir { ruta, .. } if *ruta == settings)).unwrap();
         assert!(i < j);
     }

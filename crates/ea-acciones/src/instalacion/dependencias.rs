@@ -313,7 +313,10 @@ fn modelo(ctx: &Contexto, sonda: &dyn Sonda, ajustes: &Ajustes) -> Dependencia {
     };
     let dir = ctx.destinos.datos.join("modelos");
     let gguf = dir.join(d.fichero());
-    let arrancar = format!("arráncalo con: {}", d.orden_con(&texto(&gguf)));
+    let parcial = dir.join(format!("{}.parcial", d.fichero()));
+    // La ruta va citada: en macOS lleva espacios (`Application Support`).
+    let citada = if ctx.sistema == Sistema::Windows { format!("\"{}\"", texto(&gguf)) } else { format!("'{}'", texto(&gguf).replace('\'', "'\\''")) };
+    let arrancar = format!("arráncalo con: {}", d.orden_con(&citada));
     if sonda.existe(&gguf) {
         return Dependencia {
             descripcion,
@@ -328,9 +331,13 @@ fn modelo(ctx: &Contexto, sonda: &dyn Sonda, ajustes: &Ajustes) -> Dependencia {
             Dependencia {
                 oferta: Some(Oferta {
                     explicacion: format!("descargar {} (~{} GB) en {}", d.fichero(), d.gb(), dir.display()),
+                    // A un `.parcial` que se reanuda (`-C -`) y solo al
+                    // terminar al nombre final: un corte no deja un modelo a
+                    // medias que pase por descargado.
                     pasos: vec![
                         Paso::CrearDir(dir.clone()),
-                        ejecutar(vec![curl.into(), "-L".into(), "--fail".into(), "-C".into(), "-".into(), "-o".into(), texto(&gguf), d.url.into()]),
+                        ejecutar(vec![curl.into(), "-L".into(), "--fail".into(), "-C".into(), "-".into(), "-o".into(), texto(&parcial), d.url.into()]),
+                        Paso::Renombrar { origen: parcial.clone(), destino: gguf.clone() },
                     ],
                     admin: false,
                 }),
@@ -578,9 +585,10 @@ mod pruebas {
         let a = &argv_de(o)[0];
         assert_eq!(a[0], "curl");
         assert!(a.contains(&"-C".to_string()) && a.last().unwrap().starts_with("https://"));
-        assert!(a.iter().any(|x| x.starts_with("/d/modelos/") && x.ends_with(".gguf")));
+        assert!(a.iter().any(|x| x.starts_with("/d/modelos/") && x.ends_with(".gguf.parcial")));
+        assert!(o.pasos.iter().any(|p| matches!(p, Paso::Renombrar { destino, .. } if destino.to_string_lossy().ends_with(".gguf"))));
         assert!(o.explicacion.contains("GB"));
-        assert!(m.nota.as_deref().unwrap().contains("llama-server -m /d/modelos/"));
+        assert!(m.nota.as_deref().unwrap().contains("llama-server -m '/d/modelos/"));
     }
 
     #[test]

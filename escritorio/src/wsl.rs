@@ -8,6 +8,7 @@
 
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use crate::clave;
 
@@ -63,19 +64,47 @@ pub fn leer_clave(distro: &str) -> Option<String> {
     clave_de_salida(&s.stdout)
 }
 
-/// El `sleep infinity` en marcha (uno por proceso).
-static VIVA: Mutex<Option<Child>> = Mutex::new(None);
+/// El `sleep infinity` en marcha (uno por proceso), cuándo se lanzó, cuántas
+/// veces seguidas ha muerto enseguida y desde cuándo se puede relanzar.
+struct Viva {
+    hijo: Option<Child>,
+    lanzado: Option<Instant>,
+    fallos: u32,
+    no_antes: Option<Instant>,
+}
+
+static VIVA: Mutex<Viva> = Mutex::new(Viva { hijo: None, lanzado: None, fallos: 0, no_antes: None });
+
+/// Un `sleep` que muere antes de esto cuenta como fallo (distribución
+/// borrada, WSL roto): no se relanza cada 2 s sin fin.
+const VIDA_MINIMA: Duration = Duration::from_secs(10);
+
+/// Espera antes de relanzar tras `fallos` muertes rápidas seguidas: 0 al
+/// principio, luego 4 s, 8 s… hasta 5 min.
+pub fn espera_reintento(fallos: u32) -> Duration {
+    if fallos == 0 { Duration::ZERO } else { Duration::from_secs((2u64 << fallos.min(8)).min(300)) }
+}
 
 /// Arranca el proceso que mantiene viva la distribución (si no lo está ya).
 pub fn mantener_viva(distro: &str) {
     let mut g = VIVA.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(h) = g.as_mut()
-        && matches!(h.try_wait(), Ok(None))
-    {
+    if let Some(h) = g.hijo.as_mut() {
+        if matches!(h.try_wait(), Ok(None)) {
+            return;
+        }
+        let rapida = g.lanzado.is_some_and(|t| t.elapsed() < VIDA_MINIMA);
+        g.fallos = if rapida { g.fallos + 1 } else { 0 };
+        g.no_antes = Some(Instant::now() + espera_reintento(g.fallos));
+        g.hijo = None;
+    }
+    if g.no_antes.is_some_and(|t| Instant::now() < t) {
         return;
     }
     match orden(&argv_viva(distro)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
-        Ok(h) => *g = Some(h),
+        Ok(h) => {
+            g.hijo = Some(h);
+            g.lanzado = Some(Instant::now());
+        }
         Err(e) => eprintln!("ea-escritorio: no se pudo mantener viva la distribución {distro} de WSL: {e}"),
     }
 }
@@ -83,7 +112,7 @@ pub fn mantener_viva(distro: &str) {
 /// Termina el proceso que mantiene viva la distribución (al salir).
 pub fn soltar() {
     let mut g = VIVA.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(mut h) = g.take() {
+    if let Some(mut h) = g.hijo.take() {
         let _ = h.kill();
         let _ = h.wait();
     }
@@ -98,6 +127,14 @@ mod tests {
     use super::*;
 
     const BUENA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn los_reintentos_se_espacian_hasta_cinco_minutos() {
+        assert_eq!(espera_reintento(0), Duration::ZERO);
+        assert_eq!(espera_reintento(1), Duration::from_secs(4));
+        assert_eq!(espera_reintento(2), Duration::from_secs(8));
+        assert_eq!(espera_reintento(30), Duration::from_secs(300));
+    }
 
     #[test]
     fn solo_en_windows_y_con_un_nombre_valido() {

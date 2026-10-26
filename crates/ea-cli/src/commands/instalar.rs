@@ -70,6 +70,8 @@ fn comprobar_terminal_y_usuario() -> Result<()> {
 fn contexto(sin_escritorio: bool) -> Result<Contexto> {
     let sistema = Sistema::actual();
     let exe = std::env::current_exe().context("no se pudo saber dónde está este binario")?;
+    // En macOS `current_exe` no resuelve el enlace de `~/.local/bin/ea`.
+    let exe = ea_plataforma::rutas::canonica(&exe).unwrap_or(exe);
     let exes_origen = exe.parent().context("el binario no tiene carpeta")?.to_path_buf();
     let home = ea_plataforma::usuario::home().context("no se pudo saber la carpeta de tu usuario")?;
     let origen = origen::origen_de(&exes_origen);
@@ -104,8 +106,12 @@ fn correr_interactiva(argv: &[String]) -> Result<(), String> {
 fn mostrar_pasos(pasos: &[Paso]) {
     for p in pasos {
         let nota = match p {
-            Paso::Escribir { ruta, .. } | Paso::EscribirUtf16 { ruta, .. } | Paso::EscribirBytes { ruta, .. } | Paso::Copiar { destino: ruta, .. }
-                if ruta.exists() =>
+            Paso::Escribir { ruta, .. }
+            | Paso::EscribirUtf16 { ruta, .. }
+            | Paso::EscribirBytes { ruta, .. }
+            | Paso::Copiar { destino: ruta, .. }
+            | Paso::Enlazar { destino: ruta, .. }
+                if std::fs::symlink_metadata(ruta).is_ok() =>
             {
                 " (sustituye el que hay)"
             }
@@ -264,6 +270,13 @@ pub fn instalar(op: Opciones) -> Result<()> {
     let pasos = instalacion::plan_instalar_todo(&ctx, &entorno, &ajustes_toml, &sonda).map_err(anyhow::Error::msg)?;
     println!("ea instalar hará esto:");
     mostrar_pasos(&pasos);
+    let avisos: Vec<String> = instalacion::ruta_usuario::avisos_ruta(&ctx, &sonda)
+        .into_iter()
+        .chain(instalacion::agentes::avisos_agentes(&ctx, &sonda))
+        .collect();
+    for a in &avisos {
+        println!("  ! {a}");
+    }
     if ctx.con_escritorio {
         println!("  - poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)");
     }
@@ -352,7 +365,8 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
         println!("Falta {}: se instala con permiso de administrador (UAC) y Windows pedirá reiniciar.", if estado == EstadoWsl::SinWsl { "WSL2" } else { "la distribución" });
         println!("Tras el reinicio, al iniciar sesión, el instalador sigue solo.\n");
         println!("ea instalar hará esto:");
-        let mut pasos = wsl::plan_escritorio_windows(&ctx, &distro);
+        let mut pasos = instalacion::plan_parar_escritorio(&ctx);
+        pasos.extend(wsl::plan_escritorio_windows(&ctx, &distro));
         pasos.extend(wsl::plan_instalar_wsl(&distro, &continuar));
         if confirmar_y_aplicar(&pasos, &[])? {
             println!("\nReinicia Windows para terminar de instalar WSL. Al volver a entrar, se abrirá el instalador para seguir.");
@@ -371,6 +385,10 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
             return Ok(());
         }
         correr_interactiva(&["wsl.exe".into(), "-d".into(), distro.clone()]).map_err(anyhow::Error::msg)?;
+        let uid = sonda.salida(&["wsl.exe", "-d", &distro, "--exec", "id", "-u"]).map(|t| wsl::limpiar_salida_wsl(&t).trim().to_string());
+        if uid.as_deref() == Some("0") || uid.is_none() {
+            bail!("{distro} sigue sin un usuario normal (entra como root): créalo con `wsl -d {distro}` y vuelve a ejecutar el instalador");
+        }
     }
 
     // En Windows solo hace falta el WebView de la app; lo demás está en WSL.
@@ -379,6 +397,7 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
     println!("ea instalar hará esto:");
     let mut pasos = wsl::plan_preparar_distro(&distro, &estado);
     pasos.extend(wsl::plan_linux_dentro(&distro, wsl::URL_INSTALAR_SH));
+    pasos.extend(instalacion::plan_parar_escritorio(&ctx));
     pasos.extend(wsl::plan_escritorio_windows(&ctx, &distro));
     pasos.extend(instalacion::menu::plan_menu(&ctx));
     let extra = [
@@ -425,7 +444,7 @@ fn verificar(ctx: &Contexto, notas: Vec<String>, con_agentes: bool) -> Result<()
         }
     }
     if ctx.sistema != Sistema::Windows && matches!(ctx.origen, Origen::Paquete) {
-        println!("\n`ea` queda en {}; abre una terminal nueva si aún no lo encuentra.", ctx.home.join(".local/bin/ea").display());
+        println!("\n`ea` queda en {}; si aún no lo encuentra, abre una terminal nueva (si se añadió al perfil del shell, vuelve a iniciar sesión).", ctx.home.join(".local/bin/ea").display());
     }
     Ok(())
 }
