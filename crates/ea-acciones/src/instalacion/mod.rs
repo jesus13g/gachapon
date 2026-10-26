@@ -413,6 +413,12 @@ mod pruebas {
         matches!(x, Paso::Ejecutar { argv, .. } if argv.iter().any(|a| a.contains(arg)))
     }
 
+    /// Una ruta o un texto con `/` (en Windows `join` pone `\`, y las
+    /// unidades citan la barra invertida).
+    fn n(t: impl AsRef<std::ffi::OsStr>) -> String {
+        Path::new(t.as_ref()).to_string_lossy().replace("\\\\", "/").replace('\\', "/")
+    }
+
     fn escribe(x: &Paso, fin: &str) -> bool {
         matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } if ruta.ends_with(fin))
     }
@@ -428,10 +434,10 @@ mod pruebas {
 
         let parar = posicion(&p, |x| lleva(x, "stop"));
         let copia = posicion(&p, |x| matches!(x, Paso::Copiar { destino, .. } if destino.ends_with("bin/ea-web")));
-        let enlace = posicion(&p, |x| matches!(x, Paso::Enlazar { destino, .. } if destino == Path::new("/home/ana/.local/bin/ea")));
+        let enlace = posicion(&p, |x| matches!(x, Paso::Enlazar { destino, .. } if n(destino) == "/home/ana/.local/bin/ea"));
         let toml = posicion(&p, |x| matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } if ruta == &ajustes()));
         let unidad = posicion(&p, |x| {
-            matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("ea-web.service") && contenido.contains("/home/ana/.local/share/ecosistema-asistente/bin/ea-web"))
+            matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("ea-web.service") && n(contenido).contains("/home/ana/.local/share/ecosistema-asistente/bin/ea-web"))
         });
         let desktop = posicion(&p, |x| escribe(x, "ea-escritorio.desktop"));
         assert!(parar < copia && copia < enlace && enlace < toml && toml < unidad && unidad < desktop);
@@ -478,7 +484,7 @@ mod pruebas {
         assert!(p.iter().any(|x| {
             matches!(x, Paso::Enlazar { origen, destino } if origen.ends_with("escritorio/target/release/ea-escritorio") && destino == &repo.join("target/release/ea-escritorio"))
         }));
-        assert!(p.iter().any(|x| matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("ea-web.service") && contenido.contains("/src/gachapon/target/release/ea-web"))));
+        assert!(p.iter().any(|x| matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("ea-web.service") && n(contenido).contains("/src/gachapon/target/release/ea-web"))));
     }
 
     #[test]

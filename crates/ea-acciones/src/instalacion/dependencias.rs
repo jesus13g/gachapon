@@ -585,10 +585,10 @@ mod pruebas {
         let a = &argv_de(o)[0];
         assert_eq!(a[0], "curl");
         assert!(a.contains(&"-C".to_string()) && a.last().unwrap().starts_with("https://"));
-        assert!(a.iter().any(|x| x.starts_with("/d/modelos/") && x.ends_with(".gguf.parcial")));
+        assert!(a.iter().map(|x| x.replace('\\', "/")).any(|x| x.starts_with("/d/modelos/") && x.ends_with(".gguf.parcial")));
         assert!(o.pasos.iter().any(|p| matches!(p, Paso::Renombrar { destino, .. } if destino.to_string_lossy().ends_with(".gguf"))));
         assert!(o.explicacion.contains("GB"));
-        assert!(m.nota.as_deref().unwrap().contains("llama-server -m '/d/modelos/"));
+        assert!(m.nota.as_deref().unwrap().replace('\\', "/").contains("llama-server -m '/d/modelos/"));
     }
 
     #[test]

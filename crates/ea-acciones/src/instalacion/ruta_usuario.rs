@@ -41,8 +41,11 @@ pub fn en_path(path: &str, dir: &Path, home: &Path, sistema: Sistema) -> bool {
         if sistema == Sistema::Windows {
             return e.eq_ignore_ascii_case(&objetivo);
         }
-        let expandido = e.strip_prefix("~/").or_else(|| e.strip_prefix("$HOME/")).map(|r| home.join(r).to_string_lossy().into_owned());
-        e == objetivo || expandido.as_deref() == Some(objetivo.as_str())
+        // Separadores normalizados: un plan de Unix también se prueba en
+        // Windows, donde `join` pone `\`.
+        let normal = |t: &str| t.replace('\\', "/");
+        let expandido = e.strip_prefix("~/").or_else(|| e.strip_prefix("$HOME/")).map(|r| normal(&home.join(r).to_string_lossy()));
+        normal(e) == normal(&objetivo) || expandido.as_deref() == Some(normal(&objetivo).as_str())
     })
 }
 
