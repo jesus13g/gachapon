@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use ea_acciones::instalacion::dependencias::{self, Dependencia, Estado};
 use ea_acciones::instalacion::origen::{self, nombre_binario, BINARIO_ESCRITORIO};
+use ea_acciones::instalacion::wsl::{self, EstadoWsl};
 use ea_acciones::instalacion::{self, Contexto, Origen, Sonda, SondaReal};
 use ea_acciones::servicios::{aplicar, correr_orden, Entorno, Paso};
 use ea_acciones::Canal;
@@ -123,8 +124,9 @@ fn describir_origen(ctx: &Contexto) -> String {
 
 /// Las dependencias externas: se enseñan y se ofrece cada una con su
 /// propia pregunta. Devuelve las notas que quedan para el final.
-fn ofrecer_dependencias(ctx: &Contexto, sonda: &dyn Sonda) -> Result<Vec<String>> {
-    let deps: Vec<Dependencia> = dependencias::detectar(ctx, sonda);
+fn ofrecer_dependencias(ctx: &Contexto, sonda: &dyn Sonda, solo: Option<&[&str]>) -> Result<Vec<String>> {
+    let deps: Vec<Dependencia> =
+        dependencias::detectar(ctx, sonda).into_iter().filter(|d| solo.is_none_or(|ids| ids.contains(&d.id))).collect();
     if deps.is_empty() {
         return Ok(vec![]);
     }
@@ -228,10 +230,7 @@ pub fn instalar(op: Opciones) -> Result<()> {
             }
         };
         match via {
-            Via::Wsl => {
-                let _ = (&op.distro, op.continuar);
-                bail!("vía WSL: pendiente de integración (T-006)");
-            }
+            Via::Wsl => return instalar_wsl(&op),
             Via::Nativa => {
                 println!("\nEn Windows nativo no hay sandbox: el agente ejecutor podrá escribir en cualquier sitio que tu usuario pueda.");
                 let r = preguntar(&format!("  Para seguir así escribe «{FRASE_SIN_SANDBOX}» (otra cosa cancela): "))?;
@@ -259,7 +258,7 @@ pub fn instalar(op: Opciones) -> Result<()> {
 
     println!("Origen:    {}", describir_origen(&ctx));
     println!("Sistema:   {}\n", ctx.sistema.nombre());
-    let notas = if op.sin_dependencias { vec![] } else { ofrecer_dependencias(&ctx, &sonda)? };
+    let notas = if op.sin_dependencias { vec![] } else { ofrecer_dependencias(&ctx, &sonda, None)? };
 
     let ajustes_toml = Fuentes::sistema().fichero();
     let pasos = instalacion::plan_instalar_todo(&ctx, &entorno, &ajustes_toml, &sonda).map_err(anyhow::Error::msg)?;
@@ -297,7 +296,7 @@ pub fn instalar(op: Opciones) -> Result<()> {
         }
     }
 
-    verificar(&ctx, notas)?;
+    verificar(&ctx, notas, true)?;
     if ctx.con_escritorio && escritorio.is_file() {
         let r = preguntar("\n  ¿Abrir la app ahora? [S/n]: ")?;
         if r.is_empty() || respuesta_confirma(false, "abrir", &r) {
@@ -307,9 +306,106 @@ pub fn instalar(op: Opciones) -> Result<()> {
     Ok(())
 }
 
+/// Enseña los pasos, pide la confirmación y los aplica con la consola
+/// heredada (UAC, `sudo` y la confirmación de `ea instalar` dentro de WSL
+/// necesitan la terminal). `false`: el usuario canceló.
+fn confirmar_y_aplicar(pasos: &[Paso], extra: &[String]) -> Result<bool> {
+    mostrar_pasos(pasos);
+    for e in extra {
+        println!("  - {e}");
+    }
+    let r = preguntar("\n  ¿Hacerlo ahora? [s/N]: ")?;
+    if !respuesta_confirma(false, "instalar", &r) {
+        println!("Cancelado: no se ha hecho nada.");
+        return Ok(false);
+    }
+    let hecho = aplicar(pasos, &mut |argv| correr_interactiva(argv)).map_err(anyhow::Error::msg)?;
+    println!("Hecho ({} pasos).", hecho.len());
+    Ok(true)
+}
+
+/// La vía WSL2 de Windows (spec 023, decisión 9): WSL (con reinicio si
+/// falta), la distribución con `systemd` y `linger`, la parte de Linux
+/// dentro con `instalar.sh --sin-escritorio` y, en Windows, solo la app.
+fn instalar_wsl(op: &Opciones) -> Result<()> {
+    let distro = if op.distro.trim().is_empty() { wsl::DISTRO_POR_DEFECTO.to_string() } else { op.distro.trim().to_string() };
+    if !wsl::distro_valida(&distro) {
+        bail!("nombre de distribución no válido: {distro:?} (letras, cifras, «.», «_» o «-»)");
+    }
+    let sonda = SondaReal;
+    let ctx = contexto(op.sin_escritorio)?;
+    if !ctx.con_escritorio {
+        bail!("falta {} junto a este ea.exe: en la vía WSL la app es lo único que se instala en Windows", nombre_binario(ctx.sistema, BINARIO_ESCRITORIO));
+    }
+    let wslconfig = sonda.leer(&ctx.home.join(".wslconfig"));
+    if wsl::reenvio_localhost_desactivado(wslconfig.as_deref()) {
+        println!("Aviso: %USERPROFILE%\\.wslconfig tiene localhostForwarding=false; la app de Windows no verá el panel de WSL hasta que lo quites.\n");
+    }
+    println!("Vía WSL2, distribución {distro}.\n");
+
+    let estado = wsl::estado_wsl(&sonda, &distro);
+    let continuar = ctx.destinos.bin.join(nombre_binario(ctx.sistema, "ea"));
+    if matches!(estado, EstadoWsl::SinWsl | EstadoWsl::SinDistro) {
+        if op.continuar {
+            bail!("tras el reinicio sigue sin estar la distribución {distro} (`wsl.exe -l -q`); instálala con `wsl --install -d {distro}` y vuelve a ejecutar el instalador");
+        }
+        println!("Falta {}: se instala con permiso de administrador (UAC) y Windows pedirá reiniciar.", if estado == EstadoWsl::SinWsl { "WSL2" } else { "la distribución" });
+        println!("Tras el reinicio, al iniciar sesión, el instalador sigue solo.\n");
+        println!("ea instalar hará esto:");
+        let mut pasos = wsl::plan_escritorio_windows(&ctx, &distro);
+        pasos.extend(wsl::plan_instalar_wsl(&distro, &continuar));
+        if confirmar_y_aplicar(&pasos, &[])? {
+            println!("\nReinicia Windows para terminar de instalar WSL. Al volver a entrar, se abrirá el instalador para seguir.");
+        }
+        return Ok(());
+    }
+
+    // Una distribución recién instalada no tiene usuario: hay que crearlo
+    // antes de `linger` y de instalar (si no, todo quedaría como root).
+    let uid = sonda.salida(&["wsl.exe", "-d", &distro, "--exec", "id", "-u"]).map(|t| wsl::limpiar_salida_wsl(&t).trim().to_string());
+    if uid.as_deref() == Some("0") || uid.is_none() {
+        println!("Hay que crear tu usuario de Linux en {distro}. Se abre ahora: cuando veas el símbolo del sistema, escribe `exit`.");
+        let r = preguntar("  ¿Abrirla? [S/n]: ")?;
+        if !(r.is_empty() || respuesta_confirma(false, "abrir", &r)) {
+            println!("Cancelado: no se ha hecho nada.");
+            return Ok(());
+        }
+        correr_interactiva(&["wsl.exe".into(), "-d".into(), distro.clone()]).map_err(anyhow::Error::msg)?;
+    }
+
+    // En Windows solo hace falta el WebView de la app; lo demás está en WSL.
+    let notas = if op.sin_dependencias { vec![] } else { ofrecer_dependencias(&ctx, &sonda, Some(&["webview2"]))? };
+
+    println!("ea instalar hará esto:");
+    let mut pasos = wsl::plan_preparar_distro(&distro, &estado);
+    pasos.extend(wsl::plan_linux_dentro(&distro, wsl::URL_INSTALAR_SH));
+    pasos.extend(wsl::plan_escritorio_windows(&ctx, &distro));
+    pasos.extend(instalacion::menu::plan_menu(&ctx));
+    let extra = [
+        format!("poner escritorio.wsl = {distro} (la app lee la clave del panel de WSL y mantiene viva la distribución)"),
+        "poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)".to_string(),
+    ];
+    if !confirmar_y_aplicar(&pasos, &extra)? {
+        return Ok(());
+    }
+    fijar_ajustes(&[("escritorio.wsl", Value::String(distro.clone())), (ea_ajustes::CLAVE_AL_INICIAR, Value::Bool(true))])?;
+    let escritorio = ctx.destinos.bin.join(nombre_binario(ctx.sistema, BINARIO_ESCRITORIO));
+    if let Err(e) = ea_ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
+        eprintln!("aviso: {e}");
+    }
+    // Los agentes de la vía WSL están dentro: su resumen ya lo dio el
+    // `ea instalar` de Linux.
+    verificar(&ctx, notas, false)?;
+    let r = preguntar("\n  ¿Abrir la app ahora? [S/n]: ")?;
+    if r.is_empty() || respuesta_confirma(false, "abrir", &r) {
+        abrir_app(&escritorio)?;
+    }
+    Ok(())
+}
+
 /// Comprueba que los servicios responden, enseña los agentes y lo que queda
 /// en manos del usuario.
-fn verificar(ctx: &Contexto, notas: Vec<String>) -> Result<()> {
+fn verificar(ctx: &Contexto, notas: Vec<String>, con_agentes: bool) -> Result<()> {
     let ajustes = ea_ajustes::cargar();
     let tope = Duration::from_secs(30);
     println!("\nComprobando los servicios (hasta {} s)…", tope.as_secs());
@@ -319,7 +415,7 @@ fn verificar(ctx: &Contexto, notas: Vec<String>) -> Result<()> {
     println!("  ea-web  127.0.0.1:{:<6} {}", ajustes.red.puerto_web, si(web));
     println!("  ea-mcp  127.0.0.1:{:<6} {}", ctx.puerto_mcp, si(mcp));
     println!();
-    if let Err(e) = super::agentes::listar(false) {
+    if con_agentes && let Err(e) = super::agentes::listar(false) {
         eprintln!("aviso: no se pudo enseñar los agentes: {e:#}");
     }
     if !notas.is_empty() {

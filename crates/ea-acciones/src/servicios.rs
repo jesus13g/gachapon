@@ -732,6 +732,7 @@ pub fn aplicar_con_espera(
                 Err(e) => return Err(format!("no se pudo borrar {}: {e}", r.display())),
             },
             Paso::QuitarDirVacio(d) => {
+                // Si no está vacía, lo que queda no es nuestro: se deja.
                 if std::fs::symlink_metadata(d).is_ok_and(|m| m.is_dir()) {
                     let _ = std::fs::remove_dir(d);
                 }
