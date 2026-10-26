@@ -1,0 +1,142 @@
+# Publica los binarios de cada sistema en GitHub Releases (spec 023, D-4).
+#
+# Con un tag `v*`: una Release con
+#   gachapon-x86_64-unknown-linux-gnu.tar.gz
+#   gachapon-aarch64-unknown-linux-gnu.tar.gz
+#   gachapon-universal-apple-darwin.tar.gz
+#   gachapon-x86_64-pc-windows-msvc.zip
+#   gachapon-instalar.exe
+#   SHA256SUMS
+# Los nombres no llevan versión: `releases/latest/download/<nombre>` sirve
+# siempre el último (lo usan instalar.sh e instalar.ps1).
+#
+# A mano (workflow_dispatch) sin tag: una Release borrador `prueba-<n>`, que
+# `latest` no ve.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  construir:
+    name: construir (${{ matrix.objetivo }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # glibc de Ubuntu 22.04 (2.35): vale para las distribuciones de estos años.
+          - os: ubuntu-22.04
+            objetivo: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            objetivo: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            objetivo: universal-apple-darwin
+          - os: windows-latest
+            objetivo: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Objetivos de macOS
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.objetivo }}
+          workspaces: |
+            . -> target
+            escritorio -> target
+      - name: Dependencias de WebKitGTK y bandeja
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Compilar (Linux y Windows)
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          cargo build --release --workspace
+          cargo build --release --manifest-path escritorio/Cargo.toml
+          mkdir -p dist
+          ext=""
+          if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; fi
+          for b in ea ea-web ea-mcp ea-orchestrator; do
+            cp "target/release/$b$ext" dist/
+          done
+          cp "escritorio/target/release/ea-escritorio$ext" dist/
+
+      - name: Compilar (macOS universal)
+        if: runner.os == 'macOS'
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --workspace --target "$t"
+            cargo build --release --manifest-path escritorio/Cargo.toml --target "$t"
+          done
+          mkdir -p dist
+          for b in ea ea-web ea-mcp ea-orchestrator; do
+            lipo -create -output "dist/$b" "target/aarch64-apple-darwin/release/$b" "target/x86_64-apple-darwin/release/$b"
+          done
+          lipo -create -output dist/ea-escritorio \
+            escritorio/target/aarch64-apple-darwin/release/ea-escritorio \
+            escritorio/target/x86_64-apple-darwin/release/ea-escritorio
+          lipo -info dist/ea
+
+      - name: Empaquetar (tar.gz)
+        if: runner.os != 'Windows'
+        run: |
+          cp LICENSE README.md dist/
+          mkdir -p salida
+          tar -czf "salida/gachapon-${{ matrix.objetivo }}.tar.gz" -C dist .
+
+      - name: Empaquetar (zip) e instalador de Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE, README.md dist/
+          New-Item -ItemType Directory -Force salida | Out-Null
+          Compress-Archive -Path dist/* -DestinationPath "salida/gachapon-${{ matrix.objetivo }}.zip"
+          $env:GACHAPON_BINARIOS = (Resolve-Path dist).Path
+          cargo build --release --manifest-path instalador/Cargo.toml
+          Copy-Item instalador/target/release/gachapon-instalar.exe salida/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquete-${{ matrix.objetivo }}
+          path: salida/*
+          if-no-files-found: error
+
+  publicar:
+    name: publicar
+    needs: construir
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: salida
+          merge-multiple: true
+      - name: Sumas SHA-256
+        working-directory: salida
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Crear la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            gh release create "$GITHUB_REF_NAME" salida/* --title "gachapon $GITHUB_REF_NAME" --generate-notes
+          else
+            gh release create "prueba-$GITHUB_RUN_NUMBER" salida/* --draft --prerelease \
+              --target "$GITHUB_SHA" --title "Prueba $GITHUB_RUN_NUMBER" --notes "Release de prueba (workflow_dispatch) del commit $GITHUB_SHA."
+          fi

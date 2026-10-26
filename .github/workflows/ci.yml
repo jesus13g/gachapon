@@ -81,3 +81,38 @@ jobs:
         run: cargo build --manifest-path escritorio/Cargo.toml
       - name: Pruebas
         run: cargo test --manifest-path escritorio/Cargo.toml
+
+  instalador:
+    name: instalador y scripts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: instalador
+          key: instalador
+      - name: Pruebas del instalador
+        run: cargo test --manifest-path instalador/Cargo.toml
+      - name: Compilar con binarios de prueba
+        shell: bash
+        run: |
+          mkdir -p binarios-prueba
+          for b in ea ea-web ea-mcp ea-orchestrator ea-escritorio; do : > "binarios-prueba/$b.exe"; done
+          GACHAPON_BINARIOS="$PWD/binarios-prueba" cargo build --manifest-path instalador/Cargo.toml
+      - name: instalar.sh (sintaxis y shellcheck)
+        if: runner.os == 'Linux'
+        run: |
+          sh -n instalar.sh
+          if command -v shellcheck >/dev/null; then shellcheck instalar.sh; else echo "sin shellcheck"; fi
+      - name: instalar.ps1 (sintaxis)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errores = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path instalar.ps1).Path, [ref]$null, [ref]$errores) | Out-Null
+          if ($errores) { $errores | ForEach-Object { Write-Error $_.Message }; exit 1 }
