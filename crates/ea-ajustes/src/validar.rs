@@ -72,6 +72,11 @@ fn host_de(url: &str) -> Result<String, String> {
     Ok(host.to_ascii_lowercase())
 }
 
+/// ¿Es un nombre de distribución de WSL razonable (`[A-Za-z0-9._-]{1,64}`)?
+pub fn nombre_distro_valido(t: &str) -> bool {
+    !t.is_empty() && t.len() <= 64 && t.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
 fn texto_limpio(v: &Value, max: usize) -> Result<String, String> {
     let t = v.as_str().ok_or("se espera un texto")?.trim();
     if t.is_empty() {
@@ -119,6 +124,13 @@ pub fn validar_valor(c: &Clave, v: &Value) -> Result<Value, String> {
                 if t.len() > 500 {
                     return Err("supera 500 caracteres".into());
                 }
+            }
+            Ok(Value::String(t.to_string()))
+        }
+        Tipo::Distro => {
+            let t = v.as_str().ok_or("se espera un texto")?.trim();
+            if !t.is_empty() && !nombre_distro_valido(t) {
+                return Err(format!("{t:?} no es un nombre de distribución de WSL (letras, dígitos, '.', '_' y '-'; hasta 64)"));
             }
             Ok(Value::String(t.to_string()))
         }

@@ -209,6 +209,9 @@ pub struct Web {
 pub struct Escritorio {
     /// Abrirla (oculta en la bandeja) al iniciar sesión.
     pub al_iniciar: bool,
+    /// Distribución de WSL donde corren los servicios (Windows, spec 023);
+    /// vacío: en este mismo sistema.
+    pub wsl: String,
 }
 
 impl Ajustes {
@@ -263,7 +266,7 @@ impl Ajustes {
                 boveda: f.dir_datos.join("boveda"),
             },
             web: Web { sondeo_ms: 3000, diario_limite: 300 },
-            escritorio: Escritorio { al_iniciar: false },
+            escritorio: Escritorio { al_iniciar: false, wsl: String::new() },
             biblioteca: AjustesBiblioteca::default(),
         }
     }

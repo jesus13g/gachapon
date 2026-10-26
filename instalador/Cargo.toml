@@ -1,0 +1,18 @@
+[package]
+name = "gachapon-instalar"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "gachapon-instalar.exe: un único .exe que lleva dentro los binarios de Windows y lanza `ea instalar` (spec 023); fuera del workspace principal"
+build = "build.rs"
+license = "MIT"
+
+[[bin]]
+name = "gachapon-instalar"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+
+# Paquete propio: no pertenece al workspace principal.
+[workspace]
