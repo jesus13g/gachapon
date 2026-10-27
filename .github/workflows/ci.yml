@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [multisistema, desarrollo, main]
+    branches: [desarrollo, main]
   pull_request:
 
 env:
@@ -37,6 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           key: workspace
@@ -50,13 +52,34 @@ jobs:
       - name: Comprobar que sh existe
         shell: bash
         run: command -v sh && sh -c 'echo sh ok'
-      # Compilación de todo el workspace, pruebas incluidas. Clippy con
-      # -D warnings solo se exige a ea-plataforma (job anterior): el resto
-      # del workspace arrastra avisos antiguos ajenos a esta spec.
+      # Compilación de todo el workspace, pruebas incluidas.
       - name: Compilar
         run: cargo build --workspace --all-targets --keep-going
+      # Clippy sin avisos en todo el workspace, por ahora solo en Linux: las
+      # ramas por sistema de los demás crates aún no se comprueban en macOS
+      # ni en Windows (ea-plataforma sí, en el job anterior).
+      - name: Clippy
+        if: runner.os == 'Linux'
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Pruebas
         run: cargo test --workspace --no-fail-fast
+
+  web:
+    name: web (página del proyecto)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      # La misma versión de Node que pages.yml (Astro pide >= 22.23.4).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Compilar (astro check + build)
+        run: npm ci && npm run build
 
   escritorio:
     name: escritorio (${{ matrix.os }})

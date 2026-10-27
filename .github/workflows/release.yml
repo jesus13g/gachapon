@@ -29,8 +29,34 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # No se publica nada que no pase las pruebas (las mismas que el job
+  # `workspace` de ci.yml en Linux, más las del instalador).
+  pruebas:
+    name: pruebas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-pruebas
+          workspaces: |
+            . -> target
+            instalador -> target
+      - name: Instalar bubblewrap (pruebas del sandbox real)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restringe los espacios de nombres sin privilegios.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Pruebas del workspace
+        run: cargo test --workspace --no-fail-fast
+      - name: Pruebas del instalador
+        run: cargo test --manifest-path instalador/Cargo.toml
+
   construir:
     name: construir (${{ matrix.objetivo }})
+    needs: pruebas
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
