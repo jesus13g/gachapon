@@ -1,0 +1,306 @@
+{
+  "schema_version": 3,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Job lifecycle",
+    "subtitle": "The pure state machine in ea-bus: 6 EstadoTrabajo states, 7 Evento events, driven by the executor, the planner and the user",
+    "output": "job-lifecycle.html",
+    "locale": "en",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/jesus13g/gachapon",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+    }
+  },
+  "mainPath": [
+    "en_cola",
+    "ejecutando",
+    "en_revision",
+    "cerrado"
+  ],
+  "states": [
+    {
+      "id": "en_cola",
+      "type": "start",
+      "label": "en_cola",
+      "sublabel": "queued in modelo-local",
+      "tag": "start",
+      "step": "01",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/tipos.rs",
+          "line": 175,
+          "end_line": 197,
+          "label": "EstadoTrabajo"
+        },
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 179,
+          "end_line": 247,
+          "label": "crear_trabajo"
+        },
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 91,
+          "end_line": 113,
+          "label": "trabajos"
+        }
+      ]
+    },
+    {
+      "id": "ejecutando",
+      "type": "active",
+      "label": "ejecutando",
+      "sublabel": "agent runs in the sandbox",
+      "tag": "running",
+      "step": "02",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/tipos.rs",
+          "line": 297,
+          "end_line": 316,
+          "label": "transicion"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 478,
+          "end_line": 507,
+          "label": "tomar_con"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 620,
+          "end_line": 685,
+          "label": "bucle"
+        }
+      ]
+    },
+    {
+      "id": "en_revision",
+      "type": "waiting",
+      "label": "en_revision",
+      "sublabel": "report awaits the planner",
+      "tag": "review",
+      "step": "03",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 407,
+          "end_line": 427,
+          "label": "encola al planificador"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 525,
+          "end_line": 562,
+          "label": "entregar"
+        }
+      ]
+    },
+    {
+      "id": "cerrado",
+      "type": "success",
+      "label": "cerrado",
+      "sublabel": "accepted, queues cleared",
+      "tag": "terminal",
+      "step": "04",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 431,
+          "end_line": 433,
+          "label": "retirar_de_colas"
+        },
+        {
+          "path": "crates/ea-web/src/servicio/trabajos.rs",
+          "line": 460,
+          "end_line": 470,
+          "label": "decidir"
+        }
+      ]
+    },
+    {
+      "id": "en_espera",
+      "type": "waiting",
+      "label": "en_espera",
+      "sublabel": "routine correction package",
+      "tag": "on hold",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 544,
+          "end_line": 553,
+          "label": "PonerEnEspera"
+        },
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 544,
+          "end_line": 554,
+          "label": "confirmar"
+        }
+      ]
+    },
+    {
+      "id": "cancelado",
+      "type": "failure",
+      "label": "cancelado",
+      "sublabel": "cancelled by the user",
+      "tag": "terminal",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 749,
+          "end_line": 755,
+          "label": "fases canceladas"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 515,
+          "end_line": 521,
+          "label": "cancelado_en_curso"
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t-tomar",
+      "from": "en_cola",
+      "to": "ejecutando",
+      "label": "tomar · executor",
+      "variant": "emphasis"
+    },
+    {
+      "id": "t-entregar",
+      "from": "ejecutando",
+      "to": "en_revision",
+      "label": "entregar · informe",
+      "variant": "emphasis"
+    },
+    {
+      "id": "t-cerrar",
+      "from": "en_revision",
+      "to": "cerrado",
+      "label": "cerrar",
+      "variant": "emphasis"
+    },
+    {
+      "id": "t-reformular",
+      "from": "en_revision",
+      "to": "en_cola",
+      "label": "reformular · notes",
+      "variant": "dashed"
+    },
+    {
+      "id": "t-espera-rev",
+      "from": "en_revision",
+      "to": "en_espera",
+      "label": "poner_en_espera"
+    },
+    {
+      "id": "t-espera-ejec",
+      "from": "ejecutando",
+      "to": "en_espera",
+      "label": "poner_en_espera",
+      "variant": "dashed"
+    },
+    {
+      "id": "t-confirmar",
+      "from": "en_espera",
+      "to": "en_revision",
+      "label": "confirmar"
+    },
+    {
+      "id": "t-espera-cerrar",
+      "from": "en_espera",
+      "to": "cerrado",
+      "label": "cerrar"
+    },
+    {
+      "id": "t-espera-reformular",
+      "from": "en_espera",
+      "to": "en_cola",
+      "label": "reformular",
+      "variant": "dashed"
+    },
+    {
+      "id": "t-cancel-cola",
+      "from": "en_cola",
+      "to": "cancelado",
+      "label": "cancelar",
+      "variant": "security"
+    },
+    {
+      "id": "t-cancel-ejec",
+      "from": "ejecutando",
+      "to": "cancelado",
+      "label": "cancelar",
+      "variant": "security"
+    },
+    {
+      "id": "t-cancel-rev",
+      "from": "en_revision",
+      "to": "cancelado",
+      "label": "cancelar",
+      "variant": "security"
+    },
+    {
+      "id": "t-cancel-espera",
+      "from": "en_espera",
+      "to": "cancelado",
+      "label": "cancelar",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Pure state machine",
+      "items": [
+        "transicion(estado, evento) accepts only the pairs above; anything else is ErrorBus::TransicionInvalida",
+        "cerrado and cancelado have no outgoing transition",
+        "Dequeuing an entry does not change the state: only the Tomar event moves en_cola to ejecutando"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Who fires each event",
+      "items": [
+        "tomar and entregar: ea-orchestrator (ejecutar_intento, entregar); a rutina also fires poner_en_espera or cerrar by itself",
+        "cerrar, reformular, confirmar, cancelar: the planner or the user via ea trabajo, or the user in the ea-web panel (Decision)",
+        "A busy worktree lock re-queues the job without changing its state",
+        "cancelar: the executor re-reads the state before each iteration and phase, then kills the agent tree; no criterion, no report"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Inside ejecutando",
+      "items": [
+        "Each agent call bumps iteracion; the system, not the agent, runs the criterion",
+        "Criterion passes: Terminado. Limits hit or iterations exhausted: Bloqueado. Both end in en_revision",
+        "At startup recuperar() delivers any orphan ejecutando as Bloqueado (interrumpido)"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Obra phases (trabajo_fases)",
+      "items": [
+        "Phase rows start pendiente and become hecha or bloqueada after each phase's own criterion",
+        "revisar_cada pauses the job: Terminado with obra_completa=false goes to en_revision",
+        "reformular returns the chosen phase and later ones to pendiente; cancelar marks pending phases cancelada"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Where the state lives",
+      "items": [
+        "estado.json is written atomically under a per-job flock; historial.jsonl keeps one line per event",
+        "SQLite mirrors it in trabajos.estado and the diary records bus_<evento>"
+      ]
+    }
+  ]
+}

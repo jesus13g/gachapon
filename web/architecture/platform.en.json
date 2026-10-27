@@ -1,0 +1,1079 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gachapon on Linux, macOS and Windows",
+    "output": "platform.en.html",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/jesus13g/gachapon",
+      "provider": "github",
+      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+    },
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "frontend": {
+          "label": "Desktop app"
+        },
+        "backend": {
+          "label": "Installer, service or crate"
+        },
+        "database": {
+          "label": "State directories"
+        },
+        "security": {
+          "label": "Executor isolation"
+        },
+        "cloud": {
+          "label": "GitHub build and distribution"
+        },
+        "external": {
+          "label": "Source checkout"
+        }
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "pages",
+      "type": "cloud",
+      "label": "GitHub Pages",
+      "sublabel": "serves the scripts",
+      "pos": [
+        240,
+        40
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "tag": "pages.yml",
+      "sources": [
+        {
+          "path": ".github/workflows/pages.yml",
+          "line": 1,
+          "end_line": 8
+        },
+        {
+          "path": ".github/workflows/pages.yml",
+          "line": 31,
+          "end_line": 34
+        }
+      ]
+    },
+    {
+      "id": "relyml",
+      "type": "cloud",
+      "label": "release.yml",
+      "sublabel": "builds 4 targets",
+      "pos": [
+        480,
+        40
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "tag": "on tag v*",
+      "sources": [
+        {
+          "path": ".github/workflows/release.yml",
+          "line": 1,
+          "end_line": 14
+        },
+        {
+          "path": ".github/workflows/release.yml",
+          "line": 31,
+          "end_line": 50
+        }
+      ]
+    },
+    {
+      "id": "releases",
+      "type": "cloud",
+      "label": "GitHub Releases",
+      "sublabel": "packages + SHA256SUMS",
+      "pos": [
+        700,
+        40
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": ".github/workflows/release.yml",
+          "line": 1,
+          "end_line": 14
+        },
+        {
+          "path": ".github/workflows/release.yml",
+          "line": 120,
+          "end_line": 151
+        }
+      ]
+    },
+    {
+      "id": "clone",
+      "type": "external",
+      "label": "Source clone",
+      "sublabel": "cargo build",
+      "pos": [
+        45,
+        190
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 608,
+          "end_line": 612
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 616,
+          "end_line": 620
+        }
+      ]
+    },
+    {
+      "id": "scripts",
+      "type": "backend",
+      "label": "instalar.sh · .ps1",
+      "sublabel": "Linux/macOS · Windows",
+      "pos": [
+        240,
+        190
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sources": [
+        {
+          "path": "instalar.sh",
+          "line": 1,
+          "end_line": 12
+        },
+        {
+          "path": "instalar.ps1",
+          "line": 1,
+          "end_line": 12
+        },
+        {
+          "path": "instalar.sh",
+          "line": 114,
+          "end_line": 124
+        }
+      ]
+    },
+    {
+      "id": "exe",
+      "type": "backend",
+      "label": "gachapon-instalar.exe",
+      "sublabel": "embeds Windows binaries",
+      "pos": [
+        700,
+        190
+      ],
+      "size": [
+        170,
+        62
+      ],
+      "sources": [
+        {
+          "path": "instalador/src/main.rs",
+          "line": 1,
+          "end_line": 12
+        },
+        {
+          "path": "instalador/Cargo.toml",
+          "line": 1,
+          "end_line": 10
+        }
+      ]
+    },
+    {
+      "id": "eainst",
+      "type": "backend",
+      "label": "ea instalar",
+      "sublabel": "real TTY only · not root · plan + one confirmation",
+      "pos": [
+        45,
+        340
+      ],
+      "size": [
+        1120,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/instalacion/mod.rs",
+          "line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 632,
+          "end_line": 650
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 704,
+          "end_line": 721
+        }
+      ]
+    },
+    {
+      "id": "mgr_linux",
+      "type": "backend",
+      "label": "systemd --user",
+      "sublabel": "~/.config/systemd/user",
+      "pos": [
+        45,
+        490
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/servicios.rs",
+          "line": 1,
+          "end_line": 9
+        },
+        {
+          "path": "crates/ea-acciones/src/servicios.rs",
+          "line": 38,
+          "end_line": 56
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 770,
+          "end_line": 772
+        }
+      ]
+    },
+    {
+      "id": "svc_linux",
+      "type": "backend",
+      "label": "3 resident services",
+      "sublabel": "127.0.0.1 only",
+      "pos": [
+        45,
+        620
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/main.rs",
+          "line": 20,
+          "end_line": 30
+        },
+        {
+          "path": "crates/ea-web/src/main.rs",
+          "line": 18,
+          "end_line": 24
+        },
+        {
+          "path": "crates/ea-orchestrator/src/main.rs",
+          "line": 1,
+          "end_line": 20
+        }
+      ]
+    },
+    {
+      "id": "sbx_linux",
+      "type": "security",
+      "label": "bwrap",
+      "sublabel": "read-only FS",
+      "pos": [
+        45,
+        750
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/sandbox.rs",
+          "line": 1,
+          "end_line": 9
+        },
+        {
+          "path": "crates/ea-orchestrator/src/sandbox.rs",
+          "line": 31,
+          "end_line": 36
+        },
+        {
+          "path": "crates/ea-orchestrator/src/agentes.rs",
+          "line": 403,
+          "end_line": 413
+        }
+      ]
+    },
+    {
+      "id": "esc_linux",
+      "type": "frontend",
+      "label": "ea-escritorio",
+      "sublabel": "tray + notices",
+      "pos": [
+        240,
+        620
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "tag": "WebKitGTK 4.1",
+      "sources": [
+        {
+          "path": "escritorio/src/main.rs",
+          "line": 1,
+          "end_line": 4
+        },
+        {
+          "path": "escritorio/src/bandeja.rs",
+          "line": 1,
+          "end_line": 3
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 451,
+          "end_line": 466
+        }
+      ]
+    },
+    {
+      "id": "dirs_linux",
+      "type": "database",
+      "label": "State dirs",
+      "sublabel": "~/.config · ~/.local",
+      "pos": [
+        240,
+        750
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "tag": "EA_*_DIR override",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 805,
+          "end_line": 815
+        },
+        {
+          "path": "crates/ea-ajustes/src/fuentes.rs",
+          "line": 13,
+          "end_line": 13
+        },
+        {
+          "path": "crates/ea-store/src/connection.rs",
+          "line": 8,
+          "end_line": 12
+        }
+      ]
+    },
+    {
+      "id": "mgr_mac",
+      "type": "backend",
+      "label": "launchd",
+      "sublabel": "~/Library/LaunchAgents",
+      "pos": [
+        440,
+        490
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/servicios.rs",
+          "line": 1,
+          "end_line": 9
+        },
+        {
+          "path": "crates/ea-acciones/src/servicios.rs",
+          "line": 59,
+          "end_line": 82
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 773,
+          "end_line": 773
+        }
+      ]
+    },
+    {
+      "id": "svc_mac",
+      "type": "backend",
+      "label": "3 resident services",
+      "sublabel": "127.0.0.1 only",
+      "pos": [
+        440,
+        620
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/main.rs",
+          "line": 20,
+          "end_line": 30
+        },
+        {
+          "path": "crates/ea-web/src/main.rs",
+          "line": 18,
+          "end_line": 24
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 776,
+          "end_line": 790
+        }
+      ]
+    },
+    {
+      "id": "sbx_mac",
+      "type": "security",
+      "label": "Seatbelt",
+      "sublabel": "sandbox-exec profile",
+      "pos": [
+        440,
+        750
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/sandbox.rs",
+          "line": 1,
+          "end_line": 9
+        },
+        {
+          "path": "crates/ea-orchestrator/src/sandbox.rs",
+          "line": 31,
+          "end_line": 33
+        }
+      ]
+    },
+    {
+      "id": "esc_mac",
+      "type": "frontend",
+      "label": "ea-escritorio",
+      "sublabel": "tray + notices",
+      "pos": [
+        635,
+        620
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "tag": "no extra deps",
+      "sources": [
+        {
+          "path": "escritorio/src/main.rs",
+          "line": 1,
+          "end_line": 4
+        },
+        {
+          "path": "escritorio/src/bandeja.rs",
+          "line": 1,
+          "end_line": 3
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 451,
+          "end_line": 466
+        }
+      ]
+    },
+    {
+      "id": "dirs_mac",
+      "type": "database",
+      "label": "State dirs",
+      "sublabel": "~/Library/App Support",
+      "pos": [
+        635,
+        750
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "tag": "EA_*_DIR override",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 805,
+          "end_line": 815
+        },
+        {
+          "path": "crates/ea-ajustes/src/fuentes.rs",
+          "line": 13,
+          "end_line": 13
+        },
+        {
+          "path": "crates/ea-store/src/connection.rs",
+          "line": 8,
+          "end_line": 12
+        }
+      ]
+    },
+    {
+      "id": "mgr_win",
+      "type": "backend",
+      "label": "schtasks",
+      "sublabel": "Task Scheduler",
+      "pos": [
+        835,
+        490
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/servicios.rs",
+          "line": 1,
+          "end_line": 9
+        },
+        {
+          "path": "crates/ea-acciones/src/servicios.rs",
+          "line": 84,
+          "end_line": 100
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 774,
+          "end_line": 774
+        }
+      ]
+    },
+    {
+      "id": "svc_win",
+      "type": "backend",
+      "label": "3 resident services",
+      "sublabel": "127.0.0.1 only",
+      "pos": [
+        835,
+        620
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/main.rs",
+          "line": 20,
+          "end_line": 30
+        },
+        {
+          "path": "crates/ea-web/src/main.rs",
+          "line": 18,
+          "end_line": 24
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 774,
+          "end_line": 790
+        }
+      ]
+    },
+    {
+      "id": "sbx_win",
+      "type": "security",
+      "label": "No native sandbox",
+      "sublabel": "sandbox=true refuses",
+      "pos": [
+        835,
+        750
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "tag": "use WSL2",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/sandbox.rs",
+          "line": 1,
+          "end_line": 9
+        },
+        {
+          "path": "crates/ea-orchestrator/src/sandbox.rs",
+          "line": 36,
+          "end_line": 40
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 861,
+          "end_line": 861
+        }
+      ]
+    },
+    {
+      "id": "wsl",
+      "type": "backend",
+      "label": "WSL2 distro",
+      "sublabel": "systemd + bwrap",
+      "pos": [
+        1030,
+        490
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "tag": "recommended",
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/instalacion/wsl.rs",
+          "line": 1,
+          "end_line": 12
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 704,
+          "end_line": 721
+        }
+      ]
+    },
+    {
+      "id": "esc_win",
+      "type": "frontend",
+      "label": "ea-escritorio.exe",
+      "sublabel": "tray + notices",
+      "pos": [
+        1030,
+        620
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "tag": "WebView2",
+      "sources": [
+        {
+          "path": "escritorio/src/wsl.rs",
+          "line": 1,
+          "end_line": 6
+        },
+        {
+          "path": "escritorio/src/main.rs",
+          "line": 1,
+          "end_line": 6
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 451,
+          "end_line": 466
+        }
+      ]
+    },
+    {
+      "id": "dirs_win",
+      "type": "database",
+      "label": "State dirs",
+      "sublabel": "AppData (Roaming/Local)",
+      "pos": [
+        1030,
+        750
+      ],
+      "size": [
+        135,
+        60
+      ],
+      "tag": "EA_*_DIR override",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 805,
+          "end_line": 815
+        },
+        {
+          "path": "crates/ea-ajustes/src/fuentes.rs",
+          "line": 13,
+          "end_line": 13
+        },
+        {
+          "path": "crates/ea-store/src/connection.rs",
+          "line": 8,
+          "end_line": 12
+        }
+      ]
+    },
+    {
+      "id": "plat",
+      "type": "backend",
+      "label": "ea-plataforma",
+      "sublabel": "isolates OS differences: paths · processes · private files · terminal · services",
+      "pos": [
+        45,
+        880
+      ],
+      "size": [
+        1120,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-plataforma/src/lib.rs",
+          "line": 1,
+          "end_line": 12
+        },
+        {
+          "path": "crates/ea-plataforma/src/rutas.rs",
+          "line": 20,
+          "end_line": 30
+        },
+        {
+          "path": "crates/ea-plataforma/src/escritorio.rs",
+          "line": 1,
+          "end_line": 3
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "GitHub (cloud): build and distribution",
+      "wraps": [
+        "pages",
+        "relyml",
+        "releases"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "Linux",
+      "wraps": [
+        "mgr_linux",
+        "svc_linux",
+        "sbx_linux",
+        "esc_linux",
+        "dirs_linux"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "macOS",
+      "wraps": [
+        "mgr_mac",
+        "svc_mac",
+        "sbx_mac",
+        "esc_mac",
+        "dirs_mac"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "Windows",
+      "wraps": [
+        "mgr_win",
+        "svc_win",
+        "sbx_win",
+        "wsl",
+        "esc_win",
+        "dirs_win"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "security-group",
+      "label": "WSL2 (Linux sandbox)",
+      "wraps": [
+        "wsl"
+      ],
+      "pad": 10
+    }
+  ],
+  "connections": [
+    {
+      "id": "pages-scripts",
+      "from": "pages",
+      "to": "scripts",
+      "label": "curl | sh · irm | iex"
+    },
+    {
+      "id": "rel-publish",
+      "from": "relyml",
+      "to": "releases",
+      "label": "publishes"
+    },
+    {
+      "id": "rel-scripts",
+      "from": "releases",
+      "to": "scripts",
+      "label": "tar.gz + SHA-256",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "rel-exe",
+      "from": "releases",
+      "to": "exe",
+      "label": "exe asset",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "scripts-exe",
+      "from": "scripts",
+      "to": "exe",
+      "label": "ps1 downloads + runs",
+      "variant": "security"
+    },
+    {
+      "id": "clone-scripts",
+      "from": "clone",
+      "to": "scripts"
+    },
+    {
+      "id": "scripts-inst",
+      "from": "scripts",
+      "to": "eainst",
+      "label": "exec ea instalar",
+      "variant": "emphasis"
+    },
+    {
+      "id": "exe-inst",
+      "from": "exe",
+      "to": "eainst",
+      "label": "ea.exe instalar",
+      "variant": "emphasis"
+    },
+    {
+      "id": "inst-linux",
+      "from": "eainst",
+      "to": "mgr_linux",
+      "label": "systemctl --user",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "mgr-svc-linux",
+      "from": "mgr_linux",
+      "to": "svc_linux",
+      "label": "starts at login"
+    },
+    {
+      "id": "svc-sbx-linux",
+      "from": "svc_linux",
+      "to": "sbx_linux",
+      "label": "executor spawns agent",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "esc-svc-linux",
+      "from": "esc_linux",
+      "to": "svc_linux",
+      "label": "panel",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "svc-dirs-linux",
+      "from": "svc_linux",
+      "to": "dirs_linux",
+      "label": "reads/writes",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "inst-mac",
+      "from": "eainst",
+      "to": "mgr_mac",
+      "label": "launchctl",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "mgr-svc-mac",
+      "from": "mgr_mac",
+      "to": "svc_mac",
+      "label": "starts at login"
+    },
+    {
+      "id": "svc-sbx-mac",
+      "from": "svc_mac",
+      "to": "sbx_mac",
+      "label": "executor spawns agent",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "esc-svc-mac",
+      "from": "esc_mac",
+      "to": "svc_mac",
+      "label": "panel",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "svc-dirs-mac",
+      "from": "svc_mac",
+      "to": "dirs_mac",
+      "label": "reads/writes",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "inst-win",
+      "from": "eainst",
+      "to": "mgr_win",
+      "label": "schtasks",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "mgr-svc-win",
+      "from": "mgr_win",
+      "to": "svc_win",
+      "label": "starts at login"
+    },
+    {
+      "id": "svc-sbx-win",
+      "from": "svc_win",
+      "to": "sbx_win",
+      "label": "refuses if sandbox=true",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "esc-svc-win",
+      "from": "esc_win",
+      "to": "svc_win",
+      "label": "panel",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "svc-dirs-win",
+      "from": "svc_win",
+      "to": "dirs_win",
+      "label": "reads/writes",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "inst-wsl",
+      "from": "eainst",
+      "to": "wsl",
+      "label": "--via wsl",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "esc-wsl",
+      "from": "esc_win",
+      "to": "wsl",
+      "label": "key via wsl.exe",
+      "variant": "security"
+    },
+    {
+      "id": "plat-linux",
+      "from": "plat",
+      "to": "dirs_linux",
+      "label": "XDG dirs",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "plat-mac",
+      "from": "plat",
+      "to": "dirs_mac",
+      "label": "~/Library",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "plat-win",
+      "from": "plat",
+      "to": "dirs_win",
+      "label": "%APPDATA%",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One-step install",
+      "items": [
+        "Linux/macOS: curl -fsSL …/instalar.sh | sh; Windows: gachapon-instalar.exe or irm …/instalar.ps1 | iex",
+        "Scripts verify SHA-256 against SHA256SUMS, then hand over to ea instalar (needs a real TTY, never root)",
+        "From a clone: ./instalar.sh builds the workspace and escritorio/, binaries stay in target/release",
+        "Re-running ea instalar updates; ea desinstalar removes it but keeps DB, vault, settings and bus"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Where things live",
+      "items": [
+        "Linux: ajustes ~/.config, DB and vault ~/.local/share, bus ~/.local/state (all under ecosistema-asistente)",
+        "macOS: ~/Library/Application Support/ecosistema-asistente for all three",
+        "Windows: %APPDATA%\\ecosistema-asistente\\config and \\data, %LOCALAPPDATA%\\… for state and run dir",
+        "EA_CONFIG_DIR, EA_DB_PATH, EA_ESTADO_DIR and EA_BOVEDA_DIR win on all three"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Guarantees by system",
+      "items": [
+        "Executor isolation: bwrap on Linux, Seatbelt on macOS, none on native Windows: sandbox = true refuses to start (WSL2 recommended)",
+        "Local only everywhere: listeners on 127.0.0.1, ea-web filters the Host header",
+        "Hard caps kill the agent tree: process group on Unix, Job Object on Windows"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Build and release",
+      "items": [
+        "Pushing a v* tag builds linux x86_64 and aarch64, macOS universal and Windows x86_64",
+        "The Release carries gachapon-<target>.tar.gz/.zip, gachapon-instalar.exe and SHA256SUMS",
+        "ci.yml runs ea-plataforma, the workspace and the desktop app on ubuntu, macOS and Windows"
+      ]
+    }
+  ]
+}

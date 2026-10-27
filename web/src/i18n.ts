@@ -20,8 +20,12 @@ export const tr = (locale?: string) => {
   return (s: string) => dict[s] ?? s;
 };
 
-/** Root-relative path of the landing in a given language, honouring the deploy base. */
-export const pathFor = (lang: Lang) => {
+/** Pages that exist in every language. */
+export type Page = 'landing' | 'architecture';
+
+/** Root-relative path of a page (the landing by default) in a given language, honouring the deploy base. */
+export const pathFor = (lang: Lang, page: Page = 'landing') => {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  return lang === 'en' ? `${base}/` : `${base}/${lang}/`;
+  const prefix = lang === 'en' ? base : `${base}/${lang}`;
+  return page === 'architecture' ? `${prefix}/architecture/` : `${prefix}/`;
 };

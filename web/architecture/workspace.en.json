@@ -1,0 +1,513 @@
+{
+  "schema_version": 1,
+  "diagram_type": "tree",
+  "meta": {
+    "title": "Repository and Cargo workspace structure",
+    "locale": "en",
+    "output": ".archify/workspace-en/workspace.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/jesus13g/gachapon",
+      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+    }
+  },
+  "layout": {
+    "direction": "right",
+    "gapY": 24,
+    "nodeW": 150,
+    "nodeMaxW": 300
+  },
+  "nodes": [
+    {
+      "id": "repo",
+      "label": "gachapon/",
+      "sublabel": "Rust orchestrator monorepo",
+      "sources": [
+        {
+          "path": "Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "cargo",
+      "label": "Cargo.toml",
+      "parent": "repo",
+      "sublabel": "Workspace root: 11 members, excludes escritorio and instalador"
+    },
+    {
+      "id": "crates",
+      "label": "crates/",
+      "parent": "repo",
+      "sublabel": "The 11 workspace crates",
+      "sources": [
+        {
+          "path": "Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "c_plat",
+      "label": "ea-plataforma",
+      "parent": "crates",
+      "sublabel": "Linux/macOS/Windows differences (leaf crate)",
+      "sources": [
+        {
+          "path": "crates/ea-plataforma/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_plat1",
+      "label": "rutas.rs · proceso.rs",
+      "parent": "c_plat",
+      "sublabel": "Paths and process control"
+    },
+    {
+      "id": "m_plat2",
+      "label": "fs.rs · shell.rs · parada.rs",
+      "parent": "c_plat",
+      "sublabel": "Private files, shell, stop flag"
+    },
+    {
+      "id": "c_aj",
+      "label": "ea-ajustes",
+      "parent": "crates",
+      "sublabel": "ajustes.toml: key registry, validation, atomic writes",
+      "sources": [
+        {
+          "path": "crates/ea-ajustes/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_aj1",
+      "label": "claves.rs · validar.rs",
+      "parent": "c_aj",
+      "sublabel": "Key registry and validation"
+    },
+    {
+      "id": "m_aj2",
+      "label": "cargar.rs · escribir.rs · fuentes.rs",
+      "parent": "c_aj",
+      "sublabel": "Layered loading, atomic write, value origin"
+    },
+    {
+      "id": "m_aj3",
+      "label": "agentes.rs · equipo.rs · ejecucion.rs",
+      "parent": "c_aj",
+      "sublabel": "Agent catalog, team and executor settings"
+    },
+    {
+      "id": "c_bib",
+      "label": "ea-biblioteca",
+      "parent": "crates",
+      "sublabel": "Read-only tool inventory across the five agents",
+      "sources": [
+        {
+          "path": "crates/ea-biblioteca/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_bib1",
+      "label": "agentes/ (claude, codex, opencode, qwen, antigravity)",
+      "parent": "c_bib",
+      "sublabel": "One scanner per agent"
+    },
+    {
+      "id": "m_bib2",
+      "label": "uso/ · cambio/ · sesion.rs",
+      "parent": "c_bib",
+      "sublabel": "Usage per actor, enable/disable plans, ephemeral sessions"
+    },
+    {
+      "id": "c_store",
+      "label": "ea-store",
+      "parent": "crates",
+      "sublabel": "Embedded SQLite: journal, proposals, vault index, jobs",
+      "sources": [
+        {
+          "path": "crates/ea-store/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_st1",
+      "label": "migrations/0001_inicial.sql",
+      "parent": "c_store",
+      "sublabel": "Single schema migration",
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_st2",
+      "label": "store.rs · repository/",
+      "parent": "c_store",
+      "sublabel": "Store facade and per-table repositories"
+    },
+    {
+      "id": "m_st3",
+      "label": "connection.rs · migrations.rs",
+      "parent": "c_store",
+      "sublabel": "DB path, old-schema rejection"
+    },
+    {
+      "id": "c_bus",
+      "label": "ea-bus",
+      "parent": "crates",
+      "sublabel": "File bus: queues, job state machine, flock semaphore",
+      "sources": [
+        {
+          "path": "crates/ea-bus/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_bus1",
+      "label": "bus.rs · tipos.rs · fs_atomico.rs",
+      "parent": "c_bus",
+      "sublabel": "Queues, job types, atomic writes"
+    },
+    {
+      "id": "m_bus2",
+      "label": "candado.rs · worktree.rs · presencia.rs",
+      "parent": "c_bus",
+      "sublabel": "Semaphore, worktrees, agent presence"
+    },
+    {
+      "id": "m_bus3",
+      "label": "rutina.rs · equipo.rs · config.rs",
+      "parent": "c_bus",
+      "sublabel": "TOML routines, teams, ConfigOrquestador"
+    },
+    {
+      "id": "c_bov",
+      "label": "ea-boveda",
+      "parent": "crates",
+      "sublabel": "Note vault; the only code that writes to it",
+      "sources": [
+        {
+          "path": "crates/ea-boveda/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_bov",
+      "label": "boveda.rs · enlaces.rs · limites.rs",
+      "parent": "c_bov",
+      "sublabel": "Notes, links, size limits"
+    },
+    {
+      "id": "c_acc",
+      "label": "ea-acciones",
+      "parent": "crates",
+      "sublabel": "Tool catalog: risk, simulation, proposal → accept → run",
+      "sources": [
+        {
+          "path": "crates/ea-acciones/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_acc1",
+      "label": "catalogo.rs · flujo.rs · herramientas.rs",
+      "parent": "c_acc",
+      "sublabel": "Catalog and proposal flow"
+    },
+    {
+      "id": "m_acc2",
+      "label": "servicios.rs · sesion.rs · terminal.rs",
+      "parent": "c_acc",
+      "sublabel": "Services, sessions, real TTY check"
+    },
+    {
+      "id": "m_acc3",
+      "label": "instalacion/ (recursos.rs, agentes.rs, wsl.rs…)",
+      "parent": "c_acc",
+      "sublabel": "One-step installer logic and embedded resources"
+    },
+    {
+      "id": "c_orq",
+      "label": "ea-orchestrator",
+      "parent": "crates",
+      "sublabel": "Executor: takes jobs, sandboxed agent, runs the criterion [bin ea-orchestrator]",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_orq1",
+      "label": "ejecutor.rs · trabajadores.rs",
+      "parent": "c_orq",
+      "sublabel": "Job execution loop and workers"
+    },
+    {
+      "id": "m_orq2",
+      "label": "sandbox.rs · agentes.rs",
+      "parent": "c_orq",
+      "sublabel": "bwrap / Seatbelt sandbox, agent launch"
+    },
+    {
+      "id": "c_mcp",
+      "label": "ea-mcp",
+      "parent": "crates",
+      "sublabel": "MCP HTTP server on 127.0.0.1:8765 (read-only layer) [bin ea-mcp]",
+      "sources": [
+        {
+          "path": "crates/ea-mcp/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_mcp",
+      "label": "tools.rs · args.rs",
+      "parent": "c_mcp",
+      "sublabel": "MCP tool definitions and arguments"
+    },
+    {
+      "id": "c_web",
+      "label": "ea-web",
+      "parent": "crates",
+      "sublabel": "JSON API and panel on 127.0.0.1:8092 [bin ea-web]",
+      "sources": [
+        {
+          "path": "crates/ea-web/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_web1",
+      "label": "http/ · servicio/",
+      "parent": "c_web",
+      "sublabel": "Routes and one service module per area"
+    },
+    {
+      "id": "m_web2",
+      "label": "ecosistema/ · sesiones.rs · agentes.rs",
+      "parent": "c_web",
+      "sublabel": "Home-scene detectors, sessions, agents"
+    },
+    {
+      "id": "m_web3",
+      "label": "static/ (app.js, gashapon.js, *.css)",
+      "parent": "c_web",
+      "sublabel": "Panel embedded with include_str!"
+    },
+    {
+      "id": "c_cli",
+      "label": "ea-cli",
+      "parent": "crates",
+      "sublabel": "CLI and TUI (ratatui) [bin ea]",
+      "sources": [
+        {
+          "path": "crates/ea-cli/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_cli1",
+      "label": "commands/ (trabajo, rutinas, boveda, equipo, instalar…)",
+      "parent": "c_cli",
+      "sublabel": "One module per subcommand"
+    },
+    {
+      "id": "m_cli2",
+      "label": "tui/ (diario, propuestas, rutinas, servicios…)",
+      "parent": "c_cli",
+      "sublabel": "One view per monitor tab"
+    },
+    {
+      "id": "esc",
+      "label": "escritorio/",
+      "parent": "repo",
+      "sublabel": "Native desktop app ea-escritorio (spec 021), outside the workspace",
+      "sources": [
+        {
+          "path": "escritorio/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "m_esc",
+      "label": "bandeja.rs · avisos.rs · vigia.rs",
+      "parent": "esc",
+      "sublabel": "Tray, notifications, watcher"
+    },
+    {
+      "id": "ins",
+      "label": "instalador/",
+      "parent": "repo",
+      "sublabel": "gachapon-instalar.exe, Windows installer, outside the workspace",
+      "sources": [
+        {
+          "path": "instalador/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "scr",
+      "label": "instalar.sh · instalar.ps1",
+      "parent": "repo",
+      "sublabel": "One-step install scripts (build + ea instalar)",
+      "sources": [
+        {
+          "path": "instalar.sh",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "claude",
+      "label": "claude/",
+      "parent": "repo",
+      "sublabel": "Claude Code adapter",
+      "sources": [
+        {
+          "path": "claude/hooks/ea-subagentes.sh",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "sk",
+      "label": "skills/",
+      "parent": "claude",
+      "sublabel": "Planner skills: /mision, /obra, /rutina, /revisar, /equipo",
+      "sources": [
+        {
+          "path": "claude/skills/mision/SKILL.md",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "hk",
+      "label": "hooks/",
+      "parent": "claude",
+      "sublabel": "ea-subagentes.sh: wrapper of ea hook subagentes",
+      "sources": [
+        {
+          "path": "claude/hooks/ea-subagentes.sh",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "ag",
+      "label": "agentes/",
+      "parent": "repo",
+      "sublabel": "Neutral planner procedure and adapters",
+      "sources": [
+        {
+          "path": "agentes/flujo/mision.md",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "ag1",
+      "label": "flujo/",
+      "parent": "ag",
+      "sublabel": "Neutral flow: mision, obra, rutina, revisar, equipo",
+      "sources": [
+        {
+          "path": "agentes/flujo/mision.md",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "ag2",
+      "label": "codex/ · opencode/ · antigravity/",
+      "parent": "ag",
+      "sublabel": "Adapters for the other planner agents",
+      "sources": [
+        {
+          "path": "agentes/codex/AGENTS.md",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "qw",
+      "label": "qwen/skills/",
+      "parent": "repo",
+      "sublabel": "Short skills for the local agent (rust, tests, shell…)",
+      "sources": [
+        {
+          "path": "qwen/skills/rust.md",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "wb",
+      "label": "web/",
+      "parent": "repo",
+      "sublabel": "Astro landing page (this site)",
+      "sources": [
+        {
+          "path": "web/package.json",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "bn",
+      "label": "bench/",
+      "parent": "repo",
+      "sublabel": "Python model bench (outside the binaries)",
+      "sources": [
+        {
+          "path": "bench/README.md",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "dc",
+      "label": "docs/",
+      "parent": "repo",
+      "sublabel": "manual.md: complete reference",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "gh",
+      "label": ".github/workflows/",
+      "parent": "repo",
+      "sublabel": "ci.yml · pages.yml · release.yml",
+      "sources": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "line": 1
+        }
+      ]
+    }
+  ]
+}

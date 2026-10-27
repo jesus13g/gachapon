@@ -1,0 +1,690 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Acciones supervisadas, bóveda y ajustes",
+    "subtitle": "Cómo viaja una mutación de la propuesta al diario, cómo llegan las notas a la bóveda y quién puede cambiar cada ajuste",
+    "output": "actions-flow.html",
+    "locale": "es",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/jesus13g/gachapon",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+    }
+  },
+  "stages": [
+    {
+      "label": "Actores"
+    },
+    {
+      "label": "Puntos de entrada"
+    },
+    {
+      "label": "Gobierno"
+    },
+    {
+      "label": "Almacenes y efectos"
+    },
+    {
+      "label": "Consumidores"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "agents",
+      "type": "external",
+      "label": "Agentes",
+      "sublabel": "planificador y ejecutor",
+      "stage": 0,
+      "row": 0,
+      "tag": "MCP",
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/tools.rs",
+          "line": 53,
+          "end_line": 65,
+          "label": "actor_for"
+        }
+      ]
+    },
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "terminal o panel",
+      "stage": 0,
+      "row": 2,
+      "tag": "confirma",
+      "sources": [
+        {
+          "path": "crates/ea-cli/src/commands/propuestas.rs",
+          "line": 70,
+          "end_line": 106,
+          "label": "decidir"
+        }
+      ],
+      "yOffset": -48
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "ea-mcp",
+      "sublabel": "127.0.0.1:8765",
+      "stage": 1,
+      "row": 0,
+      "tag": "SoloConsulta",
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/tools.rs",
+          "line": 67,
+          "end_line": 80,
+          "label": "EaTools"
+        },
+        {
+          "path": "crates/ea-mcp/src/tools.rs",
+          "line": 290,
+          "end_line": 335,
+          "label": "proponer"
+        },
+        {
+          "path": "crates/ea-mcp/src/main.rs",
+          "line": 29,
+          "end_line": 46
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "ea CLI / TUI",
+      "sublabel": "stdin y stdout son un TTY",
+      "stage": 1,
+      "row": 1,
+      "tag": "terminal",
+      "sources": [
+        {
+          "path": "crates/ea-cli/src/commands/propuestas.rs",
+          "line": 75,
+          "end_line": 106,
+          "label": "decidir"
+        },
+        {
+          "path": "crates/ea-cli/src/commands/ajustes.rs",
+          "line": 77,
+          "end_line": 115,
+          "label": "establecer"
+        }
+      ],
+      "yOffset": -24
+    },
+    {
+      "id": "web",
+      "type": "frontend",
+      "label": "ea-web",
+      "sublabel": "127.0.0.1:8092, clave de sesión",
+      "stage": 1,
+      "row": 3,
+      "tag": "web",
+      "sources": [
+        {
+          "path": "crates/ea-web/src/servicio/propuestas.rs",
+          "line": 43,
+          "end_line": 64,
+          "label": "decidir"
+        },
+        {
+          "path": "crates/ea-web/src/servicio/ajustes.rs",
+          "line": 38,
+          "end_line": 70,
+          "label": "cambiar"
+        }
+      ],
+      "yOffset": -72
+    },
+    {
+      "id": "catalogo",
+      "type": "security",
+      "label": "CATALOGO + proponer()",
+      "sublabel": "23 herramientas: riesgo, simulación",
+      "stage": 2,
+      "row": 0,
+      "tag": "ea-acciones",
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/catalogo.rs",
+          "line": 65,
+          "end_line": 267,
+          "label": "CATALOGO"
+        },
+        {
+          "path": "crates/ea-acciones/src/catalogo.rs",
+          "line": 337,
+          "end_line": 352,
+          "label": "autorizar_mcp"
+        },
+        {
+          "path": "crates/ea-acciones/src/flujo.rs",
+          "line": 50,
+          "end_line": 106,
+          "label": "proponer"
+        }
+      ]
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "Puerta del canal",
+      "sublabel": "irreversible: solo terminal",
+      "stage": 2,
+      "row": 1,
+      "tag": "puede_confirmar",
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/catalogo.rs",
+          "line": 285,
+          "end_line": 325,
+          "label": "Canal"
+        },
+        {
+          "path": "crates/ea-web/src/servicio/terminal.rs",
+          "line": 1,
+          "end_line": 10
+        }
+      ],
+      "yOffset": -24
+    },
+    {
+      "id": "ejecutar",
+      "type": "backend",
+      "label": "ejecutar()",
+      "sublabel": "reclama, revalida, aplica",
+      "stage": 2,
+      "row": 2,
+      "tag": "ejecuta",
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/flujo.rs",
+          "line": 113,
+          "end_line": 174,
+          "label": "ejecutar"
+        },
+        {
+          "path": "crates/ea-acciones/src/flujo.rs",
+          "line": 248,
+          "end_line": 314,
+          "label": "aceptar"
+        },
+        {
+          "path": "crates/ea-acciones/src/herramientas.rs",
+          "line": 825,
+          "end_line": 849,
+          "label": "revalidar_con"
+        }
+      ],
+      "yOffset": -21
+    },
+    {
+      "id": "boveda",
+      "type": "security",
+      "label": "ea-boveda",
+      "sublabel": "escritor único, flock",
+      "stage": 2,
+      "row": 3,
+      "tag": "ea_escribir_nota",
+      "sources": [
+        {
+          "path": "crates/ea-boveda/src/boveda.rs",
+          "line": 1,
+          "end_line": 30
+        },
+        {
+          "path": "crates/ea-boveda/src/boveda.rs",
+          "line": 382,
+          "end_line": 480,
+          "label": "escribir_nota"
+        },
+        {
+          "path": "crates/ea-boveda/src/boveda.rs",
+          "line": 529,
+          "end_line": 560,
+          "label": "promover"
+        }
+      ],
+      "yOffset": -9
+    },
+    {
+      "id": "ajustes",
+      "type": "security",
+      "label": "ea-ajustes",
+      "sublabel": "registro de claves: quién cambia",
+      "stage": 2,
+      "row": 4,
+      "tag": "registro",
+      "sources": [
+        {
+          "path": "crates/ea-ajustes/src/claves.rs",
+          "line": 54,
+          "end_line": 70,
+          "label": "Edicion"
+        },
+        {
+          "path": "crates/ea-ajustes/src/escribir.rs",
+          "line": 195,
+          "end_line": 240,
+          "label": "establecer"
+        }
+      ],
+      "yOffset": -6
+    },
+    {
+      "id": "propuestas",
+      "type": "database",
+      "label": "propuestas",
+      "sublabel": "pendiente, aceptada, rechazada",
+      "stage": 3,
+      "row": 0,
+      "tag": "SQLite",
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 36,
+          "end_line": 57,
+          "label": "propuestas"
+        },
+        {
+          "path": "crates/ea-store/src/repository/propuestas.rs",
+          "line": 195,
+          "end_line": 210,
+          "label": "reclamar"
+        }
+      ]
+    },
+    {
+      "id": "diario",
+      "type": "database",
+      "label": "events (diario)",
+      "sublabel": "triggers append-only",
+      "stage": 3,
+      "row": 1,
+      "tag": "SQLite",
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 6,
+          "end_line": 34,
+          "label": "events"
+        },
+        {
+          "path": "crates/ea-acciones/src/flujo.rs",
+          "line": 30,
+          "end_line": 43,
+          "label": "evento"
+        }
+      ],
+      "yOffset": -24
+    },
+    {
+      "id": "notas",
+      "type": "database",
+      "label": "boveda_fts",
+      "sublabel": "índice boveda_notas, reconstruible",
+      "stage": 3,
+      "row": 3,
+      "tag": "SQLite",
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 59,
+          "end_line": 86,
+          "label": "boveda_notas"
+        },
+        {
+          "path": "crates/ea-boveda/src/boveda.rs",
+          "line": 785,
+          "end_line": 800,
+          "label": "buscar"
+        }
+      ],
+      "yOffset": -54
+    },
+    {
+      "id": "files",
+      "type": "database",
+      "label": "Notas de la bóveda (.md)",
+      "sublabel": "modelo-local, claude-code, compartida",
+      "stage": 3,
+      "row": 4,
+      "tag": "fuente de verdad",
+      "sources": [
+        {
+          "path": "crates/ea-boveda/src/boveda.rs",
+          "line": 382,
+          "end_line": 460,
+          "label": "escribir_nota"
+        }
+      ],
+      "yOffset": -82
+    },
+    {
+      "id": "toml",
+      "type": "database",
+      "label": "ajustes.toml",
+      "sublabel": "escritura atómica, control de versión",
+      "stage": 3,
+      "row": 4,
+      "tag": "fichero",
+      "sources": [
+        {
+          "path": "crates/ea-ajustes/src/escribir.rs",
+          "line": 195,
+          "end_line": 240,
+          "label": "establecer"
+        },
+        {
+          "path": "crates/ea-ajustes/src/lib.rs",
+          "line": 1,
+          "end_line": 13
+        }
+      ],
+      "yOffset": -6
+    },
+    {
+      "id": "readers",
+      "type": "frontend",
+      "label": "Panel, TUI, CLI",
+      "sublabel": "leen propuestas y diario",
+      "stage": 4,
+      "row": 0,
+      "tag": "usuario",
+      "sources": [
+        {
+          "path": "crates/ea-web/src/servicio/propuestas.rs",
+          "line": 33,
+          "end_line": 41,
+          "label": "listar"
+        }
+      ],
+      "yOffset": 45
+    },
+    {
+      "id": "sysfx",
+      "type": "cloud",
+      "label": "Efectos en el sistema",
+      "sublabel": "servicios, rutinas, timers, worktrees",
+      "stage": 3,
+      "row": 2,
+      "tag": "aplicado",
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/herramientas.rs",
+          "line": 881,
+          "end_line": 900,
+          "label": "aplicar_en_sistema"
+        },
+        {
+          "path": "crates/ea-acciones/src/sistema.rs",
+          "line": 79,
+          "end_line": 100,
+          "label": "Sistema"
+        }
+      ],
+      "yOffset": -21
+    },
+    {
+      "id": "noteread",
+      "type": "external",
+      "label": "Agentes por ea-mcp",
+      "sublabel": "ea_buscar_notas, ea_leer_nota",
+      "stage": 4,
+      "row": 3,
+      "tag": "lectura",
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/tools.rs",
+          "line": 682,
+          "end_line": 710,
+          "label": "ea_buscar_notas"
+        }
+      ],
+      "yOffset": -9
+    },
+    {
+      "id": "orch",
+      "type": "backend",
+      "label": "ea-orchestrator",
+      "sublabel": "lee ajustes, nunca escribe",
+      "stage": 4,
+      "row": 4,
+      "tag": "solo lectura",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/config.rs",
+          "line": 91,
+          "end_line": 131,
+          "label": "ConfigOrquestador"
+        }
+      ],
+      "yOffset": -6
+    }
+  ],
+  "flows": [
+    {
+      "id": "f-call",
+      "from": "agents",
+      "to": "mcp",
+      "label": "MCP",
+      "variant": "default"
+    },
+    {
+      "id": "f-auth",
+      "from": "mcp",
+      "to": "catalogo",
+      "label": "autorizar_mcp",
+      "variant": "security"
+    },
+    {
+      "id": "f-prop",
+      "from": "catalogo",
+      "to": "propuestas",
+      "label": "propuesta",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-user-cli",
+      "from": "user",
+      "to": "cli",
+      "label": "terminal",
+      "variant": "default"
+    },
+    {
+      "id": "f-user-web",
+      "from": "user",
+      "to": "web",
+      "label": "panel",
+      "variant": "default"
+    },
+    {
+      "id": "f-cli-gate",
+      "from": "cli",
+      "to": "gate",
+      "label": "TTY real",
+      "variant": "security"
+    },
+    {
+      "id": "f-web-gate",
+      "from": "web",
+      "to": "gate",
+      "label": "Canal::Web",
+      "variant": "security"
+    },
+    {
+      "id": "f-gate-exec",
+      "from": "gate",
+      "to": "ejecutar",
+      "label": "permitido",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-exec-prop",
+      "from": "ejecutar",
+      "to": "propuestas",
+      "label": "reclamar",
+      "variant": "default"
+    },
+    {
+      "id": "f-exec-log",
+      "from": "ejecutar",
+      "to": "diario",
+      "label": "accion_*",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-exec-sys",
+      "from": "ejecutar",
+      "to": "sysfx",
+      "label": "aplicar",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-promote",
+      "from": "ejecutar",
+      "to": "boveda",
+      "label": "promover",
+      "variant": "default"
+    },
+    {
+      "id": "f-write",
+      "from": "mcp",
+      "to": "boveda",
+      "label": "escribir_nota",
+      "variant": "default"
+    },
+    {
+      "id": "f-files",
+      "from": "boveda",
+      "to": "files",
+      "label": "escribe",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-index",
+      "from": "boveda",
+      "to": "notas",
+      "label": "indexa",
+      "variant": "default"
+    },
+    {
+      "id": "f-vault-log",
+      "from": "boveda",
+      "to": "diario",
+      "label": "boveda_*",
+      "variant": "dashed"
+    },
+    {
+      "id": "f-read-files",
+      "from": "files",
+      "to": "noteread",
+      "label": "leer_nota",
+      "variant": "dashed"
+    },
+    {
+      "id": "f-read-idx",
+      "from": "notas",
+      "to": "noteread",
+      "label": "FTS5",
+      "variant": "dashed"
+    },
+    {
+      "id": "f-set-cli",
+      "from": "cli",
+      "to": "ajustes",
+      "label": "establecer",
+      "variant": "security"
+    },
+    {
+      "id": "f-set-web",
+      "from": "web",
+      "to": "ajustes",
+      "label": "/api/ajustes",
+      "variant": "security"
+    },
+    {
+      "id": "f-toml",
+      "from": "ajustes",
+      "to": "toml",
+      "label": "escribe",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-orch",
+      "from": "toml",
+      "to": "orch",
+      "label": "lee",
+      "variant": "dashed"
+    },
+    {
+      "id": "f-log-read",
+      "from": "diario",
+      "to": "readers",
+      "label": "diario",
+      "variant": "dashed"
+    },
+    {
+      "id": "f-prop-read",
+      "from": "propuestas",
+      "to": "readers",
+      "label": "propuestas",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Propuesta, aceptación y ejecución",
+      "items": [
+        "Los agentes solo llegan a proponer(): ea-mcp tiene SoloConsulta, que no implementa Sistema, y no puede mutar nada",
+        "La propuesta guarda herramienta, argumentos, riesgo, texto de simulación y la precondición del mundo",
+        "Aceptar reclama la fila de forma atómica, revalida contra la precondición y entonces aplica"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Puntos de gobierno",
+      "items": [
+        "autorizar_mcp: claude-code ve todo el catálogo (lo mutante solo propone); modelo-local, la proyección local sin irreversibles; el resto, solo lectura",
+        "Canal::puede_confirmar: lo reversible, desde terminal o web; lo irreversible, solo desde un TTY real con confirmo <id>",
+        "Riesgo del catálogo: 9 lectura, 13 reversible, 1 irreversible (ea_eliminar_rutina)"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Diario",
+      "items": [
+        "events tiene triggers que abortan UPDATE y DELETE; un evento erróneo se corrige con otro nuevo",
+        "Cada paso deja uno: propuesta_encolada, propuesta_decidida, accion_ejecutada o accion_fallida",
+        "ea-mcp también anota cada invocación como eventos mcp_*"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Bóveda",
+      "items": [
+        "Solo ea-boveda escribe ficheros: flock exclusivo sobre .ea-escritor.lock, escritura atómica, índice y evento del diario dentro del candado",
+        "Los agentes solo escriben en su región; a compartida se llega por una promoción que acepta el usuario",
+        "El índice SQLite es una caché y se reconstruye desde los ficheros"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Ajustes",
+      "items": [
+        "El registro marca cada clave como web o terminal; la web no edita claves de terminal y los techos solo los baja",
+        "ea ajustes establecer exige un TTY real; ea-mcp y el orquestador no pueden escribir ajustes",
+        "La CLI ea y ea-web anotan ajustes_cambiados en el diario tras cada escritura"
+      ]
+    }
+  ]
+}

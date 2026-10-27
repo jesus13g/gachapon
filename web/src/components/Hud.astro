@@ -1,0 +1,39 @@
+---
+// Top header shared by the landing and the architecture page.
+// The extra button always leads to "the other view"; the language switch keeps the current page.
+import { copyFor, langOf, pathFor, type Page } from '../i18n';
+
+interface Props {
+  page: Page;
+}
+const { page } = Astro.props;
+const { site, ui } = copyFor(Astro.currentLocale);
+const lang = langOf(Astro.currentLocale);
+const other = lang === 'es' ? 'en' : 'es';
+const onArch = page === 'architecture';
+const { architecture } = copyFor(Astro.currentLocale);
+---
+<header class="hud">
+  <a class="brand" href={onArch ? pathFor(lang) : '#boot'} aria-label={onArch ? ui.home : ui.top}>
+    <svg viewBox="0 0 30 18" aria-hidden="true"><path d="M15 1H9a8 8 0 0 0 0 16h6z" fill="#ff9a3c" /><path d="M15 1h6a8 8 0 0 1 0 16h-6z" fill="#f1f0ea" /></svg>
+    Gachapon
+  </a>
+  <nav class="hud__links" aria-label={ui.navProject}>
+    {onArch ? (
+      <a class="nav-pill" href={pathFor(lang)} title={architecture.back}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12M2 8h12M2 12.5h8" /></svg>
+        <span>{architecture.back}</span>
+      </a>
+    ) : (
+      <a class="nav-pill" href={pathFor(lang, 'architecture')} title={architecture.nav}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.8" /><circle cx="12.5" cy="3.5" r="1.8" /><circle cx="12.5" cy="12.5" r="1.8" /><path d="M5.2 7.2l5.6-3M5.2 8.8l5.6 3" /></svg>
+        <span>{architecture.nav}</span>
+      </a>
+    )}
+    <a class="lang-switch" href={pathFor(other, page)} hreflang={other} lang={other} title={ui.langSwitch} aria-label={`${other} · ${ui.langSwitch}`} data-lang-switch={onArch ? undefined : ''}>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" /><path d="M1.5 8h13M8 1.5c2 2 2.6 4.2 2.6 6.5S10 12.5 8 14.5M8 1.5C6 3.5 5.4 5.7 5.4 8S6 12.5 8 14.5" /></svg>
+      {other}
+    </a>
+    <a href={site.repo} rel="noopener">GitHub</a>
+  </nav>
+</header>

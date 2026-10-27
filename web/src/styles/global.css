@@ -96,7 +96,8 @@ a {
   color: var(--fg);
   border-color: var(--accent);
 }
-.hud__links .lang-switch {
+.hud__links .lang-switch,
+.hud__links .nav-pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -104,15 +105,23 @@ a {
   border: 1px solid var(--line-hi);
   border-radius: 999px;
 }
-.hud__links .lang-switch:hover {
+.hud__links .lang-switch:hover,
+.hud__links .nav-pill:hover {
   border-color: var(--accent);
 }
-.lang-switch svg {
+.lang-switch svg,
+.nav-pill svg {
   width: 13px;
   height: 13px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.3;
+  stroke-linecap: round;
+}
+/* Small screens: the nav button keeps only its icon so the header never wraps. */
+@media (max-width: 520px) {
+  .hud__links { gap: 10px; }
+  .hud__links .nav-pill span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 
 .rail {

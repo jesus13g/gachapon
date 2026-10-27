@@ -4,7 +4,7 @@ import sitemap from '@astrojs/sitemap';
 // Set SITE_URL at build time to the real deployment origin (used for canonical, OG and sitemap).
 const site = process.env.SITE_URL ?? 'https://jesus13g.github.io';
 const base = process.env.SITE_BASE ?? '/gachapon';
-// English home at the root: the sitemap's x-default, same URL the pages declare in <head>.
+// English home at the root: the sitemap's fallback x-default; each entry uses its own English URL, as the pages declare in <head>.
 const xDefault = new URL(base.replace(/\/?$/, '/'), site).href;
 
 export default defineConfig({
@@ -21,7 +21,9 @@ export default defineConfig({
       // Mirror the pages' hreflang set: add x-default to the localized entries only.
       serialize(item) {
         if (item.links?.length && !item.links.some((l) => l.lang === 'x-default')) {
-          item.links = [...item.links, { url: xDefault, lang: 'x-default' }];
+          // x-default is the English version of each page (the landing or the architecture view).
+          const en = item.links.find((l) => l.lang === 'en')?.url ?? xDefault;
+          item.links = [...item.links, { url: en, lang: 'x-default' }];
         }
         return item;
       },
