@@ -1,0 +1,683 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Planificador y ejecutor: un trabajo",
+    "locale": "es",
+    "quality_profile": "showcase",
+    "output": "web/architecture/.build/planner-executor.es.html",
+    "repository": {
+      "url": "https://github.com/jesus13g/gachapon",
+      "provider": "github",
+      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+    }
+  },
+  "participants": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "pide",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 52,
+          "end_line": 62,
+          "label": "Roles"
+        }
+      ]
+    },
+    {
+      "id": "planner",
+      "type": "frontend",
+      "label": "Planificador",
+      "sublabel": "Claude Code",
+      "sources": [
+        {
+          "path": "claude/skills/mision/SKILL.md",
+          "line": 10,
+          "end_line": 16
+        },
+        {
+          "path": "agentes/flujo/mision.md",
+          "line": 33,
+          "end_line": 70
+        },
+        {
+          "path": "agentes/flujo/revisar.md",
+          "line": 18,
+          "end_line": 60
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "ea CLI",
+      "sublabel": "ea trabajo · cola",
+      "sources": [
+        {
+          "path": "crates/ea-cli/src/cli.rs",
+          "line": 317,
+          "end_line": 385,
+          "label": "TrabajoAccion"
+        },
+        {
+          "path": "crates/ea-cli/src/main.rs",
+          "line": 142,
+          "end_line": 154
+        },
+        {
+          "path": "crates/ea-cli/src/commands/trabajo.rs",
+          "line": 8,
+          "end_line": 80
+        }
+      ]
+    },
+    {
+      "id": "mcp",
+      "type": "security",
+      "label": "ea-mcp",
+      "sublabel": "127.0.0.1:8765",
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/main.rs",
+          "line": 36,
+          "end_line": 56
+        },
+        {
+          "path": "crates/ea-mcp/src/tools.rs",
+          "line": 285,
+          "end_line": 350,
+          "label": "mutante"
+        },
+        {
+          "path": "crates/ea-mcp/src/tools.rs",
+          "line": 485,
+          "end_line": 515,
+          "label": "ea_ver_trabajo"
+        }
+      ]
+    },
+    {
+      "id": "diario",
+      "type": "database",
+      "label": "Diario",
+      "sublabel": "SQLite",
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 6,
+          "end_line": 34,
+          "label": "events"
+        },
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 776,
+          "end_line": 792,
+          "label": "diario"
+        }
+      ]
+    },
+    {
+      "id": "bus",
+      "type": "messagebus",
+      "label": "Bus de ficheros",
+      "sublabel": "colas · estado",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 179,
+          "end_line": 247,
+          "label": "crear_trabajo"
+        },
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 360,
+          "end_line": 456,
+          "label": "aplicar"
+        },
+        {
+          "path": "crates/ea-bus/src/candado.rs",
+          "line": 54,
+          "end_line": 86,
+          "label": "CandadoWorktree"
+        }
+      ]
+    },
+    {
+      "id": "orq",
+      "type": "backend",
+      "label": "ea-orchestrator",
+      "sublabel": "sondea, ejecuta",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 400,
+          "end_line": 507,
+          "label": "ejecutar_intento"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 525,
+          "end_line": 562,
+          "label": "entregar"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 599,
+          "end_line": 611,
+          "label": "correr_criterio"
+        }
+      ]
+    },
+    {
+      "id": "exec",
+      "type": "security",
+      "label": "Ejecutor",
+      "sublabel": "Qwen Code",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/agentes.rs",
+          "line": 118,
+          "end_line": 171,
+          "label": "lanzar"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/agentes.rs",
+          "line": 202,
+          "end_line": 255,
+          "label": "QwenCode"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/agentes.rs",
+          "line": 403,
+          "end_line": 433,
+          "label": "argumentos_bwrap"
+        }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "llama-server",
+      "sublabel": "modelo local",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/agentes.rs",
+          "line": 209,
+          "end_line": 217,
+          "label": "base_url"
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 64,
+          "end_line": 80,
+          "label": "Agentes y roles"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 152,
+      "to": 596,
+      "label": "1 Formalizar y encolar"
+    },
+    {
+      "from": 598,
+      "to": 658,
+      "label": "Espera asíncrona: en colas/modelo-local"
+    },
+    {
+      "from": 660,
+      "to": 1064,
+      "label": "2 Tomar y ejecutar"
+    },
+    {
+      "from": 1066,
+      "to": 1305,
+      "label": "3 Criterio y entrega"
+    },
+    {
+      "from": 1307,
+      "to": 1367,
+      "label": "Espera asíncrona: en colas/claude-code hasta /revisar"
+    },
+    {
+      "from": 1369,
+      "to": 1862,
+      "label": "4 Revisión"
+    }
+  ],
+  "messages": [
+    {
+      "id": "ask",
+      "from": "user",
+      "to": "planner",
+      "y": 170,
+      "label": "pide un trabajo",
+      "variant": "default"
+    },
+    {
+      "id": "status",
+      "from": "planner",
+      "to": "mcp",
+      "y": 200,
+      "label": "ea_status · ea_listar_trabajos",
+      "variant": "default",
+      "note": "SoloConsulta, solo lectura"
+    },
+    {
+      "id": "status-read",
+      "from": "mcp",
+      "to": "bus",
+      "y": 255,
+      "label": "lee estados, colas, semáforos",
+      "variant": "default"
+    },
+    {
+      "id": "status-log",
+      "from": "mcp",
+      "to": "diario",
+      "y": 285,
+      "label": "mcp_status",
+      "variant": "dashed"
+    },
+    {
+      "id": "status-ret",
+      "from": "mcp",
+      "to": "planner",
+      "y": 315,
+      "label": "resumen (JSON)",
+      "variant": "return"
+    },
+    {
+      "id": "show",
+      "from": "planner",
+      "to": "user",
+      "y": 345,
+      "label": "objetivo + criterio de shell",
+      "variant": "default",
+      "note": "vía /mision u /obra"
+    },
+    {
+      "id": "crear",
+      "from": "planner",
+      "to": "cli",
+      "y": 400,
+      "label": "ea trabajo crear --orden",
+      "variant": "emphasis"
+    },
+    {
+      "id": "write",
+      "from": "cli",
+      "to": "bus",
+      "y": 430,
+      "label": "orden.json + estado en_cola",
+      "variant": "emphasis",
+      "note": "criterio vacío se rechaza"
+    },
+    {
+      "id": "crear-log",
+      "from": "bus",
+      "to": "diario",
+      "y": 485,
+      "label": "bus_crear",
+      "variant": "dashed"
+    },
+    {
+      "id": "crear-ret",
+      "from": "cli",
+      "to": "planner",
+      "y": 515,
+      "label": "id del trabajo",
+      "variant": "return"
+    },
+    {
+      "id": "wait",
+      "from": "planner",
+      "to": "user",
+      "y": 545,
+      "label": "id; el informe llega después",
+      "variant": "return",
+      "note": "el planificador se detiene"
+    },
+    {
+      "id": "poll",
+      "from": "orq",
+      "to": "bus",
+      "y": 678,
+      "label": "toma el trabajo más antiguo",
+      "variant": "default",
+      "note": "reclamo por rename"
+    },
+    {
+      "id": "poll-ret",
+      "from": "bus",
+      "to": "orq",
+      "y": 733,
+      "label": "id + orden",
+      "variant": "return"
+    },
+    {
+      "id": "lock",
+      "from": "orq",
+      "to": "bus",
+      "y": 763,
+      "label": "flock del semáforo del worktree",
+      "variant": "security",
+      "note": "ocupado: vuelve a la cola"
+    },
+    {
+      "id": "tomar",
+      "from": "orq",
+      "to": "bus",
+      "y": 818,
+      "label": "tomar: en_cola → ejecutando",
+      "variant": "default"
+    },
+    {
+      "id": "tomar-log",
+      "from": "bus",
+      "to": "diario",
+      "y": 848,
+      "label": "bus_tomar",
+      "variant": "dashed"
+    },
+    {
+      "id": "launch",
+      "from": "orq",
+      "to": "exec",
+      "y": 878,
+      "label": "lanza en el sandbox del SO",
+      "variant": "emphasis",
+      "note": "bwrap, sin web, topes"
+    },
+    {
+      "id": "infer",
+      "from": "exec",
+      "to": "llm",
+      "y": 933,
+      "label": "chat completions",
+      "variant": "default",
+      "note": "solo el worktree"
+    },
+    {
+      "id": "infer-ret",
+      "from": "llm",
+      "to": "exec",
+      "y": 988,
+      "label": "tokens, llamadas a herramientas",
+      "variant": "return"
+    },
+    {
+      "id": "exit",
+      "from": "exec",
+      "to": "orq",
+      "y": 1018,
+      "label": "código de salida + salida",
+      "variant": "return",
+      "note": "criterio sh -c, lo corre el sistema"
+    },
+    {
+      "id": "retry",
+      "from": "orq",
+      "to": "exec",
+      "y": 1084,
+      "label": "criterio falló: reintenta",
+      "variant": "dashed",
+      "note": "con la evidencia del fallo"
+    },
+    {
+      "id": "retry-ret",
+      "from": "exec",
+      "to": "orq",
+      "y": 1139,
+      "label": "código de salida + salida",
+      "variant": "return",
+      "note": "el criterio pasa"
+    },
+    {
+      "id": "entregar",
+      "from": "orq",
+      "to": "bus",
+      "y": 1194,
+      "label": "informe.json → en_revision",
+      "variant": "emphasis",
+      "note": "y colas/claude-code"
+    },
+    {
+      "id": "entregar-log",
+      "from": "bus",
+      "to": "diario",
+      "y": 1249,
+      "label": "bus_entregar",
+      "variant": "dashed"
+    },
+    {
+      "id": "aviso",
+      "from": "orq",
+      "to": "user",
+      "y": 1279,
+      "label": "notify-send: terminado o bloqueado",
+      "variant": "dashed"
+    },
+    {
+      "id": "revisar",
+      "from": "user",
+      "to": "planner",
+      "y": 1387,
+      "label": "/revisar",
+      "variant": "default"
+    },
+    {
+      "id": "cola",
+      "from": "planner",
+      "to": "cli",
+      "y": 1417,
+      "label": "ea cola planificador --json",
+      "variant": "default"
+    },
+    {
+      "id": "cola-read",
+      "from": "cli",
+      "to": "bus",
+      "y": 1447,
+      "label": "lista colas/claude-code",
+      "variant": "default"
+    },
+    {
+      "id": "cola-ret",
+      "from": "cli",
+      "to": "planner",
+      "y": 1477,
+      "label": "ids de trabajos",
+      "variant": "return"
+    },
+    {
+      "id": "ver",
+      "from": "planner",
+      "to": "mcp",
+      "y": 1507,
+      "label": "ea_ver_trabajo",
+      "variant": "default"
+    },
+    {
+      "id": "ver-read",
+      "from": "mcp",
+      "to": "bus",
+      "y": 1537,
+      "label": "orden, estado, informe",
+      "variant": "default"
+    },
+    {
+      "id": "ver-log",
+      "from": "mcp",
+      "to": "diario",
+      "y": 1567,
+      "label": "mcp_ver_trabajo",
+      "variant": "dashed"
+    },
+    {
+      "id": "ver-ret",
+      "from": "mcp",
+      "to": "planner",
+      "y": 1597,
+      "label": "informe + eventos",
+      "variant": "return"
+    },
+    {
+      "id": "diff",
+      "from": "planner",
+      "to": "cli",
+      "y": 1627,
+      "label": "ea trabajo diff <id>",
+      "variant": "dashed",
+      "note": "solo si hace falta"
+    },
+    {
+      "id": "diff-ret",
+      "from": "cli",
+      "to": "planner",
+      "y": 1682,
+      "label": "diff",
+      "variant": "return"
+    },
+    {
+      "id": "decide",
+      "from": "planner",
+      "to": "cli",
+      "y": 1712,
+      "label": "ea trabajo cerrar | reformular",
+      "variant": "emphasis",
+      "note": "o continuar; vuelve a la cola"
+    },
+    {
+      "id": "decide-w",
+      "from": "cli",
+      "to": "bus",
+      "y": 1778,
+      "label": "evento: cerrado o en_cola",
+      "variant": "default"
+    },
+    {
+      "id": "decide-log",
+      "from": "bus",
+      "to": "diario",
+      "y": 1808,
+      "label": "bus_cerrar",
+      "variant": "dashed"
+    },
+    {
+      "id": "resumen",
+      "from": "planner",
+      "to": "user",
+      "y": 1838,
+      "label": "resumen de una línea por trabajo",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "planner",
+      "from": 164,
+      "to": 551,
+      "type": "frontend"
+    },
+    {
+      "participant": "planner",
+      "from": 1381,
+      "to": 1844,
+      "type": "frontend"
+    },
+    {
+      "participant": "mcp",
+      "from": 194,
+      "to": 321,
+      "type": "security"
+    },
+    {
+      "participant": "mcp",
+      "from": 1501,
+      "to": 1603,
+      "type": "security"
+    },
+    {
+      "participant": "cli",
+      "from": 394,
+      "to": 521,
+      "type": "backend"
+    },
+    {
+      "participant": "cli",
+      "from": 1411,
+      "to": 1483,
+      "type": "backend"
+    },
+    {
+      "participant": "cli",
+      "from": 1621,
+      "to": 1688,
+      "type": "backend"
+    },
+    {
+      "participant": "cli",
+      "from": 1706,
+      "to": 1784,
+      "type": "backend"
+    },
+    {
+      "participant": "orq",
+      "from": 672,
+      "to": 1285,
+      "type": "backend"
+    },
+    {
+      "participant": "exec",
+      "from": 872,
+      "to": 1024,
+      "type": "security"
+    },
+    {
+      "participant": "exec",
+      "from": 1078,
+      "to": 1145,
+      "type": "security"
+    },
+    {
+      "participant": "llm",
+      "from": 927,
+      "to": 994,
+      "type": "external"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Dónde espera",
+      "items": [
+        "Tras ea trabajo crear el planificador se detiene; el trabajo queda en colas/modelo-local hasta que ea-orchestrator lo sondea",
+        "El informe espera en colas/claude-code hasta que el usuario lanza /revisar",
+        "El planificador no espera en bucle ni hace el trabajo del ejecutor"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Solo lectura desde MCP",
+      "items": [
+        "ea-mcp solo lee el bus: los trabajos se crean y deciden con la CLI ea",
+        "Las herramientas MCP mutantes simulan o proponen; solo el usuario acepta, con ea propuestas decidir",
+        "El actor sale de clientInfo.name y del rol vigente, nunca de un argumento"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Diario",
+      "items": [
+        "Cada evento del bus y cada llamada MCP se añade a la tabla events de SQLite",
+        "La tabla es append-only por triggers: un error se corrige con otro evento"
+      ]
+    }
+  ]
+}
