@@ -15,7 +15,7 @@ const COLORES: &[(&str, &str, &str)] = &[
     ("readable_muted", "fg-lo", "#8f949c"),
     ("dark_fg", "fg-dim", "#6a707a"),
     ("muted", "line", "#4b515b"),
-    ("accent", "accent", "#ad2222"),
+    // Sin `accent`: el acento naranja de las marcas es fijo y lo pone `app.css`.
     ("text_accent", "hot", "#ff5c5c"),
 ];
 
@@ -53,7 +53,8 @@ mod tests {
     fn sin_fichero_usa_los_colores_por_defecto() {
         let css = css(Path::new("/no/existe/colors.toml"));
         assert!(css.contains("--bg:#181a1f;"));
-        assert!(css.contains("--accent:#ad2222;"));
+        assert!(css.contains("--hot:#ff5c5c;"));
+        assert!(!css.contains("--accent"), "el acento lo fija app.css");
     }
 
     #[test]

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Request, State};
-use axum::http::{header, Method, StatusCode};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -20,15 +20,9 @@ pub use error::ApiError;
 
 pub fn router(state: Arc<AppState>) -> Router {
     use rutas::*;
-    Router::new()
-        .route("/", get(index))
-        .route("/app.css", get(app_css))
-        .route("/app.js", get(app_js))
-        .route("/cliente.js", get(cliente_js))
-        .route("/enlaces.js", get(enlaces_js))
-        .route("/gashapon.css", get(gashapon_css))
-        .route("/gashapon.js", get(gashapon_js))
-        .route("/tour.js", get(tour_js))
+    ESTATICOS
+        .iter()
+        .fold(Router::new(), |r, &(ruta, tipo, cuerpo)| r.route(ruta, get(move || async move { estatico(tipo, cuerpo) })))
         .route("/tema.css", get(tema_css))
         .route("/api/estado", get(estado_general))
         .route("/api/inicio", get(inicio))
@@ -103,7 +97,26 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ajustes", get(ajustes_ver).post(ajustes_cambiar))
         .route("/api/sesion", get(sesion))
         .layer(middleware::from_fn_with_state(state.clone(), guardia))
+        // Por fuera de la guardia: también sus 403 y los 404 llevan las cabeceras.
+        .layer(middleware::map_response(cabeceras_de_seguridad))
         .with_state(state)
+}
+
+/// La política de contenido del panel: solo lo suyo (guiones, hojas y `fetch`
+/// a la API), estilos en línea (la página pinta `style=`), ningún guion en
+/// línea ni `eval`, sin objetos, sin `<base>` y sin dejarse meter en un marco.
+/// Es la segunda barrera frente a un XSS: el panel pinta con `innerHTML` texto
+/// de los agentes y tiene la clave de sesión a mano.
+pub const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+                       connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'";
+
+/// En todas las respuestas: la página, sus ficheros, la API y los errores.
+async fn cabeceras_de_seguridad(mut r: Response) -> Response {
+    let h = r.headers_mut();
+    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(CSP));
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    r
 }
 
 /// Si la clave que trae la página (en `X-EA-Clave`, opcional) es la de este
@@ -169,7 +182,26 @@ async fn guardia(State(s): State<Arc<AppState>>, req: Request, next: Next) -> Re
 
 // ---------------------------------------------------------------- estático
 
-fn estatico(tipo: &'static str, cuerpo: String) -> Response {
+const HTML: &str = "text/html; charset=utf-8";
+const CSS: &str = "text/css; charset=utf-8";
+const JS: &str = "text/javascript; charset=utf-8";
+
+/// La página y sus ficheros, embebidos (recompilar para ver un cambio): ruta,
+/// tipo y contenido. Lo que no está aquí es 404. `/tema.css` va aparte: sale
+/// del tema activo en cada petición.
+pub const ESTATICOS: &[(&str, &str, &str)] = &[
+    ("/", HTML, include_str!("../../static/index.html")),
+    ("/tema-inicial.js", JS, include_str!("../../static/tema-inicial.js")),
+    ("/app.css", CSS, include_str!("../../static/app.css")),
+    ("/gashapon.css", CSS, include_str!("../../static/gashapon.css")),
+    ("/gashapon.js", JS, include_str!("../../static/gashapon.js")),
+    ("/tour.js", JS, include_str!("../../static/tour.js")),
+    ("/cliente.js", JS, include_str!("../../static/cliente.js")),
+    ("/enlaces.js", JS, include_str!("../../static/enlaces.js")),
+    ("/app.js", JS, include_str!("../../static/app.js")),
+];
+
+fn estatico(tipo: &'static str, cuerpo: impl IntoResponse) -> Response {
     (
         [(header::CONTENT_TYPE, tipo), (header::CACHE_CONTROL, "no-store")],
         cuerpo,
@@ -177,38 +209,6 @@ fn estatico(tipo: &'static str, cuerpo: String) -> Response {
         .into_response()
 }
 
-async fn index() -> Response {
-    estatico("text/html; charset=utf-8", include_str!("../../static/index.html").into())
-}
-
-async fn app_css() -> Response {
-    estatico("text/css; charset=utf-8", include_str!("../../static/app.css").into())
-}
-
-async fn app_js() -> Response {
-    estatico("text/javascript; charset=utf-8", include_str!("../../static/app.js").into())
-}
-
-async fn cliente_js() -> Response {
-    estatico("text/javascript; charset=utf-8", include_str!("../../static/cliente.js").into())
-}
-
-async fn enlaces_js() -> Response {
-    estatico("text/javascript; charset=utf-8", include_str!("../../static/enlaces.js").into())
-}
-
-async fn gashapon_css() -> Response {
-    estatico("text/css; charset=utf-8", include_str!("../../static/gashapon.css").into())
-}
-
-async fn gashapon_js() -> Response {
-    estatico("text/javascript; charset=utf-8", include_str!("../../static/gashapon.js").into())
-}
-
-async fn tour_js() -> Response {
-    estatico("text/javascript; charset=utf-8", include_str!("../../static/tour.js").into())
-}
-
 async fn tema_css(State(s): State<Arc<AppState>>) -> Response {
-    estatico("text/css; charset=utf-8", tema::css(&s.config.tema_path))
+    estatico(CSS, tema::css(&s.config.tema_path))
 }

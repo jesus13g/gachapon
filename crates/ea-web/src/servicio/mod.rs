@@ -32,14 +32,23 @@ const ACTOR: &str = "usuario";
 
 pub type Resultado<T> = Result<T, ErrorWeb>;
 
-#[derive(Debug)]
+/// Un error de dominio con su mensaje para el usuario; `http` le pone el
+/// código de estado (cada variante, uno).
+#[derive(Debug, thiserror::Error)]
 pub enum ErrorWeb {
+    #[error("{0}")]
     NoEncontrado(String),
+    #[error("{0}")]
     Invalido(String),
+    #[error("{0}")]
     Conflicto(String),
+    #[error("{0}")]
     Prohibido(String),
+    #[error("{0}")]
     NoDisponible(String),
+    #[error("{0}")]
     Tiempo(String),
+    #[error("{0}")]
     Interno(String),
 }
 

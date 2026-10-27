@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     let store = Store::open().context("no se pudo abrir la base de datos")?;
 
     let bind_addr = format!("127.0.0.1:{}", config.puerto);
-    let estado = AppState::new(store, config).context("no se pudo abrir la conexión de acciones")?;
+    let estado = AppState::new(store, config).context("no se pudo preparar el panel")?;
     let estado = Arc::new(estado);
     let router = ea_web::http::router(estado.clone());
     let listener = tokio::net::TcpListener::bind(&bind_addr)

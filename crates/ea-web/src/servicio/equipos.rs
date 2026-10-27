@@ -111,7 +111,7 @@ pub async fn despertar(s: &AppState, cuerpo: serde_json::Value) -> Resultado<Des
                     anotar_sesion(s, &equipo.id, &m.agente).await;
                     (true, None)
                 }
-                Err(e) => (false, Some(mensaje(e))),
+                Err(e) => (false, Some(e.to_string())),
             }
         } else {
             (false, None)
@@ -119,13 +119,6 @@ pub async fn despertar(s: &AppState, cuerpo: serde_json::Value) -> Resultado<Des
         sesiones.push(SesionEquipo { agente: m.agente.clone(), abierta, comando, error });
     }
     Ok(Despierto { equipo: ver(s, &equipo.id)?, omitidos, sesiones })
-}
-
-fn mensaje(e: ErrorWeb) -> String {
-    match e {
-        ErrorWeb::NoDisponible(m) | ErrorWeb::Interno(m) | ErrorWeb::Invalido(m) => m,
-        otro => format!("{otro:?}"),
-    }
 }
 
 /// Abrir la terminal es un gesto del usuario: queda en el diario.

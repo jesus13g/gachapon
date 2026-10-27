@@ -124,15 +124,19 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(store: Store, config: WebConfig) -> ea_store::StoreResult<Self> {
+    /// Falla si no se puede abrir la conexión de las acciones o si no hay
+    /// generador aleatorio para la clave de sesión: sin él no hay forma honesta
+    /// de proteger las escrituras.
+    pub fn new(store: Store, config: WebConfig) -> servicio::Resultado<Self> {
+        let clave = clave::ClaveSesion::nueva()
+            .map_err(|e| servicio::ErrorWeb::Interno(format!("no se pudo generar la clave de sesión: {e}")))?;
         Ok(Self {
             acciones: Mutex::new(store.duplicar()?),
             store: Mutex::new(store),
             boveda: config.boveda.clone(),
             config,
             ajustes_escritura: Mutex::new(()),
-            // Sin /dev/urandom no hay forma honesta de proteger las escrituras.
-            clave: clave::ClaveSesion::nueva().expect("no se pudo leer /dev/urandom para la clave de sesión"),
+            clave,
             biblioteca_uso: Mutex::new(None),
         })
     }

@@ -24,6 +24,7 @@ toml = "0.8"
 directories = "5.0"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 anyhow = "1.0"
+thiserror = "1.0"
 ea-plataforma = { path = "../ea-plataforma", features = ["tokio"] }
 getrandom = "0.2"
 tracing = "0.1"

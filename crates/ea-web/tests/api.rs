@@ -1050,16 +1050,76 @@ async fn servicios_degradan_con_limpieza() {
     assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
 }
 
+/// La respuesta entera, con sus cabeceras, de una petición sin clave ni cuerpo.
+async fn respuesta(f: &Fixture, metodo: Method, ruta: &str, host: &str) -> axum::response::Response {
+    let req = Request::builder().method(metodo).uri(ruta).header("host", host).body(Body::empty()).unwrap();
+    f.app.clone().oneshot(req).await.unwrap()
+}
+
+/// Cada fichero de `static/` tiene su fila en `ESTATICOS` y sale con el tipo
+/// de su extensión, sin caché y tal cual; lo que no está en la tabla es 404. El
+/// tema trae los colores de Omarchy salvo el acento, que fija `app.css`.
 #[tokio::test]
 async fn sirve_la_pagina_y_el_tema() {
     let f = montar();
-    for ruta in ["/", "/app.css", "/app.js", "/cliente.js", "/enlaces.js", "/gashapon.css", "/gashapon.js", "/tour.js"] {
-        let (s, _) = enviar(&f, Method::GET, ruta, "localhost:8092", None, false).await;
-        assert_eq!(s, StatusCode::OK, "{ruta}");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
+    let fichero = |ruta: &str| if ruta == "/" { "index.html".to_string() } else { ruta.trim_start_matches('/').to_string() };
+    let mut en_disco: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    let mut en_tabla: Vec<String> = ea_web::http::ESTATICOS.iter().map(|(ruta, _, _)| fichero(ruta)).collect();
+    en_disco.sort();
+    en_tabla.sort();
+    assert_eq!(en_disco, en_tabla, "cada fichero de static/ tiene su fila en ESTATICOS, y solo esos");
+    for &(ruta, tipo, cuerpo) in ea_web::http::ESTATICOS {
+        let nombre = fichero(ruta);
+        let esperado = match nombre.rsplit_once('.').map(|(_, ext)| ext) {
+            Some("html") => "text/html; charset=utf-8",
+            Some("css") => "text/css; charset=utf-8",
+            Some("js") => "text/javascript; charset=utf-8",
+            otra => panic!("{ruta}: extensión sin tipo ({otra:?})"),
+        };
+        assert_eq!(tipo, esperado, "{ruta}");
+        assert_eq!(cuerpo, std::fs::read_to_string(dir.join(&nombre)).unwrap(), "{ruta}");
+        let r = respuesta(&f, Method::GET, ruta, "localhost:8092").await;
+        assert_eq!(r.status(), StatusCode::OK, "{ruta}");
+        assert_eq!(r.headers()["content-type"], tipo, "{ruta}");
+        assert_eq!(r.headers()["cache-control"], "no-store", "{ruta}");
+        assert_eq!(r.into_body().collect().await.unwrap().to_bytes(), cuerpo.as_bytes(), "{ruta}");
+    }
+    for ruta in ["/index.html", "/no-existe.js", "/static/app.js", "/app.js/", "/app.js.map", "/../Cargo.toml"] {
+        assert_eq!(respuesta(&f, Method::GET, ruta, "localhost:8092").await.status(), StatusCode::NOT_FOUND, "{ruta}");
     }
     let (s, css) = enviar(&f, Method::GET, "/tema.css", "localhost:8092", None, false).await;
     assert_eq!(s, StatusCode::OK);
-    assert!(css.starts_with(":root{") && css.contains("--accent:#ad2222;"));
+    assert!(css.starts_with(":root{") && css.contains("--bg:#181a1f;") && !css.contains("--accent"), "{css}");
+}
+
+/// S-10: la CSP, `nosniff` y `Referrer-Policy` van en todas las respuestas: la
+/// página, sus ficheros, el tema, la API, un 404 y los 403 de la guardia (Host
+/// ajeno, escritura sin clave). La CSP no admite guiones en línea ni marcos.
+#[tokio::test]
+async fn las_cabeceras_de_seguridad_van_en_todas_las_respuestas() {
+    let f = montar();
+    let casos = [
+        (Method::GET, "/", "localhost:8092", StatusCode::OK),
+        (Method::GET, "/app.js", "localhost:8092", StatusCode::OK),
+        (Method::GET, "/tema.css", "127.0.0.1:8092", StatusCode::OK),
+        (Method::GET, "/api/estado", "localhost:8092", StatusCode::OK),
+        (Method::GET, "/no-existe", "localhost:8092", StatusCode::NOT_FOUND),
+        (Method::GET, "/", "evil.example", StatusCode::FORBIDDEN),
+        (Method::POST, "/api/diario/anotar", "localhost:8092", StatusCode::FORBIDDEN),
+    ];
+    for (metodo, ruta, host, estado) in casos {
+        let r = respuesta(&f, metodo.clone(), ruta, host).await;
+        assert_eq!(r.status(), estado, "{metodo} {ruta} ({host})");
+        let h = r.headers();
+        assert_eq!(h["content-security-policy"], ea_web::http::CSP, "{metodo} {ruta} ({host})");
+        assert_eq!(h["x-content-type-options"], "nosniff", "{metodo} {ruta} ({host})");
+        assert_eq!(h["referrer-policy"], "no-referrer", "{metodo} {ruta} ({host})");
+    }
+    let directivas: Vec<&str> = ea_web::http::CSP.split(';').map(str::trim).collect();
+    for d in ["default-src 'self'", "script-src 'self'", "connect-src 'self'", "frame-ancestors 'none'", "base-uri 'none'", "object-src 'none'"] {
+        assert!(directivas.contains(&d), "falta {d:?} en {directivas:?}");
+    }
 }
 
 async fn proponer_accion(f: &Fixture, herramienta: &str, args: Value) -> i64 {

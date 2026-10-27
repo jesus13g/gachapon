@@ -1668,6 +1668,27 @@ curl -X POST -H 'Content-Type: application/json' \
      -d '{}' http://localhost:8092/api/rutinas/<slug>/lanzar
 ```
 
+Cabeceras de seguridad: toda respuesta (la página, sus ficheros, el tema, la
+API y los errores, también los 403 y 404) lleva
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+```
+
+La página solo carga lo suyo: ningún guion en línea (el que aplica el tema
+claro antes de pintar es `/tema-inicial.js`), ni manejadores `on…=`, ni `eval`,
+ni nada de otro origen; los estilos en línea sí. Es la segunda barrera frente
+a un XSS (el panel pinta con `innerHTML` texto de los agentes y tiene la clave
+a mano): un `esc()` olvidado no llegaría a ejecutar nada. Con
+`frame-ancestors 'none'` ninguna página puede meter el panel en un `iframe`;
+la app de escritorio lo abre como ventana (`WebviewUrl::External`), no en un
+marco, y su guion de inicio con la clave lo inyecta el motor web, no la página,
+así que la CSP no lo frena. Los ficheros de la
+página salen de una tabla (`ea_web::http::ESTATICOS`): lo que no está en ella
+es 404.
+
 Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 
