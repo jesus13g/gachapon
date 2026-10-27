@@ -1,48 +1,39 @@
-//! `git` sobre el worktree de un trabajo, con tiempo límite.
+//! `git` sobre el worktree de un trabajo: el de `ea_bus::git` (endurecido),
+//! fuera del runtime y con tiempo límite.
 
+use std::path::PathBuf;
 use std::time::Duration;
+
+use ea_bus::ErrorBus;
 
 use crate::servicio::{ErrorWeb, Resultado};
 
 const LIMITE: Duration = Duration::from_secs(10);
 
-async fn git(wt: &str, args: &[&str]) -> Resultado<String> {
-    let mut cmd = tokio::process::Command::new("git");
-    cmd.arg("-C").arg(wt).args(args).kill_on_drop(true);
-    let o = tokio::time::timeout(LIMITE, cmd.output())
-        .await
-        .map_err(|_| ErrorWeb::Tiempo("git no respondió".into()))?
-        .map_err(|e| ErrorWeb::Interno(e.to_string()))?;
-    if !o.status.success() {
-        return Err(ErrorWeb::Interno(format!(
-            "git {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&o.stderr).trim()
-        )));
+/// Corre `f` (git, que bloquea) en un hilo aparte. Si git vence `LIMITE`,
+/// `ea_bus::git` lo mata y aquí es un `Tiempo`.
+async fn bloqueante<T: Send + 'static>(f: impl FnOnce() -> ea_bus::Resultado<T> + Send + 'static) -> Resultado<T> {
+    match tokio::task::spawn_blocking(f).await {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(ErrorBus::GitSinRespuesta(_))) => Err(ErrorWeb::Tiempo("git no respondió".into())),
+        Ok(Err(e)) => Err(e.into()),
+        Err(e) => Err(ErrorWeb::Interno(e.to_string())),
     }
-    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
 }
 
 /// Lo cambiado desde `inicio` más los ficheros nuevos sin seguimiento,
 /// recortado a `max` bytes. Devuelve el texto y si se recortó.
 pub async fn diff_desde(wt: &str, inicio: &str, max: usize) -> Resultado<(String, bool)> {
-    let mut texto = git(wt, &["diff", inicio, "--", ".", ea_bus::EXCLUIR_DIFF]).await?;
-    let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"]).await?;
-    for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {
-        match std::fs::read(std::path::Path::new(wt).join(f)) {
-            Ok(b) if std::str::from_utf8(&b).is_ok() => {
-                texto.push_str(&format!("\n=== fichero nuevo sin seguimiento: {f} ===\n{}", String::from_utf8_lossy(&b)))
-            }
-            _ => texto.push_str(&format!("\n=== fichero nuevo sin seguimiento: {f} (binario o ilegible) ===\n")),
-        }
-    }
+    let (wt, inicio) = (PathBuf::from(wt), inicio.to_string());
+    let texto = bloqueante(move || ea_bus::git::diff_trabajo(&wt, &inicio, LIMITE)).await?;
     Ok(recortar(texto, max))
 }
 
 /// `git diff base fin` entre dos árboles (las instantáneas de una fase,
 /// `ea_bus::rango_diff_fase`), recortado a `max` bytes.
 pub async fn diff_entre(wt: &str, base: &str, fin: &str, max: usize) -> Resultado<(String, bool)> {
-    let texto = git(wt, &["diff", base, fin, "--", ".", ea_bus::EXCLUIR_DIFF]).await?;
+    let (wt, base, fin) = (PathBuf::from(wt), base.to_string(), fin.to_string());
+    let texto = bloqueante(move || ea_bus::git::diff_entre(&wt, &base, &fin, false, LIMITE)).await?;
     Ok(recortar(texto, max))
 }
 
@@ -58,23 +49,17 @@ fn recortar(mut texto: String, max: usize) -> (String, bool) {
     (texto, truncado)
 }
 
-/// Si `wt` está dentro de un árbol de trabajo de git. Sin shell y sin
-/// fsmonitor (que podría lanzar un programa del repo).
+/// Si `wt` está dentro de un árbol de trabajo de git (sin shell y sin
+/// fsmonitor, que podría lanzar un programa del repo).
 pub async fn es_repo(wt: &str) -> Resultado<bool> {
-    match git(wt, &["-c", "core.fsmonitor=false", "rev-parse", "--is-inside-work-tree"]).await {
-        Ok(salida) => Ok(salida.trim() == "true"),
-        Err(ErrorWeb::Tiempo(m)) => Err(ErrorWeb::Tiempo(m)),
-        Err(_) => Ok(false),
-    }
+    let wt = PathBuf::from(wt);
+    bloqueante(move || ea_bus::git::es_repo(&wt, LIMITE)).await
 }
 
 /// Si el repo de `wt` tiene HEAD apuntando a un commit. El ejecutor arranca
 /// con `rev-parse HEAD` (es el `commit_inicio`) y bloquea un repo sin
-/// commits; esto lo detecta antes de encolar (D11). Sin fsmonitor.
+/// commits; esto lo detecta antes de encolar (D11).
 pub async fn tiene_commits(wt: &str) -> Resultado<bool> {
-    match git(wt, &["-c", "core.fsmonitor=false", "rev-parse", "--verify", "-q", "HEAD^{commit}"]).await {
-        Ok(salida) => Ok(!salida.trim().is_empty()),
-        Err(ErrorWeb::Tiempo(m)) => Err(ErrorWeb::Tiempo(m)),
-        Err(_) => Ok(false),
-    }
+    let wt = PathBuf::from(wt);
+    bloqueante(move || ea_bus::git::tiene_commits(&wt, LIMITE)).await
 }

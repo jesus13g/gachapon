@@ -161,6 +161,18 @@ al techo de los ajustes; Codex y OpenCode solo admiten el de tiempo), exclusión
 de las herramientas web y semáforo para que dos agentes no escriban a la vez en
 el mismo worktree.
 
+Las órdenes `git` que el sistema ejecuta **fuera** del sandbox sobre el
+worktree que escribió el agente (la instantánea y el diff del ejecutor, `ea
+trabajo diff`, el diff del panel, la comprobación del worktree al encolar y los
+worktrees propios) van por un único `git` endurecido (`ea_bus::git`): siempre
+con `-c core.fsmonitor=false`, todo `diff` con `--no-ext-diff --no-textconv`
+(no se ejecutan `diff.external` ni los *drivers* `textconv` que configure el
+repo), sin `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` ni `GIT_EXTERNAL_DIFF`
+del entorno, y con tope de tiempo y muerte del árbol: 30 s para leer, 300 s para
+`add -A`, `write-tree` y `worktree add`/`remove`, y 10 s en el panel. No se
+desactivan los *hooks* ni la configuración del sistema (git-lfs y los *hooks*
+de `worktree add` siguen funcionando).
+
 **Límite conocido:** el criterio de éxito no corre dentro del sandbox. El
 ejecutor lo lanza con `sh -c` en el worktree, con los permisos de tu usuario y un
 tope de 120 s, así que puede leer y escribir lo mismo que tú (también
@@ -905,7 +917,7 @@ ea trabajo crear ... --equipo <id> [--asignar <ejecutor>] [--revisor <agente>] [
                                              #   worktree (rama ea/<id>) para correr en paralelo sobre el repo
 ea trabajo listar
 ea trabajo ver <id> [--json]                 # orden, estado e informe (con el agente y modelo que lo ejecutó)
-ea trabajo diff <id> [--fase N]              # diff desde commit_inicio
+ea trabajo diff <id> [--fase N]              # diff desde commit_inicio (sin diff.external ni textconv del repo)
 ea trabajo cerrar|cancelar <id>
 ea trabajo reformular <id> --nota "..." [--fase N]  # vuelve al agente local (obra: desde la fase N)
 ea trabajo continuar <id>                    # aprueba una revisión intermedia de una obra
@@ -1460,7 +1472,7 @@ API (JSON): `GET /api/estado` (servicios, orquestador —con `sandbox`: `{sistem
 `admite`, `rol`, `bin`, `ruta` (null si no está en el `PATH`), `perfil`, `modelo`,
 `topes`, `modelo_accesible` y `presencia` (`{viva, rol, equipo, trabajo, desde, latido}` o `null`, como `ea agentes --json`); `fijados`, los roles que fija una variable de entorno),
 `GET /api/ecosistema` (lo que pinta la escena de Inicio, solo lectura: `agentes` —cada agente activo detectado con `id` estable, `agente` del catálogo, `nombre`, `familia` visual, `modelo`, `local`, `rol`, `padre`, `estado` (`trabajando`, `esperando` o `terminado`), `actividad`, `trabajo`, `proyecto`, `desde`, `fuente` y `equipo`—, `tareas` —cada trabajo activo con su `lugar` (id de máquina, `usuario` o `bus`), `planificador`, `ejecutor` y `del_usuario`— y `senales` —los últimos eventos del diario con la máquina de la que salen, `de`, o `null`—),
-`GET /api/trabajos` (cada fila lleva además `ejecutado_por`: `{agente, modelo}` con el que se tomó, o `null`), `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea),
+`GET /api/trabajos` (cada fila lleva además `ejecutado_por`: `{agente, modelo}` con el que se tomó, o `null`), `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea; como en la CLI, sin `diff.external` ni `textconv` del repo: un binario con `textconv` sale como «Binary files differ»; 504 si git no responde en 10 s),
 `/api/colas`, `/api/semaforos`, `/api/rutinas` (las activas; `?retiradas=1`, las
 retiradas; cada fila y la ficha llevan `ubicacion`: `activa`, `retirada` o `sin_fichero`),
 `/api/rutinas/<slug>/versiones` (`[{version, creada_en, creada_por}]`, la más

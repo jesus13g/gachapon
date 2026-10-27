@@ -9,6 +9,8 @@ pub mod config;
 mod equipo;
 mod error;
 mod fs_atomico;
+/// El `git` endurecido y con tope que el sistema ejecuta fuera del sandbox.
+pub mod git;
 mod instantanea;
 mod papelera;
 mod presencia;

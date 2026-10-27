@@ -41,6 +41,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use ea_plataforma::proceso::Corrida;
+use ea_bus::git::{self, instantanea};
 use ea_bus::{
     Bus, Rol, CandadoWorktree, ConfigOrquestador, Evento, FaseInforme, Informe, Modo, Ocupante,
     Orden, ResultadoInforme,
@@ -89,39 +90,10 @@ fn recortar(s: &str) -> String {
     format!("…{}", &s[i..])
 }
 
-fn git(wt: &Path, args: &[&str]) -> Option<String> {
-    git_con(wt, args, None)
-}
-
-fn git_con(wt: &Path, args: &[&str], indice: Option<&Path>) -> Option<String> {
-    let mut c = Command::new("git");
-    c.args(args).current_dir(wt);
-    if let Some(i) = indice {
-        c.env("GIT_INDEX_FILE", i);
-    }
-    let o = c.output().ok()?;
-    o.status.success().then(|| String::from_utf8_lossy(&o.stdout).trim().to_string())
-}
-
-/// Árbol de git del estado actual del worktree SIN tocar el índice del
-/// usuario: se usa un índice temporal.
-fn instantanea(wt: &Path, dir: &Path) -> Option<String> {
-    let idx = dir.join(".indice-tmp");
-    let _ = std::fs::remove_file(&idx);
-    let arbol = git_con(wt, &["add", "-A"], Some(&idx)).and_then(|_| git_con(wt, &["write-tree"], Some(&idx)));
-    let _ = std::fs::remove_file(&idx);
-    arbol
-}
-
-const SIN_PYCACHE: &str = ":(exclude,glob)**/__pycache__/**";
-
+/// El diff (o su `--stat`) entre dos árboles, sin espacios a los lados;
+/// vacío si git falla.
 fn diff_entre(wt: &Path, a: &str, b: &str, stat: bool) -> String {
-    let mut args = vec!["diff"];
-    if stat {
-        args.push("--stat");
-    }
-    args.extend([a, b, "--", ".", SIN_PYCACHE]);
-    git(wt, &args).unwrap_or_default()
+    git::diff_entre(wt, a, b, stat, git::TOPE_LECTURA).map(|s| s.trim().to_string()).unwrap_or_default()
 }
 
 /// El prompt no nombra al agente ni al modelo; `regla` es la de las
@@ -595,7 +567,7 @@ fn trabajar(
     if !wt.is_dir() {
         return fin(bloqueado("el worktree no existe", wt.display().to_string()));
     }
-    let Some(commit_inicio) = git(wt, &["rev-parse", "HEAD"]) else {
+    let Some(commit_inicio) = git::commit_actual(wt) else {
         return fin(bloqueado("el worktree no es un repo git", String::new()));
     };
     if orden.modo == Modo::Obra && !orden.fases.is_empty() {
@@ -606,20 +578,11 @@ fn trabajar(
     let r = bucle(bus, config, agente, id, orden, wt, &orden.titulo, &orden.objetivo, &criterio, &orden.skills)
         .ok_or(Cancelado { fase: None })?;
 
-    let mut diff = git(wt, &["diff", "--stat", &commit_inicio]).unwrap_or_default();
-    let nuevos: Vec<String> = git(wt, &["ls-files", "--others", "--exclude-standard"])
-        .unwrap_or_default()
-        .lines()
-        .filter(|l| !l.contains("__pycache__"))
-        .map(str::to_string)
-        .collect();
-    if !nuevos.is_empty() {
-        diff.push_str(&format!("\nnuevos: {}", nuevos.join(", ")));
-    }
+    let diff_stat = git::diff_stat_desde(wt, &commit_inicio);
     fin(Informe {
         evidencia: r.evidencia,
         commit_inicio: Some(commit_inicio),
-        diff_stat: Some(diff.trim().to_string()),
+        diff_stat: Some(diff_stat),
         motivo: r.motivo,
         obra_completa: r.pasa,
         ..Informe::nuevo(if r.pasa { ResultadoInforme::Terminado } else { ResultadoInforme::Bloqueado })
@@ -1095,6 +1058,30 @@ mod tests {
     }
 
     #[test]
+    fn el_diff_stat_del_informe_es_el_de_git_mas_los_nuevos() {
+        let wt = repo();
+        for a in [["config", "core.autocrlf", "false"], ["config", "core.quotePath", "true"]] {
+            Command::new("git").args(a).current_dir(wt.path()).status().unwrap();
+        }
+        let e = tempfile::tempdir().unwrap();
+        let bus = Bus::abrir_en(e.path()).unwrap();
+        let id = bus.crear_trabajo(orden(wt.path(), "test -f ok.txt")).unwrap();
+        let ag = doble(
+            "printf 'a\\nb\\n' > a.txt; echo hola > ok.txt; printf 'ñ\\n' > canción.txt; mkdir -p 'sub dir' __pycache__; \
+             echo e > 'sub dir/espacio.txt'; echo p > __pycache__/m.pyc",
+            0,
+        );
+        ejecutar_uno(&bus, &config(), &ag);
+        let inf = bus.leer_informe(&id).unwrap().unwrap();
+        let inicio = inf.commit_inicio.unwrap();
+        let o = Command::new("git").args(["diff", "--stat", &inicio]).current_dir(wt.path()).output().unwrap();
+        let stat = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        assert!(stat.contains("a.txt"), "{stat}");
+        let esperado = format!("{stat}\nnuevos: \"canci\\303\\263n.txt\", ok.txt, sub dir/espacio.txt");
+        assert_eq!(inf.diff_stat.as_deref(), Some(esperado.as_str()));
+    }
+
+    #[test]
     fn los_topes_de_la_orden_se_recortan_al_techo() {
         let wt = repo();
         let e = tempfile::tempdir().unwrap();
@@ -1303,7 +1290,7 @@ mod tests {
         assert_eq!(fases.iter().map(|f| f.estado.as_str()).collect::<Vec<_>>(), ["hecha", "hecha", "pendiente"]);
         assert!(fases[1].informe.as_deref().unwrap().contains("f2"));
         // El índice del usuario sigue intacto.
-        let staged = git(wt.path(), &["diff", "--cached", "--name-only"]).unwrap();
+        let staged = git::git(wt.path(), ["diff", "--cached", "--name-only"], git::TOPE_LECTURA).unwrap();
         assert!(staged.is_empty(), "índice tocado: {staged}");
 
         bus.reformular(&id, "", None).unwrap(); // = ea trabajo continuar

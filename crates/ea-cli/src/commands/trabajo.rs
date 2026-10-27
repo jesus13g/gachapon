@@ -170,40 +170,27 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn git(wt: &str, args: &[&str]) -> Result<String> {
-    let o = std::process::Command::new("git").arg("-C").arg(wt).args(args).output()?;
-    if !o.status.success() {
-        bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&o.stderr).trim());
-    }
-    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
-}
-
+/// Lo cambiado desde `commit_inicio` y los ficheros nuevos sin seguimiento,
+/// o el diff de una fase, con el `git` endurecido de `ea-bus`.
 pub fn diff(id: &str, fase: Option<u32>) -> Result<()> {
+    use ea_bus::git::{self, TOPE_LECTURA};
     let b = Bus::abrir()?;
     let orden = b.leer_orden(id)?;
-    let wt = orden.worktree.as_str();
+    let wt = std::path::Path::new(&orden.worktree);
     let inicio = b.leer_informe(id)?.and_then(|i| i.commit_inicio);
-    let excl = ea_bus::EXCLUIR_DIFF;
     if let Some(n) = fase {
         // Árboles guardados por la obra en el informe de cada fase (SQLite);
         // el rango lo calcula `ea-bus`, igual que para `ea-web`.
         let store = ea_store::Store::open().map_err(|e| anyhow!("sin acceso al store: {e}"))?;
         let fases = store.listar_fases(id)?;
         let (base, fin) = ea_bus::rango_diff_fase(inicio.as_deref(), &fases, n)?;
-        print!("{}", git(wt, &["diff", &base, &fin, "--", ".", excl])?);
+        print!("{}", git::diff_entre(wt, &base, &fin, false, TOPE_LECTURA)?);
         return Ok(());
     }
     let inicio = inicio.ok_or_else(|| anyhow!("el trabajo {id} no tiene informe con commit_inicio"))?;
-    print!("{}", git(wt, &["diff", &inicio, "--", ".", excl])?);
-    let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-    for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {
-        let ruta = std::path::Path::new(wt).join(f);
-        match std::fs::read(&ruta) {
-            Ok(bytes) if std::str::from_utf8(&bytes).is_ok() => {
-                println!("\n=== fichero nuevo sin seguimiento: {f} ===\n{}", String::from_utf8_lossy(&bytes))
-            }
-            _ => println!("\n=== fichero nuevo sin seguimiento: {f} (binario o ilegible) ==="),
-        }
+    print!("{}", git::diff_desde(wt, &inicio, TOPE_LECTURA)?);
+    for f in git::ficheros_nuevos(wt, TOPE_LECTURA)? {
+        println!("{}", f.bloque());
     }
     Ok(())
 }

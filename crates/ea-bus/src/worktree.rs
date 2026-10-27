@@ -7,45 +7,30 @@
 //! sistema captura el diff contra `commit_inicio`, como con cualquier otro
 //! worktree; la rama `ea/<id>` queda para que el usuario la fusione a mano.
 //!
-//! Git se ejecuta siempre con argv (nunca con shell) y con `--` antes de las
-//! rutas.
+//! Git va por [`crate::git`]: endurecido, con tope y siempre con argv (nunca
+//! con shell) y `--` antes de las rutas.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::time::Duration;
 
 use crate::bus::Bus;
 use crate::error::{ErrorBus, Resultado};
+use crate::git::{self, TOPE_ESCRITURA, TOPE_LECTURA};
 use crate::tipos::{EstadoTrabajo, Orden};
 use serde::Serialize;
 
-/// Resultado de una orden `git`: su salida estándar si salió bien, y el error
-/// de git (ya recortado) si no.
-fn git(args: &[&std::ffi::OsStr]) -> Result<String, String> {
-    let sal = Command::new("git")
-        .args(args)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .map_err(|e| format!("no se pudo lanzar git: {e}"))?;
-    if sal.status.success() {
-        Ok(String::from_utf8_lossy(&sal.stdout).trim().to_string())
-    } else {
-        let err = String::from_utf8_lossy(&sal.stderr);
-        let err = err.trim();
-        Err(if err.is_empty() { format!("git terminó con {}", sal.status) } else { err.chars().take(400).collect() })
-    }
-}
-
-fn git_en(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let mut v: Vec<&std::ffi::OsStr> = vec!["-C".as_ref(), dir.as_os_str()];
-    v.extend(args.iter().map(|a| std::ffi::OsStr::new(*a)));
-    git(&v)
+/// Una orden `git` sobre `dir`: su salida sin espacios a los lados si salió
+/// bien, y lo que dijo git (recortado) si no.
+fn git_en<S: AsRef<OsStr>>(dir: &Path, args: &[S], tope: Duration) -> Result<String, String> {
+    git::git(dir, args, tope).map(|s| s.trim().to_string()).map_err(|e| match e {
+        ErrorBus::Git { detalle, .. } => detalle.chars().take(400).collect(),
+        e => e.to_string(),
+    })
 }
 
 fn comun(dir: &Path) -> Result<PathBuf, String> {
-    let c = git_en(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    let c = git_en(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"], TOPE_LECTURA)?;
     Ok(ea_plataforma::rutas::canonica(&c).unwrap_or_else(|_| PathBuf::from(c)))
 }
 
@@ -81,7 +66,7 @@ impl Bus {
             return Ok(None);
         }
         let estado = self.leer_estado(id).ok().map(|e| e.estado);
-        let limpio = git_en(&ruta, &["status", "--porcelain"]).ok().map(|s| s.is_empty());
+        let limpio = git_en(&ruta, &["status", "--porcelain"], TOPE_LECTURA).ok().map(|s| s.is_empty());
         let ocupado = crate::candado::listar_semaforos_en(&self.raiz).iter().any(|(_, o)| o.trabajo == id);
         Ok(Some(InfoWorktree {
             trabajo: id.to_string(),
@@ -135,11 +120,11 @@ impl Bus {
         let ruta = self.ruta_worktree(id)?;
         let repo = Path::new(&orden.worktree);
         let falla = |m: String| ErrorBus::Argumentos(format!("worktree propio de {id}: {m}"));
-        if git_en(repo, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).is_err() {
+        if !git::tiene_commits(repo, TOPE_LECTURA).unwrap_or(false) {
             return Err(falla(format!("{} no es un repositorio git con algún commit", repo.display())));
         }
         if ruta.exists() {
-            let del_repo = git_en(&ruta, &["rev-parse", "--path-format=absolute", "--show-toplevel"])
+            let del_repo = git_en(&ruta, &["rev-parse", "--path-format=absolute", "--show-toplevel"], TOPE_LECTURA)
                 .ok()
                 .and_then(|t| ea_plataforma::rutas::canonica(t).ok())
                 .zip(ea_plataforma::rutas::canonica(&ruta).ok())
@@ -154,23 +139,15 @@ impl Bus {
         std::fs::create_dir_all(ruta.parent().unwrap_or(&self.raiz))?;
         // Registro de un worktree cuyo directorio se borró a mano: fuera, o
         // git se niega a volver a sacar la rama.
-        let _ = git_en(repo, &["worktree", "prune"]);
+        let _ = git_en(repo, &["worktree", "prune"], TOPE_LECTURA);
         let rama = format!("ea/{id}");
-        let existe = git_en(repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{rama}")]).is_ok();
+        let existe = git_en(repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{rama}")], TOPE_LECTURA).is_ok();
         let r = if existe {
-            git(&["-C".as_ref(), repo.as_os_str(), "worktree".as_ref(), "add".as_ref(), "--".as_ref(), ruta.as_os_str(), rama.as_ref()])
+            git_en(repo, &["worktree".as_ref(), "add".as_ref(), "--".as_ref(), ruta.as_os_str(), rama.as_ref()], TOPE_ESCRITURA)
         } else {
-            git(&[
-                "-C".as_ref(),
-                repo.as_os_str(),
-                "worktree".as_ref(),
-                "add".as_ref(),
-                "-b".as_ref(),
-                rama.as_ref(),
-                "--".as_ref(),
-                ruta.as_os_str(),
-                "HEAD".as_ref(),
-            ])
+            let args: [&OsStr; 7] =
+                ["worktree".as_ref(), "add".as_ref(), "-b".as_ref(), rama.as_ref(), "--".as_ref(), ruta.as_os_str(), "HEAD".as_ref()];
+            git_en(repo, &args, TOPE_ESCRITURA)
         };
         r.map_err(falla)?;
         Ok(ruta)
@@ -188,8 +165,8 @@ impl Bus {
         }
         let falla = |m: String| ErrorBus::Argumentos(format!("limpiar el worktree de {id}: {m}"));
         let comun = comun(&ruta).map_err(falla)?;
-        git(&["--git-dir".as_ref(), comun.as_os_str(), "worktree".as_ref(), "remove".as_ref(), "--".as_ref(), ruta.as_os_str()])
-            .map_err(falla)?;
+        let args: [&OsStr; 6] = ["--git-dir".as_ref(), comun.as_os_str(), "worktree".as_ref(), "remove".as_ref(), "--".as_ref(), ruta.as_os_str()];
+        git_en(&comun, &args, TOPE_ESCRITURA).map_err(falla)?;
         Ok(true)
     }
 }

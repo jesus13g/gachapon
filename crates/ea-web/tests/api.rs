@@ -2716,6 +2716,51 @@ async fn diff_de_una_fase_usa_las_instantaneas() {
 }
 
 #[tokio::test]
+async fn el_diff_es_el_de_git_mas_los_ficheros_nuevos() {
+    let f = montar();
+    let _g = aislar_bus(&f).await;
+    let wt = f._dir.path().join("repo");
+    std::fs::create_dir_all(&wt).unwrap();
+    git_en(&wt, None, &["init", "-q"]);
+    git_en(&wt, None, &["config", "core.autocrlf", "false"]);
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    git_en(&wt, None, &["add", "-A"]);
+    git_en(&wt, None, &["commit", "-q", "-m", "inicio"]);
+    let inicio = git_en(&wt, None, &["rev-parse", "HEAD"]);
+    // Un cambio y ficheros nuevos de todo tipo; `__pycache__` no sale.
+    std::fs::write(wt.join("a.txt"), "a\nb\n").unwrap();
+    std::fs::write(wt.join("nuevo.txt"), "hola\n").unwrap();
+    std::fs::write(wt.join("sin-salto.txt"), "x").unwrap();
+    std::fs::write(wt.join("datos.bin"), [0xff, 0xfe, 0x00, 0x01]).unwrap();
+    std::fs::write(wt.join("canción.txt"), "ñ\n").unwrap();
+    std::fs::create_dir_all(wt.join("sub dir")).unwrap();
+    std::fs::write(wt.join("sub dir/espacio.txt"), "e\n").unwrap();
+    std::fs::create_dir_all(wt.join("__pycache__")).unwrap();
+    std::fs::write(wt.join("__pycache__/m.pyc"), "pyc").unwrap();
+
+    let bus = ea_bus::Bus::abrir().unwrap();
+    let id = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "Diff", wt.to_str().unwrap())).unwrap();
+    bus.escribir_informe(&id, &serde_json::from_value(json!({ "resultado": "terminado", "commit_inicio": inicio })).unwrap())
+        .unwrap();
+    let (s, d) = get(&f, &format!("/api/trabajos/{id}/diff")).await;
+    assert_eq!((s, d["truncado"].as_bool()), (StatusCode::OK, Some(false)), "{d}");
+    let o = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&wt)
+        .args(["diff", &inicio, "--", ".", ea_bus::EXCLUIR_DIFF])
+        .output()
+        .unwrap();
+    let esperado = String::from_utf8_lossy(&o.stdout).into_owned()
+        + "\n=== fichero nuevo sin seguimiento: canción.txt ===\nñ\n"
+        + "\n=== fichero nuevo sin seguimiento: datos.bin (binario o ilegible) ===\n"
+        + "\n=== fichero nuevo sin seguimiento: nuevo.txt ===\nhola\n"
+        + "\n=== fichero nuevo sin seguimiento: sin-salto.txt ===\nx"
+        + "\n=== fichero nuevo sin seguimiento: sub dir/espacio.txt ===\ne\n";
+    assert!(esperado.contains("+b\n"), "{esperado}");
+    assert_eq!(d["diff"].as_str().unwrap(), esperado);
+}
+
+#[tokio::test]
 async fn las_versiones_de_una_rutina_se_listan_y_se_leen() {
     let f = montar();
     // v1 la deja `montar` (creada por «test»); v2 se registra desde la web.

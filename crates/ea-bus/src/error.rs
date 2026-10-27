@@ -28,6 +28,13 @@ pub enum ErrorBus {
     /// diff de una fase.
     #[error("{0}")]
     SinInstantanea(String),
+    /// Una orden `git` del sistema ([`crate::git`]) terminó con error:
+    /// sus argumentos y lo que dijo git.
+    #[error("git {orden}: {detalle}")]
+    Git { orden: String, detalle: String },
+    /// Una orden `git` del sistema no terminó dentro de su tope y se mató.
+    #[error("git no respondió en {0} s")]
+    GitSinRespuesta(u64),
 }
 
 pub type Resultado<T> = Result<T, ErrorBus>;
