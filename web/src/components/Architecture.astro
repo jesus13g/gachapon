@@ -10,6 +10,18 @@ const { architecture: a } = copyFor(Astro.currentLocale);
 const lang = langOf(Astro.currentLocale);
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
+// Frame height per diagram: 'tall' for the long tree, the 39-message sequence and the dense maps; 'compact' for the short, wide ones.
+const size: Record<string, 'tall' | 'compact'> = {
+  system: 'tall',
+  workspace: 'tall',
+  'mission-flow': 'tall',
+  'planner-executor': 'tall',
+  platform: 'tall',
+  'job-lifecycle': 'compact',
+  database: 'compact',
+};
+// `identifier` markers in the copy render as <code>.
+const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 === 1 }));
 ---
 <Base title={a.title} description={a.description} page="architecture">
   <Hud page="architecture" />
@@ -28,21 +40,23 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
 
     <nav class="arch-index" aria-label={a.indexLabel}>
       <ol>
-        {a.sections.map((s) => <li><a href={`#${s.slug}`}>{s.kicker}</a></li>)}
+        {a.sections.map((s) => <li><a href={`#${s.slug}`} data-sec={s.slug} title={s.kicker}>{s.short}</a></li>)}
       </ol>
     </nav>
 
     {a.sections.map((s) => (
       <section class="arch-sec" id={s.slug} aria-labelledby={`${s.slug}-h`}>
         <div class="arch-sec__copy">
+          <div class="arch-sec__head">
           <p class="kicker">{s.kicker}</p>
           <h2 id={`${s.slug}-h`}>{s.h}</h2>
-          <p>{s.p}</p>
+          <p class="arch-sec__lede">{parts(s.p).map((x) => (x.code ? <code>{x.text}</code> : x.text))}</p>
+          </div>
           <ul>
-            {s.points.map((pt) => <li>{pt}</li>)}
+            {s.points.map((pt) => <li>{parts(pt).map((x) => (x.code ? <code>{x.text}</code> : x.text))}</li>)}
           </ul>
         </div>
-        <figure class="arch-frame">
+        <figure class={`arch-frame${size[s.slug] ? ` arch-frame--${size[s.slug]}` : ''}`}>
           <span class="arch-frame__tag arch-frame__tag--tl">{s.kicker}</span>
           <span class="arch-frame__tag arch-frame__tag--tr">{a.frameLabel}</span>
           <div class="arch-frame__screen">
@@ -64,6 +78,46 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
   </main>
   <Footer />
 </Base>
+
+<script>
+  // Highlight the chip of the section in view; smooth scrolling unless the visitor prefers reduced motion.
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const chips = new Map<string, HTMLAnchorElement>();
+  document.querySelectorAll<HTMLAnchorElement>('.arch-index a[data-sec]').forEach((c) => chips.set(c.dataset.sec!, c));
+  const setActive = (slug: string) => {
+    chips.forEach((c, k) => {
+      if (k === slug) {
+        c.setAttribute('aria-current', 'true');
+        const nav = c.closest<HTMLElement>('.arch-index')!;
+        if (nav.scrollWidth > nav.clientWidth) {
+          nav.scrollTo({ left: c.offsetLeft - nav.clientWidth / 2 + c.offsetWidth / 2, behavior: reduce ? 'auto' : 'smooth' });
+        }
+      } else c.removeAttribute('aria-current');
+    });
+  };
+  const secs = Array.from(document.querySelectorAll<HTMLElement>('.arch-sec'));
+  if ('IntersectionObserver' in window && secs.length) {
+    const io = new IntersectionObserver(
+      () => {
+        const line = window.innerHeight * 0.35;
+        let cur = '';
+        for (const s of secs) if (s.getBoundingClientRect().top <= line) cur = s.id;
+        setActive(cur);
+      },
+      { rootMargin: '-35% 0px -64% 0px', threshold: [0, 1] },
+    );
+    secs.forEach((s) => io.observe(s));
+  }
+  chips.forEach((c, slug) =>
+    c.addEventListener('click', (e) => {
+      const target = document.getElementById(slug);
+      if (!target) return;
+      e.preventDefault();
+      target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+      history.replaceState(null, '', `#${slug}`);
+    }),
+  );
+</script>
 
 <style>
   /* Architecture page: normal scrolling document on the shared tokens (no pinned stage). */
@@ -120,7 +174,7 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
     font-weight: 600;
   }
 
-  /* Section index: sticky chips under the header */
+  /* Section index: sticky chips under the header; wraps on desktop, scrolls with a fade edge on mobile */
   .arch-index {
     position: sticky;
     top: 56px;
@@ -128,19 +182,14 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
     margin: 2.4rem calc(var(--gutter) * -1) 0;
     padding: 10px var(--gutter);
     background: linear-gradient(var(--bg) 70%, transparent);
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .arch-index::-webkit-scrollbar {
-    display: none;
   }
   .arch-index ol {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin: 0;
     padding: 0;
     list-style: none;
-    width: max-content;
   }
   .arch-index a {
     display: block;
@@ -148,35 +197,56 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
     border: 1px solid var(--line-hi);
     border-radius: 999px;
     font: 500 0.68rem var(--mono);
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     text-decoration: none;
     white-space: nowrap;
     color: var(--fg-dim);
     background: rgba(9, 11, 14, 0.7);
-    transition: color 0.2s, border-color 0.2s;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
   }
   .arch-index a:hover,
   .arch-index a:focus-visible {
     color: var(--fg);
     border-color: var(--accent);
   }
+  .arch-index a[aria-current] {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  @media (max-width: 760px) {
+    .arch-index {
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+      mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+    }
+    .arch-index::-webkit-scrollbar {
+      display: none;
+    }
+    .arch-index ol {
+      flex-wrap: nowrap;
+      width: max-content;
+      padding-right: 36px;
+    }
+  }
 
-  /* One section per diagram */
+  /* One section per diagram: text on top (lede left, key facts right), panel across the full width */
   .arch-sec {
     display: grid;
-    gap: clamp(1.4rem, 3vw, 2.4rem);
+    gap: clamp(1.4rem, 3vw, 2.2rem);
     padding-top: clamp(2.6rem, 7vh, 5rem);
     scroll-margin-top: 90px;
   }
-  @media (min-width: 1100px) {
-    .arch-sec {
-      grid-template-columns: minmax(18rem, 26rem) minmax(0, 1fr);
-      align-items: start;
-    }
+  .arch-sec__copy {
+    display: grid;
+    gap: 1.2rem clamp(1.6rem, 4vw, 3.5rem);
+    align-items: start;
+  }
+  @media (min-width: 1000px) {
     .arch-sec__copy {
-      position: sticky;
-      top: 120px;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
     }
   }
   .arch-sec__copy h2 {
@@ -184,10 +254,18 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
     font: 800 clamp(1.9rem, 3.4vw, 3rem) / 0.95 var(--display);
     text-transform: uppercase;
   }
-  .arch-sec__copy p:not(.kicker) {
-    margin: 0 0 1.1rem;
+  .arch-sec__lede {
+    margin: 0;
     line-height: 1.6;
     color: var(--fg-dim);
+  }
+  .arch-sec__copy code {
+    padding: 0.05em 0.35em;
+    border: 1px solid var(--line);
+    background: rgba(255, 154, 60, 0.07);
+    font: 500 0.86em var(--mono);
+    color: var(--fg);
+    overflow-wrap: anywhere;
   }
   .arch-sec__copy ul {
     display: grid;
@@ -200,7 +278,7 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
     position: relative;
     padding-left: 1.1rem;
     font-size: 0.92rem;
-    line-height: 1.5;
+    line-height: 1.55;
     color: var(--fg);
   }
   .arch-sec__copy li::before {
@@ -241,10 +319,16 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
   }
   .arch-frame__screen {
     position: relative;
-    height: min(78vh, 760px);
+    height: min(74vh, 720px);
     border: 1px solid var(--line);
     background: var(--bg);
     box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.6);
+  }
+  .arch-frame--tall .arch-frame__screen {
+    height: min(88vh, 900px);
+  }
+  .arch-frame--compact .arch-frame__screen {
+    height: min(62vh, 600px);
   }
   .arch-frame__loading {
     position: absolute;
@@ -308,7 +392,13 @@ const src = (slug: string) => `${base}/architecture/${lang}/${slug}.html`;
       padding: 28px 8px 10px;
     }
     .arch-frame__screen {
-      height: min(70vh, 520px);
+      height: min(66vh, 520px);
+    }
+    .arch-frame--tall .arch-frame__screen {
+      height: min(80vh, 640px);
+    }
+    .arch-frame--compact .arch-frame__screen {
+      height: min(56vh, 460px);
     }
     .arch-index {
       top: 52px;
