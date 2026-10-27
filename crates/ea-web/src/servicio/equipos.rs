@@ -126,10 +126,9 @@ async fn anotar_sesion(s: &AppState, equipo: &str, agente: &str) {
     let evento = NewEvent {
         actor: ACTOR.into(),
         action: "equipo_sesion_abierta".into(),
-        trabajo: None,
         outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
         detail: Some(serde_json::json!({ "equipo": equipo, "agente": agente }).to_string()),
+        ..Default::default()
     };
     if let Err(e) = s.store.lock().await.append_event(evento) {
         tracing::warn!(error = %e, "no se pudo apuntar la sesión de equipo en el diario");

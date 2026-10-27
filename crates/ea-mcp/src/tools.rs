@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ea_bus::{Bus, Rol};
-use ea_store::{Event, EventFilter, EventOutcome, NewEvent, Store};
+use ea_store::{Event, EventFilter, EventOutcome, FiltroDiario, NewEvent, Store};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
@@ -87,11 +87,6 @@ pub struct EaTools {
 
 type ToolBody = Result<serde_json::Value, String>;
 
-fn fmt_ts(dt: time::OffsetDateTime) -> String {
-    dt.format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_else(|_| dt.to_string())
-}
-
 /// Resumen de un trabajo del bus, o `None` si sus ficheros no se pueden leer.
 fn trabajo_resumen(bus: &Bus, id: &str) -> Option<serde_json::Value> {
     let r = bus.resumen_trabajo(id)?;
@@ -111,7 +106,7 @@ fn trabajo_resumen(bus: &Bus, id: &str) -> Option<serde_json::Value> {
 fn event_to_json(e: &Event) -> serde_json::Value {
     json!({
         "id": e.id,
-        "cuando": fmt_ts(e.ts),
+        "cuando": ea_store::rfc3339(e.ts),
         "actor": e.actor,
         "accion": e.action,
         "trabajo": e.trabajo,
@@ -414,7 +409,7 @@ impl EaTools {
             Ok(json!({
                 "orquestador": {
                     "vivo": orquestador.vivo,
-                    "ultimo_latido": orquestador.ultimo_latido.map(fmt_ts),
+                    "ultimo_latido": orquestador.ultimo_latido.map(ea_store::rfc3339),
                     "estado": orquestador.descripcion(),
                 },
                 "trabajos_por_estado": por_estado,
@@ -579,22 +574,16 @@ impl EaTools {
         });
 
         let body: ToolBody = async {
-            let since = match &args.desde {
-                Some(s) => Some(crate::args::parse_flexible_date(s)?),
-                None => None,
-            };
-            let until = match &args.hasta {
-                Some(s) => Some(crate::args::parse_flexible_date(s)?),
-                None => None,
-            };
-            let filter = EventFilter {
+            let filter = FiltroDiario {
                 trabajo: args.trabajo.clone(),
                 actor: args.actor.clone(),
-                since,
-                until,
-                limit: Some(args.limite.unwrap_or(20)),
+                desde: args.desde.clone(),
+                hasta: args.hasta.clone(),
+                limite: Some(args.limite.unwrap_or(20)),
                 ..Default::default()
-            };
+            }
+            .a_filtro(None)
+            .map_err(|e| e.to_string())?;
             let store = self.store.lock().await;
             let events = store.list_events(&filter).map_err(|e| e.to_string())?;
             Ok(json!({ "eventos": events.iter().map(event_to_json).collect::<Vec<_>>() }))

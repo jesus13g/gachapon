@@ -227,10 +227,9 @@ pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
     let evento = NewEvent {
         actor: ACTOR.into(),
         action: "accion_terminal_abierta".into(),
-        trabajo: None,
         outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
         detail: Some(orden.detalle().to_string()),
+        ..Default::default()
     };
     if let Err(e) = s.store.lock().await.append_event(evento) {
         tracing::warn!(error = %e, "no se pudo apuntar la terminal abierta en el diario");

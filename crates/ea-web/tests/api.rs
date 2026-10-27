@@ -486,6 +486,32 @@ async fn el_diario_rechaza_un_resultado_o_una_accion_no_validos() {
     assert_eq!(s, StatusCode::OK);
 }
 
+/// Cada filtro del diario que no vale responde 400 con su mensaje de siempre;
+/// un campo vacío no filtra, salvo las fechas, que no valen vacías.
+#[tokio::test]
+async fn cada_filtro_del_diario_que_no_vale_dice_por_que() {
+    let f = montar();
+    for (q, mensaje) in [
+        ("desde=ayer", "fecha inválida: 'ayer' (usa RFC3339 o AAAA-MM-DD)"),
+        ("hasta=2026-13-01", "fecha inválida: '2026-13-01' (usa RFC3339 o AAAA-MM-DD)"),
+        ("desde=", "fecha inválida: '' (usa RFC3339 o AAAA-MM-DD)"),
+        ("resultado=quizas", "valor de resultado inválido: quizas"),
+        ("accion=BUS_", "acción no válida: «BUS_» (solo [a-z_])"),
+        ("antes_de=0", "antes_de no válido: «0» (un id de evento)"),
+        ("antes_de=x", "antes_de no válido: «x» (un id de evento)"),
+        // El primero que falla, en el orden de siempre: resultado, acción, cursor y fechas.
+        ("desde=ayer&antes_de=0&accion=X&resultado=quizas", "valor de resultado inválido: quizas"),
+        ("desde=ayer&antes_de=0", "antes_de no válido: «0» (un id de evento)"),
+    ] {
+        let (s, e) = get(&f, &format!("/api/diario?{q}")).await;
+        assert_eq!((s, e["error"].as_str()), (StatusCode::BAD_REQUEST, Some(mensaje)), "{q}");
+    }
+    for q in ["trabajo=&actor=&resultado=&accion=&antes_de=", "desde=2026-01-01&hasta=2026-01-01T00:00:00%2B02:00", "limite=0", "limite=100000"] {
+        let (s, _) = get(&f, &format!("/api/diario?{q}")).await;
+        assert_eq!(s, StatusCode::OK, "{q}");
+    }
+}
+
 // ------------------------------------------------- D4: anotar el diario
 
 /// Todas las filas del diario, latidos incluidos, tal como las guarda la base.

@@ -74,9 +74,8 @@ pub fn anotar(conn: &Connection, nota: NuevaNota) -> StoreResult<Event> {
             actor: ACTOR_NOTA.into(),
             action: ACCION_NOTA.into(),
             trabajo,
-            outcome: None,
-            duration_ms: None,
             detail: Some(serde_json::Value::Object(detalle).to_string()),
+            ..Default::default()
         },
     )
 }

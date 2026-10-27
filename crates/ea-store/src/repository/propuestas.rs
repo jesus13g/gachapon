@@ -6,7 +6,7 @@ use crate::models::{
     Propuesta,
 };
 
-use super::{now_str, parse_ts};
+use super::parse_ts;
 
 const SELECT_COLUMNS: &str = "id, creado_en, descripcion, estado, decidido_en, \
     proponente, accion_herramienta, accion_argumentos, accion_riesgo, accion_simulacion, \
@@ -87,7 +87,7 @@ fn to_propuesta(raw: Raw) -> StoreResult<Propuesta> {
 
 /// Encola una propuesta, con o sin acción estructurada.
 pub fn crear(conn: &Connection, nueva: NuevaPropuesta) -> StoreResult<Propuesta> {
-    let now = now_str()?;
+    let now = crate::ahora_rfc3339();
     let (herramienta, argumentos, riesgo, simulacion, precondicion) = match &nueva.accion {
         Some(a) => (
             Some(a.herramienta.clone()),
@@ -177,7 +177,7 @@ pub fn decidir_propuesta(
     if estado == EstadoPropuesta::Aceptada && actual.accion.is_some() {
         return Err(StoreError::PropuestaConAccion(id));
     }
-    let now = now_str()?;
+    let now = crate::ahora_rfc3339();
     let filas = conn.execute(
         "UPDATE propuestas SET estado = ?1, decidido_en = ?2 WHERE id = ?3 AND estado = 'pendiente'",
         params![estado.as_str(), now, id],
@@ -197,7 +197,7 @@ pub fn reclamar_para_ejecucion(conn: &Connection, id: i64) -> StoreResult<Propue
     if actual.accion.is_none() {
         return Err(StoreError::PropuestaSinAccion(id));
     }
-    let now = now_str()?;
+    let now = crate::ahora_rfc3339();
     let filas = conn.execute(
         "UPDATE propuestas SET estado = 'aceptada', decidido_en = ?1, ejecucion_estado = 'ejecutando'
          WHERE id = ?2 AND estado = 'pendiente'",
@@ -220,7 +220,7 @@ pub fn registrar_ejecucion(
     if estado == EstadoEjecucion::Ejecutando {
         return Err(StoreError::InvalidStatus(estado.as_str().to_string()));
     }
-    let now = now_str()?;
+    let now = crate::ahora_rfc3339();
     let filas = conn.execute(
         "UPDATE propuestas SET ejecucion_estado = ?1, ejecucion_detalle = ?2, ejecutada_en = ?3
          WHERE id = ?4 AND ejecucion_estado = 'ejecutando'",

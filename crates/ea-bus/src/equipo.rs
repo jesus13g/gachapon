@@ -219,10 +219,9 @@ impl Bus {
         let _ = s.append_event(NewEvent {
             actor: self.actor.clone(),
             action: accion.into(),
-            trabajo: None,
             outcome: Some(EventOutcome::Ok),
-            duration_ms: None,
             detail: Some(serde_json::json!({ "equipo": e.id, "titulo": e.titulo, "miembros": miembros }).to_string()),
+            ..Default::default()
         });
     }
 }

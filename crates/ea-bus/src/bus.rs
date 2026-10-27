@@ -7,7 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use ea_store::{EventOutcome, FilaFase, FilaRutina, FilaTrabajo, NewEvent, Store};
 use serde::{Deserialize, Serialize};
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::config::ConfigOrquestador;
@@ -31,9 +30,8 @@ pub fn raiz_estado() -> PathBuf {
     ea_ajustes::cargar().rutas.estado
 }
 
-pub(crate) fn ahora_rfc3339() -> String {
-    OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_default()
-}
+/// Las marcas de tiempo del bus, en RFC 3339 como las del diario.
+pub(crate) use ea_store::ahora_rfc3339;
 
 /// Id ordenable por tiempo: `20261014T193000-0003ab12`. El contador evita que
 /// dos ids del mismo segundo se ordenen al azar (las colas son FIFO).
@@ -961,8 +959,8 @@ impl Bus {
             // filtro del diario encuentran los `bus_*` del trabajo.
             trabajo: Some(id.into()),
             outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
-            duration_ms: None,
             detail: Some(detalle.to_string()),
+            ..Default::default()
         });
     }
 }

@@ -71,11 +71,7 @@ pub enum Cabeceras {
 }
 
 pub fn ahora() -> String {
-    OffsetDateTime::now_utc()
-        .replace_nanosecond(0)
-        .ok()
-        .and_then(|d| d.format(&Rfc3339).ok())
-        .unwrap_or_default()
+    OffsetDateTime::now_utc().replace_nanosecond(0).map(ea_store::rfc3339).unwrap_or_default()
 }
 
 fn fecha_valida(s: &str) -> bool {

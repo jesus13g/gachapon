@@ -11,8 +11,6 @@ use std::time::SystemTime;
 
 use ea_plataforma::fs::Permisos;
 use serde::Serialize;
-use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
 
 /// Tamaño máximo de una memoria al guardarla.
 pub const MAX_BYTES: usize = 256 * 1024;
@@ -66,7 +64,7 @@ pub struct Memoria {
 pub use ea_plataforma::fs::huella as version;
 
 fn rfc3339(t: SystemTime) -> String {
-    OffsetDateTime::from(t).format(&Rfc3339).unwrap_or_default()
+    ea_store::rfc3339(t.into())
 }
 
 /// Un componente de ruta que llega de fuera: sin separadores ni `\0`, sin

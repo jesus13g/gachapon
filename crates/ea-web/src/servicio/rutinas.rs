@@ -226,13 +226,12 @@ pub async fn registrar(s: &AppState, toml: &str) -> Resultado<RutinaRegistrada> 
     let evento = NewEvent {
         actor: super::ACTOR.into(),
         action: "rutina_registrada".into(),
-        trabajo: None,
         outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
         detail: Some(
             json!({ "canal": "web", "rutina": c.slug, "version": c.version, "anterior": anterior, "bytes": toml.len() })
                 .to_string(),
         ),
+        ..Default::default()
     };
     // El registro ya está hecho: si el diario falla, se avisa en el log.
     if let Err(e) = s.store.lock().await.append_event(evento) {

@@ -5,10 +5,7 @@
 
 use ea_acciones::{ErrorAccion, SistemaReal};
 use ea_bus::{Bus, ErrorBus};
-use ea_store::StoreError;
-use time::format_description::well_known::Rfc3339;
-use time::macros::format_description;
-use time::OffsetDateTime;
+use ea_store::{ErrorFiltro, StoreError};
 
 use crate::AppState;
 
@@ -65,6 +62,13 @@ impl From<StoreError> for ErrorWeb {
     }
 }
 
+/// Un filtro del diario que no vale: siempre la entrada (400), con su texto.
+impl From<ErrorFiltro> for ErrorWeb {
+    fn from(e: ErrorFiltro) -> Self {
+        Self::Invalido(e.to_string())
+    }
+}
+
 impl From<ErrorAccion> for ErrorWeb {
     fn from(e: ErrorAccion) -> Self {
         let msg = e.to_string();
@@ -115,9 +119,8 @@ impl From<ea_boveda::ErrorBoveda> for ErrorWeb {
 
 // ----------------------------------------------------------------- helpers
 
-fn ts(dt: OffsetDateTime) -> String {
-    dt.format(&Rfc3339).unwrap_or_default()
-}
+/// Las marcas de tiempo de las vistas, en RFC 3339.
+use ea_store::rfc3339 as ts;
 
 /// El sistema real para las acciones que confirma el usuario desde esta
 /// página. `ea-web` no puede reiniciarse a sí mismo a mitad de la petición.
@@ -142,19 +145,6 @@ async fn bus_con_store(s: &AppState) -> Resultado<Bus> {
 }
 
 // --------------------------------------------------------------- validación
-
-fn parse_fecha(s: &str) -> Resultado<OffsetDateTime> {
-    if let Ok(dt) = OffsetDateTime::parse(s, &Rfc3339) {
-        return Ok(dt);
-    }
-    time::Date::parse(s, &format_description!("[year]-[month]-[day]"))
-        .map(|d| d.midnight().assume_utc())
-        .map_err(|_| ErrorWeb::Invalido(format!("fecha inválida: '{s}' (usa RFC3339 o AAAA-MM-DD)")))
-}
-
-fn limite(pedido: Option<i64>, defecto: i64, maximo: i64) -> i64 {
-    pedido.unwrap_or(defecto).clamp(1, maximo)
-}
 
 /// Los slugs acaban en una ruta de fichero (`<dir>/<slug>.toml`) y en el
 /// nombre de una unidad de systemd: nada que no sea `[A-Za-z0-9_-]`.

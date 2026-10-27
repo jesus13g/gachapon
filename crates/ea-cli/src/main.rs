@@ -88,8 +88,16 @@ fn main() -> Result<()> {
                 limite,
             } => commands::diario::listar(
                 &store,
-                commands::diario::Filtro { trabajo, actor, desde, hasta, resultado, accion, antes_de },
-                limite,
+                ea_store::FiltroDiario {
+                    trabajo,
+                    actor,
+                    desde,
+                    hasta,
+                    resultado,
+                    accion,
+                    antes_de: antes_de.map(|n| n.to_string()),
+                    limite: Some(limite),
+                },
             )?,
             DiarioAccion::Ver { id } => commands::diario::ver(&store, id)?,
             DiarioAccion::Anotar { texto, corrige, trabajo } => {

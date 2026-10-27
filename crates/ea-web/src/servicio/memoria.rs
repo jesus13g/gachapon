@@ -44,10 +44,9 @@ async fn apunta(s: &AppState, accion: &str, detalle: serde_json::Value) {
     let evento = NewEvent {
         actor: ACTOR.into(),
         action: accion.into(),
-        trabajo: None,
         outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
         detail: Some(detalle.to_string()),
+        ..Default::default()
     };
     if let Err(e) = s.store.lock().await.append_event(evento) {
         tracing::warn!(error = %e, accion, "no se pudo apuntar el cambio de memoria en el diario");

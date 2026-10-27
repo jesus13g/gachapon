@@ -59,10 +59,9 @@ pub async fn cambiar(s: &AppState, version: &str, cambios: BTreeMap<String, Opti
     let evento = NewEvent {
         actor: ACTOR.into(),
         action: "ajustes_cambiados".into(),
-        trabajo: None,
         outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
         detail: Some(detalle.to_string()),
+        ..Default::default()
     };
     // La escritura ya está hecha: si el diario falla, se avisa en el log.
     if let Err(e) = s.store.lock().await.append_event(evento) {

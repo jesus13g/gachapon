@@ -35,8 +35,8 @@ fn evento(store: &Store, actor: &str, action: &str, trabajo: Option<&str>, ok: b
         action: action.to_string(),
         trabajo: trabajo.map(str::to_string),
         outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
-        duration_ms: None,
         detail: Some(detalle.to_string()),
+        ..Default::default()
     })
     .ok()
     .map(|e| e.id)

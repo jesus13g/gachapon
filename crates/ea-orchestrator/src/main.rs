@@ -59,10 +59,9 @@ async fn main() -> anyhow::Result<()> {
                     if let Err(e) = store.append_event(NewEvent {
                         actor: ACTOR.to_string(),
                         action: "heartbeat".to_string(),
-                        trabajo: None,
                         outcome: Some(EventOutcome::Ok),
-                        duration_ms: None,
                         detail: sandbox_detalle(),
+                        ..Default::default()
                     }) {
                         tracing::warn!(error = %e, "no se pudo registrar el heartbeat");
                     }

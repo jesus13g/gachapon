@@ -1009,10 +1009,9 @@ pub(crate) async fn aplicar_en_sistema<S: Sistema>(
             let _ = store.append_event(NewEvent {
                 actor: actor.to_string(),
                 action: "biblioteca_cambio".to_string(),
-                trabajo: None,
                 outcome: Some(EventOutcome::Ok),
-                duration_ms: None,
                 detail: Some(datos.to_string()),
+                ..Default::default()
             });
             Ok(Aplicada {
                 texto: format!("{} {}: {}.", if activar { "Activado" } else { "Desactivado" }, h.id, h.texto),

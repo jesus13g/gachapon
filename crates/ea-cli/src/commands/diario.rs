@@ -1,36 +1,13 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_store::{EventFilter, EventOutcome, NuevaNota, Store};
+use ea_store::{FiltroDiario, NuevaNota, Store};
 
-use super::{fmt_ts, limpio, parse_flexible_date};
+use super::{fmt_ts, limpio};
 
-/// Los filtros de `ea diario listar`, tal como llegan de la línea de órdenes.
-pub struct Filtro {
-    pub trabajo: Option<String>,
-    pub actor: Option<String>,
-    pub desde: Option<String>,
-    pub hasta: Option<String>,
-    /// `ok` o `error` (clap ya lo ha validado).
-    pub resultado: Option<String>,
-    /// Prefijo de la acción (clap ya lo ha validado como `[a-z_]+`).
-    pub accion: Option<String>,
-    /// Cursor: solo los eventos anteriores al de este id.
-    pub antes_de: Option<i64>,
-}
-
-pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
-    let filter = EventFilter {
-        trabajo: f.trabajo,
-        actor: f.actor,
-        since: f.desde.as_deref().map(parse_flexible_date).transpose()?,
-        until: f.hasta.as_deref().map(parse_flexible_date).transpose()?,
-        outcome: f.resultado.as_deref().map(str::parse::<EventOutcome>).transpose()?,
-        action_prefix: f.accion,
-        before_id: f.antes_de,
-        limit: Some(limite),
-        ..Default::default()
-    };
-
+/// `ea diario listar`, con los filtros tal como llegan de la línea de órdenes
+/// (clap ya ha validado el resultado, el prefijo de la acción y el cursor).
+pub fn listar(store: &Store, f: FiltroDiario) -> Result<()> {
+    let filter = f.a_filtro(None)?;
     let events = store.list_events(&filter)?;
     if events.is_empty() {
         println!("No hay eventos que coincidan con el filtro.");
@@ -38,7 +15,7 @@ pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
     }
 
     // Si la página va llena puede haber más: el cursor de la siguiente.
-    let siguiente = (events.len() as i64 >= limite).then(|| events.last().map(|e| e.id)).flatten();
+    let siguiente = filter.limit.is_some_and(|l| events.len() as i64 >= l).then(|| events.last().map(|e| e.id)).flatten();
 
     let mut table = Table::new();
     table.set_header(vec!["ID", "Cuándo", "Actor", "Acción", "Trabajo", "Resultado"]);

@@ -291,6 +291,26 @@ async fn los_trabajos_del_bus_se_leen_pero_no_se_crean_desde_mcp() {
     client.cancel().await.ok();
 }
 
+/// `ea_listar_diario` acepta RFC 3339 y `AAAA-MM-DD` y rechaza lo demás con
+/// el mensaje de siempre.
+#[tokio::test]
+async fn ea_listar_diario_acepta_las_fechas_de_siempre() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let url = start_server(dir.path().join("ecosistema-test.db")).await;
+    let client = connect(url).await;
+    let llamar = |desde: &str| {
+        let mut args = serde_json::Map::new();
+        args.insert("desde".into(), serde_json::json!(desde));
+        client.call_tool(CallToolRequestParams::new("ea_listar_diario").with_arguments(args))
+    };
+    for bien in ["2026-01-01", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00+02:00"] {
+        assert!(llamar(bien).await.is_ok(), "{bien}");
+    }
+    let error = format!("{:?}", llamar("ayer").await.unwrap_err());
+    assert!(error.contains("fecha inválida: 'ayer' (usa RFC3339 o AAAA-MM-DD)"), "{error}");
+    client.cancel().await.ok();
+}
+
 #[tokio::test]
 async fn ea_status_informa_del_estado_real_del_orquestador() {
     let dir = tempfile::tempdir().expect("tempdir");

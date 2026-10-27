@@ -9,10 +9,6 @@ use time::OffsetDateTime;
 
 use crate::error::StoreResult;
 
-pub(crate) fn now_str() -> StoreResult<String> {
-    fmt_ts(OffsetDateTime::now_utc())
-}
-
 pub(crate) fn fmt_ts(dt: OffsetDateTime) -> StoreResult<String> {
     Ok(dt.format(&Rfc3339)?)
 }

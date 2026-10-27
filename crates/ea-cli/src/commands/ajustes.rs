@@ -122,10 +122,9 @@ pub(super) fn apuntar(f: &Fuentes, aplicados: &[ea_ajustes::Aplicado]) {
     let evento = NewEvent {
         actor: ACTOR.into(),
         action: "ajustes_cambiados".into(),
-        trabajo: None,
         outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
         detail: Some(detalle.to_string()),
+        ..Default::default()
     };
     if let Err(e) = Store::open().map_err(anyhow::Error::from).and_then(|s| Ok(s.append_event(evento)?)) {
         eprintln!("aviso: no se pudo apuntar el cambio en el diario: {e}");

@@ -1,8 +1,8 @@
 //! El historial de eventos.
 
-use ea_store::{Event, EventFilter, EventOutcome, NuevaNota};
+use ea_store::{Event, EventFilter, FiltroDiario, NuevaNota};
 
-use super::{limite, parse_fecha, ts, ErrorWeb, Resultado};
+use super::{ts, Resultado};
 use crate::vistas::EventoVista;
 use crate::AppState;
 
@@ -25,40 +25,20 @@ pub struct Filtro {
 }
 
 pub async fn listar(s: &AppState, f: Filtro) -> Resultado<Vec<EventoVista>> {
-    let outcome = f
-        .resultado
-        .as_deref()
-        .filter(|r| !r.is_empty())
-        .map(str::parse::<EventOutcome>)
-        .transpose()?;
-    let accion = f.accion.filter(|a| !a.is_empty());
-    if let Some(a) = &accion
-        && !a.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
-    {
-        return Err(ErrorWeb::Invalido(format!("acción no válida: «{a}» (solo [a-z_])")));
-    }
-    let before_id = f
-        .antes_de
-        .as_deref()
-        .filter(|a| !a.is_empty())
-        .map(|a| {
-            a.parse::<i64>()
-                .ok()
-                .filter(|n| *n > 0)
-                .ok_or_else(|| ErrorWeb::Invalido(format!("antes_de no válido: «{a}» (un id de evento)")))
-        })
-        .transpose()?;
-    let filter = EventFilter {
-        trabajo: f.trabajo.filter(|t| !t.is_empty()),
-        actor: f.actor.filter(|a| !a.is_empty()),
-        since: f.desde.as_deref().map(parse_fecha).transpose()?,
-        until: f.hasta.as_deref().map(parse_fecha).transpose()?,
-        exclude_action: (!f.latidos).then(|| "heartbeat".to_string()),
-        outcome,
-        action_prefix: accion,
-        before_id,
-        limit: Some(limite(f.limite, 200, 1000)),
+    // Un campo vacío del formulario es que no se filtra por él (las fechas
+    // vacías, en cambio, no valen).
+    let lleno = |v: Option<String>| v.filter(|t| !t.is_empty());
+    let filtro = FiltroDiario {
+        trabajo: lleno(f.trabajo),
+        actor: lleno(f.actor),
+        desde: f.desde,
+        hasta: f.hasta,
+        resultado: lleno(f.resultado),
+        accion: lleno(f.accion),
+        antes_de: lleno(f.antes_de),
+        limite: Some(f.limite.unwrap_or(200)),
     };
+    let filter = EventFilter { exclude_action: (!f.latidos).then(|| "heartbeat".to_string()), ..filtro.a_filtro(Some(1000))? };
     let store = s.store.lock().await;
     let eventos = store.list_events(&filter)?;
     let ids: Vec<i64> = eventos.iter().map(|e| e.id).collect();

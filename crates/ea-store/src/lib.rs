@@ -7,6 +7,7 @@
 
 mod connection;
 mod error;
+mod filtro;
 mod migrations;
 mod models;
 mod orquestador;
@@ -15,6 +16,7 @@ mod store;
 
 pub use connection::resolve_db_path;
 pub use error::{StoreError, StoreResult};
+pub use filtro::{ahora_rfc3339, fecha_flexible, prefijo_accion_valido, rfc3339, ErrorFiltro, FiltroDiario};
 pub use models::{
     AccionPropuesta, EjecucionPropuesta, EntradaIndice, ResultadoBusqueda, RutaIndexada, EstadoEjecucion, EstadoPropuesta, Event, EventOutcome, NewEvent, NuevaPropuesta, Propuesta,
 };

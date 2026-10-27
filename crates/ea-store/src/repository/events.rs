@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, Row};
 use crate::error::{StoreError, StoreResult};
 use crate::models::{Event, EventOutcome, NewEvent};
 
-use super::{fmt_ts, now_str, parse_ts};
+use super::{fmt_ts, parse_ts};
 
 /// Una fila de `events` tal como sale de SQLite: id, ts, actor, action,
 /// trabajo, outcome, duration_ms y detail.
@@ -43,7 +43,7 @@ const SELECT_COLUMNS: &str = "id, ts, actor, action, trabajo, outcome, duration_
 
 /// Añade un evento al diario, opcionalmente asociado a un trabajo.
 pub fn append_event(conn: &Connection, new_event: NewEvent) -> StoreResult<Event> {
-    let ts = now_str()?;
+    let ts = crate::ahora_rfc3339();
     conn.execute(
         "INSERT INTO events (ts, actor, action, trabajo, outcome, duration_ms, detail)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
