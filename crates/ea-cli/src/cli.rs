@@ -91,6 +91,30 @@ pub enum Command {
         #[command(subcommand)]
         accion: ServiciosAccion,
     },
+    /// Instala todo en un paso (binarios, PATH, skills, adaptadores de los agentes, MCP, hook, servicios y app de escritorio); exige una terminal interactiva real y una confirmación
+    Instalar {
+        /// Solo en Windows: `wsl` (WSL2, con sandbox) o `nativa` (sin sandbox); si falta, se pregunta
+        #[arg(long)]
+        via: Option<String>,
+        /// Distribución de WSL (vía `wsl`)
+        #[arg(long, default_value = "Ubuntu")]
+        distro: String,
+        /// No instala la app de escritorio (automático dentro de WSL)
+        #[arg(long)]
+        sin_escritorio: bool,
+        /// No mira ni ofrece las dependencias externas
+        #[arg(long)]
+        sin_dependencias: bool,
+        /// Sigue una instalación de WSL tras el reinicio (lo pone la entrada RunOnce)
+        #[arg(long)]
+        continuar: bool,
+    },
+    /// Deshace `ea instalar` (servicios, app, adaptadores, hook, MCP, PATH y binarios copiados) sin borrar datos; exige una terminal interactiva real
+    Desinstalar {
+        /// Al terminar espera a Intro (para la terminal que abre ea-web)
+        #[arg(long)]
+        esperar: bool,
+    },
     /// Hooks de Claude Code (leen el JSON del hook por stdin; nunca fallan)
     Hook {
         #[command(subcommand)]

@@ -4,12 +4,10 @@
 //! está en `main`.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::clave;
 
 /// Cada cuánto mira el vigía.
 pub const PERIODO: Duration = Duration::from_secs(2);
@@ -66,8 +64,14 @@ impl VigiaClave {
 
     /// `Some(nueva)` si la clave del fichero cambió desde la última vez
     /// (`nueva` es `None` si ya no hay clave válida); `None` si sigue igual.
-    pub fn comprobar(&mut self, fichero: &Path) -> Option<Option<String>> {
-        let actual = clave::leer(fichero);
+    #[cfg(test)]
+    pub fn comprobar(&mut self, fichero: &std::path::Path) -> Option<Option<String>> {
+        self.comprobar_valor(crate::clave::leer(fichero))
+    }
+
+    /// Como [`comprobar`](Self::comprobar), con la clave ya leída (en modo
+    /// WSL se lee por `wsl.exe`, no de un fichero).
+    pub fn comprobar_valor(&mut self, actual: Option<String>) -> Option<Option<String>> {
         if actual == self.ultima {
             return None;
         }

@@ -10,3 +10,6 @@ FUNCIONALIDADES.md
 node_modules/
 .venv*/
 /marketing/
+
+# Diagramas generados por la skill archify (.claude/skills/archify)
+.archify/

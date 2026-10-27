@@ -84,7 +84,7 @@ pub fn interpretar(c: &Clave, texto: &str) -> Result<Value, ErrorAjustes> {
         Tipo::Lista { .. } => {
             Value::from(t.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>())
         }
-        Tipo::Texto { .. } | Tipo::Url | Tipo::Ruta | Tipo::Eleccion { .. } | Tipo::UrlPerfil | Tipo::Perfil => {
+        Tipo::Texto { .. } | Tipo::Url | Tipo::Ruta | Tipo::Eleccion { .. } | Tipo::UrlPerfil | Tipo::Perfil | Tipo::Distro => {
             Value::String(t.to_string())
         }
     };

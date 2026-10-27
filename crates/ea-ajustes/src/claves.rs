@@ -28,6 +28,9 @@ pub enum Tipo {
     Perfil,
     /// Tabla de texto a texto (`{ "clave" = "valor" }`); en la CLI, JSON.
     Mapa,
+    /// Nombre de una distribución de WSL (`[A-Za-z0-9._-]`, hasta 64), o
+    /// vacío.
+    Distro,
 }
 
 impl Tipo {
@@ -43,6 +46,7 @@ impl Tipo {
             Tipo::UrlPerfil => "url",
             Tipo::Perfil => "perfil",
             Tipo::Mapa => "mapa",
+            Tipo::Distro => "texto",
         }
     }
 }
@@ -510,6 +514,18 @@ pub static CLAVES: &[Clave] = &[
         heredada: &[],
     },
     Clave {
+        nombre: "escritorio.wsl",
+        seccion: "escritorio",
+        titulo: "Distribución de WSL",
+        descripcion: "Solo Windows con gachapon instalado dentro de WSL2 (spec 023): nombre de la distribución donde corren los servicios. ea-escritorio lee de ella la clave del panel y la mantiene viva mientras está abierta. Vacío: los servicios corren en este mismo sistema.",
+        tipo: Tipo::Distro,
+        edicion: Edicion::Terminal,
+        endurecible: false,
+        aplica: Aplica::Reinicio(&["ea-escritorio"]),
+        entorno: None,
+        heredada: &[],
+    },
+    Clave {
         nombre: "biblioteca.categorias",
         seccion: "biblioteca",
         titulo: "Categorías propias",
@@ -665,6 +681,7 @@ pub(crate) fn valor_de(a: &Ajustes, nombre: &str) -> Value {
         "web.sondeo_ms" => a.web.sondeo_ms.into(),
         "web.diario_limite" => a.web.diario_limite.into(),
         "escritorio.al_iniciar" => a.escritorio.al_iniciar.into(),
+        "escritorio.wsl" => a.escritorio.wsl.clone().into(),
         "biblioteca.categorias" => serde_json::to_value(&a.biblioteca.categorias).unwrap_or(Value::Null),
         _ => Value::Null,
     }
@@ -734,6 +751,7 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
         "web.sondeo_ms" => a.web.sondeo_ms = n() as u64,
         "web.diario_limite" => a.web.diario_limite = n() as u32,
         "escritorio.al_iniciar" => a.escritorio.al_iniciar = b(),
+        "escritorio.wsl" => a.escritorio.wsl = v.as_str().unwrap_or_default().to_string(),
         "biblioteca.categorias" => {
             a.biblioteca.categorias = v
                 .as_object()
