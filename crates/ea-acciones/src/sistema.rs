@@ -51,7 +51,8 @@ pub trait Consulta: Send + Sync {
 
     /// El plan de una sesión de `agente` con solo las herramientas `ids` de
     /// la biblioteca (spec 018, F5), sin secretos y sin escribir nada.
-    /// `directorio`: la carpeta del proyecto (por defecto, la actual).
+    /// `directorio`: la carpeta del proyecto (por defecto, la actual; el HOME
+    /// es «sin proyecto»).
     fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String>;
 
     /// Cómo está el timer de systemd de una rutina (fichero, `OnCalendar`,

@@ -73,7 +73,8 @@ pub fn lanzar_con(plan: &PlanSesion, raices: Raices, terminal: &dyn Terminal) ->
 pub fn plan_en(agente: &str, ids: &[String], directorio: Option<&str>, inventario: &Inventario, raices: &Raices) -> Result<PlanSesion, String> {
     let mut r = raices.clone();
     if let Some(d) = directorio.map(str::trim).filter(|d| !d.is_empty()) {
-        r.proyecto = Some(PathBuf::from(d));
+        // Como en `raices_de`: el HOME es «sin proyecto».
+        r.proyecto = Some(PathBuf::from(d)).filter(|p| *p != r.home);
     }
     plan_sesion(agente, &analizar_ids(ids)?, inventario, &r).map_err(|e| e.to_string())
 }
@@ -110,5 +111,11 @@ mod pruebas {
         assert!(e.contains("fuera del HOME"), "{e}");
         let sistema = if cfg!(windows) { "C:\\Windows" } else { "/usr" };
         assert!(raices_de(Some(sistema)).is_err());
+        // El HOME es «sin proyecto»: lo que guarda la propuesta de una sesión
+        // simulada fuera de un proyecto (solo se mira la ruta).
+        let home = Raices::desde_entorno().home;
+        if home.is_dir() {
+            assert_eq!(raices_de(Some(&home.to_string_lossy())).unwrap().proyecto, None);
+        }
     }
 }

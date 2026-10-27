@@ -672,10 +672,12 @@ pub fn simular_con<C: Consulta>(
             let a: LanzarSesion = parsear(args)?;
             a.comprobar()?;
             let plan = consulta.sesion_plan(&a.agente, &a.ids(), a.directorio()).map_err(ErrorAccion::NoAplica)?;
-            let mut argumentos = json!({ "agente": plan.agente, "herramientas": plan.herramientas });
-            if let Some(d) = a.directorio() {
-                argumentos["directorio"] = json!(d);
-            }
+            // Siempre con su carpeta: la pedida o, si no, la que se resolvió
+            // (el proyecto de quien simula, o el HOME). Así quien la acepte,
+            // desde otro proceso y otro directorio, planea lo mismo que se vio.
+            let argumentos = json!({
+                "agente": plan.agente, "herramientas": plan.herramientas, "directorio": plan.carpeta().to_string_lossy(),
+            });
             let ficheros: Vec<String> = plan
                 .ficheros
                 .iter()

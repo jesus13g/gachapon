@@ -1109,7 +1109,7 @@ riesgo (§7.3):
 | `ea_registrar_rutina` (`toml`: la definición entera; la versión debe subir; la simulación muestra el diff frente a la registrada y el criterio resultante; no lanza nada) | mutación reversible | solo simula o propone |
 | `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone |
 | `ea_programar_rutina` (`slug` de una rutina registrada y `calendario`, un `OnCalendar`; la simulación da las próximas 3 ejecuciones) y `ea_desprogramar_rutina` (`slug`) | mutación reversible | solo simula o propone |
-| `ea_lanzar_sesion` (`agente`: `claude-code`, `qwen-code`, `codex` u `opencode`; `herramientas`: ids de la biblioteca; `directorio` opcional; abre una terminal con el agente y solo esas herramientas, con los secretos de los MCP en ficheros 0600 del runtime y nunca en argumentos; la simulación muestra el comando y los ficheros sin secretos; no está disponible para el agente local) | mutación reversible | solo simula o propone |
+| `ea_lanzar_sesion` (`agente`: `claude-code`, `qwen-code`, `codex` u `opencode`; `herramientas`: ids de la biblioteca; `directorio` opcional, y la simulación (y la propuesta) lo lleva siempre, resuelto; abre una terminal con el agente y solo esas herramientas, con los secretos de los MCP en ficheros 0600 del runtime y nunca en argumentos; la simulación muestra el comando y los ficheros sin secretos; no está disponible para el agente local) | mutación reversible | solo simula o propone |
 | `ea_retirar_rutina` (su TOML a la papelera y su timer desprogramado) y `ea_restaurar_rutina` (vuelve, sin timer), con `slug` | mutación reversible | solo simula o propone |
 | `ea_limpiar_worktree` (`trabajo`: quita el worktree propio de un trabajo cerrado o cancelado con `git worktree remove`, sin `--force`, solo si está limpio y el ejecutor lo soltó; la rama `ea/<id>` se conserva; no está disponible para el agente local) | mutación reversible | solo simula o propone |
 | `ea_activar_herramienta` y `ea_desactivar_herramienta` (`elemento`: id `agente/tipo/ámbito/nombre` de la biblioteca; la simulación da el comando o fichero y el valor antes y después; comando oficial, campo `enabled` con copia previa, mover a un almacén o `agente.skills.habilitadas`; nunca `~/.claude.json`) | mutación reversible | solo simula o propone |
@@ -1204,7 +1204,11 @@ ea biblioteca categoria <id> <categoria>|--quitar
 ```
 
 `activar`, `desactivar` y `sesion` solo proponen: se aceptan con `ea propuestas
-decidir <n> --aceptar` o en la franja «Te espera» de Actividad. Con `--esperar` y una terminal
+decidir <n> --aceptar` o en la franja «Te espera» de Actividad. La propuesta de
+una sesión guarda siempre su carpeta (`directorio`): la que se pidió o, si no, la
+que se resolvió al simular (el directorio actual de quien la propuso o, fuera de
+un proyecto, el HOME). Así, al aceptarla desde otra terminal o desde el panel se
+abre donde se simuló, con el mismo plan que se vio. Con `--esperar` y una terminal
 interactiva real piden confirmación y aplican en el acto (y esperan a Intro al
 terminar); sin terminal, `--esperar` deja la propuesta pendiente. El uso sale
 de los contadores y transcripciones de cada agente, el diario y los trabajos del
@@ -1602,7 +1606,7 @@ cambió en disco, 400 si cambia la firma), `POST /api/boveda/crear` (`{"ruta",
 defecto, rango, origen, edición, quién la fija y si pide reinicio; `version` y
 `cliente`) y `POST /api/ajustes` (`{"version": "...", "cambios": {"clave": valor}}`,
 `null` quita la clave; 400 inválido, 403 solo terminal o aflojar un techo, 409
-versión vieja o fijada por el entorno); la biblioteca, por `GET /api/biblioteca` (`?agente=&tipo=&categoria=&activado=`; `{elementos, avisos, categorias, total, agentes_sesion}`, cada elemento ya redactado y con `cambio: {posible, motivo}` y `sesion`), `GET /api/biblioteca/<id>` (el id con `/` codificado como `%2F`; ficha y `uso`), `GET /api/biblioteca/uso` (informe, con caché) y `POST /api/biblioteca/{simular,ejecutar}` (solo `ea_activar_herramienta`, `ea_desactivar_herramienta` y `ea_lanzar_sesion`, con el cuerpo de `/api/acciones/*`). Solo atiende `Host: localhost|127.0.0.1`.
+versión vieja o fijada por el entorno); la biblioteca, por `GET /api/biblioteca` (`?agente=&tipo=&categoria=&activado=`; `{elementos, avisos, categorias, total, agentes_sesion}`, cada elemento ya redactado y con `cambio: {posible, motivo}` y `sesion`), `GET /api/biblioteca/<id>` (el id con `/` codificado como `%2F`; ficha y `uso`), `GET /api/biblioteca/uso` (informe, con caché) y `POST /api/biblioteca/{simular,ejecutar}` (solo `ea_activar_herramienta`, `ea_desactivar_herramienta` y `ea_lanzar_sesion`, con el cuerpo de `/api/acciones/*`; la sesión se abre en el proyecto de `ea-web`, y su `directorio` solo puede ser el que devuelve su propia simulación). Solo atiende `Host: localhost|127.0.0.1`.
 
 Ejecuciones de las rutinas (solo lectura, leídas del bus): en ↻ Rutinas, la
 columna «última» de cada fila dice el estado de su trabajo más reciente y hace

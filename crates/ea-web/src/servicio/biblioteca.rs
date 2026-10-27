@@ -334,13 +334,19 @@ fn sistema_biblioteca(s: &AppState) -> SistemaBiblioteca {
     SistemaBiblioteca { base: sistema(s), ctx: contexto(s), terminal: s.config.terminal.clone() }
 }
 
-fn comprobar(herramienta: &str, argumentos: &Value) -> Resultado<()> {
+fn comprobar(s: &AppState, herramienta: &str, argumentos: &Value) -> Resultado<()> {
     if !HERRAMIENTAS.contains(&herramienta) {
         return Err(invalido(format!("desde la biblioteca solo se simula {}", HERRAMIENTAS.join(", "))));
     }
-    // El plan de sesión usa el proyecto de ea-web: nada de directorios a pedido.
-    if argumentos.get("directorio").is_some() {
-        return Err(invalido("la sesión se abre en el proyecto de ea-web: no admite «directorio»"));
+    // El plan de sesión usa el proyecto de ea-web: nada de directorios a
+    // pedido. Solo vale el suyo, el que su propia simulación deja en los
+    // argumentos (el proyecto o, sin él, el HOME).
+    if let Some(d) = argumentos.get("directorio") {
+        let r = raices(s);
+        let propio = r.proyecto.as_ref().unwrap_or(&r.home).to_string_lossy().into_owned();
+        if d.as_str().map(str::trim) != Some(propio.as_str()) {
+            return Err(invalido("la sesión se abre en el proyecto de ea-web: no admite otro «directorio»"));
+        }
     }
     Ok(())
 }
@@ -348,7 +354,7 @@ fn comprobar(herramienta: &str, argumentos: &Value) -> Resultado<()> {
 /// Describe lo que haría la herramienta ahora, sin hacer nada (la simulación
 /// de una sesión lleva el comando sin secretos).
 pub async fn simular(s: &AppState, herramienta: &str, argumentos: &Value) -> Resultado<Simulacion> {
-    comprobar(herramienta, argumentos)?;
+    comprobar(s, herramienta, argumentos)?;
     let sis = sistema_biblioteca(s);
     let hechos = ea_acciones::observar(&sis, herramienta, argumentos).await?;
     let store = s.store.lock().await;
@@ -372,7 +378,7 @@ pub async fn ejecutar(
     argumentos: &Value,
     precondicion: &Value,
 ) -> Resultado<ResultadoAccion> {
-    comprobar(herramienta, argumentos)?;
+    comprobar(s, herramienta, argumentos)?;
     let sis = sistema_biblioteca(s);
     let mut store = s.acciones.lock().await;
     let r = ea_acciones::ejecutar(&mut store, &sis, ACTOR, Canal::Web, herramienta, argumentos, precondicion, None).await?;

@@ -139,6 +139,10 @@ pub struct PlanSesion {
     /// El proyecto en que se abre la sesión.
     pub cwd: Option<PathBuf>,
     pub mcp: Vec<FuenteMcp>,
+    /// El HOME de las raíces con que se planeó (sin proyecto, la sesión es
+    /// del HOME). No entra en la huella ni en lo que se muestra.
+    #[serde(skip)]
+    pub home: PathBuf,
 }
 
 impl PlanSesion {
@@ -160,6 +164,13 @@ impl PlanSesion {
     /// Texto de una línea del comando, para mostrarlo.
     pub fn comando(&self) -> String {
         self.argv_terminal().join(" ")
+    }
+
+    /// La carpeta de la sesión: el proyecto o, si no hay, el HOME. Volver a
+    /// planear con ella como directorio da el mismo plan, lo planee quien lo
+    /// planee.
+    pub fn carpeta(&self) -> &Path {
+        self.cwd.as_deref().unwrap_or(&self.home)
     }
 }
 
@@ -519,6 +530,7 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
         directorio: directorio.clone(),
         cwd,
         mcp: Vec::new(),
+        home: raices.home.clone(),
     };
     let mcps: Vec<&Elemento> = elegidos.iter().copied().filter(|e| e.tipo == Tipo::Mcp).collect();
     sin_repetidos(mcps.iter().map(|e| e.nombre.as_str()), "servidores MCP")?;

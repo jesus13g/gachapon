@@ -94,8 +94,12 @@ async fn simular_describe_el_plan_sin_secretos_y_no_escribe_nada() {
     let e = entorno();
     let sim = simular(&e.store, &e.sis, &json!({ "agente": "claude-code", "herramientas": [SKILL, MCP, REMOTO, MCP] })).await.unwrap();
     assert_eq!(sim.riesgo, Riesgo::Reversible);
-    // Normalizados: ordenados y sin repetir.
-    assert_eq!(sim.argumentos, json!({ "agente": "claude-code", "herramientas": [MCP, REMOTO, SKILL] }));
+    // Normalizados: ordenados y sin repetir, y con la carpeta resuelta (sin
+    // proyecto, el HOME).
+    assert_eq!(
+        sim.argumentos,
+        json!({ "agente": "claude-code", "herramientas": [MCP, REMOTO, SKILL], "directorio": e.home.to_str().unwrap() })
+    );
     for trozo in ["--strict-mcp-config", "--mcp-config", "mcp.json", "ajustes.json", "--plugin-dir", "0600"] {
         assert!(sim.texto.contains(trozo), "{trozo}: {}", sim.texto);
     }
@@ -191,6 +195,38 @@ async fn con_directorio_la_terminal_se_abre_con_env_chdir() {
     assert_eq!(argv[1], "-C");
     assert_eq!(argv[2], proyecto.to_str().unwrap());
     assert_eq!(e.sis.terminales()[0][..3], ["env", "-C", proyecto.to_str().unwrap()].map(String::from));
+}
+
+/// B-08: la propuesta guarda la carpeta que se resolvió al simular, así que
+/// aceptarla desde un proceso con otro directorio actual (aquí, el proyecto
+/// de las raíces del doble, que hace de `current_dir`) revalida igual y abre
+/// la sesión donde se simuló. Sin proyecto, se guarda el HOME y sigue sin él.
+#[tokio::test]
+async fn la_propuesta_guarda_su_carpeta_y_aceptarla_desde_otro_directorio_abre_la_misma() {
+    let mut e = entorno();
+    let (a, b) = (e.home.join("proy-a"), e.home.join("proy-b"));
+    let cwd = |sis: &SistemaSimulado, p: Option<&Path>| sis.sesiones.lock().unwrap().as_mut().unwrap().1.proyecto = p.map(Path::to_path_buf);
+    let args = json!({ "agente": "claude-code", "herramientas": [MCP] });
+    for (proponente, guardada) in [(Some(a.as_path()), a.as_path()), (None, e.home.as_path())] {
+        cwd(&e.sis, proponente);
+        let h = observar(&e.sis, "ea_lanzar_sesion", &args).await.unwrap();
+        let (p, _) = proponer(&e.store, &e.sis, &h, "claude-code", None, "ea_lanzar_sesion", &args).unwrap();
+        let accion = p.accion.clone().unwrap();
+        assert_eq!(accion.argumentos["directorio"], guardada.to_str().unwrap(), "{:?}", accion.argumentos);
+
+        // Quien acepta está en otro directorio.
+        cwd(&e.sis, Some(&b));
+        let otra = simular(&e.store, &e.sis, &accion.argumentos).await.unwrap();
+        assert_eq!(otra.precondicion, accion.precondicion, "la revalidación da la misma precondición");
+        let antes = e.sis.terminales().len();
+        let p = aceptar_propuesta(&mut e.store, &e.sis, p.id, "usuario", Canal::Web).await.unwrap();
+        assert_eq!(p.ejecucion.as_ref().unwrap().estado, EstadoEjecucion::Ejecutada, "{:?}", p.ejecucion);
+        let argv = e.sis.terminales()[antes].clone();
+        match proponente {
+            Some(d) => assert_eq!(argv[..3], ["env", "-C", d.to_str().unwrap()].map(String::from), "{argv:?}"),
+            None => assert_eq!(argv[0], "claude", "sin proyecto no hay `env`: {argv:?}"),
+        }
+    }
 }
 
 #[tokio::test]
