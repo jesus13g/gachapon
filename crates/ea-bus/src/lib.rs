@@ -21,7 +21,7 @@ mod vista;
 mod worktree;
 
 pub use worktree::InfoWorktree;
-pub use bus::{comprobar_registro, Bus, EntradaCola, ENV_ESTADO, raiz_estado};
+pub use bus::{comprobar_registro, Bus, Entrega, EntradaCola, ENV_ESTADO, raiz_estado};
 pub use equipo::NuevoEquipo;
 pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
 pub use presencia::{Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};

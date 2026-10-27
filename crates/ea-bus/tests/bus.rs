@@ -411,6 +411,114 @@ fn recuperar_devuelve_huerfanos_y_bloquea_lo_interrumpido() {
     assert!(bus.recuperar().unwrap().is_empty());
 }
 
+/// B-04: un trabajo reclamado (su entrada ya no está en la cola) que no se
+/// llegó a tomar, porque el proceso cayó entre medias, vuelve a su cola al
+/// recuperar, una sola vez.
+#[test]
+fn recuperar_devuelve_a_la_cola_lo_reclamado_que_no_se_llego_a_tomar() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    let id = bus.crear_trabajo(orden(d.path())).unwrap();
+    assert_eq!(bus.tomar_para("qwen-code").unwrap(), Some(id.clone()));
+    assert!(bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
+    assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
+    assert_eq!(bus.recuperar().unwrap(), vec![id.clone()]);
+    let cola = bus.listar_cola(Rol::Ejecutor).unwrap();
+    assert_eq!((cola.len(), cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (1, id.as_str(), "recuperado"));
+    // Con su entrada ya en la cola no se repite.
+    assert!(bus.recuperar().unwrap().is_empty());
+    assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap().len(), 1);
+}
+
+/// B-05: una rutina interrumpida queda en espera con su paquete de
+/// corrección (motivo «interrumpido»), como una que falla, y no en revisión
+/// sin paquete ni cola.
+#[test]
+fn recuperar_deja_en_espera_y_con_paquete_una_rutina_interrumpida() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    bus.registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
+    let id = bus.lanzar_rutina("prueba", &[]).unwrap();
+    bus.tomar(Rol::Ejecutor).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    assert_eq!(bus.recuperar().unwrap(), vec![id.clone()]);
+    assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnEspera);
+    assert!(bus.listar_cola(Rol::Planificador).unwrap().is_empty());
+    let p = std::fs::read_to_string(d.path().join("estado/trabajos").join(&id).join("paquete-correccion.md")).unwrap();
+    assert!(p.contains("Motivo: interrumpido") && p.contains("slug = \"prueba\""), "{p}");
+    let inf = bus.leer_informe(&id).unwrap().unwrap();
+    assert_eq!((inf.resultado, inf.motivo.as_deref()), (ResultadoInforme::Bloqueado, Some("interrumpido")));
+}
+
+/// B-09: el espejo de SQLite es secundario, como el diario. Con una base que
+/// no acepta escrituras en `trabajos` ni en `trabajo_fases`, crear y aplicar
+/// salen bien y el bus (estado, historial y colas) queda escrito.
+#[test]
+fn un_fallo_del_espejo_sqlite_no_hace_fallar_al_bus() {
+    let d = tempfile::tempdir().unwrap();
+    let db = d.path().join("ea.db");
+    let store = Store::open_at(&db).unwrap();
+    let c = rusqlite::Connection::open(&db).unwrap();
+    for tabla in ["trabajos", "trabajo_fases"] {
+        for op in ["INSERT", "UPDATE"] {
+            c.execute_batch(&format!("CREATE TRIGGER no_{op}_{tabla} BEFORE {op} ON {tabla} BEGIN SELECT RAISE(ABORT, 'solo lectura'); END;"))
+                .unwrap();
+        }
+    }
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let id = bus.crear_trabajo(orden(d.path())).unwrap();
+    assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap()[0].trabajo, id);
+    assert_eq!(bus.tomar(Rol::Ejecutor).unwrap(), Some(id.clone()));
+    assert_eq!(bus.aplicar(&id, Evento::Tomar).unwrap().estado, EstadoTrabajo::Ejecutando);
+    assert_eq!(bus.aplicar(&id, Evento::Entregar(informe())).unwrap().estado, EstadoTrabajo::EnRevision);
+    assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnRevision);
+    assert_eq!(bus.listar_cola(Rol::Planificador).unwrap()[0].trabajo, id);
+    assert_eq!(bus.reformular(&id, "otra", None).unwrap().estado, EstadoTrabajo::EnCola);
+    // Sin fila en el espejo, pero con el diario.
+    let s = Store::open_at(&db).unwrap();
+    assert!(s.obtener_trabajo(&id).unwrap().is_none());
+    let acciones: Vec<String> = s.list_events_by_trabajo(&id).unwrap().into_iter().map(|e| e.action).collect();
+    for a in ["bus_crear", "bus_tomar", "bus_entregar", "bus_reformular"] {
+        assert!(acciones.iter().any(|x| x == a), "{a}: {acciones:?}");
+    }
+}
+
+/// F-21: dos confirmaciones a la vez del mismo paquete dejan el contexto una
+/// sola vez: validar y añadir van bajo el bloqueo del trabajo.
+#[test]
+fn dos_confirmar_a_la_vez_anaden_el_contexto_una_sola_vez() {
+    let d = tempfile::tempdir().unwrap();
+    let raiz = d.path().join("estado");
+    let bus = Bus::abrir_en(&raiz).unwrap();
+    let mut o = orden(d.path());
+    o.modo = Modo::Rutina;
+    o.fases.clear();
+    o.criterio_exito = Some("true".into());
+    let id = bus.crear_trabajo(o).unwrap();
+    bus.tomar(Rol::Ejecutor).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    bus.aplicar(&id, Evento::PonerEnEspera).unwrap();
+    let dir = raiz.join("trabajos").join(&id);
+    std::fs::write(dir.join("paquete-correccion.md"), "# paquete\n").unwrap();
+    // Otro proceso tiene el bloqueo del trabajo mientras llegan las dos.
+    let bloqueo = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".estado.lock")).unwrap();
+    bloqueo.lock().unwrap();
+    let hilos: Vec<_> = (0..2)
+        .map(|_| {
+            let (raiz, id) = (raiz.clone(), id.clone());
+            std::thread::spawn(move || Bus::abrir_en(&raiz).unwrap().confirmar(&id, "ojo con el disco").is_ok())
+        })
+        .collect();
+    std::thread::sleep(Duration::from_millis(300));
+    bloqueo.unlock().unwrap();
+    let ok: Vec<bool> = hilos.into_iter().map(|h| h.join().unwrap()).collect();
+    assert_eq!(ok.iter().filter(|b| **b).count(), 1, "{ok:?}");
+    let p = std::fs::read_to_string(dir.join("paquete-correccion.md")).unwrap();
+    assert_eq!(p.matches("ojo con el disco").count(), 1, "{p}");
+    assert_eq!(bus.listar_cola(Rol::Planificador).unwrap().len(), 1);
+}
+
 #[test]
 fn cerrar_y_cancelar_retiran_el_trabajo_de_todas_las_colas() {
     let d = tempfile::tempdir().unwrap();

@@ -33,9 +33,11 @@ impl Bus {
 
     /// `flock` exclusivo sobre `equipos/.equipos.lock`: ordena entre procesos
     /// toda escritura de equipos (crear, dormir, anotar un trabajo) y la
-    /// comprobación de «un agente, un equipo despierto». Quien solo lee no lo
-    /// necesita. No es reentrante.
-    fn bloquear_equipos(&self) -> Resultado<fs::File> {
+    /// comprobación de «un agente, un equipo despierto», y también crear un
+    /// trabajo de un equipo y devolver uno a su cola ([`Bus::devolver`]).
+    /// Quien solo lee no lo necesita. No es reentrante. Se toma después del
+    /// de un trabajo, nunca antes (ver `Bus::bloquear_estado`).
+    pub(crate) fn bloquear_equipos(&self) -> Resultado<fs::File> {
         let dir = self.raiz.join("equipos");
         fs::create_dir_all(&dir)?;
         let f = fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".equipos.lock"))?;
@@ -126,9 +128,9 @@ impl Bus {
     }
 
     /// Duerme el equipo. Lo pendiente en la cola de cada uno de sus
-    /// ejecutores vuelve a la cola del rol `modelo-local` (motivo «equipo
-    /// dormido»), para que no quede huérfano: lo toma cualquier ejecutor.
-    /// Dormir uno dormido no hace nada.
+    /// ejecutores vuelve a su cola vigente, que con el equipo ya dormido es la
+    /// del rol `modelo-local` (motivo «equipo dormido»), para que no quede
+    /// huérfano: lo toma cualquier ejecutor. Dormir uno dormido no hace nada.
     pub fn dormir_equipo(&self, id: &str) -> Resultado<Equipo> {
         let _bloqueo = self.bloquear_equipos()?;
         let mut equipo = self.leer_equipo(id)?;
@@ -140,7 +142,7 @@ impl Bus {
         for m in equipo.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor) {
             let dir = self.dir_cola_agente(&m.agente)?;
             while let Some(trabajo) = crate::bus::tomar_en(&dir, &|_| true)? {
-                self.encolar(ea_ajustes::Rol::Ejecutor, &trabajo, "equipo dormido")?;
+                self.devolver_bloqueado(&trabajo, "equipo dormido")?;
             }
         }
         // Las sesiones de planificadores y revisores siguen abiertas en su
@@ -159,6 +161,12 @@ impl Bus {
     /// Añade el trabajo a la lista del equipo (sin repetir).
     pub fn anotar_trabajo_en_equipo(&self, equipo: &str, trabajo: &str) -> Resultado<()> {
         let _bloqueo = self.bloquear_equipos()?;
+        self.anotar_trabajo_en_equipo_bloqueado(equipo, trabajo)
+    }
+
+    /// [`Bus::anotar_trabajo_en_equipo`] para quien ya tiene el bloqueo de
+    /// los equipos (`crear_trabajo`).
+    pub(crate) fn anotar_trabajo_en_equipo_bloqueado(&self, equipo: &str, trabajo: &str) -> Resultado<()> {
         let mut e = self.leer_equipo(equipo)?;
         if !e.trabajos.iter().any(|t| t == trabajo) {
             e.trabajos.push(trabajo.into());

@@ -12,7 +12,7 @@ use time::OffsetDateTime;
 
 use crate::config::ConfigOrquestador;
 use crate::error::{ErrorBus, Resultado};
-use crate::fs_atomico::escribir_json;
+use crate::fs_atomico::{escribir_atomico, escribir_json};
 use crate::rutina::{Rutina, MAX_DEFINICION};
 use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
@@ -52,6 +52,17 @@ pub(crate) fn nuevo_id() -> String {
         t.second(),
         n & 0xffff
     )
+}
+
+/// Lo que hizo [`Bus::entregar`] con el trabajo, según su modo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Entrega {
+    /// Misión u obra: en revisión, en la cola del planificador.
+    EnRevision,
+    /// Rutina que no pasa: en espera, con su paquete de corrección.
+    EnEspera,
+    /// Rutina que pasa: cerrada sola.
+    Cerrado,
 }
 
 /// Entrada de una cola.
@@ -173,9 +184,16 @@ impl Bus {
     /// un revisor o planificador suyo y distinto de `asignado_a`. Con
     /// `asignado_a` la orden entra en la cola de ese agente; si no, en la del
     /// rol ejecutor. Los planificadores del equipo tienen la llave de las
-    /// skills; los revisores no.
+    /// skills; los revisores no. Esa validación, el encolado y la anotación
+    /// en el equipo van bajo el bloqueo de los equipos: un `dormir_equipo` a
+    /// la vez no deja la orden en la cola de un agente que ya nadie atiende.
+    ///
+    /// El espejo en SQLite (filas de `trabajos` y `trabajo_fases`) se escribe
+    /// después de encolar y es de mejor esfuerzo, como el diario: si falla,
+    /// el trabajo queda creado y en su cola.
     pub fn crear_trabajo(&self, mut orden: Orden) -> Resultado<String> {
         validar_criterios(&orden)?;
+        let bloqueo_equipos = if orden.equipo.is_some() { Some(self.bloquear_equipos()?) } else { None };
         let equipo = self.validar_equipo_de_orden(&orden)?;
         if pide_skills(&orden) {
             let mut cfg = match &self.skills {
@@ -210,28 +228,6 @@ impl Bus {
         escribir_json(&dir.join("estado.json"), &estado)?;
         self.historial(&id, "crear", &estado)?;
         if let Some(s) = &self.store {
-            s.insertar_trabajo(&FilaTrabajo {
-                id: id.clone(),
-                modo: orden.modo.as_str().into(),
-                titulo: orden.titulo.clone(),
-                worktree: orden.worktree.clone(),
-                estado: estado.estado.as_str().into(),
-                creado_en: orden.creada_en.clone(),
-                actualizado_en: estado.actualizado_en.clone(),
-                creado_por: orden.creada_por.clone(),
-                rutina_slug: orden.rutina.as_ref().map(|r| r.slug.clone()),
-                rutina_version: orden.rutina.as_ref().map(|r| i64::from(r.version)),
-            })?;
-            for f in &orden.fases {
-                s.guardar_fase(&FilaFase {
-                    trabajo_id: id.clone(),
-                    numero: i64::from(f.numero),
-                    titulo: f.titulo.clone(),
-                    estado: "pendiente".into(),
-                    informe: None,
-                    cerrado_en: None,
-                })?;
-            }
             self.diario(s, &id, "bus_crear", true, serde_json::json!({ "modo": orden.modo.as_str(), "titulo": orden.titulo }));
         }
         match &orden.asignado_a {
@@ -239,7 +235,37 @@ impl Bus {
             None => self.encolar(Rol::Ejecutor, &id, "orden nueva")?,
         };
         if let Some(e) = &orden.equipo {
-            self.anotar_trabajo_en_equipo(e, &id)?;
+            self.anotar_trabajo_en_equipo_bloqueado(e, &id)?;
+        }
+        drop(bloqueo_equipos);
+        if let Some(s) = &self.store {
+            espejo(
+                &id,
+                "insertar el trabajo",
+                s.insertar_trabajo(&FilaTrabajo {
+                    id: id.clone(),
+                    modo: orden.modo.as_str().into(),
+                    titulo: orden.titulo.clone(),
+                    worktree: orden.worktree.clone(),
+                    estado: estado.estado.as_str().into(),
+                    creado_en: orden.creada_en.clone(),
+                    actualizado_en: estado.actualizado_en.clone(),
+                    creado_por: orden.creada_por.clone(),
+                    rutina_slug: orden.rutina.as_ref().map(|r| r.slug.clone()),
+                    rutina_version: orden.rutina.as_ref().map(|r| i64::from(r.version)),
+                }),
+            );
+            for f in &orden.fases {
+                let fila = FilaFase {
+                    trabajo_id: id.clone(),
+                    numero: i64::from(f.numero),
+                    titulo: f.titulo.clone(),
+                    estado: "pendiente".into(),
+                    informe: None,
+                    cerrado_en: None,
+                };
+                espejo(&id, "guardar la fase", s.guardar_fase(&fila));
+            }
         }
         Ok(id)
     }
@@ -433,17 +459,14 @@ impl Bus {
                 // Sin entradas rancias (p. ej. el «terminado» en claude-code si
                 // se reformula sin haberlo tomado, como hace el panel web).
                 self.retirar_de_colas(id)?;
-                let orden = self.leer_orden(id)?;
-                match self.asignado_vigente(&orden) {
-                    Some(agente) => self.encolar_agente(&agente, id, "reformulado")?,
-                    None => self.encolar(Rol::Ejecutor, id, "reformulado")?,
-                };
+                self.devolver(id, "reformulado")?;
             }
             _ => {}
         }
+        // El espejo en SQLite es de mejor esfuerzo: el bus ya está escrito.
         if let Some(s) = &self.store {
-            s.actualizar_estado_trabajo(id, nuevo.estado.as_str(), &nuevo.actualizado_en)?;
-            self.sincronizar_fases(s, id, &evento, &nuevo)?;
+            espejo(id, "actualizar el estado", s.actualizar_estado_trabajo(id, nuevo.estado.as_str(), &nuevo.actualizado_en));
+            espejo(id, "sincronizar las fases", self.sincronizar_fases(s, id, &evento, &nuevo));
             let mut detalle = serde_json::json!({ "estado": nuevo.estado.as_str() });
             if let Some(n) = fase {
                 detalle["fase"] = n.into();
@@ -459,6 +482,12 @@ impl Bus {
     /// escritura en sí sigue siendo atómica (`fs_atomico`), así que quien solo
     /// lee no necesita el bloqueo. No es reentrante: quien lo tiene no debe
     /// llamar a otra función que lo pida.
+    ///
+    /// Orden de adquisición cuando hacen falta varios: primero este, luego el
+    /// de los equipos ([`Bus::devolver`] al reformular o al recuperar) y por
+    /// último el cerrojo de una cola (`dormir_equipo` la vacía con el de los
+    /// equipos tomado). Nunca al revés: nadie pide el de un trabajo con el de
+    /// los equipos o el de una cola en la mano.
     fn bloquear_estado(&self, id: &str) -> Resultado<fs::File> {
         let dir = self.dir_trabajo(id)?;
         if !dir.is_dir() {
@@ -538,8 +567,11 @@ impl Bus {
     }
 
     /// Confirma el paquete de corrección de una rutina en espera: añade el
-    /// contexto del usuario al paquete y lo encola en `claude-code`.
+    /// contexto del usuario al paquete y lo encola en `claude-code`. Validar,
+    /// añadir y aplicar van bajo el bloqueo del trabajo: de dos
+    /// confirmaciones a la vez, solo una añade su contexto.
     pub fn confirmar(&self, id: &str, contexto: &str) -> Resultado<Estado> {
+        let _bloqueo = self.bloquear_estado(id)?;
         let estado = self.leer_estado(id)?;
         transicion(estado.estado, &Evento::Confirmar)?;
         if !contexto.trim().is_empty() {
@@ -548,7 +580,90 @@ impl Bus {
             let mut f = fs::OpenOptions::new().create(true).append(true).open(ruta)?;
             writeln!(f, "\n## Contexto del usuario\n\n{}", contexto.trim())?;
         }
-        self.aplicar(id, Evento::Confirmar)
+        self.aplicar_bloqueado(id, Evento::Confirmar, None, None)
+    }
+
+    /// Entrega el informe de un trabajo que se está ejecutando, según su
+    /// modo (lo usan el ejecutor y [`Bus::recuperar`]):
+    /// - misión y obra: `Entregar`, que lo deja en revisión y en la cola del
+    ///   planificador (y en la del revisor del equipo);
+    /// - rutina que pasa: `Entregar` y `Cerrar`, sin pasar por ninguna cola;
+    /// - rutina que no pasa: `paquete-correccion.md`, `Entregar` y
+    ///   `PonerEnEspera`, hasta que el usuario lo confirme ([`Bus::confirmar`]).
+    ///
+    /// Un fallo de `Entregar` se devuelve tal cual: si el trabajo se canceló
+    /// mientras tanto (p. ej. mientras corría el criterio), no es un fallo, y
+    /// quien llama lo distingue con [`Bus::esta_cancelado`]. El segundo paso
+    /// de una rutina no deshace el primero: si falla, queda en el registro
+    /// (salvo que se cancelara entre medias) y el trabajo sigue en revisión, a
+    /// la vista. Devuelve la política aplicada.
+    pub fn entregar(&self, id: &str, informe: Informe) -> Resultado<Entrega> {
+        let orden = self.leer_orden(id)?;
+        if orden.modo != Modo::Rutina {
+            self.aplicar(id, Evento::Entregar(informe))?;
+            return Ok(Entrega::EnRevision);
+        }
+        let paquete = (informe.resultado != ResultadoInforme::Terminado).then(|| self.paquete_correccion(id, &orden, &informe));
+        let ruta_paquete = self.dir_trabajo(id)?.join("paquete-correccion.md");
+        self.aplicar(id, Evento::Entregar(informe))?;
+        let (evento, entrega, que) = match paquete {
+            Some(texto) => {
+                if let Err(e) = escribir_atomico(&ruta_paquete, texto.as_bytes()) {
+                    tracing::error!(%id, error = %e, "no se pudo escribir el paquete de corrección");
+                }
+                (Evento::PonerEnEspera, Entrega::EnEspera, "no se pudo poner en espera")
+            }
+            None => (Evento::Cerrar, Entrega::Cerrado, "no se pudo cerrar la rutina"),
+        };
+        if let Err(e) = self.aplicar(id, evento)
+            && !self.esta_cancelado(id)
+        {
+            tracing::error!(%id, error = %e, "{que}");
+        }
+        Ok(entrega)
+    }
+
+    /// Lo que necesita quien corrija una rutina que falló: la definición, la
+    /// ejecución tal como se le dio al agente, el criterio y la evidencia.
+    fn paquete_correccion(&self, id: &str, orden: &Orden, inf: &Informe) -> String {
+        let (slug, version) = orden.rutina.as_ref().map(|r| (r.slug.clone(), r.version)).unwrap_or_default();
+        let definicion = self.definicion_rutina(&slug, version).unwrap_or_else(|| "(definición no disponible)".into());
+        format!(
+            "# Paquete de corrección: rutina {slug} (versión {version})\n\n\
+             Trabajo: {id}\n\
+             Motivo: {}\n\n\
+             ## Definición\n\n```toml\n{}\n```\n\n\
+             ## Ejecución (entradas y pasos tal como se le dieron al agente)\n\n{}\n\n\
+             ## Criterio de éxito\n\n`{}`\n\n\
+             ## Salida y evidencia del error\n\n```\n{}\n```\n\n\
+             ## Qué se espera\n\n\
+             Corrige la definición de la rutina y sube su versión (`ea rutina registrar <fichero>`).\n",
+            inf.motivo.as_deref().unwrap_or("el criterio no pasa"),
+            definicion.trim(),
+            orden.objetivo.trim(),
+            orden.criterio_exito.as_deref().unwrap_or(""),
+            inf.evidencia.trim(),
+        )
+    }
+
+    /// Devuelve a su cola un trabajo `EnCola` cuya entrada se reclamó y no se
+    /// llegó a tomar (el worktree estaba ocupado, se reformuló, se perdió el
+    /// reclamo): la del agente asignado si su equipo sigue despierto y él en
+    /// él; si no, la del rol ejecutor. Elegir y encolar van bajo el bloqueo de
+    /// los equipos, para que no entre en la cola de un agente cuyo equipo se
+    /// está durmiendo. Devuelve el id de la entrada.
+    pub fn devolver(&self, id: &str, motivo: &str) -> Resultado<String> {
+        let _bloqueo = self.bloquear_equipos()?;
+        self.devolver_bloqueado(id, motivo)
+    }
+
+    /// [`Bus::devolver`] para quien ya tiene el bloqueo de los equipos. Una
+    /// orden ilegible va a la cola del rol, donde el ejecutor la descarta.
+    pub(crate) fn devolver_bloqueado(&self, id: &str, motivo: &str) -> Resultado<String> {
+        match self.leer_orden(id).ok().and_then(|o| self.asignado_vigente(&o)) {
+            Some(agente) => self.encolar_agente(&agente, id, motivo),
+            None => self.encolar(Rol::Ejecutor, id, motivo),
+        }
     }
 
     // --- rutinas -----------------------------------------------------------
@@ -573,7 +688,7 @@ impl Bus {
             creada_por: self.actor.clone(),
         })?;
         fs::create_dir_all(dir)?;
-        crate::fs_atomico::escribir_atomico(&dir.join(format!("{}.toml", r.rutina.slug)), texto.as_bytes())?;
+        escribir_atomico(&dir.join(format!("{}.toml", r.rutina.slug)), texto.as_bytes())?;
         crate::papelera::quitar_de_papelera(dir, &r.rutina.slug)?;
         Ok(r)
     }
@@ -672,23 +787,31 @@ impl Bus {
             v.retain(|f| f.numero < desde);
             escribir_json(&p, &v)?;
         }
+        // El espejo en SQLite, de mejor esfuerzo: la orden y el informe de
+        // fases ya están escritos.
         if let Some(s) = &self.store {
-            for mut f in s.listar_fases(id)?.into_iter().filter(|f| f.numero >= i64::from(desde)) {
+            let filas = espejo(id, "leer las fases", s.listar_fases(id)).unwrap_or_default();
+            for mut f in filas.into_iter().filter(|f| f.numero >= i64::from(desde)) {
                 if f.estado != "pendiente" || f.informe.is_some() {
                     f.estado = "pendiente".into();
                     f.informe = None;
                     f.cerrado_en = None;
-                    s.guardar_fase(&f)?;
+                    espejo(id, "guardar la fase", s.guardar_fase(&f));
                 }
             }
         }
         Ok(())
     }
 
-    /// Para llamar al arrancar. Devuelve a la cola los reclamos `.tomada-*`
-    /// huérfanos cuyo trabajo sigue `EnCola`, y entrega como Bloqueado
-    /// («interrumpido») lo que se quedó en `Ejecutando`. Devuelve los ids
-    /// recuperados.
+    /// Para llamar al arrancar (es idempotente). Devuelve a la cola los
+    /// reclamos `.tomada-*` huérfanos cuyo trabajo sigue `EnCola`; reconcilia
+    /// por estado lo que sigue `EnCola` sin entrada en ninguna cola de las
+    /// que se toman órdenes (la del rol ejecutor y las de los agentes: un
+    /// reclamo que se borró y no se llegó a tomar porque el proceso cayó
+    /// entre medias), que vuelve a la suya con [`Bus::devolver`] (motivo
+    /// «recuperado»); y entrega con [`Bus::entregar`], como Bloqueado
+    /// («interrumpido»), lo que se quedó en `Ejecutando` (una rutina queda en
+    /// espera con su paquete). Devuelve los ids recuperados.
     pub fn recuperar(&self) -> Resultado<Vec<String>> {
         let mut recuperados = Vec::new();
         for (_, dir) in self.dirs_colas() {
@@ -720,14 +843,41 @@ impl Bus {
                 self.retirar_de_colas(&id)?;
             }
         }
+        let en_cola = |id: &str| self.leer_estado(id).is_ok_and(|s| s.estado == EstadoTrabajo::EnCola);
+        let encolados = self.encolados_para_ejecutar()?;
+        for id in self.listar_trabajos()? {
+            if !en_cola(&id) || encolados.contains(&id) {
+                continue;
+            }
+            // Se vuelve a mirar bajo el bloqueo del trabajo: un `Reformular`
+            // a la vez lo deja en cola y lo encola sin soltarlo.
+            let _bloqueo = self.bloquear_estado(&id)?;
+            if en_cola(&id) && !self.encolados_para_ejecutar()?.contains(&id) {
+                self.devolver(&id, "recuperado")?;
+                recuperados.push(id);
+            }
+        }
         for id in self.listar_trabajos()? {
             if self.leer_estado(&id).is_ok_and(|s| s.estado == EstadoTrabajo::Ejecutando) {
                 let inf = Informe { motivo: Some("interrumpido".into()), ..Informe::nuevo(ResultadoInforme::Bloqueado) };
-                self.aplicar(&id, Evento::Entregar(inf))?;
+                self.entregar(&id, inf)?;
                 recuperados.push(id);
             }
         }
         Ok(recuperados)
+    }
+
+    /// Los trabajos con alguna entrada en una cola de las que se toman
+    /// órdenes: la del rol ejecutor y las de los agentes.
+    fn encolados_para_ejecutar(&self) -> Resultado<std::collections::HashSet<String>> {
+        let agentes = self.raiz.join("colas").join("agentes");
+        let mut v = std::collections::HashSet::new();
+        for (_, dir) in self.dirs_colas() {
+            if dir == self.dir_cola(Rol::Ejecutor) || dir.starts_with(&agentes) {
+                v.extend(listar_en(&dir)?.into_iter().map(|e| e.trabajo));
+            }
+        }
+        Ok(v)
     }
 
     fn sincronizar_fases(&self, s: &Store, id: &str, evento: &Evento, nuevo: &Estado) -> Resultado<()> {
@@ -788,6 +938,13 @@ impl Bus {
             detail: Some(detalle.to_string()),
         });
     }
+}
+
+/// El espejo en SQLite es secundario, como el diario: un fallo no deshace el
+/// bus (que ya está escrito) ni hace fallar la operación; queda en el
+/// registro.
+fn espejo<T, E: std::fmt::Display>(id: &str, que: &str, r: Result<T, E>) -> Option<T> {
+    r.map_err(|e| tracing::warn!(%id, error = %e, "espejo SQLite: no se pudo {que}")).ok()
 }
 
 fn encolar_en(dir: &Path, trabajo: &str, motivo: &str) -> Resultado<String> {

@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 use ea_plataforma::proceso::Corrida;
 use ea_bus::git::{self, instantanea};
 use ea_bus::{
-    Bus, Rol, CandadoWorktree, ConfigOrquestador, Evento, FaseInforme, Informe, Modo, Ocupante,
+    Bus, Rol, CandadoWorktree, ConfigOrquestador, Entrega, FaseInforme, Informe, Modo, Ocupante,
     Orden, ResultadoInforme,
 };
 
@@ -322,18 +322,15 @@ pub fn ejecutar_intento(
     let wt = wt_buf.as_path();
 
     // Candado antes de pasar a Ejecutando: si está ocupado, el trabajo sigue
-    // EnCola y vuelve a SU cola (la del agente al que se asignó, si lo hay).
+    // EnCola y vuelve a SU cola (la del agente al que se asignó, si su equipo
+    // sigue despierto: `Bus::devolver`).
     let ocupante =
         Ocupante { agente: config.ejecutor.id.clone(), trabajo: id.clone(), pid: 0, desde: String::new(), rol: Some(Rol::Ejecutor) };
     let candado = match CandadoWorktree::adquirir_en(bus.raiz(), wt, ocupante, espera) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(%id, error = %e, "worktree ocupado; se vuelve a encolar");
-            let vuelta = match &orden.asignado_a {
-                Some(a) => bus.encolar_agente(a, &id, "worktree ocupado"),
-                None => bus.encolar(Rol::Ejecutor, &id, "worktree ocupado"),
-            };
-            if let Err(e) = vuelta {
+            if let Err(e) = bus.devolver(&id, "worktree ocupado") {
                 tracing::error!(%id, error = %e, "no se pudo devolver el trabajo a su cola");
             }
             return Intento::Ocupado(id);
@@ -384,66 +381,21 @@ fn cancelado_en_curso(bus: &Bus, id: &str, fase: Option<u32>) {
     }
 }
 
-/// Entrega el informe según el modo. Rutina: éxito = se cierra sola; fallo =
-/// paquete de corrección en espera, sin encolar a nadie.
+/// Entrega el informe con [`Bus::entregar`], que decide según el modo (una
+/// rutina que pasa se cierra sola; una que falla queda en espera con su
+/// paquete de corrección), y avisa en el escritorio.
 fn entregar(bus: &Bus, config: &ConfigOrquestador, id: &str, orden: &Orden, informe: Informe) {
-    let pasa = informe.resultado == ResultadoInforme::Terminado;
     let motivo = informe.motivo.clone();
-    let paquete = (orden.modo == Modo::Rutina && !pasa).then(|| paquete_correccion(bus, id, orden, &informe));
-    if let Err(e) = bus.aplicar(id, Evento::Entregar(informe)) {
+    let slug = orden.rutina.as_ref().map(|r| r.slug.as_str()).unwrap_or("?");
+    match bus.entregar(id, informe) {
+        Ok(Entrega::EnRevision) => avisar(config, &orden.titulo, &motivo.unwrap_or_else(|| "terminado".into()), id),
+        Ok(Entrega::EnEspera) => avisar(config, &format!("rutina {slug} falló"), "paquete en espera", id),
+        Ok(Entrega::Cerrado) => avisar(config, &format!("rutina {slug}"), "terminada", id),
         // Cancelado después de la última comprobación (p. ej. mientras corría
         // el criterio): no es un fallo, el trabajo se queda cancelado.
-        if bus.esta_cancelado(id) {
-            cancelado_en_curso(bus, id, None);
-        } else {
-            tracing::error!(%id, error = %e, "no se pudo entregar el informe");
-        }
-        return;
+        Err(_) if bus.esta_cancelado(id) => cancelado_en_curso(bus, id, None),
+        Err(e) => tracing::error!(%id, error = %e, "no se pudo entregar el informe"),
     }
-    if orden.modo != Modo::Rutina {
-        avisar(config, &orden.titulo, &motivo.unwrap_or_else(|| "terminado".into()), id);
-        return;
-    }
-    let slug = orden.rutina.as_ref().map(|r| r.slug.as_str()).unwrap_or("?");
-    if let Some(texto) = paquete {
-        if let Err(e) = std::fs::write(bus.raiz().join("trabajos").join(id).join("paquete-correccion.md"), texto) {
-            tracing::error!(%id, error = %e, "no se pudo escribir el paquete de corrección");
-        }
-        if let Err(e) = bus.aplicar(id, Evento::PonerEnEspera)
-            && !bus.esta_cancelado(id)
-        {
-            tracing::error!(%id, error = %e, "no se pudo poner en espera");
-        }
-        avisar(config, &format!("rutina {slug} falló"), "paquete en espera", id);
-    } else {
-        if let Err(e) = bus.aplicar(id, Evento::Cerrar)
-            && !bus.esta_cancelado(id)
-        {
-            tracing::error!(%id, error = %e, "no se pudo cerrar la rutina");
-        }
-        avisar(config, &format!("rutina {slug}"), "terminada", id);
-    }
-}
-
-fn paquete_correccion(bus: &Bus, id: &str, orden: &Orden, inf: &Informe) -> String {
-    let (slug, version) = orden.rutina.as_ref().map(|r| (r.slug.clone(), r.version)).unwrap_or_default();
-    let definicion = bus.definicion_rutina(&slug, version).unwrap_or_else(|| "(definición no disponible)".into());
-    format!(
-        "# Paquete de corrección: rutina {slug} (versión {version})\n\n\
-         Trabajo: {id}\n\
-         Motivo: {}\n\n\
-         ## Definición\n\n```toml\n{}\n```\n\n\
-         ## Ejecución (entradas y pasos tal como se le dieron al agente)\n\n{}\n\n\
-         ## Criterio de éxito\n\n`{}`\n\n\
-         ## Salida y evidencia del error\n\n```\n{}\n```\n\n\
-         ## Qué se espera\n\n\
-         Corrige la definición de la rutina y sube su versión (`ea rutina registrar <fichero>`).\n",
-        inf.motivo.as_deref().unwrap_or("el criterio no pasa"),
-        definicion.trim(),
-        orden.objetivo.trim(),
-        orden.criterio_exito.as_deref().unwrap_or(""),
-        inf.evidencia.trim(),
-    )
 }
 
 /// El trabajo se canceló mientras se ejecutaba: no hay informe que entregar.
@@ -786,7 +738,7 @@ mod tests {
     }
 
     use super::*;
-    use ea_bus::{EstadoTrabajo, Modo, Topes};
+    use ea_bus::{EstadoTrabajo, Evento, Modo, Topes};
     use std::sync::Mutex;
 
     /// Doble: ejecuta un script de shell en el worktree en lugar de Qwen.
@@ -1397,6 +1349,127 @@ mod tests {
         assert_eq!((c.len(), c[0].trabajo.as_str(), c[0].motivo.as_str()), (1, id.as_str(), "corrección de rutina"));
         let p = std::fs::read_to_string(e.path().join("estado/trabajos").join(&id).join("paquete-correccion.md")).unwrap();
         assert!(p.contains("revisa la ruta"));
+    }
+
+    /// Historial (`evento:estado`) y diario (`acción:estado`) de un trabajo,
+    /// en el orden en que se escribieron.
+    fn rastro(e: &Path, id: &str) -> (Vec<String>, Vec<String>) {
+        let h = std::fs::read_to_string(e.join("estado/trabajos").join(id).join("historial.jsonl")).unwrap();
+        let historial = h
+            .lines()
+            .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+            .map(|v| format!("{}:{}", v["evento"].as_str().unwrap(), v["estado"].as_str().unwrap()))
+            .collect();
+        let mut eventos = ea_store::Store::open_at(&e.join("ea.db")).unwrap().list_events_by_trabajo(id).unwrap();
+        eventos.sort_by_key(|ev| ev.id);
+        let diario = eventos
+            .into_iter()
+            .map(|ev| {
+                let d: serde_json::Value = ev.detail.as_deref().and_then(|d| serde_json::from_str(d).ok()).unwrap_or_default();
+                format!("{}:{}", ev.action, d["estado"].as_str().unwrap_or("-"))
+            })
+            .collect();
+        (historial, diario)
+    }
+
+    /// La entrega de cada modo deja la misma secuencia de transiciones en el
+    /// historial y de eventos en el diario (fijada antes de mover la política
+    /// de las rutinas al bus).
+    #[test]
+    fn la_entrega_de_cada_modo_deja_la_misma_secuencia_en_historial_y_diario() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let ejecutar = |o: Orden, script: &'static str| {
+            let id = bus.crear_trabajo(o).unwrap();
+            assert_eq!(ejecutar_uno(&bus, &config(), &doble(script, 0)), Some(id.clone()));
+            id
+        };
+        let revision = (
+            s(&["crear:en_cola", "tomar:ejecutando", "entregar:en_revision"]),
+            s(&["bus_crear:-", "bus_tomar:ejecutando", "bus_entregar:en_revision"]),
+        );
+        // Misión que pasa y que no pasa; obra a medias: a revisión.
+        let mut no_pasa = orden(wt.path(), "false");
+        no_pasa.topes.iteraciones = 1;
+        for (o, script) in [(orden(wt.path(), "test -f ok.txt"), "echo hola > ok.txt"), (no_pasa, "true"), (fases3(wt.path(), Some(1)), SIGUIENTE)] {
+            let id = ejecutar(o, script);
+            assert_eq!(rastro(e.path(), &id), revision, "{id}");
+        }
+        // Rutina que pasa: se cierra sola.
+        let id = ejecutar(rutina_orden(wt.path(), "true"), "true");
+        assert_eq!(
+            rastro(e.path(), &id),
+            (
+                s(&["crear:en_cola", "tomar:ejecutando", "entregar:en_revision", "cerrar:cerrado"]),
+                s(&["bus_crear:-", "bus_tomar:ejecutando", "bus_entregar:en_revision", "bus_cerrar:cerrado"]),
+            )
+        );
+        // Rutina que falla: en espera con su paquete.
+        let id = ejecutar(rutina_orden(wt.path(), "false"), "true");
+        assert_eq!(
+            rastro(e.path(), &id),
+            (
+                s(&["crear:en_cola", "tomar:ejecutando", "entregar:en_revision", "poner_en_espera:en_espera"]),
+                s(&["bus_crear:-", "bus_tomar:ejecutando", "bus_entregar:en_revision", "bus_poner_en_espera:en_espera"]),
+            )
+        );
+        assert!(e.path().join("estado/trabajos").join(&id).join("paquete-correccion.md").is_file());
+        // Sin repo git: bloqueado, por el mismo camino.
+        let sin_git = tempfile::tempdir().unwrap();
+        let id = ejecutar(orden(sin_git.path(), "true"), "true");
+        assert_eq!(rastro(e.path(), &id), revision);
+    }
+
+    /// B-12: si el equipo se duerme entre el reclamo y la vuelta por «worktree
+    /// ocupado», el trabajo va a la cola del rol y no a la del agente, que ya
+    /// nadie atiende.
+    #[test]
+    fn ocupado_con_el_equipo_dormido_entre_medias_vuelve_a_la_cola_del_rol() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = Bus::abrir_en(e.path()).unwrap();
+        let mut a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(&e.path().join("config")));
+        a.orquestador.paralelo = 4;
+        let miembros = vec![
+            ea_bus::Miembro { agente: "claude-code".into(), rol: ea_bus::RolEquipo::Planificador },
+            ea_bus::Miembro { agente: "codex".into(), rol: ea_bus::RolEquipo::Ejecutor },
+        ];
+        let nuevo = ea_bus::NuevoEquipo {
+            titulo: "t".into(),
+            objetivo: "o".into(),
+            worktree_base: wt.path().to_string_lossy().into(),
+            miembros,
+            creado_por: "ea-cli".into(),
+        };
+        let eq = bus.crear_equipo(nuevo, &a).unwrap();
+        let o = Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), ..orden(wt.path(), "true") };
+        let id = bus.crear_trabajo(o).unwrap();
+        let ocupante = Ocupante { agente: "claude-code".into(), trabajo: "x".into(), pid: 0, desde: String::new(), rol: Some(Rol::Planificador) };
+        let _c = CandadoWorktree::adquirir_en(e.path(), wt.path(), ocupante, Duration::from_secs(1)).unwrap();
+        // En cuanto el trabajador reclama la entrada, el usuario duerme el equipo.
+        let dormir = {
+            let (raiz, eq) = (e.path().to_path_buf(), eq.id.clone());
+            std::thread::spawn(move || {
+                let bus = Bus::abrir_en(&raiz).unwrap();
+                let limite = Instant::now() + Duration::from_secs(10);
+                while !bus.listar_cola_agente("codex").unwrap().is_empty() && Instant::now() < limite {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                bus.dormir_equipo(&eq).unwrap();
+            })
+        };
+        let mut cfg = config();
+        cfg.ejecutor.id = "codex".into();
+        assert_eq!(
+            ejecutar_intento(&bus, &cfg, &doble("true", 0), Duration::from_secs(1), &|_| {}, &|_| true),
+            Intento::Ocupado(id.clone())
+        );
+        dormir.join().unwrap();
+        assert!(bus.listar_cola_agente("codex").unwrap().is_empty(), "el trabajo quedó en la cola de un agente dormido");
+        let cola = bus.listar_cola(Rol::Ejecutor).unwrap();
+        assert_eq!((cola.len(), cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (1, id.as_str(), "worktree ocupado"));
     }
 
     // --- cancelación en curso ----------------------------------------------

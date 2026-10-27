@@ -100,7 +100,10 @@ llega al planificador, que entonces corrige la definición y sube la versión.
 ### El bus
 
 Ficheros en `~/.local/state/ecosistema-asistente/` (o `$EA_ESTADO_DIR`); SQLite
-guarda el historial y el diario.
+guarda el historial y el diario. Los ficheros son la fuente de verdad: las filas
+de trabajos y fases de SQLite son un espejo de mejor esfuerzo, como el diario. Si
+la base falla (bloqueada, disco lleno), la transición se hace igual, el trabajo
+queda en su cola y el fallo solo se apunta en el registro del proceso.
 
 ```
 colas/modelo-local/       órdenes por ejecutar (un .json por entrada)
@@ -124,10 +127,23 @@ llamada con la evidencia del fallo hasta que el criterio pasa o se agotan las
 iteraciones; en una obra recorre las fases, guarda una instantánea del árbol tras
 cada una y se detiene cada `revisar_cada`. Entrega un informe (resultado, motivo,
 evidencia, diff stat, fases, `obra_completa`) y encola el trabajo en `claude-code`.
-Una rutina que pasa se cierra sola. Al arrancar recupera lo que se quedó a medias.
-Los fallos, bloqueos y paquetes en espera avisan con `notify-send`; el aviso
-lleva una acción **abrir** que lanza `ea-web-open '#trabajos/<id>'` (el proceso
-del aviso va aparte: el ejecutor no lo espera).
+Una rutina que pasa se cierra sola. Los fallos, bloqueos y paquetes en espera
+avisan con `notify-send`; el aviso lleva una acción **abrir** que lanza
+`ea-web-open '#trabajos/<id>'` (el proceso del aviso va aparte: el ejecutor no lo
+espera).
+
+Al arrancar recupera lo que se quedó a medias:
+- lo reclamado que no se llegó a tomar (el proceso cayó entre el reclamo y el
+  paso a `ejecutando`) y cualquier trabajo `en_cola` sin entrada en `modelo-local`
+  ni en la cola de un agente vuelve a su cola (la del agente asignado si su equipo
+  sigue despierto; si no, `modelo-local`), con motivo `recuperado`;
+- lo que se quedó `ejecutando` se entrega bloqueado con motivo «interrumpido»
+  igual que si hubiera terminado así: una misión u obra pasa a revisión y una
+  rutina queda `en_espera` con su paquete de corrección.
+
+Un trabajo que vuelve a la cola sin ejecutarse (worktree ocupado, reformulado,
+equipo dormido, recuperado) va siempre a la cola vigente: nunca a la de un agente
+cuyo equipo se ha dormido.
 
 Cancelar un trabajo `ejecutando` (`ea trabajo cancelar`, o «Cancelar» en la web)
 lo detiene de verdad: el ejecutor relee el estado antes de cada iteración y de

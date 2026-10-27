@@ -542,12 +542,14 @@ dependencies = [
  "ea-ajustes",
  "ea-plataforma",
  "ea-store",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
  "time",
  "toml",
+ "tracing",
 ]
 
 [[package]]

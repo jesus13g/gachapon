@@ -5,7 +5,7 @@ use std::path::Path;
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{
-    Bus, ConfigSkills, EjecutadoPor, ErrorBus, EstadoEquipo, EstadoTrabajo, Evento, Fase, Informe, Miembro, Modo, NuevoEquipo,
+    Bus, ConfigSkills, EjecutadoPor, Equipo, ErrorBus, EstadoEquipo, EstadoTrabajo, Evento, Fase, Informe, Miembro, Modo, NuevoEquipo,
     Orden, ResultadoInforme, Rol, RolEquipo, Topes,
 };
 use ea_store::Store;
@@ -325,6 +325,67 @@ fn recuperar_devuelve_a_su_cola_de_agente_el_reclamo_huerfano() {
     assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
     assert_eq!(e.bus.recuperar().unwrap(), vec![id.clone()]);
     assert_eq!(e.bus.listar_cola_agente("codex").unwrap()[0].trabajo, id);
+}
+
+/// B-04 con equipo: lo reclamado de la cola de un agente que no se llegó a
+/// tomar vuelve a la suya si el equipo sigue despierto.
+#[test]
+fn recuperar_devuelve_a_su_agente_lo_reclamado_que_no_se_llego_a_tomar() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    let o = Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), ..orden(e.d.path()) };
+    let id = e.bus.crear_trabajo(o).unwrap();
+    assert_eq!(e.bus.tomar_para("codex").unwrap(), Some(id.clone()));
+    assert_eq!(e.bus.recuperar().unwrap(), vec![id.clone()]);
+    let cola = e.bus.listar_cola_agente("codex").unwrap();
+    assert_eq!((cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (id.as_str(), "recuperado"));
+    assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
+}
+
+/// B-12: devolver elige la cola vigente: la del agente asignado si su equipo
+/// sigue despierto; si se durmió entre el reclamo y la vuelta, la del rol.
+#[test]
+fn devolver_va_a_la_cola_del_agente_o_a_la_del_rol_si_su_equipo_se_durmio() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    let o = Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), ..orden(e.d.path()) };
+    let id = e.bus.crear_trabajo(o).unwrap();
+    assert_eq!(e.bus.tomar_para("codex").unwrap(), Some(id.clone()));
+    e.bus.devolver(&id, "worktree ocupado").unwrap();
+    assert_eq!(e.bus.listar_cola_agente("codex").unwrap()[0].motivo, "worktree ocupado");
+    assert_eq!(e.bus.tomar_para("codex").unwrap(), Some(id.clone()));
+    e.bus.dormir_equipo(&eq.id).unwrap();
+    e.bus.devolver(&id, "worktree ocupado").unwrap();
+    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    let cola = e.bus.listar_cola(Rol::Ejecutor).unwrap();
+    assert_eq!((cola.len(), cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (1, id.as_str(), "worktree ocupado"));
+}
+
+/// F-21: crear un trabajo de un equipo se ordena con dormirlo. Validar el
+/// equipo, encolar y anotar van bajo el bloqueo de los equipos: si otro
+/// proceso lo duerme mientras tiene el bloqueo, la orden ya no entra en la
+/// cola de un agente que nadie atiende.
+#[test]
+fn crear_un_trabajo_de_un_equipo_que_se_esta_durmiendo_no_lo_encola() {
+    let e = entorno();
+    let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
+    let dir = e.d.path().join("estado/equipos");
+    let bloqueo = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".equipos.lock")).unwrap();
+    bloqueo.lock().unwrap();
+    let hilo = {
+        let raiz = e.d.path().join("estado");
+        let o = Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), ..orden(e.d.path()) };
+        std::thread::spawn(move || Bus::abrir_en(&raiz).unwrap().crear_trabajo(o))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    // «Otro proceso» lo duerme con el bloqueo tomado.
+    let dormido = Equipo { estado: EstadoEquipo::Dormido, ..e.bus.leer_equipo(&eq.id).unwrap() };
+    std::fs::write(dir.join(&eq.id).join("equipo.json"), serde_json::to_vec(&dormido).unwrap()).unwrap();
+    bloqueo.unlock().unwrap();
+    let r = hilo.join().unwrap();
+    assert!(matches!(&r, Err(ErrorBus::Argumentos(m)) if m.contains("dormido")), "{r:?}");
+    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    assert!(e.bus.listar_trabajos().unwrap().is_empty());
 }
 
 #[test]
