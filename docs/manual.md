@@ -150,7 +150,7 @@ una fase en una misión o rutina, se rechaza sin escribir nada.
 
 El agente ejecutor (Qwen Code, Codex u OpenCode) corre dentro de
 **bubblewrap** (`bwrap`; en macOS, un perfil Seatbelt equivalente; en Windows nativo no hay sandbox y el ejecutor se niega con `sandbox = true`, ver [Limitaciones](#limitaciones-y-garantías-por-sistema)): sistema de ficheros de solo lectura salvo el
-worktree, un `/tmp` propio y sus directorios de estado (`~/.qwen`; `~/.codex`;
+worktree (y, dentro de él, su `.git` también de solo lectura), un `/tmp` propio y sus directorios de estado (`~/.qwen`; `~/.codex`;
 `~/.local/share/opencode`, `~/.local/state/opencode` y `~/.cache/opencode`), con
 `$XDG_RUNTIME_DIR` tapado por un tmpfs vacío (ahí están la clave de sesión del
 panel web y los sockets de D-Bus y `systemd --user`); la red queda abierta para
@@ -160,6 +160,13 @@ su propio sandbox (`workspace-write`). Además: topes por ejecución (recortados
 al techo de los ajustes; Codex y OpenCode solo admiten el de tiempo), exclusión
 de las herramientas web y semáforo para que dos agentes no escriban a la vez en
 el mismo worktree.
+
+Dentro del sandbox, el agente no puede escribir en el `.git` del worktree (ni en su configuración
+ni en sus *hooks*; con worktree propio, tampoco en el fichero `.git` que dice a
+qué repo pertenece): el sistema ejecuta git sobre ese repo fuera del sandbox, y
+lo que se plantara ahí correría con tus permisos. Dentro del sandbox fallan
+`git add`, `git commit`, `git stash` o `git checkout -b` (el agente no debe
+hacer commits); leer con `git status`, `git diff` o `git log` sigue funcionando.
 
 Las órdenes `git` que el sistema ejecuta **fuera** del sandbox sobre el
 worktree que escribió el agente (la instantánea y el diff del ejecutor, `ea
@@ -171,7 +178,8 @@ repo), sin `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` ni `GIT_EXTERNAL_DIFF`
 del entorno, y con tope de tiempo y muerte del árbol: 30 s para leer, 300 s para
 `add -A`, `write-tree` y `worktree add`/`remove`, y 10 s en el panel. No se
 desactivan los *hooks* ni la configuración del sistema (git-lfs y los *hooks*
-de `worktree add` siguen funcionando).
+de `worktree add` siguen funcionando): los del repo los protege el `.git` de
+solo lectura del sandbox.
 
 **Límite conocido:** el criterio de éxito no corre dentro del sandbox. El
 ejecutor lo lanza con `sh -c` en el worktree, con los permisos de tu usuario y un
@@ -884,7 +892,8 @@ aquí y el ecosistema no las relaja en silencio.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree, un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
+| Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree (salvo su `.git`), un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
+| `.git` del worktree | de solo lectura dentro de `bwrap` si existe (directorio o fichero del worktree propio); si el worktree es un subdirectorio del repo no hay `.git` que montar y el agente podría crear uno falso (límite conocido) | escritura denegada siempre, exista o no (tampoco se puede crear uno falso) | — |
 | Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`) | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
 | Solo local | `127.0.0.1`; `ea-web` filtra el `Host` | ídem | ídem |
 | Terminal real (TTY) para lo irreversible | sí | sí | sí |

@@ -14,8 +14,8 @@
 //!
 //! Seguridad: con `sandbox = true` (por defecto) el agente se lanza aislado
 //! (spec 020: `bwrap` en Linux, `sandbox-exec` en macOS; en Windows el
-//! ejecutor no arranca, ver [`crate::sandbox`]). En Linux: sistema de ficheros de solo lectura salvo el worktree, `/tmp`
-//! propio y sus directorios de estado; `$XDG_RUNTIME_DIR` tapado, para que no
+//! ejecutor no arranca, ver [`crate::sandbox`]). En Linux: sistema de ficheros de solo lectura salvo el worktree
+//! (su `.git`, también de solo lectura), `/tmp` propio y sus directorios de estado; `$XDG_RUNTIME_DIR` tapado, para que no
 //! lea la clave del panel web; la red queda abierta para llegar a
 //! llama-server. Con `sandbox = false` Qwen y OpenCode corren con aprobación
 //! automática y pueden escribir y ejecutar donde escriba el usuario. Además

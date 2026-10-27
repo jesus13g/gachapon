@@ -14,6 +14,7 @@ use ea_bus::{
     Bus, ConfigOrquestador, EstadoTrabajo, Miembro, Modo, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
 };
 use ea_orchestrator::ejecutor::{ejecutar_uno, Ejecutor, SalidaAgente};
+use ea_orchestrator::sandbox::Sandbox;
 use ea_orchestrator::trabajadores::{ejecutores_despiertos, Contexto, Trabajadores};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -436,31 +437,90 @@ fn dormir_el_equipo_deja_sin_tomar_mas_y_quita_la_presencia_de_sus_trabajadores(
     t.detener();
 }
 
-#[test]
-fn bwrap_deja_escribible_el_worktree_propio_y_nada_mas() {
+/// `sh -c guion` dentro del sandbox del agente en `wt`; `None` si aquí no
+/// hay bwrap o no puede crear espacios de nombres (la prueba se omite).
+fn en_bwrap(wt: &Path, guion: &str) -> Option<std::process::Output> {
     if Command::new("bwrap").arg("--version").output().is_err() {
         eprintln!("sin bwrap: prueba omitida");
-        return;
+        return None;
     }
+    let args = ["-c".to_string(), guion.to_string()];
+    let s = Sandbox::Bwrap.envolver("sh", &args, wt, &[], None).unwrap().orden.output().unwrap();
+    if !s.status.success() && String::from_utf8_lossy(&s.stderr).contains("namespace") {
+        eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
+        return None;
+    }
+    Some(s)
+}
+
+#[test]
+fn bwrap_deja_escribible_el_worktree_propio_y_nada_mas() {
     let e = Entorno::nuevo(1);
     let r = repo(e.d.path(), "r");
     let ruta = e.bus.preparar_worktree("t1", &Orden { worktree_propio: true, ..orden(&r) }).unwrap();
-    let args = ea_orchestrator::agentes::argumentos_bwrap(&ruta, None, &[]);
+    let antes = std::fs::read_to_string(ruta.join(".git")).unwrap();
+    // El fichero `.git` del worktree propio (a dónde apunta) tampoco se reescribe.
     let guion = format!(
-        "echo x > '{w}/dentro.txt' && ! (echo x > '{r}/fuera.txt') 2>/dev/null && ! (echo x > '{g}/worktrees/t1/HEAD') 2>/dev/null",
+        "echo x > '{w}/dentro.txt' && ! (echo x > '{r}/fuera.txt') 2>/dev/null && ! (echo x > '{g}/worktrees/t1/HEAD') 2>/dev/null \
+         && ! (printf 'gitdir: /tmp/x' > '{w}/.git') 2>/dev/null && ! rm -f '{w}/.git' 2>/dev/null",
         w = ruta.display(),
         r = r.display(),
         g = r.join(".git").display()
     );
-    let s = Command::new("bwrap").args(&args).args(["sh", "-c", &guion]).output().unwrap();
-    if !s.status.success() && String::from_utf8_lossy(&s.stderr).contains("namespace") {
+    let Some(s) = en_bwrap(&ruta, &guion) else { return };
+    assert!(s.status.success(), "{}", String::from_utf8_lossy(&s.stderr));
+    assert!(ruta.join("dentro.txt").exists() && !r.join("fuera.txt").exists());
+    assert_eq!(std::fs::read_to_string(ruta.join(".git")).unwrap(), antes);
+    // La captura del sistema, fuera del sandbox, ve lo que el agente escribió.
+    assert_eq!(git(&ruta, &["ls-files", "--others", "--exclude-standard"]), "dentro.txt");
+}
+
+#[test]
+fn bwrap_deja_el_git_de_un_repo_normal_de_solo_lectura() {
+    let d = tempfile::tempdir().unwrap();
+    let r = repo(d.path(), "r");
+    let config = std::fs::read_to_string(r.join(".git/config")).unwrap();
+    // Ni la configuración, ni los hooks, ni quitar o mover `.git`; el resto
+    // del worktree, sí.
+    let guion = "echo x > dentro.txt && ! (echo x >> .git/config) 2>/dev/null && ! (echo x > .git/hooks/pre-commit) 2>/dev/null \
+                 && ! mv .git otro 2>/dev/null && ! rm -rf .git 2>/dev/null && mkdir sub && echo y > sub/f.txt";
+    let Some(s) = en_bwrap(&r, guion) else { return };
+    assert!(s.status.success(), "{}", String::from_utf8_lossy(&s.stderr));
+    assert_eq!(std::fs::read_to_string(r.join(".git/config")).unwrap(), config);
+    assert!(!r.join(".git/hooks/pre-commit").exists() && r.join(".git/HEAD").exists());
+    assert!(r.join("dentro.txt").exists() && r.join("sub/f.txt").exists());
+}
+
+#[test]
+fn el_criterio_en_bwrap_no_lee_el_directorio_de_ejecucion() {
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        eprintln!("sin bwrap: prueba omitida");
+        return;
+    }
+    let d = tempfile::tempdir().unwrap();
+    let r = repo(d.path(), "r");
+    let ejecucion = d.path().join("ejecucion");
+    std::fs::create_dir(&ejecucion).unwrap();
+    std::fs::write(ejecucion.join("marca"), "secreto").unwrap();
+    let criterio = |guion: &str| {
+        let mut c = Command::new("sh");
+        c.args(["-c", guion]).current_dir(&r);
+        c
+    };
+    let leer = format!("cat '{}'", ejecucion.join("marca").display());
+    // Fuera, se lee.
+    let fuera = criterio(&leer).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&fuera.stdout), "secreto");
+    let dentro = Sandbox::Bwrap.envolver_criterio(criterio(&leer), &r, Some(&ejecucion)).unwrap().output().unwrap();
+    if !dentro.status.success() && String::from_utf8_lossy(&dentro.stderr).contains("namespace") {
         eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
         return;
     }
-    assert!(s.status.success(), "{}", String::from_utf8_lossy(&s.stderr));
-    assert!(ruta.join("dentro.txt").exists() && !r.join("fuera.txt").exists());
-    // La captura del sistema, fuera del sandbox, ve lo que el agente escribió.
-    assert_eq!(git(&ruta, &["ls-files", "--others", "--exclude-standard"]), "dentro.txt");
+    assert!(!dentro.status.success() && dentro.stdout.is_empty(), "el criterio leyó el directorio de ejecución");
+    // Lo demás, como fuera: escribe en el worktree.
+    let ok = Sandbox::Bwrap.envolver_criterio(criterio("echo hecho > ok.txt && test -f ok.txt"), &r, Some(&ejecucion)).unwrap().output().unwrap();
+    assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
+    assert!(r.join("ok.txt").exists());
 }
 
 #[test]
