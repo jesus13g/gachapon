@@ -35,10 +35,28 @@ pub fn fichero_clave_web(ejecucion: &Path) -> PathBuf {
     ejecucion.join(DIR_WEB).join(FICHERO_CLAVE)
 }
 
+/// ¿Es una clave de sesión del panel bien formada? 64 cifras hexadecimales:
+/// lo que escribe `ea-web` y lo único que acepta la app de escritorio.
+pub fn clave_web_valida(clave: &str) -> bool {
+    clave.len() == 64 && clave.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn solo_vale_una_clave_de_64_hex() {
+        const BUENA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert!(clave_web_valida(BUENA));
+        assert!(clave_web_valida(&BUENA.to_uppercase()));
+        assert!(!clave_web_valida(""));
+        assert!(!clave_web_valida(&BUENA[..63]));
+        assert!(!clave_web_valida(&format!("{}z", &BUENA[..63])));
+        assert!(!clave_web_valida(&format!("{BUENA}0")));
+        assert!(!clave_web_valida(&format!("{BUENA}\n")));
+    }
 
     #[cfg(unix)]
     #[test]

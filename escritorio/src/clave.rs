@@ -6,9 +6,7 @@
 use std::path::Path;
 
 /// Una clave válida son 64 caracteres hexadecimales (lo que escribe `ea-web`).
-pub fn es_valida(clave: &str) -> bool {
-    clave.len() == 64 && clave.bytes().all(|b| b.is_ascii_hexdigit())
-}
+pub use ea_ajustes::clave_web_valida as es_valida;
 
 /// Lee la clave del fichero. `None` si falta, no se puede leer o no es
 /// válida: el panel abre entonces en solo lectura.
@@ -54,15 +52,6 @@ mod tests {
     use super::*;
 
     const BUENA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
-    #[test]
-    fn solo_vale_una_clave_de_64_hex() {
-        assert!(es_valida(BUENA));
-        assert!(!es_valida(""));
-        assert!(!es_valida(&BUENA[..63]));
-        assert!(!es_valida(&format!("{}z", &BUENA[..63])));
-        assert!(!es_valida(&format!("{BUENA}0")));
-    }
 
     #[test]
     fn el_guion_lleva_la_clave_como_literal_y_solo_ahi() {

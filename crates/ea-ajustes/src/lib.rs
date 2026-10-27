@@ -31,7 +31,8 @@ pub use cargar::{cargar, cargar_de, Efectivos, Origen};
 pub use claves::{clave, concretas, sin_alias, titulo, Aplica, Canal, Clave, Edicion, Tipo, ALIAS, CLAVES, SECCIONES};
 pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo, Miembro, RolEquipo};
 pub use ejecucion::{
-    dir_ejecucion, fichero_clave_web, fichero_presencia_escritorio, DIR_ESCRITORIO, DIR_WEB, FICHERO_CLAVE, FICHERO_PRESENCIA,
+    clave_web_valida, dir_ejecucion, fichero_clave_web, fichero_presencia_escritorio, DIR_ESCRITORIO, DIR_WEB, FICHERO_CLAVE,
+    FICHERO_PRESENCIA,
 };
 pub use efectos::{aplicar_al_iniciar, aplicar_efectos, binario_escritorio, CLAVE_AL_INICIAR};
 pub use error::ErrorAjustes;
