@@ -1,17 +1,16 @@
 //! `ea instalar` y `ea desinstalar` (spec 023): la instalación en un paso.
 //!
 //! Aquí solo se **planifica**: cada función devuelve los [`Paso`]s que se
-//! enseñan al usuario y que `servicios::aplicar` ejecuta tras su
-//! confirmación en una terminal real (lo hace `ea-cli`). Lo que se mira del
+//! enseñan al usuario y que `ea_acciones::servicios::aplicar` ejecuta tras su
+//! confirmación en una terminal real (lo hace `commands::instalar`). Lo que se mira del
 //! sistema pasa por una [`Sonda`], para que las pruebas no dependan de la
 //! máquina.
 
 use std::path::{Path, PathBuf};
 
+use ea_acciones::servicios::{self, Backend, Entorno, Paso};
+use ea_acciones::SERVICIOS_INSTALABLES;
 use ea_plataforma::Sistema;
-
-use crate::servicios::{self, Backend, Entorno, Paso};
-use crate::SERVICIOS_INSTALABLES;
 
 pub mod agentes;
 pub mod dependencias;

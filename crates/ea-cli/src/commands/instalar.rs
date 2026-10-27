@@ -2,16 +2,12 @@
 //! Detecta, ofrece las dependencias externas una a una, enseña el plan
 //! completo y lo aplica tras **una** confirmación escrita en una terminal
 //! real; al final comprueba que los servicios responden y dice lo que queda
-//! en manos del usuario. Los planes son de `ea_acciones::instalacion`.
+//! en manos del usuario. Los planes son de `crate::instalacion`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use ea_acciones::instalacion::dependencias::{self, Dependencia, Estado};
-use ea_acciones::instalacion::origen::{self, nombre_binario, BINARIO_ESCRITORIO};
-use ea_acciones::instalacion::wsl::{self, EstadoWsl};
-use ea_acciones::instalacion::{self, Contexto, Origen, Sonda, SondaReal};
 use ea_acciones::servicios::{aplicar, correr_orden, Entorno, Paso};
 use ea_acciones::Canal;
 use ea_ajustes::Fuentes;
@@ -19,6 +15,10 @@ use ea_plataforma::Sistema;
 use serde_json::Value;
 
 use super::{preguntar, respuesta_confirma};
+use crate::instalacion::dependencias::{self, Dependencia, Estado};
+use crate::instalacion::origen::{self, nombre_binario, BINARIO_ESCRITORIO};
+use crate::instalacion::wsl::{self, EstadoWsl};
+use crate::instalacion::{self, Contexto, Origen, Sonda, SondaReal};
 
 /// La vía de Windows (spec 023, D-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -5,12 +5,12 @@
 
 use std::path::Path;
 
+use ea_acciones::servicios::Paso;
 use ea_ajustes::descargas::descarga_para;
 use ea_ajustes::{Ajustes, Rol};
 use ea_plataforma::Sistema;
 
 use super::{Contexto, Sonda};
-use crate::servicios::Paso;
 
 /// Si la dependencia está.
 #[derive(Debug, Clone, PartialEq, Eq)]

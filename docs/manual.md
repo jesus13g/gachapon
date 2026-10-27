@@ -332,7 +332,10 @@ volver a arrancar los servicios.
 - `crates/ea-acciones`: catálogo único de herramientas con riesgo, simulación,
   revalidación y el flujo propuesta → aceptación → ejecución.
 - `crates/ea-boveda`: la bóveda de notas; único código que escribe en ella.
-- `crates/ea-cli`: binario `ea`, CLI y TUI.
+- `crates/ea-cli`: binario `ea`, CLI y TUI; también el instalador (`ea instalar`,
+  `ea desinstalar`, módulo `instalacion`), que lleva embebidos `claude/skills`,
+  `agentes/` y `qwen/skills` (una prueba exige registrar cada fichero nuevo en
+  `instalacion/recursos.rs`).
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
 - `escritorio/`: la app de escritorio `ea-escritorio` (spec 021); fuera del workspace.

@@ -351,7 +351,7 @@ cargo test -p ea-bus       # un solo crate
 
 | Crate | Qué es |
 |---|---|
-| `ea-cli` | Binario `ea`: CLI y TUI |
+| `ea-cli` | Binario `ea`: CLI, TUI e instalador (`ea instalar`) |
 | `ea-orchestrator` | El orquestador: toma trabajos, lanza al ejecutor y corre el criterio |
 | `ea-web` | API JSON y panel web |
 | `ea-mcp` | Servidor MCP |

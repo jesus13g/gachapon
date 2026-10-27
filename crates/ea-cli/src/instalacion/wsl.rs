@@ -9,8 +9,9 @@
 
 use std::path::Path;
 
+use ea_acciones::servicios::Paso;
+
 use super::{Contexto, Origen, Sonda};
-use crate::servicios::Paso;
 
 /// El `instalar.sh` publicado en la web (GitHub Pages).
 pub const URL_INSTALAR_SH: &str = "https://jesus13g.github.io/gachapon/instalar.sh";

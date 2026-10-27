@@ -18,7 +18,6 @@ mod diff;
 pub mod error;
 pub mod flujo;
 pub mod herramientas;
-pub mod instalacion;
 mod plist;
 pub mod servicios;
 pub mod sesion;

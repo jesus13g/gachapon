@@ -9,11 +9,11 @@
 
 use std::path::{Path, PathBuf};
 
+use ea_acciones::servicios::Paso;
 use serde_json::{json, Map, Value};
 
 use super::recursos::{self, reescribir_ruta_flujo, Recurso};
 use super::{Contexto, Origen, Sonda};
-use crate::servicios::Paso;
 
 const MARCA_INICIO: &str = "<!-- gachapon:inicio -->";
 const MARCA_FIN: &str = "<!-- gachapon:fin -->";
@@ -191,7 +191,9 @@ fn poner_fragmento_con(actual: Option<&str>, fragmento: &str, alternativas: &[&s
 
 /// Pone `fragmento` entre `<!-- gachapon:inicio -->` y `<!-- gachapon:fin -->`:
 /// sustituye el bloque si ya está (o el mismo texto suelto, añadido a mano)
-/// y si no lo añade al final. Poner dos veces deja lo mismo que una.
+/// y si no lo añade al final. Poner dos veces deja lo mismo que una. El
+/// plan usa [`poner_fragmento_con`]; esta forma corta solo la usan las pruebas.
+#[cfg(test)]
 pub fn poner_fragmento(actual: Option<&str>, fragmento: &str) -> String {
     poner_fragmento_con(actual, fragmento, &[])
 }

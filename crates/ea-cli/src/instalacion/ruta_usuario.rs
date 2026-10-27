@@ -5,11 +5,11 @@
 
 use std::path::{Path, PathBuf};
 
+use ea_acciones::servicios::Paso;
 use ea_plataforma::Sistema;
 
 use super::origen::nombre_binario;
 use super::{leer_para_reescribir, Contexto, Sonda};
-use crate::servicios::Paso;
 
 pub const MARCA_INICIO: &str = "# gachapon:inicio";
 pub const MARCA_FIN: &str = "# gachapon:fin";

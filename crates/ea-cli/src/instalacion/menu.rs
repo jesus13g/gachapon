@@ -4,13 +4,13 @@
 
 use std::path::{Path, PathBuf};
 
+use ea_acciones::servicios::Paso;
 use ea_plataforma::Sistema;
 
 use super::origen::{nombre_binario, BINARIO_ESCRITORIO};
 use super::recursos::ICONO_PNG;
 use super::ruta_usuario::literal_ps;
 use super::{Contexto, Origen};
-use crate::servicios::Paso;
 
 /// `~/.local/share/applications/ea-escritorio.desktop`.
 pub fn ruta_desktop(home: &Path) -> PathBuf {
