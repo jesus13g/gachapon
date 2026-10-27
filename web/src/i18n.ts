@@ -21,11 +21,16 @@ export const tr = (locale?: string) => {
 };
 
 /** Pages that exist in every language. */
-export type Page = 'landing' | 'architecture';
+export type Page = 'landing' | 'architecture' | 'blog';
 
-/** Root-relative path of a page (the landing by default) in a given language, honouring the deploy base. */
-export const pathFor = (lang: Lang, page: Page = 'landing') => {
+/**
+ * Root-relative path of a page (the landing by default) in a given language, honouring the deploy base.
+ * `slug` picks one blog article (`/blog/<slug>/`); without it, the blog index.
+ */
+export const pathFor = (lang: Lang, page: Page = 'landing', slug?: string) => {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const prefix = lang === 'en' ? base : `${base}/${lang}`;
-  return page === 'architecture' ? `${prefix}/architecture/` : `${prefix}/`;
+  if (page === 'architecture') return `${prefix}/architecture/`;
+  if (page === 'blog') return slug ? `${prefix}/blog/${slug}/` : `${prefix}/blog/`;
+  return `${prefix}/`;
 };

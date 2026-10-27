@@ -19,6 +19,8 @@ interface Props {
   noindex?: boolean;
   /** Which page this is, so hreflang alternates point at its equivalent in the other language. */
   page?: Page;
+  /** Blog article shown on this page, so the alternates point at the same article. */
+  slug?: string;
 }
 
 const { site, ui } = copyFor(Astro.currentLocale);
@@ -30,6 +32,7 @@ const {
   type = 'website',
   noindex = false,
   page = 'landing',
+  slug,
 } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
@@ -98,8 +101,8 @@ const ld = {
     {!noindex && <link rel="canonical" href={canonical} />}
     {googleVerif && <meta name="google-site-verification" content={googleVerif} />}
     {bingVerif && <meta name="msvalidate.01" content={bingVerif} />}
-    {!noindex && langs.map((l) => <link rel="alternate" hreflang={l} href={new URL(pathFor(l, page), Astro.site).href} />)}
-    {!noindex && <link rel="alternate" hreflang="x-default" href={new URL(pathFor('en', page), Astro.site).href} />}
+    {!noindex && langs.map((l) => <link rel="alternate" hreflang={l} href={new URL(pathFor(l, page, slug), Astro.site).href} />)}
+    {!noindex && <link rel="alternate" hreflang="x-default" href={new URL(pathFor('en', page, slug), Astro.site).href} />}
     <link rel="preload" as="font" type="font/woff2" href={bsd800} crossorigin />
     <link rel="sitemap" href={`${base}/sitemap-index.xml`} />
     <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />

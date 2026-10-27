@@ -371,3 +371,23 @@ export const architecture = {
     },
   ],
 };
+
+/** The blog: articles in src/blog/*.md (see src/content.config.ts), listed on the left, the selected one on the right. */
+export const blog = {
+  title: 'Blog — Gachapon',
+  description: 'News and development notes from Gachapon: what gets built each day and the new improvements to the system.',
+  nav: 'Blog',
+  kicker: 'Blog · development log',
+  h: 'Blog',
+  intro: 'What gets built each day and the new improvements to the system.',
+  listLabel: 'Articles',
+  /** Shown next to an article written in the other language. */
+  langTag: { en: 'EN', es: 'ES' },
+  writtenIn: { en: 'Written in English', es: 'Written in Spanish' },
+  empty: {
+    kicker: 'Blog · no articles yet',
+    h: 'Nothing published yet.',
+    p: 'The first articles are on their way: daily progress and new improvements to Gachapon.',
+    list: 'No articles yet.',
+  },
+};

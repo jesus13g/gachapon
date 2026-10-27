@@ -1,0 +1,7 @@
+---
+import Blog from '../../components/Blog.astro';
+import { blogPaths } from '../../lib/blog';
+
+export const getStaticPaths = blogPaths;
+---
+<Blog slug={Astro.params.slug} />
