@@ -1,0 +1,940 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Mapa del sistema Gachapon",
+    "output": "system.es.html",
+    "locale": "es",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/jesus13g/gachapon",
+      "provider": "github",
+      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+    },
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "frontend": {
+          "label": "Binario de cara al usuario"
+        },
+        "backend": {
+          "label": "Proceso o crate"
+        },
+        "database": {
+          "label": "Estado en disco"
+        },
+        "messagebus": {
+          "label": "Colas"
+        },
+        "security": {
+          "label": "Guarda"
+        },
+        "cloud": {
+          "label": "Modelo remoto"
+        },
+        "external": {
+          "label": "Agente, persona o modelo local"
+        }
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "cloud",
+      "type": "cloud",
+      "label": "Modelo remoto",
+      "sublabel": "solo planificador",
+      "pos": [
+        262,
+        40
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 64,
+          "end_line": 70
+        },
+        {
+          "path": "CLAUDE.md",
+          "line": 91,
+          "end_line": 94
+        }
+      ]
+    },
+    {
+      "id": "planner",
+      "type": "external",
+      "label": "Agente planificador",
+      "sublabel": "Claude Code (defecto)",
+      "pos": [
+        262,
+        200
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "intercambiable",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 52,
+          "end_line": 62
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 64,
+          "end_line": 86
+        }
+      ]
+    },
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Tú",
+      "sublabel": "TTY · panel · app",
+      "pos": [
+        687,
+        200
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "CLAUDE.md",
+          "line": 86,
+          "end_line": 88
+        },
+        {
+          "path": "README.md",
+          "line": 1,
+          "end_line": 20
+        }
+      ]
+    },
+    {
+      "id": "llama",
+      "type": "external",
+      "label": "llama-server",
+      "sublabel": "endpoint de modelo local",
+      "pos": [
+        1020,
+        200
+      ],
+      "size": [
+        140,
+        62
+      ],
+      "tag": "solo local",
+      "sources": [
+        {
+          "path": "CLAUDE.md",
+          "line": 91,
+          "end_line": 94
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 64,
+          "end_line": 70
+        }
+      ]
+    },
+    {
+      "id": "ea_mcp",
+      "type": "backend",
+      "label": "ea-mcp",
+      "sublabel": "MCP HTTP :8765",
+      "pos": [
+        175,
+        350
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "SoloConsulta",
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/main.rs",
+          "line": 20,
+          "end_line": 30
+        },
+        {
+          "path": "crates/ea-mcp/src/tools.rs",
+          "line": 72
+        },
+        {
+          "path": "crates/ea-acciones/src/sistema.rs",
+          "line": 189,
+          "end_line": 196
+        }
+      ]
+    },
+    {
+      "id": "ea",
+      "type": "frontend",
+      "label": "ea",
+      "sublabel": "CLI + TUI",
+      "pos": [
+        350,
+        350
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-cli/src/main.rs",
+          "line": 1,
+          "end_line": 12
+        },
+        {
+          "path": "crates/ea-cli/Cargo.toml",
+          "line": 1,
+          "end_line": 32
+        }
+      ]
+    },
+    {
+      "id": "ea_web",
+      "type": "frontend",
+      "label": "ea-web",
+      "sublabel": "API + panel :8092",
+      "pos": [
+        575,
+        350
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "tag": "filtra el Host",
+      "sources": [
+        {
+          "path": "crates/ea-web/src/main.rs",
+          "line": 18,
+          "end_line": 24
+        },
+        {
+          "path": "crates/ea-web/src/http/mod.rs",
+          "line": 115,
+          "end_line": 135
+        }
+      ]
+    },
+    {
+      "id": "esc",
+      "type": "frontend",
+      "label": "ea-escritorio",
+      "sublabel": "escritorio · bandeja",
+      "pos": [
+        800,
+        350
+      ],
+      "size": [
+        130,
+        62
+      ],
+      "sources": [
+        {
+          "path": "escritorio/src/main.rs",
+          "line": 1,
+          "end_line": 4
+        },
+        {
+          "path": "escritorio/src/clave.rs",
+          "line": 1,
+          "end_line": 4
+        },
+        {
+          "path": "escritorio/Cargo.toml",
+          "line": 1,
+          "end_line": 30
+        }
+      ]
+    },
+    {
+      "id": "executor",
+      "type": "external",
+      "label": "Agente ejecutor",
+      "sublabel": "Qwen Code por defecto",
+      "pos": [
+        1020,
+        350
+      ],
+      "size": [
+        140,
+        62
+      ],
+      "tag": "sin interfaz",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 64,
+          "end_line": 86
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 149,
+          "end_line": 160
+        }
+      ]
+    },
+    {
+      "id": "acciones",
+      "type": "backend",
+      "label": "ea-acciones",
+      "sublabel": "catálogo de herramientas · riesgo · simular → proponer → aceptar",
+      "pos": [
+        175,
+        500
+      ],
+      "size": [
+        530,
+        62
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-acciones/src/lib.rs",
+          "line": 1,
+          "end_line": 14
+        },
+        {
+          "path": "crates/ea-acciones/Cargo.toml",
+          "line": 1,
+          "end_line": 23
+        }
+      ]
+    },
+    {
+      "id": "orch",
+      "type": "backend",
+      "label": "ea-orchestrator",
+      "sublabel": "bucle del ejecutor",
+      "pos": [
+        1020,
+        500
+      ],
+      "size": [
+        140,
+        62
+      ],
+      "tag": "corre el criterio",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 1,
+          "end_line": 20
+        },
+        {
+          "path": "crates/ea-orchestrator/src/main.rs",
+          "line": 1,
+          "end_line": 20
+        }
+      ]
+    },
+    {
+      "id": "biblioteca",
+      "type": "backend",
+      "label": "ea-biblioteca",
+      "sublabel": "inventario",
+      "pos": [
+        40,
+        650
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-biblioteca/src/lib.rs",
+          "line": 1,
+          "end_line": 8
+        }
+      ]
+    },
+    {
+      "id": "boveda",
+      "type": "backend",
+      "label": "ea-boveda",
+      "sublabel": "escritor único",
+      "pos": [
+        215,
+        650
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-boveda/src/lib.rs",
+          "line": 1,
+          "end_line": 14
+        }
+      ]
+    },
+    {
+      "id": "store",
+      "type": "backend",
+      "label": "ea-store",
+      "sublabel": "capa SQLite",
+      "pos": [
+        390,
+        650
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/src/lib.rs",
+          "line": 1,
+          "end_line": 6
+        },
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 1,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "id": "bus",
+      "type": "backend",
+      "label": "ea-bus",
+      "sublabel": "colas · máquina de estados · semáforo flock · rutinas",
+      "pos": [
+        580,
+        650
+      ],
+      "size": [
+        580,
+        56
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/lib.rs",
+          "line": 1,
+          "end_line": 5
+        },
+        {
+          "path": "crates/ea-bus/src/candado.rs",
+          "line": 1,
+          "end_line": 2
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 100,
+          "end_line": 116
+        }
+      ]
+    },
+    {
+      "id": "queues",
+      "type": "messagebus",
+      "label": "Colas",
+      "sublabel": "colas/ por agente",
+      "pos": [
+        580,
+        800
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 84,
+          "end_line": 90
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 100,
+          "end_line": 108
+        }
+      ]
+    },
+    {
+      "id": "jobs",
+      "type": "database",
+      "label": "Estado de trabajos",
+      "sublabel": "trabajos/ · rutinas",
+      "pos": [
+        730,
+        800
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 100,
+          "end_line": 116
+        },
+        {
+          "path": "crates/ea-bus/src/lib.rs",
+          "line": 1,
+          "end_line": 5
+        }
+      ]
+    },
+    {
+      "id": "sem",
+      "type": "security",
+      "label": "Semáforo",
+      "sublabel": "flock por worktree",
+      "pos": [
+        880,
+        800
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/candado.rs",
+          "line": 1,
+          "end_line": 2
+        },
+        {
+          "path": "crates/ea-bus/src/candado.rs",
+          "line": 41,
+          "end_line": 49
+        }
+      ]
+    },
+    {
+      "id": "teams",
+      "type": "database",
+      "label": "Equipos",
+      "sublabel": "equipos/ · presencia",
+      "pos": [
+        1030,
+        800
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 336,
+          "end_line": 350
+        },
+        {
+          "path": "crates/ea-bus/src/presencia.rs",
+          "line": 1,
+          "end_line": 10
+        }
+      ]
+    },
+    {
+      "id": "vault",
+      "type": "database",
+      "label": "Bóveda Obsidian",
+      "sublabel": "notas (compartida)",
+      "pos": [
+        215,
+        800
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-boveda/src/lib.rs",
+          "line": 1,
+          "end_line": 14
+        }
+      ]
+    },
+    {
+      "id": "sqlite",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "diario · trabajos",
+      "pos": [
+        390,
+        800
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 1,
+          "end_line": 6
+        },
+        {
+          "path": "crates/ea-store/src/connection.rs",
+          "line": 8,
+          "end_line": 12
+        }
+      ]
+    },
+    {
+      "id": "ajustes",
+      "type": "backend",
+      "label": "ea-ajustes",
+      "sublabel": "registro de ajustes",
+      "pos": [
+        40,
+        800
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-ajustes/src/lib.rs",
+          "line": 1,
+          "end_line": 14
+        }
+      ]
+    },
+    {
+      "id": "toml",
+      "type": "database",
+      "label": "ajustes.toml",
+      "sublabel": "en ~/.config",
+      "pos": [
+        40,
+        950
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-ajustes/src/lib.rs",
+          "line": 1,
+          "end_line": 5
+        },
+        {
+          "path": "crates/ea-ajustes/src/fuentes.rs",
+          "line": 13,
+          "end_line": 13
+        }
+      ]
+    },
+    {
+      "id": "plataforma",
+      "type": "backend",
+      "label": "ea-plataforma",
+      "sublabel": "diferencias de SO: rutas · procesos · ficheros · terminal",
+      "pos": [
+        215,
+        950
+      ],
+      "size": [
+        305,
+        60
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-plataforma/src/lib.rs",
+          "line": 1,
+          "end_line": 12
+        },
+        {
+          "path": "CLAUDE.md",
+          "line": 55,
+          "end_line": 60
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Nube opcional: solo el modelo del planificador",
+      "wraps": [
+        "cloud"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Tu máquina: todo escucha en 127.0.0.1",
+      "wraps": [
+        "planner",
+        "user",
+        "llama",
+        "ea_mcp",
+        "ea",
+        "ea_web",
+        "esc",
+        "executor",
+        "acciones",
+        "orch",
+        "biblioteca",
+        "boveda",
+        "store",
+        "bus",
+        "queues",
+        "jobs",
+        "sem",
+        "teams",
+        "vault",
+        "sqlite",
+        "ajustes",
+        "toml",
+        "plataforma"
+      ],
+      "pad": 36
+    },
+    {
+      "kind": "security-group",
+      "label": "Sandbox del ejecutor (bwrap / Seatbelt)",
+      "wraps": [
+        "executor"
+      ],
+      "pad": 14
+    },
+    {
+      "kind": "security-group",
+      "label": "Bus de ficheros: ~/.local/state/ecosistema-asistente",
+      "wraps": [
+        "bus",
+        "queues",
+        "jobs",
+        "sem",
+        "teams"
+      ],
+      "pad": 14
+    }
+  ],
+  "connections": [
+    {
+      "id": "cloud-planner",
+      "from": "cloud",
+      "to": "planner",
+      "label": "API del modelo",
+      "variant": "security"
+    },
+    {
+      "id": "planner-mcp",
+      "from": "planner",
+      "to": "ea_mcp",
+      "label": "MCP (solo lectura)",
+      "variant": "security"
+    },
+    {
+      "id": "planner-ea",
+      "from": "planner",
+      "to": "ea",
+      "label": "crea trabajos",
+      "variant": "emphasis"
+    },
+    {
+      "id": "user-ea",
+      "from": "user",
+      "to": "ea",
+      "label": "acepta en TTY real",
+      "variant": "security"
+    },
+    {
+      "id": "user-web",
+      "from": "user",
+      "to": "ea_web",
+      "label": "panel + clave",
+      "variant": "security"
+    },
+    {
+      "id": "user-esc",
+      "from": "user",
+      "to": "esc",
+      "label": "ventana"
+    },
+    {
+      "id": "esc-web",
+      "from": "esc",
+      "to": "ea_web",
+      "label": "carga el panel"
+    },
+    {
+      "id": "mcp-acc",
+      "from": "ea_mcp",
+      "to": "acciones",
+      "label": "SoloConsulta",
+      "variant": "security"
+    },
+    {
+      "id": "ea-acc",
+      "from": "ea",
+      "to": "acciones",
+      "label": "simular · proponer"
+    },
+    {
+      "id": "web-acc",
+      "from": "ea_web",
+      "to": "acciones",
+      "label": "proponer · aceptar"
+    },
+    {
+      "id": "acc-bib",
+      "from": "acciones",
+      "to": "biblioteca",
+      "label": "inventario"
+    },
+    {
+      "id": "acc-bov",
+      "from": "acciones",
+      "to": "boveda",
+      "label": "notas"
+    },
+    {
+      "id": "acc-bus",
+      "from": "acciones",
+      "to": "bus",
+      "label": "trabajos · colas",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "bov-store",
+      "from": "boveda",
+      "to": "store"
+    },
+    {
+      "id": "bus-store",
+      "from": "bus",
+      "to": "store",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "store-sqlite",
+      "from": "store",
+      "to": "sqlite",
+      "label": "SQL"
+    },
+    {
+      "id": "bov-vault",
+      "from": "boveda",
+      "to": "vault",
+      "label": "escritor único",
+      "variant": "security"
+    },
+    {
+      "id": "orch-bus",
+      "from": "orch",
+      "to": "bus",
+      "label": "sondea modelo-local",
+      "variant": "emphasis"
+    },
+    {
+      "id": "orch-exec",
+      "from": "orch",
+      "to": "executor",
+      "label": "lanza en sandbox",
+      "variant": "emphasis"
+    },
+    {
+      "id": "exec-llama",
+      "from": "executor",
+      "to": "llama",
+      "label": "API de chat local",
+      "variant": "security"
+    },
+    {
+      "id": "bus-queues",
+      "from": "bus",
+      "to": "queues",
+      "variant": "dashed"
+    },
+    {
+      "id": "bus-jobs",
+      "from": "bus",
+      "to": "jobs",
+      "variant": "dashed"
+    },
+    {
+      "id": "bus-sem",
+      "from": "bus",
+      "to": "sem",
+      "variant": "dashed"
+    },
+    {
+      "id": "bus-teams",
+      "from": "bus",
+      "to": "teams",
+      "variant": "dashed"
+    },
+    {
+      "id": "bib-aj",
+      "from": "biblioteca",
+      "to": "ajustes"
+    },
+    {
+      "id": "aj-toml",
+      "from": "ajustes",
+      "to": "toml"
+    },
+    {
+      "id": "aj-plat",
+      "from": "ajustes",
+      "to": "plataforma",
+      "label": "rutas por SO"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Reglas de control",
+      "items": [
+        "Ningún agente se confirma a sí mismo: solo el usuario acepta; lo irreversible exige TTY real",
+        "El criterio de éxito lo ejecuta el sistema, nunca el agente; un criterio vacío no es éxito",
+        "El modelo del ejecutor tiene que ser local; uno remoto solo vale para el planificador",
+        "ea-mcp y el orquestador solo reciben la capa SoloConsulta"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Roles y agentes",
+      "items": [
+        "El planificador formaliza y revisa; el ejecutor ejecuta pasos verificables; planificador ≠ ejecutor",
+        "Catálogo: Claude Code, Qwen Code, Codex, OpenCode, Antigravity; el agente de cada rol es intercambiable",
+        "Equipos (spec 019): varios agentes a la vez, colas por agente, worktree propio, presencia"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Solo local",
+      "items": [
+        "ea-mcp :8765 y ea-web :8092 escuchan en 127.0.0.1; ea-web filtra la cabecera Host",
+        "La app de escritorio muestra el mismo panel y necesita ea-web en marcha",
+        "Solo el modelo del planificador puede estar en la nube"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Capas de crates",
+      "items": [
+        "ea-plataforma es la base: sin dependencias ea-*, todas las diferencias de SO viven ahí",
+        "ea-ajustes → ea-store → ea-bus / ea-boveda → ea-acciones → binarios",
+        "Todos los crates leen los ajustes con ea-ajustes y las rutas del SO con ea-plataforma (aristas omitidas)"
+      ]
+    }
+  ]
+}
