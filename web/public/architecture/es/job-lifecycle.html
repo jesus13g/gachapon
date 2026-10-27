@@ -5624,7 +5624,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <ul>
           <li>transicion(estado, evento) solo admite los pares del diagrama; lo demás es ErrorBus::TransicionInvalida</li>
           <li>cerrado y cancelado no tienen transiciones de salida</li>
-          <li>Tomar solo sale de en_cola con el ejecutor: el planificador solo saca sus entradas de cola</li>
+          <li>Sacar una entrada de la cola no cambia el estado: solo el evento Tomar pasa de en_cola a ejecutando</li>
         </ul>
       </div>
 
@@ -5635,7 +5635,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </div>
         <ul>
           <li>tomar y entregar: ea-orchestrator (ejecutar_intento, entregar); una rutina también dispara sola poner_en_espera o cerrar</li>
-          <li>cerrar, reformular, confirmar, cancelar: el usuario con ea trabajo o el panel de ea-web (Decision)</li>
+          <li>cerrar, reformular, confirmar, cancelar: el planificador o el usuario con ea trabajo, o el usuario en el panel de ea-web (Decision)</li>
           <li>Un semáforo de worktree ocupado devuelve el trabajo a la cola sin cambiar su estado</li>
           <li>cancelar: el ejecutor relee el estado antes de cada iteración y fase y mata el árbol del agente; ni criterio ni informe</li>
         </ul>

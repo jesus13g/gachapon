@@ -263,7 +263,7 @@
       "items": [
         "transicion(estado, evento) accepts only the pairs above; anything else is ErrorBus::TransicionInvalida",
         "cerrado and cancelado have no outgoing transition",
-        "Tomar never leaves en_cola by itself: the planner only dequeues its own queue entries"
+        "Dequeuing an entry does not change the state: only the Tomar event moves en_cola to ejecutando"
       ]
     },
     {
@@ -271,7 +271,7 @@
       "title": "Who fires each event",
       "items": [
         "tomar and entregar: ea-orchestrator (ejecutar_intento, entregar); a rutina also fires poner_en_espera or cerrar by itself",
-        "cerrar, reformular, confirmar, cancelar: the user via ea trabajo or the ea-web panel (Decision)",
+        "cerrar, reformular, confirmar, cancelar: the planner or the user via ea trabajo, or the user in the ea-web panel (Decision)",
         "A busy worktree lock re-queues the job without changing its state",
         "cancelar: the executor re-reads the state before each iteration and phase, then kills the agent tree; no criterion, no report"
       ]

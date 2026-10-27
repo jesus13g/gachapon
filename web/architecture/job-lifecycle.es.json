@@ -263,7 +263,7 @@
       "items": [
         "transicion(estado, evento) solo admite los pares del diagrama; lo demás es ErrorBus::TransicionInvalida",
         "cerrado y cancelado no tienen transiciones de salida",
-        "Tomar solo sale de en_cola con el ejecutor: el planificador solo saca sus entradas de cola"
+        "Sacar una entrada de la cola no cambia el estado: solo el evento Tomar pasa de en_cola a ejecutando"
       ]
     },
     {
@@ -271,7 +271,7 @@
       "title": "Quién dispara cada evento",
       "items": [
         "tomar y entregar: ea-orchestrator (ejecutar_intento, entregar); una rutina también dispara sola poner_en_espera o cerrar",
-        "cerrar, reformular, confirmar, cancelar: el usuario con ea trabajo o el panel de ea-web (Decision)",
+        "cerrar, reformular, confirmar, cancelar: el planificador o el usuario con ea trabajo, o el usuario en el panel de ea-web (Decision)",
         "Un semáforo de worktree ocupado devuelve el trabajo a la cola sin cambiar su estado",
         "cancelar: el ejecutor relee el estado antes de cada iteración y fase y mata el árbol del agente; ni criterio ni informe"
       ]
