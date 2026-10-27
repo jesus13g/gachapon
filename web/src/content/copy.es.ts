@@ -19,6 +19,7 @@ export const site = {
 export const ui = {
   skip: 'Saltar al contenido',
   top: 'Gachapon — inicio',
+  home: 'Gachapon — página de inicio',
   navProject: 'Proyecto',
   /** The header button that switches to the other language. */
   langSwitch: 'View in English',
@@ -477,4 +478,125 @@ export const notFound = {
   h: 'Página no encontrada.',
   p: 'La dirección que has seguido no existe o ha cambiado de sitio.',
   home: 'Ir a la portada en español',
+};
+
+/** La página de arquitectura: un diagrama interactivo incrustado por sección (HTML en public/architecture/<lang>/<slug>.html). */
+export const architecture: typeof import('./copy.en').architecture = {
+  title: 'Arquitectura — cómo está hecho Gachapon · Gachapon',
+  description:
+    'La arquitectura de Gachapon en ocho diagramas interactivos: mapa del sistema, workspace, flujo de misiones, planificador y ejecutor, ciclo de vida de un trabajo, acciones supervisadas, base de datos y plataforma.',
+  nav: 'Arquitectura',
+  back: 'Historia',
+  kicker: 'Arquitectura · diseño',
+  h1: 'Cómo está hecho Gachapon.',
+  intro: [
+    'Gachapon es un orquestador local en Rust que reparte el trabajo entre dos roles: un planificador que formaliza y revisa, y un ejecutor que hace el trabajo mecánico dentro de un sandbox. Se comunican por un bus de ficheros, nunca directamente.',
+    'Estos ocho diagramas recorren todo el diseño, desde el mapa general hasta la base de datos y los tres sistemas operativos en los que corre.',
+  ],
+  howTo: {
+    label: 'Cómo leer los diagramas',
+    text: 'Todos los diagramas son interactivos: haz zoom con la rueda o pellizcando, arrastra para moverte, pulsa un nodo para enfocarlo con sus vecinos, busca una pieza y exporta el resultado como imagen o SVG. Ábrelo a pantalla completa para tener más espacio.',
+  },
+  indexLabel: 'Diagramas',
+  fullscreen: 'Abrir a pantalla completa',
+  loading: 'Cargando diagrama…',
+  diagramTitle: 'Diagrama interactivo',
+  frameLabel: 'Diagrama interactivo',
+  sections: [
+    {
+      slug: 'system',
+      kicker: '01 · Mapa del sistema',
+      h: 'Todo el sistema de un vistazo',
+      p: 'El planificador convierte tu petición en una orden con un criterio de éxito y la deja en el bus de ficheros. El orquestador la toma de la cola, lanza al ejecutor en un sandbox y comprueba él mismo el criterio. Alrededor de ese núcleo están la CLI, el panel web, el servidor MCP y la bóveda de conocimiento.',
+      points: [
+        'Planificador (Claude Code por defecto) y ejecutor (Qwen Code sobre un modelo local) son roles distintos y nunca el mismo agente.',
+        'El bus son ficheros en disco: colas, estado de los trabajos y semáforos exclusivos por worktree.',
+        'ea, ea-web y ea-mcp leen el mismo estado; todo escucha solo en 127.0.0.1.',
+        'El criterio de éxito es un comando de shell que ejecuta el sistema, nunca el agente.',
+      ],
+    },
+    {
+      slug: 'workspace',
+      kicker: '02 · Workspace',
+      h: 'Un workspace de Rust con crates pequeños',
+      p: 'El repositorio es un workspace de Cargo donde cada crate tiene una sola tarea y el grafo de dependencias es poco profundo. Los ajustes están en la base y toda diferencia entre sistemas queda confinada en un único crate. Encima se construyen tres binarios y el panel web.',
+      points: [
+        'ea-ajustes guarda los ajustes y no depende de ningún otro crate ea-*; ea-biblioteca solo depende de él.',
+        'ea-plataforma aísla todo lo que cambia entre Linux, macOS y Windows.',
+        'ea-store (SQLite), ea-bus (colas de ficheros y máquina de estados) y ea-boveda (el único código que escribe en la bóveda) forman la capa de datos.',
+        'La app de escritorio y el instalador de Windows viven fuera del workspace, con su propio manifiesto.',
+      ],
+    },
+    {
+      slug: 'mission-flow',
+      kicker: '03 · Misiones y obras',
+      h: 'Tres formas de encargar trabajo',
+      p: 'Una misión itera hacia un objetivo hasta que su criterio pasa. Una obra sigue un plan largo fase a fase, cada una con su criterio. Una rutina repite un proceso conocido desde un TOML versionado. El diagrama muestra cómo viaja cada una del planificador al ejecutor y de vuelta.',
+      points: [
+        'Una misión vuelve al planificador al terminar o al quedar bloqueada.',
+        'Una obra vuelve al terminar, o cada N fases para revisarla.',
+        'Una rutina que falla deja un paquete de corrección en espera hasta que lo confirmas.',
+        'Reformular una obra la rehace desde la fase que elijas; las anteriores se conservan.',
+      ],
+    },
+    {
+      slug: 'planner-executor',
+      kicker: '04 · Planificador y ejecutor',
+      h: 'Planificador y ejecutor, paso a paso',
+      p: 'La secuencia muestra quién habla con quién y cuándo. El planificador escribe la orden; el orquestador bloquea el worktree, lanza al ejecutor, corre el criterio tras cada intento y le devuelve la evidencia de cualquier fallo. Solo entonces vuelven el informe y el diff para revisarlos.',
+      points: [
+        'Cada rol lo puede ocupar Claude Code, Qwen Code, Codex, OpenCode o Antigravity, según lo que permita el catálogo.',
+        'El ejecutor corre siempre contra un modelo local; uno remoto solo vale para el planificador.',
+        'Los intentos tienen tope de tiempo, turnos e iteraciones, y todo el árbol de procesos muere al llegar al límite.',
+        'Tú, o el planificador con /revisar, cierras, reformulas o continúas el trabajo.',
+      ],
+    },
+    {
+      slug: 'job-lifecycle',
+      kicker: '05 · Ciclo de vida',
+      h: 'La vida de un trabajo',
+      p: 'Cada trabajo recorre una máquina de estados pequeña que el código valida como función pura. Un trabajo entra en cola, se ejecuta, espera revisión y se cierra; también puede cancelarse o quedar en espera como paquete de corrección. Una transición ilegal se rechaza en vez de escribirse.',
+      points: [
+        'Camino principal: en_cola, ejecutando, en_revision, cerrado.',
+        'Cancelar un trabajo en curso detiene de verdad al agente: SIGTERM y, a los 5 segundos, SIGKILL.',
+        'Lo que el agente ya escribió en el worktree no se deshace.',
+        'Los ficheros de estado se escriben de forma atómica: un fallo nunca deja un trabajo a medias.',
+      ],
+    },
+    {
+      slug: 'actions-flow',
+      kicker: '06 · Acciones supervisadas',
+      h: 'Los agentes proponen, tú decides',
+      p: 'Todo lo que cambia el sistema pasa por un único catálogo de acciones. Un agente solo puede simularlo o encolar una propuesta; no puede confirmarla. Tú revisas la simulación y aceptas, y solo entonces se revalida y se ejecuta la acción, con cada paso anotado en el diario.',
+      points: [
+        'El servidor MCP y el orquestador solo reciben una capa de consulta.',
+        'Lo irreversible exige una terminal real y escribir una confirmación.',
+        'El diario es append-only a nivel de motor; un error se corrige con otro evento.',
+        'La bóveda de notas tiene un único escritor, ea-boveda.',
+      ],
+    },
+    {
+      slug: 'database',
+      kicker: '07 · Base de datos',
+      h: 'Un solo fichero SQLite para el historial',
+      p: 'El bus guarda el estado vivo como ficheros; SQLite guarda el historial. Contiene el diario, las propuestas, el índice de la bóveda, los trabajos, las fases y las rutinas. Hay una sola migración, y una base con el esquema anterior se rechaza en lugar de actualizarse en silencio.',
+      points: [
+        'La tabla del diario está protegida por triggers: no se puede modificar ni borrar ninguna fila.',
+        'Los trabajos se enlazan con sus fases; las propuestas llevan la acción estructurada y su precondición.',
+        'La ruta de la base se configura con EA_DB_PATH, que las pruebas usan para aislarse.',
+      ],
+    },
+    {
+      slug: 'platform',
+      kicker: '08 · Plataforma y seguridad',
+      h: 'Linux, macOS y Windows, las mismas garantías',
+      p: 'El ejecutor corre dentro del sandbox de cada sistema: bubblewrap en Linux, Seatbelt en macOS. Windows no tiene sandbox nativo, así que con el sandbox activado el ejecutor se niega a arrancar y se recomienda WSL2. Servicios, rutas y terminales se adaptan a cada sistema, y todo se queda en tu máquina.',
+      points: [
+        'Los topes duros matan al agente y a sus descendientes cuando se acaba el tiempo.',
+        'El agente no tiene herramientas web y la aprobación automática solo vale dentro del sandbox.',
+        'Los servicios corren como systemd --user, launchd o tareas programadas, instalados con ea instalar.',
+        'Solo local: todo escucha en 127.0.0.1 y el panel web filtra la cabecera Host.',
+      ],
+    },
+  ],
 };

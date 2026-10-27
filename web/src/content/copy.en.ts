@@ -32,6 +32,7 @@ export const site = {
 export const ui = {
   skip: 'Skip to content',
   top: 'Gachapon — top',
+  home: 'Gachapon — home page',
   navProject: 'Project',
   /** The header button that switches to the other language. */
   langSwitch: 'Ver en español',
@@ -231,4 +232,125 @@ export const notFound = {
   h: 'Page not found.',
   p: 'The address you followed does not exist or has moved.',
   home: 'Go to the home page in English',
+};
+
+/** The architecture page: one embedded, interactive diagram per section (rendered HTML in public/architecture/<lang>/<slug>.html). */
+export const architecture = {
+  title: 'Architecture — how Gachapon is built · Gachapon',
+  description:
+    'The architecture of Gachapon in eight interactive diagrams: system map, workspace, mission flow, planner and executor, job lifecycle, supervised actions, database and platform.',
+  nav: 'Architecture',
+  back: 'Story',
+  kicker: 'Architecture · design',
+  h1: 'How Gachapon is built.',
+  intro: [
+    'Gachapon is a local Rust orchestrator that splits work between two roles: a planner that formalises and reviews, and an executor that does the mechanical work inside a sandbox. They talk through a file bus, never directly.',
+    'These eight diagrams walk through the whole design, from the overall map down to the database and the three operating systems it runs on.',
+  ],
+  howTo: {
+    label: 'How to read the diagrams',
+    text: 'Every diagram is interactive: scroll or pinch to zoom, drag to pan, click a node to focus it and its neighbours, search to find a part, and export the result as an image or SVG. Open it full screen for more room.',
+  },
+  indexLabel: 'Diagrams',
+  fullscreen: 'Open full screen',
+  loading: 'Loading diagram…',
+  diagramTitle: 'Interactive diagram',
+  frameLabel: 'Interactive diagram',
+  sections: [
+    {
+      slug: 'system',
+      kicker: '01 · System map',
+      h: 'The whole system at a glance',
+      p: 'The planner turns your request into an order with a success criterion and drops it on the file bus. The orchestrator takes it from the queue, runs the executor in a sandbox and checks the criterion itself. Around that core sit the CLI, the web panel, the MCP server and the knowledge vault.',
+      points: [
+        'Planner (Claude Code by default) and executor (Qwen Code on a local model) are separate roles, never the same agent.',
+        'The bus is plain files on disk: queues, job state and exclusive locks per worktree.',
+        'ea, ea-web and ea-mcp read the same state; everything listens on 127.0.0.1 only.',
+        'The success criterion is a shell command run by the system, never by the agent.',
+      ],
+    },
+    {
+      slug: 'workspace',
+      kicker: '02 · Workspace',
+      h: 'A Rust workspace of small crates',
+      p: 'The repository is a Cargo workspace where each crate has one job and the dependency graph stays shallow. Settings sit at the base, and every platform difference is confined to a single crate. Three binaries and one web panel are built on top.',
+      points: [
+        'ea-ajustes holds the settings and depends on no other ea-* crate; ea-biblioteca depends only on it.',
+        'ea-plataforma isolates everything that differs between Linux, macOS and Windows.',
+        'ea-store (SQLite), ea-bus (file queues and state machine) and ea-boveda (the only code that writes to the vault) are the data layer.',
+        'The desktop app and the Windows installer live outside the workspace, with their own manifests.',
+      ],
+    },
+    {
+      slug: 'mission-flow',
+      kicker: '03 · Missions and works',
+      h: 'Three ways to hand over work',
+      p: 'A mission iterates towards one goal until its criterion passes. A work (obra) follows a long plan phase by phase, each with its own criterion. A routine repeats a known process from a versioned TOML file. The diagram shows how each one travels from the planner to the executor and back.',
+      points: [
+        'A mission returns to the planner when it finishes or gets blocked.',
+        'A work returns when it finishes, or every N phases to be reviewed.',
+        'A failed routine leaves a correction package waiting until you confirm it.',
+        'Rephrasing a work restarts it from a chosen phase; earlier phases are kept.',
+      ],
+    },
+    {
+      slug: 'planner-executor',
+      kicker: '04 · Planner and executor',
+      h: 'Planner and executor, in sequence',
+      p: 'The sequence shows who talks to whom and when. The planner writes the order; the orchestrator locks the worktree, launches the executor, runs the criterion after every attempt and feeds the evidence of any failure back in. Only then does the report and diff return for review.',
+      points: [
+        'Each role can be filled by Claude Code, Qwen Code, Codex, OpenCode or Antigravity, within what the catalog allows.',
+        'The executor always runs against a local model; a remote model is only valid for the planner.',
+        'Attempts are capped by time, turns and iterations, and the whole process tree dies at the limit.',
+        'You, or the planner with /revisar, close, rephrase or continue the job.',
+      ],
+    },
+    {
+      slug: 'job-lifecycle',
+      kicker: '05 · Job lifecycle',
+      h: 'The life of a job',
+      p: 'Every job moves through a small state machine that the code validates as a pure function. A job is queued, runs, waits for review and is closed; it can also be cancelled, or wait as a correction package. An illegal transition is rejected rather than written.',
+      points: [
+        'Main path: en_cola, ejecutando, en_revision, cerrado.',
+        'Cancelling a running job really stops the agent: SIGTERM, then SIGKILL after 5 seconds.',
+        'What the agent already wrote in the worktree is not undone.',
+        'State files are written atomically, so a crash never leaves a half-written job.',
+      ],
+    },
+    {
+      slug: 'actions-flow',
+      kicker: '06 · Supervised actions',
+      h: 'Agents propose, you decide',
+      p: 'Anything that changes the system goes through one catalog of actions. An agent can only simulate it or queue a proposal; it cannot confirm it. You review the simulation and accept, and only then is the action revalidated and executed, with every step recorded in the journal.',
+      points: [
+        'The MCP server and the orchestrator only receive a read-only layer.',
+        'Irreversible actions require a real terminal and typing a confirmation.',
+        'The journal is append-only at the engine level; a mistake is fixed with another event.',
+        'The vault of notes is written by a single owner, ea-boveda.',
+      ],
+    },
+    {
+      slug: 'database',
+      kicker: '07 · Database',
+      h: 'One SQLite file for history',
+      p: 'The bus holds the live state as files; SQLite keeps the history. It stores the journal, proposals, the vault index, jobs, phases and routines. There is a single migration, and an old schema is rejected instead of silently upgraded.',
+      points: [
+        'The journal table is protected by triggers, so rows cannot be updated or deleted.',
+        'Jobs link to their phases; proposals carry the structured action and its precondition.',
+        'The database path is configurable with EA_DB_PATH, which tests use to stay isolated.',
+      ],
+    },
+    {
+      slug: 'platform',
+      kicker: '08 · Platform and safety',
+      h: 'Linux, macOS and Windows, same guarantees',
+      p: 'The executor runs inside the sandbox of each system: bubblewrap on Linux, Seatbelt on macOS. Windows has no native sandbox, so with sandbox enabled the executor refuses to start and WSL2 is recommended. Services, paths and terminals are adapted per system, and everything stays on your machine.',
+      points: [
+        'Hard limits kill the agent and its descendants when time runs out.',
+        'The agent has no web tools and auto-approval applies only inside the sandbox.',
+        'Services run as systemd --user, launchd or scheduled tasks, installed by ea instalar.',
+        'Local only: every server listens on 127.0.0.1 and the web panel filters the Host header.',
+      ],
+    },
+  ],
 };
