@@ -12,9 +12,6 @@ use rmcp::model::{
     ProtocolVersion,
 };
 use rmcp::transport::StreamableHttpClientTransport;
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-};
 use rmcp::{ClientLifecycleMode, ClientServiceExt};
 use tokio::sync::Mutex;
 
@@ -60,12 +57,10 @@ async fn start_server(db_path: std::path::PathBuf) -> String {
     // Roles de fábrica, no los del usuario.
     let ajustes = ea_ajustes::Fuentes::aislada(&db_path.parent().unwrap().join("ajustes"));
 
-    let service = StreamableHttpService::new(
-        move || Ok(EaTools::con_rutinas_dir(store.clone(), rutinas.clone()).con_ajustes(ajustes.clone())),
-        LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default(),
+    let router = ea_mcp::router(
+        move || EaTools::con_rutinas_dir(store.clone(), rutinas.clone()).con_ajustes(ajustes.clone()),
+        Default::default(),
     );
-    let router = axum::Router::new().nest_service("/mcp", service);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -412,4 +407,92 @@ async fn los_equipos_se_leen_con_su_presencia_pero_no_se_crean_ni_se_duermen_des
     assert!(ea_acciones::CATALOGO.iter().filter(|h| h.nombre.contains("equipo")).all(|h| h.riesgo == ea_acciones::Riesgo::Lectura));
 
     client.cancel().await.ok();
+}
+
+/// Un `initialize` por TCP a pelo con este `Host` (un cliente HTTP pondría el
+/// de la URL); devuelve el código de estado de la respuesta.
+fn codigo_con_host(direccion: &str, host: &str) -> u16 {
+    use std::io::{BufRead, BufReader, Write};
+    let cuerpo = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"prueba-host","version":"0"}}}"#;
+    let mut s = std::net::TcpStream::connect(direccion).unwrap();
+    s.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    write!(
+        s,
+        "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {}\r\n\r\n{cuerpo}",
+        cuerpo.len()
+    )
+    .unwrap();
+    let mut linea = String::new();
+    BufReader::new(s).read_line(&mut linea).unwrap();
+    linea.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or_else(|| panic!("respuesta rara: {linea:?}"))
+}
+
+/// S-12: el filtro de `Host` lo fija `ea_mcp::router`, no un valor por
+/// defecto de rmcp. Un nombre ajeno (una página que reenlaza su DNS a
+/// 127.0.0.1) recibe un 403; los nombres locales, la respuesta normal.
+#[tokio::test]
+async fn solo_atiende_los_hosts_locales() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = start_server(dir.path().join("t.db")).await;
+    let direccion = url.trim_start_matches("http://").trim_end_matches("/mcp").to_string();
+    let puerto = direccion.rsplit_once(':').unwrap().1.to_string();
+    for (host, esperado) in [
+        ("evil.example".to_string(), 403),
+        (format!("evil.example:{puerto}"), 403),
+        (format!("127.0.0.1.evil.example:{puerto}"), 403),
+        (format!("127.0.0.1:{puerto}"), 200),
+        (format!("localhost:{puerto}"), 200),
+        (format!("[::1]:{puerto}"), 200),
+    ] {
+        let (d, h) = (direccion.clone(), host.clone());
+        let codigo = tokio::task::spawn_blocking(move || codigo_con_host(&d, &h)).await.unwrap();
+        assert_eq!(codigo, esperado, "Host: {host}");
+    }
+}
+
+/// A-28: con SIGTERM (lo que manda systemd al parar o reiniciar el servicio)
+/// `ea-mcp` deja de escuchar y sale con 0, en vez de morir por la señal.
+#[cfg(unix)]
+#[test]
+fn para_limpio_con_sigterm() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let puerto = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let mut hijo = Command::new(env!("CARGO_BIN_EXE_ea-mcp"))
+        .env("EA_MCP_PORT", puerto.to_string())
+        .env("EA_CONFIG_DIR", d.join("config"))
+        .env("EA_DB_PATH", d.join("ea.db"))
+        .env("EA_ESTADO_DIR", d.join("estado"))
+        .env("EA_BOVEDA_DIR", d.join("boveda"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let esperar = |hijo: &mut std::process::Child, hasta: Duration| {
+        let inicio = Instant::now();
+        loop {
+            if let Some(st) = hijo.try_wait().unwrap() {
+                return Some(st);
+            }
+            if inicio.elapsed() > hasta {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    let inicio = Instant::now();
+    while std::net::TcpStream::connect(("127.0.0.1", puerto)).is_err() {
+        assert!(esperar(&mut hijo, Duration::ZERO).is_none(), "ea-mcp salió antes de escuchar");
+        assert!(inicio.elapsed() < Duration::from_secs(30), "ea-mcp no llegó a escuchar");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(Command::new("kill").args(["-TERM", &hijo.id().to_string()]).status().unwrap().success());
+    let Some(st) = esperar(&mut hijo, Duration::from_secs(10)) else {
+        let _ = hijo.kill();
+        panic!("ea-mcp no paró con SIGTERM");
+    };
+    assert!(st.success(), "ea-mcp debía salir con 0 tras SIGTERM: {st}");
+    assert!(std::net::TcpStream::connect(("127.0.0.1", puerto)).is_err(), "ya no escucha");
 }

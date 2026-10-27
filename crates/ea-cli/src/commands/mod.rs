@@ -33,6 +33,15 @@ pub fn parse_flexible_date(s: &str) -> Result<OffsetDateTime> {
     Ok(date.midnight().assume_utc())
 }
 
+/// Texto de origen externo (lo que escriben los agentes, la salida de un
+/// criterio, un fichero ajeno) listo para la terminal: sin caracteres de
+/// control salvo `\n` y `\t`, así que tampoco secuencias ANSI u OSC (un OSC 52
+/// escribe en el portapapeles). Solo en la salida de tabla: `--json` ya los
+/// escapa.
+pub fn limpio(texto: &str) -> String {
+    ea_biblioteca::sin_control(texto)
+}
+
 /// Formatea un timestamp para mostrarlo en tablas: legible, en UTC.
 pub fn fmt_ts(dt: OffsetDateTime) -> String {
     let fmt = format_description!("[year]-[month]-[day] [hour]:[minute]:[second] UTC");
@@ -105,7 +114,7 @@ pub fn confirmar_en_terminal(
     let irreversible = riesgo == "irreversible";
     println!("  Herramienta: {herramienta}   Riesgo: {}", riesgo.to_uppercase());
     println!("  Argumentos:  {argumentos}");
-    println!("  Simulación:  {simulacion}");
+    println!("  Simulación:  {}", limpio(simulacion));
     let respuesta = if irreversible {
         println!("\n  ACCIÓN IRREVERSIBLE: no hay vuelta atrás.");
         preguntar(&format!("  Para ejecutarla escribe «confirmo {referencia}» (otra cosa cancela): "))?
@@ -117,7 +126,13 @@ pub fn confirmar_en_terminal(
 
 #[cfg(test)]
 mod tests {
-    use super::respuesta_confirma;
+    use super::{limpio, respuesta_confirma};
+
+    #[test]
+    fn lo_que_se_imprime_no_lleva_secuencias_de_escape() {
+        assert_eq!(limpio("\x1b[31mrojo\x1b[0m\x07 ok\n"), "[31mrojo[0m ok\n");
+        assert_eq!(limpio("a\x1b]52;c;eA==\x07b\u{9b}2J\r\tc"), "a]52;c;eA==b2J\tc");
+    }
 
     #[test]
     fn la_confirmacion_es_explicita() {

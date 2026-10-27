@@ -15,13 +15,14 @@ ea-bus = { path = "../ea-bus" }
 ea-boveda = { path = "../ea-boveda" }
 ea-ajustes = { path = "../ea-ajustes" }
 ea-biblioteca = { path = "../ea-biblioteca" }
+ea-plataforma = { path = "../ea-plataforma", features = ["tokio"] }
 rmcp = { version = "3.3", features = [
     "server",
     "macros",
     "transport-streamable-http-server",
     "schemars",
 ] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 tokio-util = "0.7"
 axum = "0.8"
 serde = { version = "1.0", features = ["derive"] }

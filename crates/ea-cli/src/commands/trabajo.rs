@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use anyhow::{anyhow, bail, Result};
 use ea_bus::{Bus, Rol, Evento, Modo, Orden};
 
+use super::limpio;
+
 pub(super) fn bus() -> Result<Bus> {
     let b = Bus::abrir()?.con_actor("ea-cli");
     Ok(match ea_store::Store::open() {
@@ -72,7 +74,7 @@ pub fn listar() -> Result<()> {
     let b = Bus::abrir()?;
     for id in b.listar_trabajos()? {
         let (Ok(o), Ok(e)) = (b.leer_orden(&id), b.leer_estado(&id)) else { continue };
-        println!("{id}  {:<12} {:<8} {}", e.estado.as_str(), o.modo.as_str(), o.titulo);
+        println!("{id}  {:<12} {:<8} {}", e.estado.as_str(), o.modo.as_str(), limpio(&o.titulo));
     }
     Ok(())
 }
@@ -87,19 +89,21 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
+    // Lo que no es del sistema (lo escriben el planificador, el ejecutor o su
+    // criterio) pasa por `limpio`: sin secuencias de control en la terminal.
     println!("trabajo   {id}");
-    println!("titulo    {}", orden.titulo);
+    println!("titulo    {}", limpio(&orden.titulo));
     println!("modo      {}", orden.modo.as_str());
     println!("estado    {}", estado.estado.as_str());
     let fase = estado.fase_actual.map(|f| format!(" · fase {f}/{}", orden.fases.len())).unwrap_or_default();
     println!("iteracion {}{fase}", estado.iteracion);
     if let Some(d) = &estado.detalle {
-        println!("detalle   {d}");
+        println!("detalle   {}", limpio(d));
     }
     if let Some(e) = &estado.ejecutado_por {
-        println!("ejecutor  {} ({})", e.agente, e.modelo);
+        println!("ejecutor  {} ({})", limpio(&e.agente), limpio(&e.modelo));
     }
-    println!("worktree  {}{}", orden.worktree, if orden.worktree_propio { " (propio: se crea un git worktree para el trabajo)" } else { "" });
+    println!("worktree  {}{}", limpio(&orden.worktree), if orden.worktree_propio { " (propio: se crea un git worktree para el trabajo)" } else { "" });
     if orden.worktree_propio {
         match b.info_worktree(id)? {
             Some(w) => println!(
@@ -116,19 +120,19 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
         }
     }
     if let Some(e) = &orden.equipo {
-        println!("equipo    {e}");
+        println!("equipo    {}", limpio(e));
     }
     if let Some(a) = &orden.asignado_a {
-        println!("asignado  {a}");
+        println!("asignado  {}", limpio(a));
     }
     if let Some(r) = &orden.revisor {
-        println!("revisor   {r}");
+        println!("revisor   {}", limpio(r));
     }
     if let Some(c) = &orden.criterio_exito {
-        println!("criterio  {c}");
+        println!("criterio  {}", limpio(c));
     }
     if !orden.skills.is_empty() {
-        println!("skills    {}", orden.skills.join(", "));
+        println!("skills    {}", limpio(&orden.skills.join(", ")));
     }
     if let Some(r) = orden.revisar_cada {
         println!("revisar_cada {r}");
@@ -145,24 +149,24 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     println!("obra_completa {}", i.obra_completa);
     println!("fases_hechas  {}  ·  duracion {}s", i.fases_hechas, i.duracion_s);
     if let Some(m) = &i.motivo {
-        println!("motivo        {m}");
+        println!("motivo        {}", limpio(m));
     }
     if let Some(c) = &i.commit_inicio {
-        println!("commit_inicio {c}");
+        println!("commit_inicio {}", limpio(c));
     }
     if let Some(e) = &i.ejecutado_por {
-        println!("ejecutado_por {} ({})", e.agente, e.modelo);
+        println!("ejecutado_por {} ({})", limpio(&e.agente), limpio(&e.modelo));
     }
     if let Some(a) = &i.aviso {
-        println!("aviso         {a}");
+        println!("aviso         {}", limpio(a));
     }
     for f in &i.fases {
         let por = f.ejecutado_por.as_ref().map(|e| format!("  · {} ({})", e.agente, e.modelo)).unwrap_or_default();
-        println!("fase {} [{}] {}{por}", f.numero, f.resultado, f.titulo);
+        println!("{}", limpio(&format!("fase {} [{}] {}{por}", f.numero, f.resultado, f.titulo)));
     }
-    println!("evidencia:\n{}", i.evidencia.trim_end());
+    println!("evidencia:\n{}", limpio(i.evidencia.trim_end()));
     if let Some(d) = &i.diff_stat {
-        println!("diff stat:\n{}", d.trim_end());
+        println!("diff stat:\n{}", limpio(d.trim_end()));
     }
     println!("(detalle: ea trabajo diff {id} [--fase N] · todo: ea trabajo ver {id} --json)");
     Ok(())

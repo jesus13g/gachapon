@@ -2,7 +2,7 @@ use anyhow::Result;
 use comfy_table::Table;
 use ea_store::{EventFilter, EventOutcome, NuevaNota, Store};
 
-use super::{fmt_ts, parse_flexible_date};
+use super::{fmt_ts, limpio, parse_flexible_date};
 
 /// Los filtros de `ea diario listar`, tal como llegan de la línea de órdenes.
 pub struct Filtro {
@@ -46,9 +46,9 @@ pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
         table.add_row(vec![
             e.id.to_string(),
             fmt_ts(e.ts),
-            e.actor,
-            e.action,
-            e.trabajo.unwrap_or_default(),
+            limpio(&e.actor),
+            limpio(&e.action),
+            limpio(&e.trabajo.unwrap_or_default()),
             e.outcome.map(|o| o.as_str().to_string()).unwrap_or_default(),
         ]);
     }
@@ -63,10 +63,12 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
     let e = store.get_event(id)?;
     println!("Evento #{}", e.id);
     println!("  Cuándo:    {}", fmt_ts(e.ts));
-    println!("  Actor:     {}", e.actor);
-    println!("  Acción:    {}", e.action);
+    // El actor, la acción y el trabajo de un evento de `ea-mcp` son los que
+    // declaró o pidió el agente: sin secuencias de control en la terminal.
+    println!("  Actor:     {}", limpio(&e.actor));
+    println!("  Acción:    {}", limpio(&e.action));
     if let Some(trabajo) = &e.trabajo {
-        println!("  Trabajo:   {trabajo}");
+        println!("  Trabajo:   {}", limpio(trabajo));
     }
     if let Some(outcome) = e.outcome {
         println!("  Resultado: {}", outcome.as_str());
@@ -75,7 +77,7 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
         println!("  Duración:  {duration} ms");
     }
     if let Some(detail) = &e.detail {
-        println!("  Detalle:   {detail}");
+        println!("  Detalle:   {}", limpio(detail));
     }
     if let Some(notas) = store.correcciones_diario(&[e.id])?.get(&e.id) {
         let lista: Vec<String> = notas.iter().map(|n| format!("#{n}")).collect();

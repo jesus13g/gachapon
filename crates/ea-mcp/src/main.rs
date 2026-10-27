@@ -3,9 +3,6 @@ use std::sync::Arc;
 use anyhow::Context;
 use ea_mcp::EaTools;
 use ea_store::Store;
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-};
 use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -32,22 +29,18 @@ async fn main() -> anyhow::Result<()> {
     let store = Arc::new(Mutex::new(store));
 
     let cancel = tokio_util::sync::CancellationToken::new();
-    let service = StreamableHttpService::new(
-        move || Ok(EaTools::new(store.clone())),
-        LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default().with_cancellation_token(cancel.child_token()),
-    );
-
-    let router = axum::Router::new().nest_service("/mcp", service);
+    let router = ea_mcp::router(move || EaTools::new(store.clone()), cancel.child_token());
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
 
     tracing::info!(%bind_addr, "servidor de herramientas MCP arrancado (endpoint /mcp)");
 
+    // SIGTERM (systemd, launchd) o Ctrl-C: deja de aceptar, cierra las
+    // sesiones abiertas (sus flujos SSE no acabarían solos) y sale con 0.
     axum::serve(listener, router)
         .with_graceful_shutdown(async move {
-            let _ = tokio::signal::ctrl_c().await;
+            ea_plataforma::parada::esperar_parada().await;
             cancel.cancel();
         })
         .await?;

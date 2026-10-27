@@ -16,7 +16,7 @@ use ea_biblioteca::{Activado, Biblioteca, Elemento, Filtro, Inventario, Mecanism
 use ea_store::Store;
 use serde_json::{json, Value};
 
-use super::{bloquear, confirmar_en_terminal, sistema};
+use super::{bloquear, confirmar_en_terminal, limpio, sistema};
 
 const ACTOR: &str = "usuario";
 const CLAVE_CATEGORIAS: &str = "biblioteca.categorias";
@@ -122,11 +122,6 @@ pub fn listar(
         }
     }
     Ok(())
-}
-
-/// Texto de un fichero ajeno listo para un terminal: sin secuencias de escape.
-fn limpio(texto: &str) -> String {
-    ea_biblioteca::sin_control(texto)
 }
 
 pub fn ver(id: &str, json: bool) -> Result<()> {
@@ -360,14 +355,4 @@ pub fn categoria(id: &str, categoria: Option<&str>, quitar: bool) -> Result<()> 
         None => println!("{id}: vuelve a su categoría por defecto (el origen)."),
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod pruebas {
-    use super::limpio;
-
-    #[test]
-    fn lo_que_se_imprime_no_lleva_secuencias_de_escape() {
-        assert_eq!(limpio("\x1b[31mrojo\x1b[0m\x07 ok\n"), "[31mrojo[0m ok\n");
-    }
 }

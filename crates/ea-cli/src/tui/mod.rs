@@ -17,7 +17,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Tabs};
-use ratatui::Terminal;
+use ratatui::{Frame, Terminal};
 
 
 /// Resumen de una rutina para la pestaña `Rutinas`: solo lo que hace falta
@@ -223,33 +223,46 @@ fn datos_bus() -> orquestador_view::DatosOrquestador {
     d
 }
 
+/// Una pantalla. Buena parte de lo que pintan las pestañas lo escriben los
+/// agentes (títulos, informes, evidencias, descripciones) y el backend manda
+/// cada celda tal cual a la terminal: al final ninguna lleva caracteres de
+/// control, así que tampoco secuencias ANSI u OSC (como `commands::limpio`).
+fn pintar(frame: &mut Frame, data: &AppData, current: Tab, sel: usize, detalle: bool) {
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)])
+        .split(frame.area());
+
+    let titles: Vec<&str> = Tab::ALL.iter().map(|t| t.title()).collect();
+    let tabs = Tabs::new(titles)
+        .block(Block::default().borders(Borders::ALL).title("ea — ecosistema de asistente (q para salir, ←/→ para cambiar de pestaña)"))
+        .select(current.index())
+        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    frame.render_widget(tabs, chunks[0]);
+
+    match current {
+        Tab::Orquestador => orquestador_view::render(frame, chunks[1], &data.orquestador_bus, sel, detalle),
+        Tab::Diario => diario_view::render(frame, chunks[1], &data.events),
+        Tab::Servicios => servicios_view::render(frame, chunks[1], &data.servicios, &data.orquestador),
+        Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes, &data.ajustes),
+        Tab::Rutinas => rutinas_view::render(frame, chunks[1], &data.rutinas),
+        Tab::Propuestas => propuestas_view::render(frame, chunks[1], &data.propuestas),
+        Tab::Boveda => boveda_view::render(frame, chunks[1], &data.boveda_raiz, &data.boveda),
+    }
+
+    for celda in frame.buffer_mut().content.iter_mut() {
+        if celda.symbol().contains(char::is_control) {
+            let limpio: String = celda.symbol().chars().filter(|c| !c.is_control()).collect();
+            celda.set_symbol(if limpio.is_empty() { " " } else { &limpio });
+        }
+    }
+}
+
 fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -> Result<()> {
     let mut current = Tab::Orquestador;
     let mut sel = 0usize;
     let mut detalle = false;
 
     loop {
-        terminal.draw(|frame| {
-            let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)])
-                .split(frame.area());
-
-            let titles: Vec<&str> = Tab::ALL.iter().map(|t| t.title()).collect();
-            let tabs = Tabs::new(titles)
-                .block(Block::default().borders(Borders::ALL).title("ea — ecosistema de asistente (q para salir, ←/→ para cambiar de pestaña)"))
-                .select(current.index())
-                .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-            frame.render_widget(tabs, chunks[0]);
-
-            match current {
-                Tab::Orquestador => orquestador_view::render(frame, chunks[1], &data.orquestador_bus, sel, detalle),
-                Tab::Diario => diario_view::render(frame, chunks[1], &data.events),
-                Tab::Servicios => servicios_view::render(frame, chunks[1], &data.servicios, &data.orquestador),
-                Tab::Agentes => agentes_view::render(frame, chunks[1], &data.agentes, &data.ajustes),
-                Tab::Rutinas => rutinas_view::render(frame, chunks[1], &data.rutinas),
-                Tab::Propuestas => propuestas_view::render(frame, chunks[1], &data.propuestas),
-                Tab::Boveda => boveda_view::render(frame, chunks[1], &data.boveda_raiz, &data.boveda),
-            }
-        })?;
+        terminal.draw(|frame| pintar(frame, data, current, sel, detalle))?;
 
         if event::poll(std::time::Duration::from_millis(250))?
             && let Event::Key(key) = event::read()?
@@ -275,4 +288,54 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+    use ratatui::backend::TestBackend;
+
+    /// S-19 en la TUI: el informe de un trabajo (evidencia, motivo) y su título
+    /// llevan un OSC 52 y un borrado de pantalla; ninguna celda los conserva.
+    #[test]
+    fn ninguna_celda_lleva_caracteres_de_control() {
+        let d = tempfile::tempdir().unwrap();
+        let sec = "\x1b]52;c;ZWNobyBob2xh\x07\x1b[2J\u{9b}0m\r";
+        let trabajo = orquestador_view::TrabajoResumen {
+            id: "20260101T000000-00000001".into(),
+            modo: "mision",
+            titulo: format!("titulo{sec}"),
+            estado: "en_revision",
+            avance: String::new(),
+            informe: format!("motivo: m{sec}\n\nevidencia:\nsalida{sec}\tfin\n"),
+        };
+        let data = AppData {
+            events: vec![],
+            rutinas: vec![],
+            propuestas: vec![],
+            servicios: vec![],
+            orquestador: String::new(),
+            agentes: vec![],
+            ajustes: ea_ajustes::cargar_de(&ea_ajustes::Fuentes::aislada(d.path())).ajustes,
+            boveda_raiz: String::new(),
+            boveda: vec![],
+            orquestador_bus: orquestador_view::DatosOrquestador {
+                cola_modelo_local: vec![format!("cola{sec}")],
+                cola_claude_code: vec![],
+                semaforos: vec![],
+                trabajos: vec![trabajo],
+            },
+        };
+        let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        for detalle in [false, true] {
+            let buf = t.draw(|f| pintar(f, &data, Tab::Orquestador, 0, detalle)).unwrap().buffer.clone();
+            let texto: String = buf.content.iter().map(|c| c.symbol()).collect();
+            assert!(!texto.contains(char::is_control), "detalle={detalle}: {texto:?}");
+            // Cada carácter de control ocupaba su celda: queda en blanco y el resto se ve.
+            assert!(texto.contains("cola ]52;c;ZWNobyBob2xh  [2J 0m"), "{texto}");
+            if detalle {
+                assert!(texto.contains("salida ]52;c;ZWNobyBob2xh  [2J 0m"), "{texto}");
+            }
+        }
+    }
 }

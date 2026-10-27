@@ -586,6 +586,7 @@ dependencies = [
  "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
+ "ea-plataforma",
  "ea-store",
  "rmcp",
  "schemars",

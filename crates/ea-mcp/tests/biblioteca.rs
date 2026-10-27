@@ -14,9 +14,6 @@ use rmcp::model::{
     CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams, ProtocolVersion,
 };
 use rmcp::transport::StreamableHttpClientTransport;
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-};
 use rmcp::{ClientLifecycleMode, ClientServiceExt};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -61,16 +58,14 @@ async fn entorno() -> Entorno {
     fs::create_dir_all(&rutinas).unwrap();
     let boveda = dir.path().join("boveda");
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
-    let service = StreamableHttpService::new(
+    let router = ea_mcp::router(
         move || {
-            Ok(EaTools::con_entorno(store.clone(), rutinas.clone(), Boveda::en(boveda.clone()))
+            EaTools::con_entorno(store.clone(), rutinas.clone(), Boveda::en(boveda.clone()))
                 .con_ajustes(ajustes.clone())
-                .con_raices(raices.clone()))
+                .con_raices(raices.clone())
         },
-        LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default(),
+        Default::default(),
     );
-    let router = axum::Router::new().nest_service("/mcp", service);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {

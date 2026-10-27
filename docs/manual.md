@@ -949,7 +949,7 @@ aquí y el ecosistema no las relaja en silencio.
 | Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`), y al acabar cada corrida muere lo que haya dejado de fondo | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
 | Criterio de éxito | fuera del sandbox del agente; con `sandbox = true`, en `bwrap` solo para taparle `$XDG_RUNTIME_DIR` | ídem con Seatbelt (directorio de ejecución ilegible) | sin sandbox: con `sandbox = true` el ejecutor no arranca |
 | Parada limpia | `SIGTERM` o Ctrl-C | ídem | Ctrl-C, cierre de la consola o apagado |
-| Solo local | `127.0.0.1`; `ea-web` filtra el `Host` | ídem | ídem |
+| Solo local | `127.0.0.1`; `ea-web` y `ea-mcp` filtran el `Host` | ídem | ídem |
 | Terminal real (TTY) para lo irreversible | sí | sí | sí |
 | Ficheros privados (clave del panel, secretos de sesión) | `0600` / `0700` | `0600` / `0700` | dentro del perfil del usuario, que solo él (y los administradores) lee por la ACL heredada; no se fuerzan ACL propias |
 | Avisos de escritorio | sí | sí | no hay |
@@ -1037,6 +1037,16 @@ su forma canónica. Una obra numera sus fases `1, 2, …, N` en el orden en que
 van. El bus exige además, la cree quien la cree, el worktree absoluto, esa
 numeración, el criterio y las skills.
 
+Lo que viene de fuera (lo que escriben los agentes y la salida de los
+criterios: títulos, motivos, avisos, evidencias, descripciones de propuestas,
+el trabajo o el actor de un evento) llega a la terminal sin caracteres de
+control, salvo saltos de línea y tabuladores: ninguna secuencia ANSI u OSC (un
+OSC 52 escribe en el portapapeles; un `ESC[2J` borra la pantalla). Lo hacen
+`ea trabajo ver|listar`, `ea diario ver|listar`, `ea propuestas
+ver|listar|decidir`, `ea equipo ver|listar` y `ea biblioteca`; `ea tui` deja en
+blanco la celda de cada carácter de control. Con `--json` el texto va entero
+(JSON ya los escapa).
+
 La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
 (o en `rutas.db` de los ajustes, o en `$EA_DB_PATH`). Servicios de sesión (`systemd --user` en Linux; launchd y el Programador de tareas en los demás, ver `ea servicios`): `llama-server`,
 `ea-orchestrator`, `ea-mcp` y `ea-web`; las rutinas se programan con
@@ -1093,6 +1103,13 @@ la franja «Te espera» de Actividad, o la pega en «✎ nueva versión» de la 
 ./target/release/ea-mcp        # arranque manual, escucha en 127.0.0.1:8765
 # puerto: red.puerto_mcp de los ajustes o $EA_MCP_PORT
 ```
+
+Solo atiende `Host: localhost`, `127.0.0.1` o `[::1]` (con cualquier puerto):
+una página ajena que reenlace su nombre a `127.0.0.1` (DNS rebinding) recibe un
+403. La lista la fija `ea-mcp` (`ea_mcp::HOSTS_PERMITIDOS`), no un valor por
+defecto de la biblioteca MCP. Con `SIGTERM` (`systemctl --user stop ea-mcp`) o
+Ctrl-C (en Windows, también el cierre de la consola o el apagado) deja de
+escuchar, cierra las sesiones abiertas y sale con 0.
 
 Herramientas expuestas (un solo catálogo, `ea-acciones`), con su nivel de
 riesgo (§7.3):

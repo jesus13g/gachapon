@@ -23,6 +23,8 @@ use comfy_table::Table;
 use ea_ajustes::{ficha, Ajustes};
 use ea_bus::{Bus, EstadoEquipo, Miembro, NuevoEquipo, Presencia, RolEquipo, VistaEquipo, INTERVALO_LATIDO_S};
 
+use super::limpio;
+
 /// Cuántos trabajos del equipo enseña `ver`.
 const TRABAJOS_VISTOS: usize = 20;
 
@@ -163,7 +165,7 @@ pub fn listar(json: bool) -> Result<()> {
     for e in &v {
         let miembros: Vec<String> =
             e.miembros.iter().map(|m| format!("{}:{}{}", m.agente, m.rol.as_str(), if m.viva { "*" } else { "" })).collect();
-        t.add_row(vec![e.id.clone(), estado_equipo(e.estado).into(), e.titulo.clone(), miembros.join(", "), e.trabajos.to_string()]);
+        t.add_row(vec![e.id.clone(), estado_equipo(e.estado).into(), limpio(&e.titulo), miembros.join(", "), e.trabajos.to_string()]);
     }
     println!("{t}");
     Ok(())
@@ -179,7 +181,8 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
-    print!("{}", texto_equipo(&v));
+    // Los títulos, informes y avisos de los trabajos los escriben los agentes.
+    print!("{}", limpio(&texto_equipo(&v)));
     Ok(())
 }
 
