@@ -19,6 +19,7 @@ pub mod error;
 pub mod flujo;
 pub mod herramientas;
 mod plist;
+pub mod salud;
 pub mod servicios;
 pub mod sesion;
 pub mod sistema;

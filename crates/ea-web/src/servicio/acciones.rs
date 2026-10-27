@@ -92,7 +92,7 @@ async fn guia(s: &AppState) -> Guia {
         }
     }
     // Sin `systemctl`, «desconocido»: el formulario lo dice igual.
-    let mut servicios: BTreeMap<String, String> = crate::estado::servicios(s.config.systemctl)
+    let mut servicios: BTreeMap<String, String> = ea_acciones::salud::servicios(s.config.systemctl)
         .await
         .into_iter()
         .map(|srv| (srv.nombre.to_string(), srv.activo))

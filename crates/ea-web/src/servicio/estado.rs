@@ -10,7 +10,7 @@ use crate::vistas::{AgenteConPresencia, AgentesVista, AgenteVista, PresenciaVist
 use crate::AppState;
 
 pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
-    let servicios = crate::estado::servicios(s.config.systemctl).await;
+    let servicios = ea_acciones::salud::servicios(s.config.systemctl).await;
 
     let store = s.store.lock().await;
     let orquestador = store.estado_orquestador(s.config.umbral_heartbeat_s)?;
@@ -104,7 +104,7 @@ pub async fn agentes(s: &AppState) -> AgentesVista {
         })
         .collect();
     let presencias = bus_lectura(s).map(|b| b.presencias()).unwrap_or_default();
-    let agentes = crate::agentes::disponibilidad(&e.ajustes)
+    let agentes = ea_acciones::salud::disponibilidad(&e.ajustes)
         .await
         .into_iter()
         .map(|agente| {

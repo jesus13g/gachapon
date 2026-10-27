@@ -2,11 +2,11 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
 use ratatui::Frame;
 
-use super::ServicioResumen;
+use ea_acciones::salud::Servicio;
 
 /// Servicios residentes (preguntados a `systemd --user` al arrancar la TUI)
 /// y salud del orquestador según su último heartbeat en el diario.
-pub fn render(frame: &mut Frame, area: Rect, servicios: &[ServicioResumen], orquestador: &str) {
+pub fn render(frame: &mut Frame, area: Rect, servicios: &[Servicio], orquestador: &str) {
     let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
 
     let cabecera = Paragraph::new(orquestador.to_string())

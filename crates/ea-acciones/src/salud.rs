@@ -1,13 +1,65 @@
-//! Disponibilidad de los agentes del catálogo (spec 017): qué rol ocupa cada
-//! uno, si su binario está y si responde el endpoint de su modelo. La usan
-//! `GET /api/agentes` y `ea agentes`. Nunca se lanza al agente: el binario
-//! solo se busca en el `PATH` y al modelo solo se le pide `GET /models`.
+//! Salud del ecosistema, de solo lectura: los servicios residentes
+//! ([`servicios`]) y la disponibilidad de los agentes del catálogo
+//! ([`disponibilidad`], spec 017). La usan `ea-web` (`GET /api/estado` y
+//! `GET /api/agentes`), `ea agentes` y la TUI.
+//!
+//! Los servicios se preguntan al gestor de servicios del sistema
+//! (`systemd --user`, launchd o el Programador de tareas). Todo es de mejor
+//! esfuerzo: si el gestor no está o no responde, se devuelve "desconocido" en
+//! vez de fallar (§12.4: degradación limpia).
+//!
+//! De los agentes, qué rol ocupa cada uno, si su binario está y si responde el
+//! endpoint de su modelo. Nunca se lanza al agente: el binario solo se busca en
+//! el `PATH` y al modelo solo se le pide `GET /models`.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use ea_ajustes::{Ajustes, VistaAgente};
 use serde::Serialize;
+
+use crate::GestorServicios;
+
+/// Los únicos servicios que la interfaz puede consultar y reiniciar.
+pub const SERVICIOS: [&str; 3] = ["llama-server", "ea-mcp", "ea-orchestrator"];
+
+pub struct Servicio {
+    pub nombre: &'static str,
+    /// `active`, `inactive`, `failed`… o `desconocido`.
+    pub activo: String,
+    /// Segundos que lleva activo. Se calcula con el reloj monotónico y no
+    /// con `ActiveEnterTimestamp`: esta máquina alterna con Windows y arranca
+    /// con la hora de pared desajustada hasta que NTP la corrige, así que las
+    /// marcas de pared de los servicios pueden quedar en el futuro. Solo con
+    /// systemd; launchd y el Programador de tareas no dan el dato (`None`).
+    pub activo_s: Option<i64>,
+}
+
+pub async fn servicios(consultar: bool) -> Vec<Servicio> {
+    let desconocido = || {
+        SERVICIOS
+            .iter()
+            .map(|&nombre| Servicio { nombre, activo: "desconocido".into(), activo_s: None })
+            .collect::<Vec<_>>()
+    };
+    if !consultar {
+        return desconocido();
+    }
+    let Some(info) = GestorServicios::usuario().panel(&SERVICIOS).await else {
+        return desconocido();
+    };
+    SERVICIOS
+        .iter()
+        .map(|&nombre| {
+            let i = info.iter().find(|i| i.nombre == nombre);
+            Servicio {
+                nombre,
+                activo: i.map_or_else(|| "desconocido".into(), |i| i.activo.clone()),
+                activo_s: i.and_then(|i| i.activo_s),
+            }
+        })
+        .collect()
+}
 
 const LIMITE: Duration = Duration::from_secs(2);
 
@@ -43,7 +95,9 @@ pub async fn disponibilidad(a: &Ajustes) -> Vec<AgenteDisponible> {
 }
 
 /// `GET <base_url>/models` responde 2xx antes del límite. Solo se llama con
-/// endpoints locales (`ea-ajustes` exige loopback a un perfil no remoto).
+/// endpoints locales (`ea-ajustes` exige loopback a un perfil no remoto). Con
+/// `reqwest` y no con el cliente mínimo de la instalación: un endpoint local
+/// puede ser `https://`.
 async fn responde(base_url: &str) -> bool {
     let Ok(cliente) = reqwest::Client::builder().timeout(LIMITE).no_proxy().build() else { return false };
     let url = format!("{}/models", base_url.trim_end_matches('/'));
@@ -89,5 +143,13 @@ mod tests {
         assert_eq!(de("qwen-code").vista.rol, Some("ejecutor"));
         assert_eq!(de("claude-code").vista.rol, Some("planificador"));
         assert_eq!(de("codex").vista.rol, None);
+    }
+
+    /// Sin consultar al gestor, cada servicio sale «desconocido» y en el orden de la lista.
+    #[tokio::test]
+    async fn sin_consultar_todo_es_desconocido() {
+        let s = servicios(false).await;
+        assert_eq!(s.iter().map(|s| s.nombre).collect::<Vec<_>>(), SERVICIOS);
+        assert!(s.iter().all(|s| s.activo == "desconocido" && s.activo_s.is_none()));
     }
 }

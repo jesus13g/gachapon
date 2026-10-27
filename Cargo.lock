@@ -484,6 +484,7 @@ dependencies = [
  "ea-bus",
  "ea-plataforma",
  "ea-store",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tempfile",
@@ -567,12 +568,12 @@ dependencies = [
  "ea-bus",
  "ea-plataforma",
  "ea-store",
- "ea-web",
  "ratatui",
  "serde_json",
  "tempfile",
  "time",
  "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -657,7 +658,6 @@ dependencies = [
  "ea-store",
  "getrandom 0.2.17",
  "http-body-util",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tempfile",

@@ -16,7 +16,6 @@ ea-acciones = { path = "../ea-acciones" }
 ea-boveda = { path = "../ea-boveda" }
 ea-ajustes = { path = "../ea-ajustes" }
 ea-biblioteca = { path = "../ea-biblioteca" }
-ea-web = { path = "../ea-web" }
 tokio = { version = "1", features = ["rt", "time", "process"] }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
@@ -29,3 +28,5 @@ crossterm = "0.28"
 
 [dev-dependencies]
 tempfile = "3"
+# La prueba de arquitectura lee los `Cargo.toml` del workspace.
+toml = "0.8"

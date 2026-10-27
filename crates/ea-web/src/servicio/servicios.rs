@@ -94,7 +94,7 @@ pub async fn plan(s: &AppState) -> Resultado<PlanServicios> {
 }
 
 pub async fn reiniciar(s: &AppState, nombre: &str) -> Resultado<Hecho> {
-    if !crate::estado::SERVICIOS.contains(&nombre) {
+    if !ea_acciones::salud::SERVICIOS.contains(&nombre) {
         return Err(ErrorWeb::NoEncontrado("servicio desconocido".into()));
     }
     if !s.config.systemctl {

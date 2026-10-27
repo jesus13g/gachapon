@@ -390,7 +390,9 @@ volver a arrancar los servicios.
 - `crates/ea-orchestrator`: binario `ea-orchestrator`, el ejecutor del agente
   local y el heartbeat.
 - `crates/ea-acciones`: catálogo único de herramientas con riesgo, simulación,
-  revalidación y el flujo propuesta → aceptación → ejecución.
+  revalidación y el flujo propuesta → aceptación → ejecución; también la salud
+  de los servicios residentes y de los agentes (`salud`), que leen el panel,
+  `ea agentes` y la TUI.
 - `crates/ea-boveda`: la bóveda de notas; único código que escribe en ella.
 - `crates/ea-cli`: binario `ea`, CLI y TUI; también el instalador (`ea instalar`,
   `ea desinstalar`, módulo `instalacion`), que lleva embebidos `claude/skills`,
@@ -406,6 +408,24 @@ volver a arrancar los servicios.
 - `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).
 - `claude/hooks/`: el envoltorio del hook de subagentes de Claude Code que usa `ea-web` (el trabajo lo hace `ea hook subagentes`).
 - `qwen/skills/`: las skills propias del agente local.
+
+Los crates forman capas y cada uno solo depende de los de debajo:
+
+| Capa | Crates | Puede depender de |
+|---|---|---|
+| Plataforma | `ea-plataforma` | — |
+| Configuración | `ea-ajustes` | `ea-plataforma` |
+| Persistencia | `ea-store` | `ea-ajustes` |
+| Mecanismos | `ea-boveda`, `ea-biblioteca`, `ea-bus` | `ea-store`, `ea-ajustes`, `ea-plataforma` |
+| Aplicación | `ea-acciones` | todo lo anterior |
+| Presentaciones | `ea-cli`, `ea-web`, `ea-mcp` | todo lo anterior, nunca otra presentación |
+| Presentaciones | `ea-orchestrator` | `ea-store`, `ea-bus`, `ea-ajustes`, `ea-plataforma` (nunca `ea-acciones`) |
+
+Lo que leen o deciden dos presentaciones vive debajo de ellas. Además, `libc`,
+`std::os::unix` y los `cfg` por sistema solo aparecen en `ea-plataforma` (salvo en
+las pruebas y en el aviso con acción del orquestador, solo de Linux). La prueba
+`crates/ea-cli/tests/arquitectura.rs` lee los `Cargo.toml` y el código y falla si
+alguien se sale del mapa.
 
 ## Equipos de agentes
 

@@ -71,7 +71,7 @@ pub struct AgentesVista {
 #[derive(Serialize)]
 pub struct AgenteConPresencia {
     #[serde(flatten)]
-    pub agente: crate::agentes::AgenteDisponible,
+    pub agente: ea_acciones::salud::AgenteDisponible,
     pub presencia: Option<PresenciaVista>,
 }
 

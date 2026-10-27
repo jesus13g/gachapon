@@ -28,14 +28,6 @@ pub struct RutinaResumen {
     pub ultima_ejecucion: Option<String>,
 }
 
-/// Servicio residente para la pestaña `Servicios` (copia plana de
-/// `ea_web::estado::Servicio`, que lleva un `&'static str`).
-pub struct ServicioResumen {
-    pub nombre: &'static str,
-    pub activo: String,
-    pub activo_s: Option<i64>,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Orquestador,
@@ -79,7 +71,7 @@ struct AppData {
     events: Vec<EaEvent>,
     rutinas: Vec<RutinaResumen>,
     propuestas: Vec<Propuesta>,
-    servicios: Vec<ServicioResumen>,
+    servicios: Vec<ea_acciones::salud::Servicio>,
     orquestador: String,
     agentes: Vec<ResumenAgente>,
     ajustes: ea_ajustes::Ajustes,
@@ -111,10 +103,7 @@ pub fn run(store: &mut Store) -> Result<()> {
     let servicios = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
-        .block_on(ea_web::estado::servicios(true))
-        .into_iter()
-        .map(|s| ServicioResumen { nombre: s.nombre, activo: s.activo, activo_s: s.activo_s })
-        .collect();
+        .block_on(ea_acciones::salud::servicios(true));
 
     let data = AppData {
         servicios,

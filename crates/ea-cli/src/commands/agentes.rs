@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 use comfy_table::Table;
+use ea_acciones::salud::{disponibilidad, AgenteDisponible};
 use ea_ajustes::{Rol, IDS_AGENTES};
-use ea_web::agentes::{disponibilidad, AgenteDisponible};
 
 const LIMITE_VERSION: Duration = Duration::from_secs(5);
 
