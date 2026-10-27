@@ -16,12 +16,7 @@ pub const CLAVE_AL_INICIAR: &str = "escritorio.al_iniciar";
 /// El binario `ea-escritorio`: junto al ejecutable actual (los binarios del
 /// ecosistema viven juntos) y, si no, en el `PATH`.
 pub fn binario_escritorio() -> Option<PathBuf> {
-    let nombre = ea_plataforma::rutas::nombre_exe("ea-escritorio");
-    std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join(&nombre)))
-        .filter(|b| b.is_file())
-        .or_else(|| ea_plataforma::rutas::buscar_en_path("ea-escritorio"))
+    ea_plataforma::rutas::binario_hermano("ea-escritorio").or_else(|| ea_plataforma::rutas::buscar_en_path("ea-escritorio"))
 }
 
 /// Aplica a la plataforma el nuevo valor de `escritorio.al_iniciar`.

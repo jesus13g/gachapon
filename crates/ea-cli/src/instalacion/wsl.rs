@@ -32,14 +32,12 @@ pub enum EstadoWsl {
 
 /// ¿Es un nombre de distribución aceptable (`[A-Za-z0-9._-]{1,64}`)? Los
 /// planes lo dan por hecho: quien los llama lo comprueba antes.
-pub fn distro_valida(d: &str) -> bool {
-    !d.is_empty() && d.len() <= 64 && d.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
-}
+pub use ea_plataforma::wsl::nombre_distro_valido as distro_valida;
 
-/// `wsl.exe` escribe en UTF-16LE; la sonda lo lee como UTF-8 con pérdida,
-/// así que quedan NUL (y a veces un BOM) entre los caracteres.
+/// La salida de `wsl.exe` que la sonda ya leyó como UTF-8 con pérdida, sin
+/// los NUL (ni el BOM) que deja el UTF-16LE (`ea_plataforma::wsl`).
 pub fn limpiar_salida_wsl(texto: &str) -> String {
-    texto.chars().filter(|c| *c != '\0' && *c != '\u{feff}').collect()
+    ea_plataforma::wsl::limpiar_salida(texto.as_bytes())
 }
 
 /// Las distribuciones de `wsl.exe -l -q`, una por línea.
@@ -260,15 +258,6 @@ mod pruebas {
     fn limpia_la_salida_utf16_de_wsl() {
         assert_eq!(distros(&utf16("Ubuntu\r\nkali-linux\r\n\r\n")), vec!["Ubuntu", "kali-linux"]);
         assert_eq!(limpiar_salida_wsl(&utf16("si")), "si");
-    }
-
-    #[test]
-    fn nombres_de_distro() {
-        assert!(distro_valida("Ubuntu-24.04"));
-        assert!(!distro_valida(""));
-        assert!(!distro_valida("a b"));
-        assert!(!distro_valida("x';calc;'"));
-        assert!(!distro_valida(&"a".repeat(65)));
     }
 
     #[test]

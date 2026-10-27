@@ -276,7 +276,7 @@ impl Temporizadores {
     /// Los de un sistema dado (parametrizable para las pruebas).
     pub fn para(sistema: Sistema) -> Self {
         let backend = Backend::de(sistema);
-        let ea = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(ea_plataforma::rutas::nombre_exe("ea"))));
+        let ea = ea_plataforma::rutas::ruta_hermana("ea");
         let datos_dir = if backend == Backend::Systemd { PathBuf::new() } else { ea_ajustes::cargar().rutas.estado.join("programadas") };
         Self {
             backend,

@@ -28,20 +28,19 @@
 //! deja el trabajo bloqueado con el motivo.
 //!
 //! Cancelación cooperativa: el estado se relee antes de cada iteración y de
-//! cada fase, y mientras corre el agente se sondea cada `SONDEO_CANCELACION`.
-//! El agente va en su propio grupo de procesos (Job Object en Windows): si el
-//! trabajo pasa a `cancelado` o vence su tope de tiempo, el árbol recibe
-//! `SIGTERM` y, tras `MARGEN_TERM`, se mata siempre.
+//! cada fase, y mientras corre el agente se sondea cada `SONDEO_CANCELACION`
+//! (ver [`ea_plataforma::proceso::correr`]). El agente va en su propio grupo
+//! de procesos (Job Object en Windows): si el trabajo pasa a `cancelado` o
+//! vence su tope de tiempo, el árbol recibe `SIGTERM` y, tras `MARGEN_TERM`,
+//! se mata siempre.
 //! Tras una cancelación no se corre el criterio ni se entrega informe; lo que
 //! el agente ya escribió en el worktree se queda como está.
 
-use std::io::Read;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use ea_plataforma::proceso::Arbol;
+use ea_plataforma::proceso::Corrida;
 use ea_bus::{
     Bus, Rol, CandadoWorktree, ConfigOrquestador, Evento, FaseInforme, Informe, Modo, Ocupante,
     Orden, ResultadoInforme,
@@ -52,13 +51,6 @@ use ea_bus::{
 pub(crate) const ESPERA_CANDADO: Duration = Duration::from_secs(2);
 const TIEMPO_CRITERIO_S: u64 = 120;
 const MAX_EVIDENCIA: usize = 2048;
-/// Cada cuánto se relee `estado.json` mientras corre el agente.
-const SONDEO_CANCELACION: Duration = Duration::from_secs(2);
-/// Lo que se espera tras pedir terminar al árbol antes de matarlo.
-const MARGEN_TERM: Duration = Duration::from_secs(10);
-/// Lo que se espera a que se cierren stdout y stderr tras la salida del
-/// proceso (un nieto escapado del grupo podría tenerlos abiertos).
-const ESPERA_SALIDA: Duration = Duration::from_secs(5);
 
 /// Lo que devuelve el agente tras una ejecución.
 #[derive(Debug, Clone, Default)]
@@ -75,105 +67,12 @@ pub struct SalidaAgente {
 
 pub use crate::agentes::{fabricar, Ejecutor, QwenCode};
 
-/// Ejecuta con tope de tiempo; devuelve (código, stdout, stderr). Código
-/// `None` si no arrancó, murió por señal o venció el tope.
-fn correr(cmd: Command, tope_s: u64) -> (Option<i32>, String, String) {
-    let c = correr_cancelable(cmd, tope_s, &|| false);
-    (c.codigo, c.salida, c.errores)
-}
-
-/// Resultado de [`correr_cancelable`].
-pub(crate) struct Corrida {
-    pub codigo: Option<i32>,
-    pub salida: String,
-    pub errores: String,
-    pub cancelado: bool,
-}
-
-/// Como [`correr`], pero el proceso va en su propio grupo (Unix) o Job Object
-/// (Windows), y cada `SONDEO_CANCELACION` se pregunta a `cancelado`. Si dice
-/// que sí, o vence el plazo `tope_s` (el tope de tiempo es del propio
-/// orquestador, sin `timeout` externo), se mata el árbol entero: `SIGTERM` al
-/// grupo, espera de `MARGEN_TERM` y `matar` siempre, para no dejar nietos
-/// sueltos. Por tiempo agotado el código es `None`, igual que antes con el 124.
-pub(crate) fn correr_cancelable(mut cmd: Command, tope_s: u64, cancelado: &dyn Fn() -> bool) -> Corrida {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    ea_plataforma::proceso::preparar_grupo(&mut cmd);
-    let mut hijo = match cmd.spawn() {
-        Ok(h) => h,
-        Err(e) => return Corrida { codigo: None, salida: String::new(), errores: e.to_string(), cancelado: false },
-    };
-    let arbol = Arbol::adoptar(hijo.id());
-    if let Err(e) = &arbol {
+/// Deja en el registro que el proceso no se pudo agrupar: al vencer el tope
+/// (o cancelar) solo habrá muerto el líder.
+pub(crate) fn avisar_sin_arbol(c: &Corrida) {
+    if let Some(e) = &c.sin_arbol {
         tracing::warn!(error = %e, "no se pudo agrupar el proceso del agente: al vencer el tope solo morirá el líder");
     }
-    let rx_salida = leer_en_hilo(hijo.stdout.take());
-    let rx_errores = leer_en_hilo(hijo.stderr.take());
-    let plazo = Instant::now() + Duration::from_secs(tope_s);
-    let mut ultimo_sondeo = Instant::now();
-    let mut cancelada = false;
-    let mut agotado = false;
-    let estado = loop {
-        match hijo.try_wait() {
-            Ok(Some(st)) => break Some(st),
-            Ok(None) => {}
-            Err(_) => break None,
-        }
-        if Instant::now() >= plazo {
-            agotado = true;
-            break matar_arbol(&mut hijo, arbol.as_ref().ok());
-        }
-        if ultimo_sondeo.elapsed() >= SONDEO_CANCELACION {
-            ultimo_sondeo = Instant::now();
-            if cancelado() {
-                cancelada = true;
-                break matar_arbol(&mut hijo, arbol.as_ref().ok());
-            }
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    let salida = rx_salida.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
-    let errores = rx_errores.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
-    let codigo = if cancelada || agotado { None } else { estado.and_then(|s| s.code()) };
-    Corrida { codigo, salida, errores, cancelado: cancelada }
-}
-
-/// Lee todo un flujo del hijo en un hilo; el texto llega por el canal.
-fn leer_en_hilo<R: Read + Send + 'static>(flujo: Option<R>) -> mpsc::Receiver<String> {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut b = Vec::new();
-        if let Some(mut f) = flujo {
-            let _ = f.read_to_end(&mut b);
-        }
-        let _ = tx.send(String::from_utf8_lossy(&b).into_owned());
-    });
-    rx
-}
-
-/// Pide terminar al árbol (`SIGTERM` al grupo en Unix), espera hasta
-/// `MARGEN_TERM` a que salga el líder y luego lo mata SIEMPRE, por si queda
-/// algún nieto. Sin árbol (no se pudo agrupar), solo cae el líder. Devuelve el
-/// estado de salida del líder.
-fn matar_arbol(hijo: &mut Child, arbol: Option<&Arbol>) -> Option<std::process::ExitStatus> {
-    let mut estado = None;
-    if let Some(a) = arbol {
-        if Arbol::admite_terminar_suave() {
-            a.terminar_suave();
-            let limite = Instant::now() + MARGEN_TERM;
-            while Instant::now() < limite {
-                if let Ok(Some(st)) = hijo.try_wait() {
-                    estado = Some(st);
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        }
-        a.matar();
-    } else {
-        let _ = hijo.kill();
-    }
-    estado.or_else(|| hijo.wait().ok())
 }
 
 /// Últimos `MAX_EVIDENCIA` bytes (en límite de carácter): la cola de la salida
@@ -297,14 +196,6 @@ fn debe_avisar(config: &ConfigOrquestador, ejecucion: Option<&Path>) -> bool {
     config.avisos_escritorio && !escritorio_vivo(ejecucion)
 }
 
-/// El binario `ea-escritorio` junto a los demás (el directorio del ejecutable),
-/// si existe.
-fn binario_escritorio() -> Option<std::path::PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let b = exe.parent()?.join(ea_plataforma::rutas::nombre_exe("ea-escritorio"));
-    b.is_file().then_some(b)
-}
-
 /// El lanzador de la acción «abrir»: `ea-escritorio` si está instalado y, si no,
 /// `ea-web-open` (si existe). Ambos se invocan igual: `<lanzador> '#trabajos/<id>'`.
 #[cfg(any(target_os = "linux", test))]
@@ -323,7 +214,8 @@ fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str, id: &str) {
     }
     #[cfg(target_os = "linux")]
     {
-        if let Some(abrir) = elegir_lanzador(binario_escritorio(), Path::new(EA_WEB_OPEN)) {
+        // `ea-escritorio` junto a los demás binarios, si existe.
+        if let Some(abrir) = elegir_lanzador(ea_plataforma::rutas::binario_hermano("ea-escritorio"), Path::new(EA_WEB_OPEN)) {
             let mut c = orden_aviso(titulo, resultado, id, &abrir);
             c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
             let (t, r) = (format!("ea: {titulo}"), resultado.to_string());
@@ -345,7 +237,7 @@ fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str, id: &str) {
             return;
         }
     }
-    let _ = (id, binario_escritorio);
+    let _ = id;
     let (titulo, resultado) = (format!("ea: {titulo}"), resultado.to_string());
     std::thread::spawn(move || avisar_simple(&titulo, &resultado));
 }
@@ -602,12 +494,13 @@ fn correr_criterio(wt: &Path, criterio: &str) -> (bool, String) {
         return (false, "no hay `sh`: instala Git for Windows (el criterio se ejecuta con sh)".into());
     };
     c.current_dir(wt);
-    let (codigo, out, err) = correr(c, TIEMPO_CRITERIO_S);
-    let mut texto = format!("{out}{err}");
-    if codigo.is_none() {
+    let r = ea_plataforma::proceso::correr(c, Duration::from_secs(TIEMPO_CRITERIO_S), &|| false);
+    avisar_sin_arbol(&r);
+    let mut texto = format!("{}{}", r.salida, r.errores);
+    if r.codigo.is_none() {
         texto.push_str("\n(criterio interrumpido por tiempo)");
     }
-    (codigo == Some(0), recortar(&texto))
+    (r.codigo == Some(0), recortar(&texto))
 }
 
 /// Llama al agente hasta que el criterio pase, salgan los topes (55) o se
@@ -1094,68 +987,6 @@ mod tests {
         assert!(neutro.contains("`test -f ok.txt`") && neutro.contains("## Reglas"));
         let qwen = construir_prompt(&o, "t", "c", "x", QwenCode.regla_herramientas());
         assert!(qwen.contains("- Para crear un fichero nuevo usa run_shell_command"));
-    }
-
-    #[test]
-    fn el_entorno_del_adaptador_llega_al_proceso() {
-        let mut c = Command::new("sh");
-        c.arg("-c").arg("printf %s \"$EA_PRUEBA\"").env("EA_PRUEBA", "hola");
-        assert_eq!(correr_cancelable(c, 10, &|| false).salida, "hola");
-    }
-
-    /// Corre `c` con el tope dado y comprueba que mueren el hijo y el nieto
-    /// (cuyos pids deja escritos el script en `pid-hijo` y `pid-nieto`).
-    fn comprobar_que_muere_el_arbol(d: &Path, c: Command, tope_s: u64) {
-        let t = Instant::now();
-        let r = correr_cancelable(c, tope_s, &|| false);
-        assert!(t.elapsed() < Duration::from_secs(tope_s + 11), "tardó {:?}", t.elapsed());
-        assert_eq!((r.codigo, r.cancelado), (None, false));
-        let pid = |f: &str| -> u32 {
-            let t = std::fs::read_to_string(d.join(f))
-                .unwrap_or_else(|e| panic!("{f}: {e}; salida {:?}, errores {:?}, tardó {:?}", r.salida, r.errores, t.elapsed()));
-            t.trim().parse().unwrap_or_else(|e| panic!("{f}: {t:?}: {e}"))
-        };
-        for f in ["pid-hijo", "pid-nieto"] {
-            let p = pid(f);
-            let limite = Instant::now() + Duration::from_secs(5);
-            while ea_plataforma::proceso::vive(p) && Instant::now() < limite {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            assert!(!ea_plataforma::proceso::vive(p), "{f} ({p}) sigue vivo");
-        }
-    }
-
-    /// Spec 020 (CE-005): el tope de tiempo lo vigila el orquestador y mata al
-    /// hijo y al nieto, sin `timeout` externo; el código queda en `None`.
-    #[cfg(unix)]
-    #[test]
-    fn el_tope_de_tiempo_mata_al_hijo_y_al_nieto() {
-        let d = tempfile::tempdir().unwrap();
-        let mut c = Command::new("sh");
-        c.arg("-c").arg("sleep 600 & echo $! > pid-nieto; echo $$ > pid-hijo; wait").current_dir(d.path());
-        comprobar_que_muere_el_arbol(d.path(), c, 1);
-    }
-
-    /// Lo mismo en Windows: el hijo es PowerShell y el nieto, un `ping`
-    /// lanzado con `Start-Process`; el trabajo (job object) los mata a ambos.
-    #[cfg(windows)]
-    #[test]
-    fn el_tope_de_tiempo_mata_al_hijo_y_al_nieto() {
-        let d = tempfile::tempdir().unwrap();
-        let guion = "$PID | Out-File -Encoding ascii pid-hijo; \
-                     $p = Start-Process -PassThru -WindowStyle Hidden ping -ArgumentList '-n','600','127.0.0.1'; \
-                     $p.Id | Out-File -Encoding ascii pid-nieto; Wait-Process -Id $p.Id";
-        let mut c = Command::new("powershell");
-        c.args(["-NoProfile", "-NonInteractive", "-Command", guion]).current_dir(d.path());
-        comprobar_que_muere_el_arbol(d.path(), c, 25);
-    }
-
-    #[test]
-    fn un_proceso_que_acaba_a_tiempo_devuelve_su_codigo() {
-        let mut c = Command::new("sh");
-        c.arg("-c").arg("echo hola; exit 3");
-        let r = correr_cancelable(c, 30, &|| false);
-        assert_eq!((r.codigo, r.salida.trim()), (Some(3), "hola"));
     }
 
     /// T-007 de la spec 017: una misión trivial con el agente de verdad,

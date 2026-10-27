@@ -15,11 +15,12 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use ea_ajustes::buscar_binario;
 use ea_bus::{ConfigOrquestador, PerfilEjecutor, TipoAgente, Topes};
 
-use crate::ejecutor::{correr_cancelable, SalidaAgente};
+use crate::ejecutor::{avisar_sin_arbol, SalidaAgente};
 use crate::sandbox::{canonica, perfil_seatbelt, Sandbox, SANDBOX_EXEC};
 
 /// Lo que el bucle del orquestador necesita de un ejecutor.
@@ -166,7 +167,8 @@ pub(crate) fn lanzar<A: AgenteCli>(
     for (k, v) in a.entorno(p) {
         cmd.env(k, v);
     }
-    let c = correr_cancelable(cmd, topes.tiempo_s + a.margen_s(), cancelado);
+    let c = ea_plataforma::proceso::correr(cmd, Duration::from_secs(topes.tiempo_s + a.margen_s()), cancelado);
+    avisar_sin_arbol(&c);
     let resumen = ea_bus::resumen_salida_agente(a.tipo(), &c.salida);
     SalidaAgente { codigo: c.codigo, bruta: c.salida, resumen, cancelado: c.cancelado }
 }

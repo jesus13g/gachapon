@@ -37,7 +37,7 @@ impl Terminal {
     /// La del sistema, con el `ea` de la misma carpeta que este binario
     /// (`target/release/`, donde los ejecutan los servicios), nunca del PATH.
     pub fn del_sistema() -> Self {
-        match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(ea_plataforma::rutas::nombre_exe("ea")))) {
+        match ea_plataforma::rutas::ruta_hermana("ea") {
             Some(ea) => Self::Sistema { ea },
             None => Self::Ninguna,
         }

@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use ea_plataforma::wsl::nombre_distro_valido;
 use serde_json::Value;
 
 use crate::agentes::{ficha, id_perfil_valido, Rol};
@@ -70,11 +71,6 @@ fn host_de(url: &str) -> Result<String, String> {
             return Err(format!("puerto inválido: {p:?}"));
         }
     Ok(host.to_ascii_lowercase())
-}
-
-/// ¿Es un nombre de distribución de WSL razonable (`[A-Za-z0-9._-]{1,64}`)?
-pub fn nombre_distro_valido(t: &str) -> bool {
-    !t.is_empty() && t.len() <= 64 && t.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 fn texto_limpio(v: &Value, max: usize) -> Result<String, String> {
