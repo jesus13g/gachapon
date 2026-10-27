@@ -48,9 +48,9 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
       <section class="arch-sec" id={s.slug} aria-labelledby={`${s.slug}-h`}>
         <div class="arch-sec__copy">
           <div class="arch-sec__head">
-          <p class="kicker">{s.kicker}</p>
-          <h2 id={`${s.slug}-h`}>{s.h}</h2>
-          <p class="arch-sec__lede">{parts(s.p).map((x) => (x.code ? <code>{x.text}</code> : x.text))}</p>
+            <p class="kicker">{s.kicker}</p>
+            <h2 id={`${s.slug}-h`}>{s.h}</h2>
+            <p class="arch-sec__lede">{parts(s.p).map((x) => (x.code ? <code>{x.text}</code> : x.text))}</p>
           </div>
           <ul>
             {s.points.map((pt) => <li>{parts(pt).map((x) => (x.code ? <code>{x.text}</code> : x.text))}</li>)}
@@ -128,6 +128,10 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
     max-width: 1480px;
     margin: 0 auto;
   }
+  /* The diagrams scroll under the fixed header: make its backdrop denser than the landing's so they never show through the brand and buttons. */
+  :global(html:not(.is-cinema) body .hud) {
+    background: linear-gradient(var(--bg) 75%, transparent);
+  }
   .arch-hero {
     max-width: 52rem;
   }
@@ -152,7 +156,7 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
     padding: 0.9rem 1.1rem;
     border: 1px solid var(--line);
     border-left: 2px solid var(--accent);
-    background: rgba(19, 25, 32, 0.7);
+    background: color-mix(in srgb, var(--steel-0) 70%, transparent);
   }
   .arch-howto svg {
     flex: none;
@@ -202,7 +206,7 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
     text-decoration: none;
     white-space: nowrap;
     color: var(--fg-dim);
-    background: rgba(9, 11, 14, 0.7);
+    background: var(--shader-veil);
     transition: color 0.2s, border-color 0.2s, background 0.2s;
   }
   .arch-index a:hover,
@@ -262,7 +266,7 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
   .arch-sec__copy code {
     padding: 0.05em 0.35em;
     border: 1px solid var(--line);
-    background: rgba(255, 154, 60, 0.07);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
     font: 500 0.86em var(--mono);
     color: var(--fg);
     overflow-wrap: anywhere;
@@ -299,7 +303,7 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
     padding: 30px 12px 12px;
     border: 1px solid var(--line-hi);
     background: linear-gradient(160deg, var(--steel-1), var(--steel-0));
-    box-shadow: inset 0 0 40px rgba(255, 154, 60, 0.06), 0 18px 50px rgba(0, 0, 0, 0.45);
+    box-shadow: inset 0 0 40px color-mix(in srgb, var(--accent) 6%, transparent), 0 18px 50px rgba(0, 0, 0, 0.45);
     clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
   }
   .arch-frame__tag {
@@ -407,9 +411,6 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
   @media (prefers-reduced-motion: reduce) {
     .arch-frame__loading {
       animation: none;
-    }
-    html {
-      scroll-behavior: auto;
     }
   }
 </style>
