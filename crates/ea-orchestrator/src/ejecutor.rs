@@ -27,14 +27,22 @@
 //! trabajo al tomarlo (`ejecutado_por`); un agente que no se puede lanzar
 //! deja el trabajo bloqueado con el motivo.
 //!
+//! El criterio corre fuera del sandbox del agente, con los permisos del
+//! usuario (límite conocido, U-01), pero si el agente va aislado tampoco ve
+//! el directorio de ejecución (la clave del panel): ver [`correr_criterio`].
+//!
 //! Cancelación cooperativa: el estado se relee antes de cada iteración y de
-//! cada fase, y mientras corre el agente se sondea cada `SONDEO_CANCELACION`
-//! (ver [`ea_plataforma::proceso::correr`]). El agente va en su propio grupo
-//! de procesos (Job Object en Windows): si el trabajo pasa a `cancelado` o
-//! vence su tope de tiempo, el árbol recibe `SIGTERM` y, tras `MARGEN_TERM`,
-//! se mata siempre.
-//! Tras una cancelación no se corre el criterio ni se entrega informe; lo que
-//! el agente ya escribió en el worktree se queda como está.
+//! cada fase, y mientras corren el agente o el criterio se sondea cada
+//! `SONDEO_CANCELACION` (ver [`ea_plataforma::proceso::correr`]). Los dos van
+//! en su propio grupo de procesos (Job Object en Windows): si el trabajo pasa
+//! a `cancelado` o vence su tope de tiempo, el árbol recibe `SIGTERM` y, tras
+//! `MARGEN_TERM`, se mata siempre; al acabar la corrida muere también lo que
+//! hubieran dejado de fondo.
+//! Tras una cancelación no se corre el criterio (o se corta) ni se entrega
+//! informe; lo que el agente ya escribió en el worktree se queda como está.
+//! La parada del orquestador (`apagando`) corta igual, pero no anota nada: el
+//! trabajo se queda `ejecutando` y [`Bus::recuperar`] lo da por interrumpido
+//! al volver.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -46,6 +54,8 @@ use ea_bus::{
     Bus, Rol, CandadoWorktree, ConfigOrquestador, Entrega, FaseInforme, Informe, Modo, Ocupante,
     Orden, ResultadoInforme,
 };
+
+use crate::sandbox::Sandbox;
 
 /// Lo que se espera al semáforo de un worktree antes de devolver el trabajo
 /// a su cola y seguir con otro (RF-009: no esperar bloqueado).
@@ -253,14 +263,17 @@ pub fn ejecutar_uno(bus: &Bus, config: &ConfigOrquestador, agente: &dyn Ejecutor
 }
 
 fn ejecutar_uno_con_espera(bus: &Bus, config: &ConfigOrquestador, agente: &dyn Ejecutor, espera: Duration) -> Option<String> {
-    ejecutar_intento(bus, config, agente, espera, &|_| {}, &|_| true).id()
+    ejecutar_intento(bus, config, agente, espera, &|_| {}, &|_| true, &|| false).id()
 }
 
 /// Como [`ejecutar_uno`], pero dice si se topó con el semáforo y avisa de en
 /// qué trabajo está (`al_cambiar(Some(id))` al empezar de verdad,
 /// `al_cambiar(None)` al terminar) para la presencia del trabajador.
 /// `admite` filtra lo que se toma de la cola de rol (la propia del agente se
-/// toma entera): ver [`Bus::tomar_para_con`].
+/// toma entera): ver [`Bus::tomar_para_con`]. `apagando` dice si el
+/// orquestador se está parando: el agente y el criterio lo miran como una
+/// cancelación, pero el trabajo cortado así no se anota como cancelado ni se
+/// entrega (sigue `ejecutando` hasta que [`Bus::recuperar`] lo marque).
 pub fn ejecutar_intento(
     bus: &Bus,
     config: &ConfigOrquestador,
@@ -268,6 +281,7 @@ pub fn ejecutar_intento(
     espera: Duration,
     al_cambiar: &dyn Fn(Option<&str>),
     admite: &dyn Fn(&Orden) -> bool,
+    apagando: &dyn Fn() -> bool,
 ) -> Intento {
     let id = match bus.tomar_para_con(&config.ejecutor.id, admite) {
         Ok(Some(id)) => id,
@@ -336,6 +350,14 @@ pub fn ejecutar_intento(
             return Intento::Ocupado(id);
         }
     };
+    // La parada llegó antes de empezar: no se toma y vuelve a su cola.
+    if apagando() {
+        drop(candado);
+        if let Err(e) = bus.devolver(&id, "parada del orquestador") {
+            tracing::error!(%id, error = %e, "no se pudo devolver el trabajo a su cola");
+        }
+        return Intento::Nada;
+    }
     let fase_actual = match bus.tomar_con(&id, config.ejecutor.ejecutado_por()) {
         Ok(e) => e.fase_actual,
         Err(e) => {
@@ -358,8 +380,14 @@ pub fn ejecutar_intento(
     }
 
     // El candado se mantiene durante todo el bucle de iteraciones y fases.
-    match trabajar(bus, config, agente, &id, &orden, fase_actual, wt, inicio) {
+    let cortar = || bus.esta_cancelado(&id) || apagando();
+    match trabajar(bus, config, agente, &id, &orden, fase_actual, wt, inicio, &cortar) {
         Ok(informe) => entregar(bus, config, &id, &orden, informe),
+        // Cortado por la parada y no cancelado: ni informe ni cancelación;
+        // sigue `ejecutando` y `recuperar` lo entrega como «interrumpido».
+        Err(_) if apagando() && !bus.esta_cancelado(&id) => {
+            tracing::warn!(%id, "parada del orquestador: el trabajo se queda en ejecución y se dará por interrumpido al volver");
+        }
         Err(c) => cancelado_en_curso(bus, &id, c.fase),
     }
     drop(candado);
@@ -398,7 +426,8 @@ fn entregar(bus: &Bus, config: &ConfigOrquestador, id: &str, orden: &Orden, info
     }
 }
 
-/// El trabajo se canceló mientras se ejecutaba: no hay informe que entregar.
+/// Hubo que dejar el trabajo mientras se ejecutaba (se canceló o el
+/// orquestador se para): no hay informe que entregar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Cancelado {
     /// En una obra, la fase en que se cortó.
@@ -412,27 +441,46 @@ struct Bucle {
     motivo: Option<String>,
 }
 
-fn correr_criterio(wt: &Path, criterio: &str) -> (bool, String) {
+/// Corre el criterio de éxito con `sh -c` en `wt`, con un tope de
+/// `TIEMPO_CRITERIO_S` y cancelable: mientras corre se pregunta a `cancelado`
+/// y, si dice que sí, se mata su árbol y devuelve `None` (sin evidencia).
+/// Si no, `Some((pasa, evidencia))`.
+///
+/// Si el agente va aislado (`sandbox` es bwrap o Seatbelt), el criterio va
+/// con [`Sandbox::envolver_criterio`]: no ve el directorio de `ejecucion`
+/// (la clave del panel, D-Bus, `systemd --user`), y el resto del disco y la
+/// red los ve como el usuario. Sin sandbox, tal cual; con uno que no está
+/// disponible no se corre y no pasa.
+pub fn correr_criterio(sandbox: &Sandbox, wt: &Path, criterio: &str, ejecucion: Option<&Path>, cancelado: &dyn Fn() -> bool) -> Option<(bool, String)> {
     let Some(mut c) = ea_plataforma::shell::orden_sh(&format!("exec 2>&1; {criterio}")) else {
         // Sin `sh` el criterio no se puede comprobar: nunca cuenta como éxito.
-        return (false, "no hay `sh`: instala Git for Windows (el criterio se ejecuta con sh)".into());
+        return Some((false, "no hay `sh`: instala Git for Windows (el criterio se ejecuta con sh)".into()));
     };
     c.current_dir(wt);
-    let r = ea_plataforma::proceso::correr(c, Duration::from_secs(TIEMPO_CRITERIO_S), &|| false);
+    let c = match sandbox.envolver_criterio(c, wt, ejecucion) {
+        Ok(c) => c,
+        Err(motivo) => return Some((false, motivo)),
+    };
+    let r = ea_plataforma::proceso::correr(c, Duration::from_secs(TIEMPO_CRITERIO_S), cancelado);
     avisar_sin_arbol(&r);
+    if r.cancelado {
+        return None;
+    }
     let mut texto = format!("{}{}", r.salida, r.errores);
     if r.codigo.is_none() {
         texto.push_str("\n(criterio interrumpido por tiempo)");
     }
-    (r.codigo == Some(0), recortar(&texto))
+    Some((r.codigo == Some(0), recortar(&texto)))
 }
 
 /// Llama al agente hasta que el criterio pase, salgan los topes (55) o se
 /// agoten las iteraciones. El criterio lo ejecuta el SISTEMA, no el agente, y
 /// su ausencia nunca cuenta como éxito. Las `skills` se vuelven a validar
 /// contra la configuración del momento: si ya no valen, no se llama a Qwen.
-/// `None` si el trabajo se canceló: antes de cada iteración se relee el
-/// estado, y tras una cancelación no se corre el criterio.
+/// `None` si hay que dejar el trabajo (`cortar`: se canceló o el orquestador
+/// se para): antes de cada iteración se relee el estado, el agente y el
+/// criterio lo sondean mientras corren, y tras un corte no se corre el
+/// criterio.
 #[allow(clippy::too_many_arguments)]
 fn bucle(
     bus: &Bus,
@@ -445,6 +493,7 @@ fn bucle(
     cuerpo: &str,
     criterio: &str,
     skills: &[String],
+    cortar: &dyn Fn() -> bool,
 ) -> Option<Bucle> {
     if criterio.trim().is_empty() {
         return Some(Bucle { pasa: false, evidencia: "la orden no trae criterio de éxito".into(), motivo: Some("sin criterio de éxito".into()) });
@@ -460,11 +509,12 @@ fn bucle(
     let base = construir_prompt(orden, titulo, cuerpo, criterio, agente.regla_herramientas());
     let max = orden.topes.iteraciones.max(1);
     let mut previa: Option<String> = None;
-    let cancelado = || bus.esta_cancelado(id);
+    let sandbox = Sandbox::actual(config.sandbox);
+    let ejecucion = crate::sandbox::dir_ejecucion();
     for it in 1..=max {
         // Solo se anota (y se llama al agente) si sigue `ejecutando`; la
         // comprobación y la escritura van bajo el bloqueo del trabajo.
-        if let Ok(None) = bus.anotar_iteracion(id) {
+        if cortar() || matches!(bus.anotar_iteracion(id), Ok(None)) {
             return None;
         }
         let prompt = match &previa {
@@ -474,12 +524,12 @@ fn bucle(
                 it - 1
             ),
         };
-        let salida = agente.ejecutar(&prompt, &sistema, wt, &orden.topes, config, &cancelado);
+        let salida = agente.ejecutar(&prompt, &sistema, wt, &orden.topes, config, cortar);
         let _ = std::fs::write(dir.join(ea_bus::SALIDA_AGENTE), &salida.bruta);
-        if salida.cancelado || cancelado() {
+        if salida.cancelado || cortar() {
             return None;
         }
-        let (pasa, ev) = correr_criterio(wt, criterio);
+        let (pasa, ev) = correr_criterio(&sandbox, wt, criterio, ejecucion.as_deref(), cortar)?;
         let mut evidencia = ev.clone();
         if !salida.resumen.is_empty() {
             evidencia = recortar_resumen(&format!("{ev}\n--- resumen del agente ---\n{}", salida.resumen.trim()));
@@ -511,6 +561,7 @@ fn trabajar(
     fase_actual: Option<u32>,
     wt: &Path,
     inicio: Instant,
+    cortar: &dyn Fn() -> bool,
 ) -> Result<Informe, Cancelado> {
     let fin = |mut i: Informe| {
         i.duracion_s = inicio.elapsed().as_secs();
@@ -523,11 +574,11 @@ fn trabajar(
         return fin(bloqueado("el worktree no es un repo git", String::new()));
     };
     if orden.modo == Modo::Obra && !orden.fases.is_empty() {
-        return fin(trabajar_obra(bus, config, agente, id, orden, fase_actual, wt, commit_inicio)?);
+        return fin(trabajar_obra(bus, config, agente, id, orden, fase_actual, wt, commit_inicio, cortar)?);
     }
 
     let criterio = orden.criterio_exito.clone().unwrap_or_default();
-    let r = bucle(bus, config, agente, id, orden, wt, &orden.titulo, &orden.objetivo, &criterio, &orden.skills)
+    let r = bucle(bus, config, agente, id, orden, wt, &orden.titulo, &orden.objetivo, &criterio, &orden.skills, cortar)
         .ok_or(Cancelado { fase: None })?;
 
     let diff_stat = git::diff_stat_desde(wt, &commit_inicio);
@@ -547,7 +598,8 @@ fn leer_texto(p: &Path) -> Option<String> {
 
 /// Obra por fases desde `fase_actual`, con parada de revisión cada
 /// `revisar_cada` fases hechas (o al terminar todas). Antes de cada fase se
-/// relee el estado: si se ha cancelado, se corta sin informe.
+/// mira `cortar`: si se ha cancelado (o el orquestador se para), se corta sin
+/// informe.
 #[allow(clippy::too_many_arguments)]
 fn trabajar_obra(
     bus: &Bus,
@@ -558,6 +610,7 @@ fn trabajar_obra(
     fase_actual: Option<u32>,
     wt: &Path,
     commit_inicio: String,
+    cortar: &dyn Fn() -> bool,
 ) -> Result<Informe, Cancelado> {
     let dir = bus.raiz().join("trabajos").join(id);
     let mut fases = orden.fases.clone();
@@ -592,7 +645,7 @@ fn trabajar_obra(
     let mut idx = inicio_idx;
     while idx < total {
         let f = &fases[idx];
-        if bus.esta_cancelado(id) {
+        if cortar() {
             return Err(Cancelado { fase: Some(f.numero) });
         }
         let titulo = format!("{} · fase {} de {}: {}", orden.titulo, idx + 1, total, f.titulo);
@@ -601,7 +654,7 @@ fn trabajar_obra(
             orden.objetivo, f.titulo, f.instrucciones, f.entregable
         );
         let skills = if f.skills.is_empty() { &orden.skills } else { &f.skills };
-        let r = bucle(bus, config, agente, id, orden, wt, &titulo, &cuerpo, &f.criterio, skills)
+        let r = bucle(bus, config, agente, id, orden, wt, &titulo, &cuerpo, &f.criterio, skills, cortar)
             .ok_or(Cancelado { fase: Some(f.numero) })?;
         evidencia = r.evidencia.clone();
         if !r.pasa {
@@ -890,8 +943,10 @@ mod tests {
         }
     }
 
+    /// Sin sandbox: el criterio corre tal cual (los dobles no lo usan). El
+    /// criterio aislado tiene sus pruebas (`tests/paralelo.rs`).
     fn config() -> ConfigOrquestador {
-        ConfigOrquestador { avisos_escritorio: false, ..Default::default() }
+        ConfigOrquestador { avisos_escritorio: false, sandbox: false, ..Default::default() }
     }
 
     #[test]
@@ -914,14 +969,13 @@ mod tests {
     fn mision_trivial_con_el_agente_real() {
         let id = std::env::var("EA_AGENTE_REAL").unwrap_or_else(|_| "opencode".into());
         let tipo = ea_bus::TipoAgente::desde(&id).expect("qwen-code, codex u opencode");
-        let mut cfg = config();
+        let mut cfg = ConfigOrquestador { sandbox: true, ..config() };
         cfg.ejecutor.id = id.clone();
         cfg.ejecutor.tipo = tipo;
         cfg.ejecutor.bin = std::env::var("EA_AGENTE_BIN").unwrap_or_else(|_| if id == "qwen-code" { "qwen".into() } else { id.clone() });
         if let Ok(url) = std::env::var("EA_AGENTE_BASE_URL") {
             cfg.ejecutor.modelo.base_url = url;
         }
-        assert!(cfg.sandbox, "la prueba es dentro de bwrap");
         let wt = repo();
         let e = tempfile::tempdir().unwrap();
         let bus = con_store(e.path());
@@ -1463,7 +1517,7 @@ mod tests {
         let mut cfg = config();
         cfg.ejecutor.id = "codex".into();
         assert_eq!(
-            ejecutar_intento(&bus, &cfg, &doble("true", 0), Duration::from_secs(1), &|_| {}, &|_| true),
+            ejecutar_intento(&bus, &cfg, &doble("true", 0), Duration::from_secs(1), &|_| {}, &|_| true, &|| false),
             Intento::Ocupado(id.clone())
         );
         dormir.join().unwrap();
@@ -1592,6 +1646,95 @@ mod tests {
         // La entrega llega tarde: el trabajo se queda cancelado, sin informe.
         queda_cancelado_y_suelto(&bus, &id, wt.path());
         assert_eq!(cancelaciones_en_curso(e.path()).len(), 1);
+    }
+
+    /// B-10: cancelar mientras corre un criterio largo lo corta en el
+    /// siguiente sondeo (2 s), sin esperar a que acabe ni a su tope de 120 s,
+    /// y sigue el camino de la cancelación: sin informe y anotada una vez.
+    #[test]
+    fn cancelar_durante_un_criterio_largo_lo_corta() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let mut o = orden(wt.path(), "touch marca; sleep 30; touch acabo");
+        o.topes.iteraciones = 1;
+        let id = bus.crear_trabajo(o).unwrap();
+        let (raiz, id2, marca) = (bus.raiz().to_path_buf(), id.clone(), wt.path().join("marca"));
+        let hilo = std::thread::spawn(move || {
+            assert!(esperar_fichero(&marca, Duration::from_secs(20)), "el criterio no empezó");
+            std::thread::sleep(Duration::from_secs(1));
+            Bus::abrir_en(&raiz).unwrap().aplicar(&id2, Evento::Cancelar).unwrap();
+            Instant::now()
+        });
+        ejecutar_uno(&bus, &config(), &doble("true", 0));
+        let cancelado_en = hilo.join().unwrap();
+        assert!(cancelado_en.elapsed() < Duration::from_secs(5), "tardó {:?} desde la cancelación", cancelado_en.elapsed());
+        assert!(!wt.path().join("acabo").exists());
+        queda_cancelado_y_suelto(&bus, &id, wt.path());
+        assert_eq!(cancelaciones_en_curso(e.path()).len(), 1);
+    }
+
+    /// Doble que hace de señal de parada a mitad de la corrida: enciende
+    /// `apagar` y apunta si el ejecutor se lo hace ver por `cancelado`.
+    struct Apagador {
+        apagar: std::sync::atomic::AtomicBool,
+        lo_vio: std::sync::atomic::AtomicBool,
+    }
+    impl Ejecutor for Apagador {
+        fn ejecutar(&self, _: &str, _: &str, _: &Path, _: &Topes, _: &ConfigOrquestador, cancelado: &dyn Fn() -> bool) -> SalidaAgente {
+            use std::sync::atomic::Ordering::SeqCst;
+            self.apagar.store(true, SeqCst);
+            self.lo_vio.store(cancelado(), SeqCst);
+            SalidaAgente { codigo: None, bruta: "[]".into(), resumen: String::new(), cancelado: self.lo_vio.load(SeqCst) }
+        }
+    }
+
+    /// B-11: la parada del orquestador corta al agente (lo ve como una
+    /// cancelación), pero el trabajo sigue `ejecutando`, sin informe ni
+    /// `cancelado_en_curso`, y con el worktree libre; al volver, `recuperar`
+    /// lo entrega como «interrumpido».
+    #[test]
+    fn apagar_durante_el_agente_deja_el_trabajo_ejecutando_para_recuperar() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let mut o = orden(wt.path(), "touch criterio-corrio; true");
+        o.topes.iteraciones = 3;
+        let id = bus.crear_trabajo(o).unwrap();
+        let ag = Apagador { apagar: Default::default(), lo_vio: Default::default() };
+        let apagando = || ag.apagar.load(SeqCst);
+        let r = ejecutar_intento(&bus, &config(), &ag, ESPERA_CANDADO, &|_| {}, &|_| true, &apagando);
+        assert_eq!(r, Intento::Hecho(id.clone()));
+        assert!(ag.lo_vio.load(SeqCst), "el agente no vio la parada");
+        assert!(!wt.path().join("criterio-corrio").exists());
+        let estado = bus.leer_estado(&id).unwrap();
+        assert_eq!((estado.estado, estado.iteracion), (EstadoTrabajo::Ejecutando, 1));
+        assert!(bus.leer_informe(&id).unwrap().is_none());
+        assert!(cancelaciones_en_curso(e.path()).is_empty());
+        let historial = std::fs::read_to_string(bus.raiz().join("trabajos").join(&id).join("historial.jsonl")).unwrap();
+        assert!(!historial.contains("cancelado_en_curso"), "{historial}");
+        assert!(CandadoWorktree::ocupante_en(bus.raiz(), wt.path()).is_none(), "el semáforo sigue cogido");
+        // Al volver a arrancar.
+        assert_eq!(bus.recuperar().unwrap(), vec![id.clone()]);
+        assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnRevision);
+        assert_eq!(bus.leer_informe(&id).unwrap().unwrap().motivo.as_deref(), Some("interrumpido"));
+    }
+
+    /// Con la parada ya pedida, lo que se acaba de reclamar no se empieza:
+    /// vuelve a su cola sin llamar al agente.
+    #[test]
+    fn con_la_parada_pedida_el_trabajo_reclamado_vuelve_a_su_cola() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = Bus::abrir_en(e.path()).unwrap();
+        let id = bus.crear_trabajo(orden(wt.path(), "true")).unwrap();
+        let ag = doble("true", 0);
+        assert_eq!(ejecutar_intento(&bus, &config(), &ag, ESPERA_CANDADO, &|_| {}, &|_| true, &|| true), Intento::Nada);
+        assert!(ag.visto.lock().unwrap().is_empty());
+        assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
+        assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap()[0].trabajo, id);
+        assert!(CandadoWorktree::ocupante_en(bus.raiz(), wt.path()).is_none());
     }
 
     #[cfg(unix)]

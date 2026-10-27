@@ -132,7 +132,10 @@ avisan con `notify-send`; el aviso lleva una acción **abrir** que lanza
 `ea-web-open '#trabajos/<id>'` (el proceso del aviso va aparte: el ejecutor no lo
 espera).
 
-Al arrancar recupera lo que se quedó a medias:
+Solo corre un `ea-orchestrator` por bus: al arrancar toma sin esperar un
+`flock` exclusivo sobre `<estado>/orquestador.lock` (junto a las colas) y, si
+otro lo tiene, sale con «ya hay un ea-orchestrator en marcha» antes de latir o de
+tocar nada. Con el candado en la mano recupera lo que se quedó a medias:
 - lo reclamado que no se llegó a tomar (el proceso cayó entre el reclamo y el
   paso a `ejecutando`) y cualquier trabajo `en_cola` sin entrada en `modelo-local`
   ni en la cola de un agente vuelve a su cola (la del agente asignado si su equipo
@@ -147,12 +150,26 @@ cuyo equipo se ha dormido.
 
 Cancelar un trabajo `ejecutando` (`ea trabajo cancelar`, o «Cancelar» en la web)
 lo detiene de verdad: el ejecutor relee el estado antes de cada iteración y de
-cada fase y, mientras corre Qwen, lo sondea cada 2 s; el agente va en su propio
-grupo de procesos, que recibe `SIGTERM` y, a los 10 s, `SIGKILL`. Tras cancelar no
-se corre el criterio ni hay informe: se suelta el semáforo y el diario apunta
-`bus_cancelado_en_curso`. **Lo que el agente ya escribió en el worktree no se
-deshace.** Mientras el semáforo siga cogido, la web muestra el trabajo como
-«cancelando…» (`cancelando: true` en `GET /api/trabajos`).
+cada fase y, mientras corren el agente o el criterio, lo sondea cada 2 s; los dos
+van en su propio grupo de procesos, que recibe `SIGTERM` y, a los 10 s, `SIGKILL`.
+Tras cancelar no se corre el criterio (si estaba corriendo, se corta en el
+siguiente sondeo, sin esperar a su tope de 120 s) ni hay informe: se suelta el
+semáforo y el diario apunta `bus_cancelado_en_curso`. **Lo que el agente ya
+escribió en el worktree no se deshace.** Mientras el semáforo siga cogido, la web
+muestra el trabajo como «cancelando…» (`cancelando: true` en `GET /api/trabajos`).
+
+Cada corrida del agente o del criterio deja el árbol limpio: cuando el proceso
+principal sale (por su cuenta, por tiempo o cancelado), su grupo recibe `SIGKILL`
+y mueren también los procesos que hubiera dejado de fondo (`cmd &`), con sandbox
+o sin él y en macOS igual que en Linux.
+
+Parar el orquestador (`SIGTERM`, `systemctl --user stop ea-orchestrator` o Ctrl-C;
+en Windows, Ctrl-C o el cierre de la consola) corta lo que esté corriendo como una
+cancelación, en el siguiente sondeo, pero sin anotarla: el trabajo se queda
+`ejecutando`, sin informe ni `bus_cancelado_en_curso`, y al volver a arrancar se
+entrega como «interrumpido» (arriba). Lo que se acababa de reclamar y aún no había
+empezado vuelve a su cola. El orquestador espera a sus trabajadores como mucho
+30 s y sale.
 
 Reformular una obra la rehace desde una fase: la que se pida (`--fase N`, o
 `fase` en la web) o, si no, la pendiente (`fase_actual`; en una obra completa,
@@ -197,11 +214,18 @@ desactivan los *hooks* ni la configuración del sistema (git-lfs y los *hooks*
 de `worktree add` siguen funcionando): los del repo los protege el `.git` de
 solo lectura del sandbox.
 
-**Límite conocido:** el criterio de éxito no corre dentro del sandbox. El
-ejecutor lo lanza con `sh -c` en el worktree, con los permisos de tu usuario y un
-tope de 120 s, así que puede leer y escribir lo mismo que tú (también
-`ajustes.toml`). Revisa el criterio de un trabajo antes de lanzarlo como
-revisarías un script.
+**Límite conocido:** el criterio de éxito no corre dentro del sandbox del
+agente. El ejecutor lo lanza con `sh -c` en el worktree, con los permisos de tu
+usuario y un tope de 120 s. Lo único que se le quita, cuando el agente va
+aislado (`sandbox = true`), es el directorio de ejecución (en Linux, `$XDG_RUNTIME_DIR`):
+en Linux va con `bwrap` (todo el disco como fuera, escribible, y un tmpfs vacío
+sobre ese directorio) y en macOS con un perfil Seatbelt que solo le niega ese
+directorio y las vías para lanzar programas fuera. Así no lee la clave de sesión
+del panel (con la que podría aceptar propuestas por `127.0.0.1:8092`) ni llega a
+D-Bus ni a `systemd --user`; un criterio que necesite el bus de sesión fallará.
+Todo lo demás sí lo puede leer y escribir como tú (también `ajustes.toml`, la
+base de datos o `~/.bashrc`) y tiene la red abierta. Revisa el criterio de un
+trabajo antes de lanzarlo como revisarías un script.
 
 Qué se le quita a cada agente para que no salga a la web:
 
@@ -815,7 +839,10 @@ target/release/ea servicios desinstalar  # para y quita lo que instaló `instala
 
 `ea servicios instalar` escribe las unidades con la **ruta real** de los
 binarios (junto al `ea` que lo ejecuta; ya no hace falta que el repo esté en
-`~/Proyectos/`) y arranca `ea-mcp`, `ea-orchestrator` y `ea-web`:
+`~/Proyectos/`) y arranca `ea-mcp`, `ea-orchestrator` y `ea-web`. Solo puede
+haber un `ea-orchestrator` por bus: uno lanzado a mano con el servicio en marcha
+sale enseguida con «ya hay un ea-orchestrator en marcha» (para probar uno a mano,
+para antes el servicio):
 
 | Sistema | Qué crea |
 |---|---|
@@ -919,7 +946,9 @@ aquí y el ecosistema no las relaja en silencio.
 |---|---|---|---|
 | Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree (salvo su `.git`), un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
 | `.git` del worktree | de solo lectura dentro de `bwrap` si existe (directorio o fichero del worktree propio); si el worktree es un subdirectorio del repo no hay `.git` que montar y el agente podría crear uno falso (límite conocido) | escritura denegada siempre, exista o no (tampoco se puede crear uno falso) | — |
-| Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`) | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
+| Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`), y al acabar cada corrida muere lo que haya dejado de fondo | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
+| Criterio de éxito | fuera del sandbox del agente; con `sandbox = true`, en `bwrap` solo para taparle `$XDG_RUNTIME_DIR` | ídem con Seatbelt (directorio de ejecución ilegible) | sin sandbox: con `sandbox = true` el ejecutor no arranca |
+| Parada limpia | `SIGTERM` o Ctrl-C | ídem | Ctrl-C, cierre de la consola o apagado |
 | Solo local | `127.0.0.1`; `ea-web` filtra el `Host` | ídem | ídem |
 | Terminal real (TTY) para lo irreversible | sí | sí | sí |
 | Ficheros privados (clave del panel, secretos de sesión) | `0600` / `0700` | `0600` / `0700` | dentro del perfil del usuario, que solo él (y los administradores) lee por la ACL heredada; no se fuerzan ACL propias |
@@ -1658,7 +1687,9 @@ o.exec_on_start(os.getenv("HOME") .. "/Proyectos/ecosistema-asistente/crates/ea-
 
 La máquina arranca con la hora desajustada tras Windows hasta que NTP la
 corrige, así que el panel mide el tiempo activo de los servicios con el reloj
-monotónico e ignora latidos fechados en el futuro.
+monotónico e ignora latidos fechados en el futuro. El último latido se busca en
+el diario por su acción, así que los demás eventos del orquestador (los del bus
+durante un trabajo) no lo tapan ni dan un «sin señal» falso.
 
 ## Verificación
 

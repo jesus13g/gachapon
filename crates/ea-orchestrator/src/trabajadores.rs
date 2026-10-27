@@ -17,8 +17,14 @@
 //! Presencia (`agentes/<id>/presencia.json`): se anota al arrancar el
 //! trabajador, late cada [`Contexto::latido`] (también durante un trabajo
 //! largo: un hilo aparte) con el trabajo actual y se quita al irse.
+//!
+//! Instancia única ([`Instancia`], [`arrancar`]) y parada limpia
+//! ([`Trabajadores::detener`]): un solo orquestador por raíz del bus, y al
+//! pararse corta lo que corre sin darlo por terminado ni por cancelado.
 
 use std::collections::HashMap;
+use std::fs::{OpenOptions, TryLockError};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -89,7 +95,8 @@ pub struct Contexto {
     pub espera_candado: Duration,
     /// Cada cuánto late la presencia.
     pub latido: Duration,
-    /// Cuando vale `true`, los trabajadores terminan lo que tienen y salen.
+    /// Cuando vale `true`, los trabajadores cortan lo que tienen (el trabajo
+    /// se queda `ejecutando`, para [`Bus::recuperar`]) y salen.
     pub apagar: Arc<AtomicBool>,
 }
 
@@ -162,13 +169,73 @@ impl Trabajadores {
         }
     }
 
-    /// Pide a todos que terminen y espera a que lo hagan.
+    /// Pide a todos que terminen y espera a que lo hagan, como mucho
+    /// [`ESPERA_PARADA`]. El agente y el criterio en curso ven `apagar` en su
+    /// siguiente sondeo y mueren con su árbol; un trabajador que no acaba a
+    /// tiempo se abandona (el proceso sale igual).
     pub fn detener(&mut self) {
         self.ctx.apagar.store(true, Ordering::SeqCst);
-        for (_, h) in self.activos.drain() {
-            let _ = h.join();
+        let limite = Instant::now() + ESPERA_PARADA;
+        while self.activos.values().any(|h| !h.is_finished()) && Instant::now() < limite {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        for (agente, h) in self.activos.drain() {
+            if !h.is_finished() {
+                tracing::warn!(%agente, "el trabajador no terminó a tiempo; se abandona");
+            } else if h.join().is_err() {
+                tracing::error!(%agente, "el trabajador terminó con un pánico");
+            }
         }
     }
+}
+
+/// Lo que [`Trabajadores::detener`] espera, como mucho, a los trabajadores.
+pub const ESPERA_PARADA: Duration = Duration::from_secs(30);
+
+/// El candado de instancia, en la raíz del bus.
+pub const FICHERO_INSTANCIA: &str = "orquestador.lock";
+
+/// Instancia única del orquestador: `flock` exclusivo sobre
+/// `<raiz del bus>/orquestador.lock` mientras viva el valor (si el proceso
+/// muere, lo suelta el sistema). No entra en el orden de candados del bus
+/// (`Bus::bloquear_estado`): solo lo pide el orquestador, una vez al
+/// arrancar, sin esperar y sin otro en la mano, y todos los del bus se toman
+/// después, dentro de él.
+#[derive(Debug)]
+pub struct Instancia {
+    _candado: std::fs::File,
+}
+
+impl Instancia {
+    /// Toma el candado; `Err` si lo tiene otro proceso (o no se puede abrir).
+    pub fn tomar(raiz: &Path) -> Result<Self, String> {
+        let ruta = raiz.join(FICHERO_INSTANCIA);
+        let f = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&ruta)
+            .map_err(|e| format!("no se pudo abrir {}: {e}", ruta.display()))?;
+        match f.try_lock() {
+            Ok(()) => Ok(Self { _candado: f }),
+            Err(TryLockError::WouldBlock) => Err(format!("ya hay un ea-orchestrator en marcha (tiene {})", ruta.display())),
+            Err(TryLockError::Error(e)) => Err(format!("no se pudo tomar {}: {e}", ruta.display())),
+        }
+    }
+}
+
+/// El arranque del orquestador: toma la [`Instancia`] y, solo con ella en la
+/// mano, recupera lo que dejó a medias la anterior ([`Bus::recuperar`]). Sin
+/// ella no toca nada: una segunda instancia devolvería a la cola lo que la
+/// primera acaba de reclamar y daría por interrumpido lo que está ejecutando.
+pub fn arrancar(bus: &Bus) -> Result<Instancia, String> {
+    let instancia = Instancia::tomar(bus.raiz())?;
+    match bus.recuperar() {
+        Ok(v) if !v.is_empty() => tracing::warn!(trabajos = ?v, "trabajos recuperados al arrancar"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "no se pudo recuperar el bus"),
+    }
+    Ok(instancia)
 }
 
 /// Presencia de un trabajador: late desde un hilo aparte y se quita al soltarla.
@@ -284,7 +351,8 @@ fn trabajador(ctx: &Contexto, agente: &str, equipo: Option<&str>) {
         };
         let es_del_rol = ajustes.agente_de(ea_ajustes::Rol::Ejecutor).0 == agente;
         let admite = |o: &ea_bus::Orden| le_toca(o, agente, es_del_rol, &equipos);
-        match ejecutar_intento(&bus, &config, adaptador.as_ref(), ctx.espera_candado, &al_cambiar, &admite) {
+        let apagando = || ctx.apagar.load(Ordering::SeqCst);
+        match ejecutar_intento(&bus, &config, adaptador.as_ref(), ctx.espera_candado, &al_cambiar, &admite, &apagando) {
             Intento::Hecho(id) => tracing::info!(%agente, %id, "trabajo procesado"),
             Intento::Ocupado(_) | Intento::Nada => esperar(ctx.sondeo, &ctx.apagar),
         }

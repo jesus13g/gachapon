@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use ea_bus::Bus;
-use ea_orchestrator::trabajadores::{Contexto, Trabajadores};
+use ea_orchestrator::trabajadores::{arrancar, Contexto, Trabajadores};
 use ea_store::{EventOutcome, NewEvent, Store};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -37,6 +37,12 @@ async fn main() -> anyhow::Result<()> {
     }
     let config = efectivos.ajustes.orquestador;
 
+    // Un solo orquestador por bus: sin el candado de instancia sale aquí, sin
+    // latir ni tocar nada. Con él, recupera lo que se quedó a medias.
+    let bus = abrir_bus()?;
+    let _instancia = arrancar(&bus).map_err(anyhow::Error::msg)?;
+    drop(bus);
+
     let intervalo_heartbeat = config.intervalo_heartbeat_s;
     // Se relee en cada latido: `agente.sandbox` es en caliente. El motivo, si
     // el aislamiento no puede arrancar, viaja en el latido para que el panel lo
@@ -67,12 +73,6 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let bus = abrir_bus()?;
-    match bus.recuperar() {
-        Ok(v) if !v.is_empty() => tracing::warn!(trabajos = ?v, "trabajos recuperados al arrancar"),
-        Ok(_) => {}
-        Err(e) => tracing::warn!(error = %e, "no se pudo recuperar el bus"),
-    }
     tracing::info!("ea-orchestrator arrancado");
 
     // Un trabajador por ejecutor despierto (spec 019): los miembros ejecutor de
@@ -82,8 +82,19 @@ async fn main() -> anyhow::Result<()> {
     // reconcilia quién debe tener trabajador.
     let sondeo = Duration::from_secs(config.intervalo_sondeo_s);
     let mut trabajadores = Trabajadores::new(Contexto::sistema(|| abrir_bus().ok(), sondeo));
+    let parada = ea_plataforma::parada::esperar_parada();
+    tokio::pin!(parada);
     loop {
         trabajadores.reconciliar();
-        tokio::time::sleep(sondeo).await;
+        tokio::select! {
+            _ = &mut parada => break,
+            _ = tokio::time::sleep(sondeo) => {}
+        }
     }
+    // SIGTERM o Ctrl-C: lo que corre se corta y se queda `ejecutando`; al
+    // volver, `recuperar` lo entrega como «interrumpido».
+    tracing::info!("parada pedida: se corta lo que está en marcha");
+    tokio::task::spawn_blocking(move || trabajadores.detener()).await?;
+    tracing::info!("ea-orchestrator parado");
+    Ok(())
 }

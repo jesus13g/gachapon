@@ -126,7 +126,9 @@ pub fn sin_ventana(cmd: &mut Command) {
 ///
 /// Al soltar el `Arbol` en Windows se cierra el handle del Job Object y, por
 /// `KILL_ON_JOB_CLOSE`, **Windows mata todo lo que quede dentro**. En Unix
-/// soltarlo no hace nada.
+/// soltarlo no hace nada: [`correr`] llama a [`Arbol::matar`] al acabar
+/// siempre, también cuando el líder sale por su cuenta, para que no sobreviva
+/// nada de lo que dejó de fondo.
 #[derive(Debug)]
 pub struct Arbol {
     #[cfg(unix)]
@@ -277,7 +279,9 @@ pub struct Corrida {
 /// que sí, o vence el plazo `tope` (el tope lo vigila quien llama, sin
 /// `timeout` externo), se mata el árbol entero: `SIGTERM` al grupo, espera de
 /// `MARGEN_TERM` y `matar` siempre, para no dejar nietos sueltos. Por tiempo
-/// agotado el código es `None`, igual que antes con el 124.
+/// agotado el código es `None`, igual que antes con el 124. Cuando el líder
+/// sale por su cuenta también se mata lo que quede en su grupo (un `cmd &`
+/// que dejó de fondo): una corrida no deja procesos vivos al volver.
 pub fn correr(mut cmd: Command, tope: Duration, cancelado: &dyn Fn() -> bool) -> Corrida {
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     preparar_grupo(&mut cmd);
@@ -311,6 +315,11 @@ pub fn correr(mut cmd: Command, tope: Duration, cancelado: &dyn Fn() -> bool) ->
         }
         std::thread::sleep(Duration::from_millis(20));
     };
+    // Lo que quede del grupo tras salir el líder: SIGKILL (sin efecto si ya no
+    // queda nadie). Así tampoco se queda nadie con stdout o stderr abiertas.
+    if let Ok(a) = &arbol {
+        a.matar();
+    }
     let salida = rx_salida.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
     let errores = rx_errores.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
     let codigo = if cancelada || agotado { None } else { estado.and_then(|s| s.code()) };
@@ -489,6 +498,26 @@ mod tests {
         c.arg("-c").arg("echo hola; exit 3");
         let r = correr(c, Duration::from_secs(30), &|| false);
         assert_eq!((r.codigo, r.salida.trim()), (Some(3), "hola"));
+    }
+
+    /// B-11: un proceso de fondo que el líder deja al salir con normalidad
+    /// muere con la corrida (antes solo caía al vencer el tope o cancelar) y
+    /// no retiene la salida: el pid llega sin esperar a `ESPERA_SALIDA`.
+    #[cfg(unix)]
+    #[test]
+    fn al_salir_el_lider_muere_lo_que_dejo_de_fondo() {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("sleep 30 & echo $!");
+        let t = Instant::now();
+        let r = correr(c, Duration::from_secs(60), &|| false);
+        assert_eq!(r.codigo, Some(0));
+        let pid: u32 = r.salida.trim().parse().unwrap_or_else(|_| panic!("sin pid en la salida {:?}: el proceso de fondo la retuvo", r.salida));
+        assert!(t.elapsed() < ESPERA_SALIDA, "tardó {:?}", t.elapsed());
+        let limite = Instant::now() + Duration::from_secs(5);
+        while !muerto(pid) && Instant::now() < limite {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(muerto(pid), "el proceso de fondo {pid} sigue vivo");
     }
 
     #[test]

@@ -9,15 +9,14 @@ use crate::models::Event;
 use crate::repository::events::EventFilter;
 use crate::store::Store;
 
-/// Cuántos eventos recientes del orquestador se miran para hallar el latido.
-const VENTANA: i64 = 50;
+/// Cuánto puede adelantarse un latido al reloj de quien lo lee.
+const MARGEN: Duration = Duration::seconds(5);
 
 /// Último heartbeat de una lista de eventos. Ignora los fechados en el
 /// futuro: el diario es append-only y un arranque con el reloj mal puesto
 /// (esta máquina alterna con Windows) deja filas que, ordenadas por `ts`,
 /// taparían a los latidos reales y darían por vivo a un orquestador caído.
 pub fn ultimo_latido(eventos: &[Event], ahora: OffsetDateTime) -> Option<OffsetDateTime> {
-    const MARGEN: Duration = Duration::seconds(5);
     eventos
         .iter()
         .filter(|e| e.action == "heartbeat" && e.ts <= ahora + MARGEN)
@@ -42,7 +41,6 @@ pub struct SandboxInfo {
 /// El sandbox declarado por el último latido (el más reciente por `ts`, sin
 /// contar los del futuro). `None` si no hay latido o es de antes de este dato.
 pub fn ultimo_sandbox(eventos: &[Event], ahora: OffsetDateTime) -> Option<SandboxInfo> {
-    const MARGEN: Duration = Duration::seconds(5);
     eventos
         .iter()
         .filter(|e| e.action == "heartbeat" && e.ts <= ahora + MARGEN)
@@ -69,25 +67,31 @@ impl EstadoOrquestador {
 }
 
 impl Store {
+    /// El último latido del orquestador, filtrado en SQL: la acción
+    /// `heartbeat`, sin los fechados más allá de `ahora` + [`MARGEN`]. Los
+    /// demás eventos del orquestador (los del bus) no lo tapan por muchos
+    /// que sean.
+    fn latido(&self, ahora: OffsetDateTime) -> StoreResult<Vec<Event>> {
+        self.list_events(&EventFilter {
+            actor: Some("orquestador".into()),
+            action_prefix: Some("heartbeat".into()),
+            until: Some(ahora + MARGEN),
+            limit: Some(1),
+            ..Default::default()
+        })
+    }
+
     /// Estado del orquestador ahora mismo; `umbral_s` es la antigüedad
     /// máxima tolerada del último latido (el doble del intervalo).
     pub fn estado_orquestador(&self, umbral_s: i64) -> StoreResult<EstadoOrquestador> {
-        let eventos = self.list_events(&EventFilter {
-            actor: Some("orquestador".into()),
-            limit: Some(VENTANA),
-            ..Default::default()
-        })?;
-        Ok(EstadoOrquestador::calcular(&eventos, OffsetDateTime::now_utc(), umbral_s))
+        let ahora = OffsetDateTime::now_utc();
+        Ok(EstadoOrquestador::calcular(&self.latido(ahora)?, ahora, umbral_s))
     }
 
     /// Sandbox que declara el último latido del orquestador.
     pub fn sandbox_orquestador(&self) -> StoreResult<Option<SandboxInfo>> {
-        let eventos = self.list_events(&EventFilter {
-            actor: Some("orquestador".into()),
-            limit: Some(VENTANA),
-            ..Default::default()
-        })?;
-        Ok(ultimo_sandbox(&eventos, OffsetDateTime::now_utc()))
+        let ahora = OffsetDateTime::now_utc();
+        Ok(ultimo_sandbox(&self.latido(ahora)?, ahora))
     }
 }
 
@@ -169,6 +173,29 @@ mod tests {
             duration_ms: None,
             detail: None,
         }
+    }
+
+    /// B-13: muchos eventos del orquestador tras el último latido (los del
+    /// bus de un trabajo) no lo tapan: sigue vivo y con su sandbox.
+    #[test]
+    fn un_latido_seguido_de_muchos_eventos_del_orquestador_sigue_vivo() {
+        let d = tempfile::tempdir().unwrap();
+        let s = Store::open_at(&d.path().join("t.db")).unwrap();
+        let ev = |action: &str, detail: Option<&str>| crate::NewEvent {
+            actor: "orquestador".into(),
+            action: action.into(),
+            trabajo: None,
+            outcome: Some(crate::EventOutcome::Ok),
+            duration_ms: None,
+            detail: detail.map(Into::into),
+        };
+        s.append_event(ev("heartbeat", Some(r#"{"sistema":"Linux","sandbox":"bwrap","disponible":true}"#))).unwrap();
+        for _ in 0..60 {
+            s.append_event(ev("bus_tomar", None)).unwrap();
+        }
+        let e = s.estado_orquestador(60).unwrap();
+        assert!(e.vivo && e.ultimo_latido.is_some(), "{e:?}");
+        assert_eq!(s.sandbox_orquestador().unwrap().map(|i| i.sandbox), Some("bwrap".into()));
     }
 
     #[test]

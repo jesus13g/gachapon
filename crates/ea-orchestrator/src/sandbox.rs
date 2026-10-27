@@ -293,6 +293,13 @@ pub fn perfil_seatbelt_criterio(ejecucion: Option<&Path>) -> String {
     p
 }
 
+/// El directorio de ejecución de la sesión (`$XDG_RUNTIME_DIR`), si existe:
+/// el que se tapa al agente y al criterio (bwrap no puede montar sobre una
+/// ruta que no existe).
+pub fn dir_ejecucion() -> Option<PathBuf> {
+    ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir())
+}
+
 /// Rutas reales (sin enlaces) para el perfil; si no se pueden resolver, la
 /// ruta tal cual.
 pub fn canonica(p: &Path) -> PathBuf {

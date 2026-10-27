@@ -126,7 +126,7 @@ pub(crate) fn lanzar<A: AgenteCli>(
     cancelado: &dyn Fn() -> bool,
 ) -> SalidaAgente {
     let p = &config.ejecutor;
-    let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir());
+    let ejecucion = crate::sandbox::dir_ejecucion();
     // Los directorios de estado solo se crean si van a montarse.
     let estado = if matches!(sandbox, Sandbox::Bwrap | Sandbox::Seatbelt) {
         preparar_dirs_estado(&home_usuario(), a.dirs_estado())

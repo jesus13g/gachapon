@@ -13,9 +13,9 @@ use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{
     Bus, ConfigOrquestador, EstadoTrabajo, Miembro, Modo, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
 };
-use ea_orchestrator::ejecutor::{ejecutar_uno, Ejecutor, SalidaAgente};
+use ea_orchestrator::ejecutor::{correr_criterio, ejecutar_uno, Ejecutor, SalidaAgente};
 use ea_orchestrator::sandbox::Sandbox;
-use ea_orchestrator::trabajadores::{ejecutores_despiertos, Contexto, Trabajadores};
+use ea_orchestrator::trabajadores::{arrancar, ejecutores_despiertos, Contexto, Trabajadores};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -521,6 +521,64 @@ fn el_criterio_en_bwrap_no_lee_el_directorio_de_ejecucion() {
     let ok = Sandbox::Bwrap.envolver_criterio(criterio("echo hecho > ok.txt && test -f ok.txt"), &r, Some(&ejecucion)).unwrap().output().unwrap();
     assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
     assert!(r.join("ok.txt").exists());
+}
+
+/// B-01: el criterio que corre el ejecutor, con el agente en bwrap, no lee
+/// la clave del panel (`<ejecucion>/ea-web/clave`) y escribe en el worktree.
+#[test]
+fn el_criterio_del_ejecutor_en_bwrap_no_lee_la_clave_del_panel_y_escribe_en_el_worktree() {
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        eprintln!("sin bwrap: prueba omitida");
+        return;
+    }
+    let d = tempfile::tempdir().unwrap();
+    let r = repo(d.path(), "r");
+    let ejecucion = d.path().join("ejecucion");
+    let clave = ea_ajustes::fichero_clave_web(&ejecucion);
+    std::fs::create_dir_all(clave.parent().unwrap()).unwrap();
+    std::fs::write(&clave, "secreto").unwrap();
+    let criterio = |sandbox: &Sandbox, guion: &str| correr_criterio(sandbox, &r, guion, Some(&ejecucion), &|| false).unwrap();
+    let leer = format!("cat '{}'", clave.display());
+    // Sin sandbox, tal cual: se lee.
+    assert_eq!(criterio(&Sandbox::Ninguno, &leer), (true, "secreto".to_string()));
+    let (pasa, evidencia) = criterio(&Sandbox::Bwrap, &leer);
+    if !pasa && evidencia.contains("namespace") {
+        eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
+        return;
+    }
+    assert!(!pasa && !evidencia.contains("secreto"), "el criterio leyó la clave del panel: {evidencia}");
+    let (pasa, evidencia) = criterio(&Sandbox::Bwrap, "echo hecho > ok.txt && test -f ok.txt");
+    assert!(pasa, "{evidencia}");
+    assert_eq!(std::fs::read_to_string(r.join("ok.txt")).unwrap(), "hecho\n");
+}
+
+/// F-14: con un orquestador en marcha, un segundo no arranca y no toca nada:
+/// ni da por interrumpido lo que el primero ejecuta ni devuelve a la cola lo
+/// que acaba de reclamar. Cuando el primero se va, el siguiente sí recupera.
+#[test]
+fn una_segunda_instancia_no_arranca_ni_toca_lo_que_lleva_la_primera() {
+    let e = Entorno::nuevo(1);
+    let r = repo(e.d.path(), "r");
+    let primera = arrancar(&e.bus).unwrap();
+    let por = ConfigOrquestador::para_agente(&e.ajustes, "qwen-code").unwrap().ejecutor.ejecutado_por();
+    // La primera ejecuta `a` y acaba de reclamar `b` (aún en cola, sin entrada).
+    let a = e.bus.crear_trabajo(orden(&r)).unwrap();
+    assert_eq!(e.bus.tomar_para_con("qwen-code", &|_| true).unwrap(), Some(a.clone()));
+    e.bus.tomar_con(&a, por).unwrap();
+    let b = e.bus.crear_trabajo(orden(&r)).unwrap();
+    assert_eq!(e.bus.tomar_para_con("qwen-code", &|_| true).unwrap(), Some(b.clone()));
+
+    let segunda = arrancar(&Bus::abrir_en(&e.raiz()).unwrap());
+    assert_eq!(e.estado(&a), EstadoTrabajo::Ejecutando);
+    assert!(e.bus.leer_informe(&a).unwrap().is_none(), "la segunda dio por interrumpido lo que ejecuta la primera");
+    assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty(), "la segunda devolvió a la cola lo reclamado");
+    let error = segunda.unwrap_err();
+    assert!(error.contains("ya hay un ea-orchestrator en marcha"), "{error}");
+
+    drop(primera);
+    let _tercera = arrancar(&e.bus).unwrap();
+    assert_eq!(e.bus.leer_informe(&a).unwrap().unwrap().motivo.as_deref(), Some("interrumpido"));
+    assert_eq!(e.bus.listar_cola(Rol::Ejecutor).unwrap().iter().map(|x| x.trabajo.clone()).collect::<Vec<_>>(), [b]);
 }
 
 #[test]

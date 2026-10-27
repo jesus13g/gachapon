@@ -492,6 +492,11 @@ impl Bus {
     /// último el cerrojo de una cola (`dormir_equipo` la vacía con el de los
     /// equipos tomado). Nunca al revés: nadie pide el de un trabajo con el de
     /// los equipos o el de una cola en la mano.
+    ///
+    /// El candado de instancia del orquestador (`<raiz>/orquestador.lock`,
+    /// `ea_orchestrator::trabajadores::Instancia`) no se cruza con estos: solo
+    /// lo pide el orquestador, una vez al arrancar y sin otro en la mano, y lo
+    /// tiene toda su vida; los de aquí se toman siempre dentro de él.
     fn bloquear_estado(&self, id: &str) -> Resultado<fs::File> {
         let dir = self.dir_trabajo(id)?;
         if !dir.is_dir() {
