@@ -12,7 +12,7 @@ use time::OffsetDateTime;
 
 use crate::config::ConfigOrquestador;
 use crate::error::{ErrorBus, Resultado};
-use crate::fs_atomico::{escribir_json, fnv};
+use crate::fs_atomico::escribir_json;
 use crate::rutina::{Rutina, MAX_DEFINICION};
 use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
@@ -41,7 +41,7 @@ pub(crate) fn nuevo_id() -> String {
     let t = OffsetDateTime::now_utc();
     let n = CONTADOR_ID.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
-    let h = fnv(&format!("{}-{n}-{nanos}", std::process::id())) & 0xffff;
+    let h = ea_plataforma::fs::fnv64(format!("{}-{n}-{nanos}", std::process::id()).as_bytes()) & 0xffff;
     format!(
         "{:04}{:02}{:02}T{:02}{:02}{:02}-{:04x}{h:04x}",
         t.year(),

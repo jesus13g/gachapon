@@ -13,11 +13,10 @@
 //! garantiza exclusión mutua, no un orden FIFO estricto entre esperantes.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use ea_plataforma::fs::Permisos;
 use ea_store::{EntradaIndice, EventOutcome, NewEvent, ResultadoBusqueda, Store};
 use serde_json::{json, Value};
 
@@ -28,17 +27,11 @@ use crate::ruta::{self, region_de, region_de_agente, validar_ruta, REGIONES, REG
 
 const FICHERO_CANDADO: &str = ".ea-escritor.lock";
 const ESPERA_POR_DEFECTO: Duration = Duration::from_secs(10);
-static CONTADOR_TEMPORAL: AtomicU64 = AtomicU64::new(0);
 
-/// FNV-1a de 64 bits: huella estable del contenido, para comprobar que la
+/// Huella FNV-1a (la de `ea-plataforma`) del contenido, para comprobar que la
 /// nota no cambió entre la simulación de una promoción y su ejecución.
 pub fn huella(texto: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in texto.bytes() {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("{h:016x}")
+    ea_plataforma::fs::huella(texto.as_bytes())
 }
 
 /// Convierte el texto de búsqueda de una persona o un modelo en una consulta
@@ -140,28 +133,12 @@ pub(crate) fn mtime_ns(meta: &fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-/// Escritura atómica: se escribe un temporal oculto en el mismo directorio,
-/// se sincroniza y se renombra sobre el destino. Un lector ve la nota
-/// anterior o la nueva entera, nunca una mitad.
+/// Escritura atómica (la de `ea-plataforma`): se escribe un temporal oculto
+/// en el mismo directorio, se sincroniza y se renombra sobre el destino. Un
+/// lector ve la nota anterior o la nueva entera, nunca una mitad. No crea el
+/// directorio.
 pub(crate) fn escribir_atomico(destino: &Path, contenido: &str) -> Resultado<()> {
-    let dir = destino.parent().ok_or_else(|| ErrorBoveda::Io("ruta sin directorio".into()))?;
-    let nombre = destino.file_name().and_then(|n| n.to_str()).unwrap_or("nota");
-    let n = CONTADOR_TEMPORAL.fetch_add(1, Ordering::Relaxed);
-    let temporal = dir.join(format!(".{nombre}.{}.{n}.tmp", std::process::id()));
-    let resultado = (|| -> std::io::Result<()> {
-        let mut f = OpenOptions::new().write(true).create_new(true).open(&temporal)?;
-        f.write_all(contenido.as_bytes())?;
-        f.sync_all()?;
-        fs::rename(&temporal, destino)
-    })();
-    if let Err(e) = resultado {
-        let _ = fs::remove_file(&temporal);
-        return Err(e.into());
-    }
-    if let Ok(d) = File::open(dir) {
-        let _ = d.sync_all();
-    }
-    Ok(())
+    Ok(ea_plataforma::fs::escribir_atomico(destino, contenido.as_bytes(), Permisos::Heredados)?)
 }
 
 pub(crate) fn evento(store: &Store, actor: &str, accion: &str, trabajo: Option<&str>, ok: bool, detalle: Value, inicio: Instant) -> Result<(), String> {

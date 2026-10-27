@@ -527,6 +527,7 @@ name = "ea-boveda"
 version = "0.1.0"
 dependencies = [
  "ea-ajustes",
+ "ea-plataforma",
  "ea-store",
  "serde_json",
  "tempfile",

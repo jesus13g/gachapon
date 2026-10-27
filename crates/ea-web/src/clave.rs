@@ -9,10 +9,9 @@
 //! Code, por ejemplo) lee el fichero igual que `ea-web-open`.
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use ea_plataforma::fs::{crear_dir_privado, opciones_privadas, sincronizar_dir};
+use ea_plataforma::fs::{crear_dir_privado, escribir_atomico, Permisos};
 
 /// Cabecera con la que la página manda la clave.
 pub const CABECERA: &str = "x-ea-clave";
@@ -46,25 +45,12 @@ impl ClaveSesion {
 }
 
 /// Escribe la clave en `<ejecucion>/ea-web/clave`: crea el directorio con
-/// 0700 en Unix (y lo deja en 0700 si ya existía), escribe un temporal 0600, lo
-/// sincroniza y lo renombra encima. Devuelve la ruta del fichero.
+/// 0700 en Unix (y lo deja en 0700 si ya existía) y la escribe de forma
+/// atómica en un fichero que nace 0600. Devuelve la ruta del fichero.
 pub fn guardar(ejecucion: &Path, clave: &ClaveSesion) -> std::io::Result<PathBuf> {
-    let dir = ejecucion.join(ea_ajustes::DIR_WEB);
-    crear_dir_privado(&dir)?;
+    crear_dir_privado(&ejecucion.join(ea_ajustes::DIR_WEB))?;
     let destino = ea_ajustes::fichero_clave_web(ejecucion);
-    let temporal = dir.join(format!(".{}.{}.tmp", ea_ajustes::FICHERO_CLAVE, std::process::id()));
-    let _ = fs::remove_file(&temporal);
-    let r = (|| {
-        let mut f = opciones_privadas().write(true).create_new(true).open(&temporal)?;
-        f.write_all(clave.texto().as_bytes())?;
-        f.sync_all()?;
-        fs::rename(&temporal, &destino)
-    })();
-    if let Err(e) = r {
-        let _ = fs::remove_file(&temporal);
-        return Err(e);
-    }
-    sincronizar_dir(&dir);
+    escribir_atomico(&destino, clave.texto().as_bytes(), Permisos::Privados)?;
     Ok(destino)
 }
 

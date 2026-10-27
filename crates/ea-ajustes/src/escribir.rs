@@ -2,11 +2,10 @@
 //! sistema escribe. Todo o nada, con control de versión, sin perder los
 //! comentarios ni las claves ajenas (`toml_edit`) y de forma atómica.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
+use ea_plataforma::fs::Permisos;
 use serde_json::Value;
 use toml_edit::{DocumentMut, Item, Table, TableLike};
 
@@ -15,8 +14,6 @@ use crate::claves::{clave, heredadas, sin_alias, Aplica, Canal, Clave, Edicion, 
 use crate::error::ErrorAjustes;
 use crate::fuentes::Fuentes;
 use crate::validar::validar_valor;
-
-static CONTADOR: AtomicU64 = AtomicU64::new(0);
 
 /// Un cambio ya escrito.
 #[derive(Debug, Clone, PartialEq)]
@@ -27,44 +24,23 @@ pub struct Aplicado {
     pub aplica: Aplica,
 }
 
-/// FNV-1a de 64 bits en hexadecimal (como la versión de la memoria en
+/// La huella FNV-1a de `ea-plataforma` (como la versión de la memoria en
 /// ea-web); "" para un fichero que no existe.
 pub fn huella(bytes: &[u8]) -> String {
     if bytes.is_empty() {
         return String::new();
     }
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in bytes {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("{h:016x}")
+    ea_plataforma::fs::huella(bytes)
 }
 
-/// Temporal oculto en el mismo directorio, `fsync` y renombrado (mismo
-/// patrón que `fs_atomico` de ea-bus).
+/// La escritura atómica de `ea-plataforma` creando antes el directorio
+/// (como `fs_atomico` de ea-bus).
 pub fn escribir_atomico(destino: &Path, contenido: &[u8]) -> std::io::Result<()> {
     let dir = destino
         .parent()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "ruta sin directorio"))?;
     fs::create_dir_all(dir)?;
-    let nombre = destino.file_name().and_then(|n| n.to_str()).unwrap_or("fichero");
-    let n = CONTADOR.fetch_add(1, Ordering::Relaxed);
-    let temporal = dir.join(format!(".{nombre}.{}.{n}.tmp", std::process::id()));
-    let resultado = (|| -> std::io::Result<()> {
-        let mut f = OpenOptions::new().write(true).create_new(true).open(&temporal)?;
-        f.write_all(contenido)?;
-        f.sync_all()?;
-        fs::rename(&temporal, destino)
-    })();
-    if let Err(e) = resultado {
-        let _ = fs::remove_file(&temporal);
-        return Err(e);
-    }
-    if let Ok(d) = File::open(dir) {
-        let _ = d.sync_all();
-    }
-    Ok(())
+    ea_plataforma::fs::escribir_atomico(destino, contenido, Permisos::Heredados)
 }
 
 /// Convierte el texto de la terminal (o de una variable de entorno) al tipo
@@ -302,4 +278,30 @@ pub fn establecer(
         });
     }
     Ok(aplicados)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::huella;
+
+    /// Prueba dorada: la huella de antes de usar la de `ea-plataforma`,
+    /// copiada tal cual, da lo mismo (también el "" del fichero que no existe).
+    #[test]
+    fn la_huella_es_la_de_siempre() {
+        fn antigua(bytes: &[u8]) -> String {
+            if bytes.is_empty() {
+                return String::new();
+            }
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in bytes {
+                h ^= u64::from(*b);
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            format!("{h:016x}")
+        }
+        for t in ["", "a", "[web]\nsondeo_ms = 3000\n", "# ñandú — 漢字 🦀\n"] {
+            assert_eq!(huella(t.as_bytes()), antigua(t.as_bytes()), "{t:?}");
+        }
+        assert_eq!(huella(&[0xff, 0x00, 0xfe]), antigua(&[0xff, 0x00, 0xfe]));
+    }
 }

@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::bus::{raiz_estado, ahora_rfc3339};
 use crate::error::{ErrorBus, Resultado};
-use crate::fs_atomico::fnv;
 use crate::tipos::Rol;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,7 +44,7 @@ fn dir_semaforos(raiz: &Path) -> PathBuf {
 /// Ruta del `.lock` de un worktree: hash corto de su ruta canónica.
 pub fn ruta_lock(raiz: &Path, worktree: &Path) -> PathBuf {
     let canonica = ea_plataforma::rutas::canonica(worktree).unwrap_or_else(|_| worktree.to_path_buf());
-    let h = fnv(&canonica.to_string_lossy()) & 0xffff_ffff;
+    let h = ea_plataforma::fs::fnv64(canonica.to_string_lossy().as_bytes()) & 0xffff_ffff;
     dir_semaforos(raiz).join(format!("worktree-{h:08x}.lock"))
 }
 

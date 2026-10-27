@@ -232,15 +232,10 @@ pub fn supervisada(nombre: &str) -> Result<&'static Herramienta, ErrorAccion> {
     Ok(h)
 }
 
-/// FNV-1a de 64 bits: huella estable (no depende de la versión de Rust) del
-/// contenido de una rutina, para detectar que cambió desde la simulación.
+/// Huella estable (FNV-1a, la de `ea-plataforma`) del contenido de una
+/// rutina, para detectar que cambió desde la simulación.
 fn huella(texto: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in texto.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("{h:016x}")
+    ea_plataforma::fs::huella(texto.as_bytes())
 }
 
 /// Bus del orquestador sobre la raíz de estado estándar (o `EA_ESTADO_DIR`).

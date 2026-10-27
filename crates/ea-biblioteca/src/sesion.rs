@@ -51,7 +51,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
-use ea_plataforma::fs::{crear_dir_nuevo_privado, crear_dir_privado, enlazar, opciones_privadas, poner_permisos_unix, poner_privado};
+use ea_plataforma::fs::{crear_dir_nuevo_privado, crear_dir_privado, enlazar, huella, opciones_privadas, poner_permisos_unix, poner_privado};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -413,16 +413,6 @@ fn texto_mcp(agente: &str, entradas: &[(String, Mcp, bool)]) -> String {
 
 // -------------------------------------------------------------- Plan
 
-/// FNV-1a de 64 bits: estable entre procesos y versiones de Rust.
-fn huella(texto: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in texto.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("{h:016x}")
-}
-
 fn admite(agente: &str, e: &Elemento) -> Result<(), ErrorBiblioteca> {
     let propio = e.agente == agente || e.agente == AGENTE_ECOSISTEMA;
     if !propio && e.tipo != Tipo::Mcp {
@@ -509,7 +499,7 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
     let cwd = raices.proyecto.clone();
     let id = format!(
         "s{}",
-        &huella(&format!("{agente}\0{}\0{}", herramientas.join("\0"), cwd.as_ref().map(|c| c.display().to_string()).unwrap_or_default()))[..12]
+        &huella(format!("{agente}\0{}\0{}", herramientas.join("\0"), cwd.as_ref().map(|c| c.display().to_string()).unwrap_or_default()).as_bytes())[..12]
     );
     let directorio = runtime.join("ea-biblioteca").join("sesiones").join(&id);
     let fichero = |nombre: &str, contenido: String, con_secretos: bool| FicheroEfimero {
@@ -738,7 +728,7 @@ fn nonce() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    huella(&format!("{nanos}\0{}\0{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)))[..10].to_string()
+    huella(format!("{nanos}\0{}\0{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)).as_bytes())[..10].to_string()
 }
 
 /// El mismo plan con las rutas bajo otro directorio.

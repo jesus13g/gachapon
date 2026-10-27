@@ -54,7 +54,7 @@ mod ordenes;
 
 use std::collections::BTreeMap;
 use std::fs;
-use ea_plataforma::fs::{opciones_privadas, permisos_unix, poner_permisos_unix, sincronizar_dir, ErrorRenombrar};
+use ea_plataforma::fs::{escribir_atomico, opciones_privadas, ErrorRenombrar, Permisos};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -440,34 +440,12 @@ fn marca_tiempo() -> String {
     )
 }
 
-/// Temporal en el mismo directorio, `fsync` y `rename`, con los permisos del
-/// original; si `ruta` es un enlace simbólico se escribe el fichero real.
+/// Escritura atómica (la de `ea-plataforma`) con los permisos del original
+/// (en Unix, los bits de modo; en Windows, el atributo de solo lectura); si
+/// `ruta` es un enlace simbólico se escribe el fichero real.
 fn escribir_atomico_conservando(ruta: &Path, bytes: &[u8]) -> Resultado<()> {
-    use std::io::Write;
-    static N: AtomicU64 = AtomicU64::new(0);
     let destino = ea_plataforma::rutas::canonica(ruta)?;
-    let meta = fs::metadata(&destino)?;
-    let modo = permisos_unix(&meta);
-    let dir = destino.parent().ok_or_else(|| ErrorBiblioteca::Io("ruta sin directorio".into()))?;
-    let nombre = destino.file_name().and_then(|n| n.to_str()).unwrap_or("fichero");
-    let temporal = dir.join(format!(".{nombre}.ea-biblioteca.{}.{}.tmp", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
-    let r = (|| -> std::io::Result<()> {
-        let mut f = opciones_privadas().write(true).create_new(true).open(&temporal)?;
-        // Conserva los permisos del original (en Unix, los bits de modo; en
-        // Windows, los atributos de solo lectura).
-        match modo {
-            Some(m) => poner_permisos_unix(&temporal, m)?,
-            None => f.set_permissions(meta.permissions())?,
-        }
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        fs::rename(&temporal, &destino)
-    })();
-    if let Err(e) = r {
-        let _ = fs::remove_file(&temporal);
-        return Err(e.into());
-    }
-    sincronizar_dir(dir);
+    escribir_atomico(&destino, bytes, Permisos::ComoOriginal)?;
     Ok(())
 }
 

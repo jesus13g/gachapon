@@ -9,6 +9,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use ea_plataforma::fs::Permisos;
 use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -60,15 +61,9 @@ pub struct Memoria {
     pub modificada: String,
 }
 
-/// FNV-1a de 64 bits en hexadecimal: basta para detectar un cambio en disco.
-pub fn version(contenido: &[u8]) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in contenido {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("{h:016x}")
-}
+/// Huella FNV-1a del contenido en hexadecimal: basta para detectar un cambio
+/// en disco.
+pub use ea_plataforma::fs::huella as version;
 
 fn rfc3339(t: SystemTime) -> String {
     OffsetDateTime::from(t).format(&Rfc3339).unwrap_or_default()
@@ -244,18 +239,10 @@ fn comprobar_version(p: &Path, version_base: &str) -> Result<Vec<u8>, ErrorMemor
     Ok(actual)
 }
 
-/// Temporal en el mismo directorio y rename: nunca queda a medias.
+/// La escritura atómica de `ea-plataforma`: nunca queda a medias.
 fn escribir_atomico(p: &Path, contenido: &[u8]) -> Result<(), ErrorMemoria> {
-    let nombre = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = p.with_file_name(format!(".{nombre}.tmp-{}", std::process::id()));
-    let escrito = std::fs::File::create(&tmp)
-        .and_then(|mut f| f.write_all(contenido).and_then(|_| f.sync_all()))
-        .and_then(|_| std::fs::rename(&tmp, p));
-    if let Err(e) = escrito {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(ErrorMemoria::Interno(format!("no se pudo guardar la memoria: {e}")));
-    }
-    Ok(())
+    ea_plataforma::fs::escribir_atomico(p, contenido, Permisos::Heredados)
+        .map_err(|e| ErrorMemoria::Interno(format!("no se pudo guardar la memoria: {e}")))
 }
 
 /// Reemplaza una memoria que ya existe. Falla con `Conflicto` si en disco ya
@@ -434,7 +421,10 @@ pub fn crear(raiz: &Path, proyecto: &str, n: &NuevaMemoria) -> Result<Memoria, E
     // Temporal y `hard_link`: falla si el destino existe, así nunca se pisa nada.
     let tmp = dir.join(format!(".{nombre}.nueva-{}", std::process::id()));
     let _ = std::fs::remove_file(&tmp);
-    std::fs::File::create(&tmp)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
         .and_then(|mut f| f.write_all(texto.as_bytes()).and_then(|_| f.sync_all()))
         .map_err(|e| ErrorMemoria::Interno(format!("no se pudo crear la memoria: {e}")))?;
     let enlazado = std::fs::hard_link(&tmp, &destino);

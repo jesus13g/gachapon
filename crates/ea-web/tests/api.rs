@@ -1646,7 +1646,7 @@ async fn guardar_la_memoria_cambia_el_disco_y_deja_rastro_en_el_diario() {
     assert_eq!(std::fs::read_to_string(mem.join("refactor.md")).unwrap(), "---\nname: nuevo\n---\ntexto\n");
     assert_ne!(nueva["version"], v["version"]);
     assert_eq!(nueva["contenido"], "---\nname: nuevo\n---\ntexto\n");
-    let temporales = std::fs::read_dir(&mem).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().contains(".tmp-")).count();
+    let temporales = std::fs::read_dir(&mem).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).count();
     assert_eq!(temporales, 0, "sin temporales");
     let (_, d) = get(&f, "/api/diario").await;
     assert!(d.as_array().unwrap().iter().any(|e| e["accion"] == "memoria_editada" && e["actor"] == "usuario"), "{d}");

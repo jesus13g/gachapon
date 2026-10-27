@@ -54,12 +54,7 @@ fn cabeza_de(ruta: &Path, n: u64) -> Option<(u64, u64)> {
     let mut f = std::fs::File::open(ruta).ok()?;
     let mut buf = Vec::new();
     f.by_ref().take(n.min(BYTES_CABEZA)).read_to_end(&mut buf).ok()?;
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in &buf {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    Some((h, buf.len() as u64))
+    Some((ea_plataforma::fs::fnv64(&buf), buf.len() as u64))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
