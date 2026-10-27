@@ -25,7 +25,7 @@ pub fn listar(json: bool) -> Result<()> {
         t.add_row(vec![
             w.trabajo.clone(),
             w.rama.clone(),
-            w.estado_trabajo.unwrap_or("sin trabajo").to_string(),
+            w.estado_trabajo.map_or("sin trabajo", ea_bus::EstadoTrabajo::as_str).to_string(),
             estado_texto(w).to_string(),
             w.ruta.clone(),
         ]);

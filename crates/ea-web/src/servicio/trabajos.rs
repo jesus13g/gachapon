@@ -20,29 +20,24 @@ fn a_valor<T: serde::Serialize>(v: T) -> Resultado<Value> {
 
 /// `en_curso`: trabajos cuyo worktree tiene cogido el agente local.
 fn resumen(bus: &Bus, id: &str, en_curso: &HashSet<String>) -> Option<TrabajoResumen> {
-    let orden = bus.leer_orden(id).ok()?;
-    let estado = bus.leer_estado(id).ok()?;
-    let informe = bus.leer_informe(id).ok().flatten();
+    let r = bus.resumen_trabajo(id)?;
     Some(TrabajoResumen {
-        cancelando: estado.estado == ea_bus::EstadoTrabajo::Cancelado && en_curso.contains(id),
-        id: id.into(),
-        modo: orden.modo.as_str(),
-        estado: estado.estado.as_str(),
-        fase_actual: estado.fase_actual,
-        fases_total: orden.fases.len(),
-        iteracion: estado.iteracion,
-        detalle: estado.detalle,
-        ejecutado_por: estado.ejecutado_por,
-        resultado: informe.as_ref().map(|i| match i.resultado {
-            ea_bus::ResultadoInforme::Terminado => "terminado",
-            ea_bus::ResultadoInforme::Bloqueado => "bloqueado",
-        }),
-        obra_completa: informe.as_ref().map(|i| i.obra_completa),
-        rutina: a_valor(&orden.rutina).ok()?,
-        titulo: orden.titulo,
-        worktree: orden.worktree,
-        creado: orden.creada_en,
-        actualizado: estado.actualizado_en,
+        cancelando: r.estado == ea_bus::EstadoTrabajo::Cancelado && en_curso.contains(id),
+        modo: r.modo.as_str(),
+        estado: r.estado.as_str(),
+        fase_actual: r.fase_actual,
+        fases_total: r.fases_total,
+        iteracion: r.iteracion,
+        detalle: r.detalle,
+        ejecutado_por: r.ejecutado_por,
+        resultado: r.informe.as_ref().map(|i| i.resultado.as_str()),
+        obra_completa: r.informe.as_ref().map(|i| i.obra_completa),
+        rutina: a_valor(&r.rutina).ok()?,
+        id: r.id,
+        titulo: r.titulo,
+        worktree: r.worktree,
+        creado: r.creada_en,
+        actualizado: r.actualizado_en,
     })
 }
 

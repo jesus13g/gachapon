@@ -1,6 +1,8 @@
 //! Vistas de solo lectura de los equipos (spec 019, RF-014/RF-015): lo que
 //! enseñan `ea equipo`, `ea status`, `ea-mcp` y `ea-web`, con la presencia de
-//! cada miembro y el último informe de cada trabajo.
+//! cada miembro y el último informe de cada trabajo. También el resumen de
+//! cada trabajo y la cuenta por estado, que la CLI, la TUI, la web y el MCP
+//! solo formatean.
 
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -8,7 +10,7 @@ use time::OffsetDateTime;
 use crate::bus::Bus;
 use crate::error::Resultado;
 use crate::presencia::Presencia;
-use crate::tipos::{EjecutadoPor, Equipo, EstadoEquipo, EstadoTrabajo, ResultadoInforme, RolEquipo};
+use crate::tipos::{EjecutadoPor, Equipo, EstadoEquipo, EstadoTrabajo, Informe, Modo, ResultadoInforme, RolEquipo, RutinaRef};
 
 /// Un miembro del equipo y si está despierto ahora.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -87,6 +89,29 @@ pub struct MiembroResumen {
     pub viva: bool,
 }
 
+/// Lo que enseñan de un trabajo las listas de la CLI, la TUI, la web y el
+/// MCP: su orden, su estado y su último informe, leídos de una vez.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumenTrabajo {
+    pub id: String,
+    pub modo: Modo,
+    pub titulo: String,
+    pub estado: EstadoTrabajo,
+    pub fase_actual: Option<u32>,
+    /// Fases de la orden (0 si no es una obra).
+    pub fases_total: usize,
+    pub iteracion: u32,
+    pub detalle: Option<String>,
+    pub ejecutado_por: Option<EjecutadoPor>,
+    pub rutina: Option<RutinaRef>,
+    pub worktree: String,
+    pub creada_en: String,
+    pub creada_por: String,
+    pub actualizado_en: String,
+    /// El último informe; `None` si aún no hay o no se puede leer.
+    pub informe: Option<Informe>,
+}
+
 const MAX_RESUMEN: usize = 160;
 
 fn una_linea(texto: &str) -> String {
@@ -99,6 +124,45 @@ fn una_linea(texto: &str) -> String {
 }
 
 impl Bus {
+    /// El resumen del trabajo `id`; `None` si su orden o su estado no se
+    /// pueden leer.
+    pub fn resumen_trabajo(&self, id: &str) -> Option<ResumenTrabajo> {
+        let orden = self.leer_orden(id).ok()?;
+        let estado = self.leer_estado(id).ok()?;
+        Some(ResumenTrabajo {
+            id: id.into(),
+            modo: orden.modo,
+            titulo: orden.titulo,
+            estado: estado.estado,
+            fase_actual: estado.fase_actual,
+            fases_total: orden.fases.len(),
+            iteracion: estado.iteracion,
+            detalle: estado.detalle,
+            ejecutado_por: estado.ejecutado_por,
+            rutina: orden.rutina,
+            worktree: orden.worktree,
+            creada_en: orden.creada_en,
+            creada_por: orden.creada_por,
+            actualizado_en: estado.actualizado_en,
+            informe: self.leer_informe(id).ok().flatten(),
+        })
+    }
+
+    /// Cuántos trabajos hay en cada estado: solo los estados con alguno, en
+    /// el orden en que aparecen del trabajo más antiguo al más nuevo (el de
+    /// `ea_status`). Un trabajo ilegible no cuenta; un bus ilegible, vacío.
+    pub fn conteo_por_estado(&self) -> Vec<(EstadoTrabajo, usize)> {
+        let mut cuenta: Vec<(EstadoTrabajo, usize)> = Vec::new();
+        for id in self.listar_trabajos().unwrap_or_default() {
+            let Ok(e) = self.leer_estado(&id) else { continue };
+            match cuenta.iter_mut().find(|(estado, _)| *estado == e.estado) {
+                Some((_, n)) => *n += 1,
+                None => cuenta.push((e.estado, 1)),
+            }
+        }
+        cuenta
+    }
+
     /// Los equipos con la presencia de sus miembros, del más antiguo al más
     /// reciente.
     pub fn resumen_equipos(&self) -> Resultado<Vec<ResumenEquipo>> {

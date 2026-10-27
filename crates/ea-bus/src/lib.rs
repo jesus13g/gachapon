@@ -24,7 +24,7 @@ pub use worktree::InfoWorktree;
 pub use git::validar_worktree;
 pub use bus::{comprobar_registro, Bus, Entrega, EntradaCola, ENV_ESTADO, raiz_estado};
 pub use equipo::NuevoEquipo;
-pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
+pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, ResumenTrabajo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
 pub use presencia::{Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};
 pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
 pub use config::{ConfigOrquestador, PerfilEjecutor, TipoAgente};

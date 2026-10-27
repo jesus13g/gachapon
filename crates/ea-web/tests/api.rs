@@ -4056,3 +4056,64 @@ async fn el_ecosistema_junta_sesiones_subagentes_presencias_y_trabajos() {
     assert_eq!(t["trabajo"], id.as_str());
     assert_eq!((t["lugar"].as_str(), t["planificador"].as_str()), (Some("agente:qwen-code"), Some("claude:s-uno")));
 }
+
+/// Cuatro trabajos que aparecen en un orden distinto del de los estados: una
+/// misión cerrada, otra en cola, una obra en curso y una misión bloqueada en
+/// revisión.
+fn sembrar_trabajos(bus: &ea_bus::Bus, wt: &str) -> [String; 4] {
+    use ea_bus::{Evento, Fase, Orden};
+    let ids = ["20260101T000001-00000001", "20260101T000002-00000002", "20260101T000003-00000003", "20260101T000004-00000004"]
+        .map(String::from);
+    let fase = |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
+    for (i, id) in ids.iter().enumerate() {
+        let base = if i == 2 {
+            Orden::obra("una obra", wt, "o", vec![fase(1), fase(2)], None, "prueba")
+        } else {
+            Orden::mision(format!("misión {}", i + 1), wt, "o", "true", "prueba")
+        };
+        bus.crear_trabajo(Orden { id: id.clone(), creada_en: "2026-01-01T00:00:00Z".into(), ..base }).unwrap();
+    }
+    for id in [&ids[0], &ids[2], &ids[3]] {
+        bus.retirar_de_colas(id).unwrap();
+        bus.aplicar(id, Evento::Tomar).unwrap();
+    }
+    let informe = |v: Value| serde_json::from_value(v).unwrap();
+    bus.aplicar(&ids[0], Evento::Entregar(informe(json!({ "resultado": "terminado", "duracion_s": 12 })))).unwrap();
+    bus.aplicar(&ids[0], Evento::Cerrar).unwrap();
+    bus.aplicar(&ids[3], Evento::Entregar(informe(json!({ "resultado": "bloqueado", "motivo": "no pasa", "duracion_s": 30 })))).unwrap();
+    ids
+}
+
+/// El texto exacto de los trabajos de `/api/trabajos` y de su cuenta en `/api/estado`.
+#[tokio::test]
+async fn los_resumenes_de_trabajos_dicen_lo_mismo_que_siempre() {
+    let f = montar();
+    let bus = ea_bus::Bus::abrir_en(&f.state.config.estado_dir).unwrap();
+    let ids = sembrar_trabajos(&bus, tmp!());
+
+    let (s, estado) = enviar(&f, Method::GET, "/api/estado", "localhost:8092", None, false).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(
+        estado.contains(r#""trabajos":{"en_cola":1,"ejecutando":1,"en_revision":1,"en_espera":0,"cerrado":1,"cancelado":0}"#),
+        "{estado}"
+    );
+
+    let (s, mut lista) = enviar(&f, Method::GET, "/api/trabajos", "localhost:8092", None, false).await;
+    assert_eq!(s, StatusCode::OK);
+    for (n, id) in ids.iter().enumerate() {
+        lista = lista.replace(&bus.leer_estado(id).unwrap().actualizado_en, &format!("<actualizado {}>", n + 1));
+    }
+    let fila = |id: &str, modo: &str, titulo: &str, estado: &str, fase: &str, fases: u32, detalle: &str, resultado: &str, completa: &str, n: u32| {
+        format!(
+            r#"{{"id":"{id}","modo":"{modo}","titulo":"{titulo}","estado":"{estado}","fase_actual":{fase},"fases_total":{fases},"iteracion":0,"detalle":{detalle},"resultado":{resultado},"obra_completa":{completa},"cancelando":false,"rutina":null,"worktree":"{}","creado":"2026-01-01T00:00:00Z","actualizado":"<actualizado {n}>","ejecutado_por":null}}"#,
+            tmp!()
+        )
+    };
+    let esperado = [
+        fila(&ids[3], "mision", "misión 4", "en_revision", "null", 0, r#""no pasa""#, r#""bloqueado""#, "false", 4),
+        fila(&ids[2], "obra", "una obra", "ejecutando", "1", 2, "null", "null", "null", 3),
+        fila(&ids[1], "mision", "misión 2", "en_cola", "null", 0, "null", "null", "null", 2),
+        fila(&ids[0], "mision", "misión 1", "cerrado", "null", 0, "null", r#""terminado""#, "false", 1),
+    ];
+    assert_eq!(lista, format!("[{}]", esperado.join(",")));
+}

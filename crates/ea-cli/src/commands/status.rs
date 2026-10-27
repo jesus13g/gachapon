@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_bus::{Bus, Rol};
+use ea_bus::{Bus, EstadoTrabajo, Rol};
 use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 
 use super::fmt_ts;
@@ -14,10 +14,11 @@ use super::fmt_ts;
 pub fn estado_orquestador(store: &Store) -> Result<String> {
     let umbral_s = ea_ajustes::cargar().umbral_latido_s();
     let estado = store.estado_orquestador(umbral_s)?;
+    let texto = estado.descripcion();
     Ok(match estado.ultimo_latido {
-        None => "sin señal (ningún heartbeat registrado todavía)".to_string(),
-        Some(t) if estado.vivo => format!("vivo (heartbeat {})", fmt_ts(t)),
-        Some(t) => format!("sin señal reciente (último heartbeat {})", fmt_ts(t)),
+        None => texto.to_string(),
+        Some(t) if estado.vivo => format!("{texto} (heartbeat {})", fmt_ts(t)),
+        Some(t) => format!("{texto} (último heartbeat {})", fmt_ts(t)),
     })
 }
 
@@ -80,22 +81,17 @@ pub fn lineas_roles(a: &ea_ajustes::Ajustes) -> Vec<String> {
 /// Trabajos por estado, colas y semáforos del bus. Si el bus no se puede
 /// leer, lo dice en vez de fallar: `ea status` es un banner de login.
 fn mostrar_bus() {
-    const ESTADOS: [&str; 6] = ["en_cola", "ejecutando", "en_revision", "en_espera", "cerrado", "cancelado"];
     let Ok(bus) = Bus::abrir() else {
         println!("Bus de trabajos: (no se puede leer el estado)");
         return;
     };
-    let mut cuenta = std::collections::HashMap::<&'static str, usize>::new();
-    for id in bus.listar_trabajos().unwrap_or_default() {
-        if let Ok(e) = bus.leer_estado(&id) {
-            *cuenta.entry(e.estado.as_str()).or_default() += 1;
-        }
-    }
+    let cuenta = bus.conteo_por_estado();
     println!("Trabajos por estado:");
     let mut table = Table::new();
     table.set_header(vec!["Estado", "Cantidad"]);
-    for estado in ESTADOS {
-        table.add_row(vec![estado.to_string(), cuenta.get(estado).copied().unwrap_or(0).to_string()]);
+    for estado in EstadoTrabajo::TODOS {
+        let n = cuenta.iter().find(|(e, _)| *e == estado).map_or(0, |(_, n)| *n);
+        table.add_row(vec![estado.as_str().to_string(), n.to_string()]);
     }
     println!("{table}");
 

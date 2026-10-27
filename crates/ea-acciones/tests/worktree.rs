@@ -16,7 +16,7 @@ fn info(trabajo: &str, estado: &'static str, limpio: Option<bool>, ocupado: bool
         trabajo: trabajo.into(),
         ruta: format!("/estado/worktrees/{trabajo}"),
         rama: format!("ea/{trabajo}"),
-        estado_trabajo: Some(estado),
+        estado_trabajo: ea_bus::EstadoTrabajo::TODOS.into_iter().find(|e| e.as_str() == estado),
         titulo: Some("t".into()),
         limpio,
         ocupado,

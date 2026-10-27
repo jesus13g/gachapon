@@ -636,7 +636,7 @@ pub fn simular_con<C: Consulta>(
                 return no(format!(
                     "el trabajo {} no ha terminado (estado: {}): solo se limpia un trabajo cerrado o cancelado",
                     a.trabajo,
-                    w.estado_trabajo.unwrap_or("desconocido")
+                    w.estado_trabajo.map_or("desconocido", ea_bus::EstadoTrabajo::as_str)
                 ));
             }
             if w.ocupado {
@@ -662,7 +662,7 @@ pub fn simular_con<C: Consulta>(
                      directorio se vuelve a sacar de ella si hiciera falta.",
                     a.trabajo,
                     w.ruta,
-                    w.estado_trabajo.unwrap_or("terminado"),
+                    w.estado_trabajo.map_or("terminado", ea_bus::EstadoTrabajo::as_str),
                     w.rama
                 ),
                 json!({ "ruta": w.ruta, "rama": w.rama, "estado_trabajo": w.estado_trabajo }),

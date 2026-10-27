@@ -1,7 +1,7 @@
 //! Vista general, portada y sesiones de Claude Code.
 
 use ea_ajustes::Rol;
-use ea_bus::Bus;
+use ea_bus::{Bus, EstadoTrabajo};
 use ea_store::{EstadoPropuesta, PropuestaFilter};
 use time::OffsetDateTime;
 
@@ -58,17 +58,16 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
 fn trabajos_por_estado(s: &AppState) -> TrabajosPorEstado {
     let mut t = TrabajosPorEstado::default();
     let Ok(bus) = Bus::abrir_en(&s.config.estado_dir) else { return t };
-    for id in bus.listar_trabajos().unwrap_or_default() {
-        let Ok(e) = bus.leer_estado(&id) else { continue };
-        match e.estado.as_str() {
-            "en_cola" => t.en_cola += 1,
-            "ejecutando" => t.ejecutando += 1,
-            "en_revision" => t.en_revision += 1,
-            "en_espera" => t.en_espera += 1,
-            "cerrado" => t.cerrado += 1,
-            "cancelado" => t.cancelado += 1,
-            _ => {}
-        }
+    for (estado, n) in bus.conteo_por_estado() {
+        let campo = match estado {
+            EstadoTrabajo::EnCola => &mut t.en_cola,
+            EstadoTrabajo::Ejecutando => &mut t.ejecutando,
+            EstadoTrabajo::EnRevision => &mut t.en_revision,
+            EstadoTrabajo::EnEspera => &mut t.en_espera,
+            EstadoTrabajo::Cerrado => &mut t.cerrado,
+            EstadoTrabajo::Cancelado => &mut t.cancelado,
+        };
+        *campo = n;
     }
     t
 }

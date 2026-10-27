@@ -42,7 +42,7 @@ pub struct InfoWorktree {
     /// La rama `ea/<id>`.
     pub rama: String,
     /// Estado del trabajo en el bus (`None` si el directorio no es de ningún trabajo).
-    pub estado_trabajo: Option<&'static str>,
+    pub estado_trabajo: Option<EstadoTrabajo>,
     pub titulo: Option<String>,
     /// Sin cambios ni ficheros sin seguimiento. `None` si git no pudo decirlo
     /// (directorio roto o ajeno).
@@ -54,7 +54,7 @@ pub struct InfoWorktree {
 impl InfoWorktree {
     /// El trabajo terminó (`cerrado` o `cancelado`): ya no escribe en él.
     pub fn trabajo_terminado(&self) -> bool {
-        matches!(self.estado_trabajo, Some("cerrado" | "cancelado"))
+        matches!(self.estado_trabajo, Some(EstadoTrabajo::Cerrado | EstadoTrabajo::Cancelado))
     }
 }
 
@@ -72,7 +72,7 @@ impl Bus {
             trabajo: id.to_string(),
             ruta: ruta.to_string_lossy().into_owned(),
             rama: format!("ea/{id}"),
-            estado_trabajo: estado.map(EstadoTrabajo::as_str),
+            estado_trabajo: estado,
             titulo: self.leer_orden(id).ok().map(|o| o.titulo),
             limpio,
             ocupado,

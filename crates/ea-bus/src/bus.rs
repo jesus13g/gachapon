@@ -434,10 +434,7 @@ impl Bus {
         self.historial(id, evento.nombre(), &nuevo)?;
         match &evento {
             Evento::Entregar(inf) => {
-                let motivo = match inf.resultado {
-                    ResultadoInforme::Terminado => "terminado",
-                    ResultadoInforme::Bloqueado => "bloqueado",
-                };
+                let motivo = inf.resultado.as_str();
                 // Una rutina vuelve a Claude Code solo si falla y el usuario lo
                 // confirma (`Confirmar`); su informe no pasa por la cola.
                 let orden = self.leer_orden(id)?;

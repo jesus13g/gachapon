@@ -245,7 +245,7 @@ fn listar_worktrees_ve_rama_y_distingue_limpio_de_sucio_y_limpiar_no_fuerza() {
     assert_eq!(v[0].trabajo, id);
     assert_eq!(v[0].rama, format!("ea/{id}"));
     assert_eq!(v[0].limpio, Some(true));
-    assert_eq!(v[0].estado_trabajo, Some("en_cola"));
+    assert_eq!(v[0].estado_trabajo, Some(ea_bus::EstadoTrabajo::EnCola));
     assert!(!v[0].ocupado && !v[0].trabajo_terminado());
     // un fichero nuevo lo ensucia, y git se niega a quitarlo sin --force
     std::fs::write(ruta.join("nuevo.txt"), "x").unwrap();

@@ -64,6 +64,17 @@ impl EstadoOrquestador {
         let vivo = ultimo_latido.is_some_and(|t| (ahora - t).whole_seconds() <= umbral_s);
         Self { vivo, ultimo_latido }
     }
+
+    /// «vivo», «sin señal reciente» o «sin señal (ningún heartbeat
+    /// registrado todavía)»: lo que dicen `ea status`, la TUI y `ea_status`.
+    /// Nunca «caído»: sin latido no se sabe más.
+    pub fn descripcion(&self) -> &'static str {
+        match (self.vivo, self.ultimo_latido) {
+            (true, _) => "vivo",
+            (false, Some(_)) => "sin señal reciente",
+            (false, None) => "sin señal (ningún heartbeat registrado todavía)",
+        }
+    }
 }
 
 impl Store {
@@ -220,6 +231,15 @@ mod tests {
         assert!(!caido.vivo);
         assert!(caido.ultimo_latido.is_some());
         assert_eq!(EstadoOrquestador::calcular(&[], ahora, 60).ultimo_latido, None);
+    }
+
+    #[test]
+    fn la_descripcion_distingue_vivo_sin_senal_reciente_y_sin_ningun_latido() {
+        let ahora = OffsetDateTime::now_utc();
+        let eventos = [latido(ahora - Duration::seconds(40))];
+        assert_eq!(EstadoOrquestador::calcular(&eventos, ahora, 60).descripcion(), "vivo");
+        assert_eq!(EstadoOrquestador::calcular(&eventos, ahora, 30).descripcion(), "sin señal reciente");
+        assert_eq!(EstadoOrquestador::calcular(&[], ahora, 60).descripcion(), "sin señal (ningún heartbeat registrado todavía)");
     }
 
     #[test]

@@ -18,21 +18,16 @@ const EJECUCIONES_EN_FICHA: usize = 10;
 /// de la rutina (la de su `orden.json`) y, si entregó informe, resultado y
 /// duración. `None` si el trabajo no se puede leer.
 fn ejecucion(bus: &Bus, id: &str) -> Option<crate::vistas::RutinaEjecucion> {
-    let orden = bus.leer_orden(id).ok()?;
-    let estado = bus.leer_estado(id).ok()?;
-    let informe = bus.leer_informe(id).ok().flatten();
+    let r = bus.resumen_trabajo(id)?;
     Some(crate::vistas::RutinaEjecucion {
-        trabajo: id.into(),
-        estado: estado.estado.as_str(),
-        version: orden.rutina.map_or(0, |r| r.version),
-        resultado: informe.as_ref().map(|i| match i.resultado {
-            ea_bus::ResultadoInforme::Terminado => "terminado",
-            ea_bus::ResultadoInforme::Bloqueado => "bloqueado",
-        }),
-        duracion_s: informe.map(|i| i.duracion_s),
-        detalle: estado.detalle,
-        creado: orden.creada_en,
-        actualizado: estado.actualizado_en,
+        estado: r.estado.as_str(),
+        version: r.rutina.map_or(0, |r| r.version),
+        resultado: r.informe.as_ref().map(|i| i.resultado.as_str()),
+        duracion_s: r.informe.map(|i| i.duracion_s),
+        trabajo: r.id,
+        detalle: r.detalle,
+        creado: r.creada_en,
+        actualizado: r.actualizado_en,
     })
 }
 

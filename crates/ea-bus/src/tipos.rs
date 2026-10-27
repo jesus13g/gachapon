@@ -238,6 +238,16 @@ pub enum EstadoTrabajo {
 }
 
 impl EstadoTrabajo {
+    /// Todos, en el orden del ciclo de vida (el de `ea status` y el panel).
+    pub const TODOS: [EstadoTrabajo; 6] = [
+        EstadoTrabajo::EnCola,
+        EstadoTrabajo::Ejecutando,
+        EstadoTrabajo::EnRevision,
+        EstadoTrabajo::EnEspera,
+        EstadoTrabajo::Cerrado,
+        EstadoTrabajo::Cancelado,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             EstadoTrabajo::EnCola => "en_cola",
@@ -270,6 +280,16 @@ pub struct Estado {
 pub enum ResultadoInforme {
     Terminado,
     Bloqueado,
+}
+
+impl ResultadoInforme {
+    /// Como en disco: `terminado` o `bloqueado`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ResultadoInforme::Terminado => "terminado",
+            ResultadoInforme::Bloqueado => "bloqueado",
+        }
+    }
 }
 
 /// Resultado de una fase en el informe de una obra.

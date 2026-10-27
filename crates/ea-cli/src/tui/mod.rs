@@ -145,14 +145,20 @@ pub fn run(store: &mut Store) -> Result<()> {
 
 /// Colas, semáforos y trabajos del bus; si no se puede leer, vacío.
 fn datos_bus() -> orquestador_view::DatosOrquestador {
-    use ea_bus::{Bus, Rol, EstadoTrabajo, ResultadoInforme};
+    match ea_bus::Bus::abrir() {
+        Ok(bus) => datos_de(&bus),
+        Err(_) => orquestador_view::DatosOrquestador { cola_modelo_local: vec![], cola_claude_code: vec![], semaforos: vec![], trabajos: vec![] },
+    }
+}
+
+fn datos_de(bus: &ea_bus::Bus) -> orquestador_view::DatosOrquestador {
+    use ea_bus::{Rol, EstadoTrabajo};
     let mut d = orquestador_view::DatosOrquestador {
         cola_modelo_local: vec![],
         cola_claude_code: vec![],
         semaforos: vec![],
         trabajos: vec![],
     };
-    let Ok(bus) = Bus::abrir() else { return d };
     let titulo = |id: &str| bus.leer_orden(id).map(|o| o.titulo).unwrap_or_else(|_| id.to_string());
     for (agente, destino) in [(Rol::Ejecutor, &mut d.cola_modelo_local), (Rol::Planificador, &mut d.cola_claude_code)] {
         *destino = bus
@@ -162,27 +168,31 @@ fn datos_bus() -> orquestador_view::DatosOrquestador {
             .map(|e| format!("{}  ({})", titulo(&e.trabajo), e.motivo))
             .collect();
     }
-    d.semaforos = ea_bus::listar_semaforos()
+    d.semaforos = ea_bus::listar_semaforos_en(bus.raiz())
         .into_iter()
         .map(|(_, o)| format!("{} · {} · desde {}", o.agente, titulo(&o.trabajo), o.desde))
         .collect();
     let mut ids = bus.listar_trabajos().unwrap_or_default();
     ids.reverse();
-    for id in ids {
-        let (Ok(orden), Ok(estado)) = (bus.leer_orden(&id), bus.leer_estado(&id)) else { continue };
-        let avance = if !orden.fases.is_empty() {
-            format!("fase {}/{}", estado.fase_actual.unwrap_or(1).min(orden.fases.len() as u32), orden.fases.len())
-        } else if estado.iteracion > 0 {
-            format!("iteración {}", estado.iteracion)
+    for r in ids.iter().filter_map(|id| bus.resumen_trabajo(id)) {
+        let avance = if r.fases_total > 0 {
+            format!("fase {}/{}", r.fase_actual.unwrap_or(1).min(r.fases_total as u32), r.fases_total)
+        } else if r.iteracion > 0 {
+            format!("iteración {}", r.iteracion)
         } else {
             String::new()
         };
         let mut informe = String::new();
-        match bus.leer_informe(&id).ok().flatten() {
+        match &r.informe {
             None => informe.push_str("Todavía no hay informe.\n"),
             Some(i) => {
-                let res = if i.resultado == ResultadoInforme::Terminado { "terminado" } else { "bloqueado" };
-                informe.push_str(&format!("resultado: {res} · obra_completa: {} · {} fases hechas · {}s\n", i.obra_completa, i.fases_hechas, i.duracion_s));
+                informe.push_str(&format!(
+                    "resultado: {} · obra_completa: {} · {} fases hechas · {}s\n",
+                    i.resultado.as_str(),
+                    i.obra_completa,
+                    i.fases_hechas,
+                    i.duracion_s
+                ));
                 if let Some(m) = &i.motivo {
                     informe.push_str(&format!("motivo: {m}\n"));
                 }
@@ -197,17 +207,10 @@ fn datos_bus() -> orquestador_view::DatosOrquestador {
                 }
             }
         }
-        if estado.estado == EstadoTrabajo::EnEspera {
+        if r.estado == EstadoTrabajo::EnEspera {
             informe.push_str("\nPaquete de corrección en espera: confírmalo con `ea trabajo confirmar` o desde ea-web.\n");
         }
-        d.trabajos.push(orquestador_view::TrabajoResumen {
-            id,
-            modo: orden.modo.as_str(),
-            titulo: orden.titulo,
-            estado: estado.estado.as_str(),
-            avance,
-            informe,
-        });
+        d.trabajos.push(orquestador_view::TrabajoResumen { id: r.id, modo: r.modo.as_str(), titulo: r.titulo, estado: r.estado, avance, informe });
     }
     d
 }
@@ -284,6 +287,54 @@ mod pruebas {
     use super::*;
     use ratatui::backend::TestBackend;
 
+    /// Lo que la pestaña Orquestador saca de un bus conocido: las colas, los
+    /// trabajos (el más reciente primero) con su avance y el texto del informe.
+    #[test]
+    fn los_datos_del_bus_dicen_lo_mismo_que_siempre() {
+        use ea_bus::{Evento, Fase, Orden};
+        let dir = tempfile::tempdir().unwrap();
+        let bus = ea_bus::Bus::abrir_en(&dir.path().join("estado")).unwrap();
+        let wt = dir.path().to_string_lossy().into_owned();
+        let ids = ["20260101T000001-00000001", "20260101T000002-00000002", "20260101T000003-00000003"];
+        let fase = |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
+        bus.crear_trabajo(Orden { id: ids[0].into(), ..Orden::mision("misión 1", &wt, "o", "true", "prueba") }).unwrap();
+        bus.crear_trabajo(Orden { id: ids[1].into(), ..Orden::obra("una obra", &wt, "o", vec![fase(1), fase(2), fase(3)], None, "prueba") }).unwrap();
+        bus.crear_trabajo(Orden { id: ids[2].into(), ..Orden::mision("misión 3", &wt, "o", "true", "prueba") }).unwrap();
+        for id in [ids[0], ids[1]] {
+            bus.retirar_de_colas(id).unwrap();
+            bus.aplicar(id, Evento::Tomar).unwrap();
+        }
+        let informe = serde_json::from_value(serde_json::json!({
+            "resultado": "bloqueado", "motivo": "no pasa", "fases_hechas": 1, "duracion_s": 30, "evidencia": "salida\n",
+            "diff_stat": " a.txt | 1 +\n", "fases": [{ "numero": 1, "titulo": "fase 1", "resultado": "hecha" }, { "numero": 2, "titulo": "fase 2", "resultado": "bloqueada" }],
+        }))
+        .unwrap();
+        bus.aplicar(ids[1], Evento::Entregar(informe)).unwrap();
+        bus.aplicar(ids[0], Evento::Entregar(serde_json::from_value(serde_json::json!({ "resultado": "terminado", "obra_completa": true, "duracion_s": 5 })).unwrap())).unwrap();
+        bus.aplicar(ids[0], Evento::Cerrar).unwrap();
+
+        let d = datos_de(&bus);
+        assert_eq!(d.cola_modelo_local, ["misión 3  (orden nueva)"]);
+        assert_eq!(d.cola_claude_code, ["una obra  (bloqueado)"]);
+        assert!(d.semaforos.is_empty());
+        let t: Vec<_> = d.trabajos.iter().map(|t| (t.id.as_str(), t.modo, t.titulo.as_str(), t.estado.as_str(), t.avance.as_str(), t.informe.as_str())).collect();
+        assert_eq!(
+            t,
+            [
+                (ids[2], "mision", "misión 3", "en_cola", "", "Todavía no hay informe.\n"),
+                (
+                    ids[1],
+                    "obra",
+                    "una obra",
+                    "en_revision",
+                    "fase 2/3",
+                    "resultado: bloqueado · obra_completa: false · 1 fases hechas · 30s\nmotivo: no pasa\nfase 1 [hecha] fase 1\nfase 2 [bloqueada] fase 2\n\nevidencia:\nsalida\n\ndiff stat:\n a.txt | 1 +\n",
+                ),
+                (ids[0], "mision", "misión 1", "cerrado", "", "resultado: terminado · obra_completa: true · 0 fases hechas · 5s\n"),
+            ]
+        );
+    }
+
     /// S-19 en la TUI: el informe de un trabajo (evidencia, motivo) y su título
     /// llevan un OSC 52 y un borrado de pantalla; ninguna celda los conserva.
     #[test]
@@ -294,7 +345,7 @@ mod pruebas {
             id: "20260101T000000-00000001".into(),
             modo: "mision",
             titulo: format!("titulo{sec}"),
-            estado: "en_revision",
+            estado: ea_bus::EstadoTrabajo::EnRevision,
             avance: String::new(),
             informe: format!("motivo: m{sec}\n\nevidencia:\nsalida{sec}\tfin\n"),
         };

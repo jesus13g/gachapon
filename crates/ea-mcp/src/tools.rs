@@ -94,18 +94,17 @@ fn fmt_ts(dt: time::OffsetDateTime) -> String {
 
 /// Resumen de un trabajo del bus, o `None` si sus ficheros no se pueden leer.
 fn trabajo_resumen(bus: &Bus, id: &str) -> Option<serde_json::Value> {
-    let orden = bus.leer_orden(id).ok()?;
-    let estado = bus.leer_estado(id).ok()?;
+    let r = bus.resumen_trabajo(id)?;
     Some(json!({
-        "id": id,
-        "modo": orden.modo.as_str(),
-        "titulo": orden.titulo,
-        "estado": estado.estado.as_str(),
-        "fase_actual": estado.fase_actual,
-        "fases": orden.fases.len(),
-        "iteracion": estado.iteracion,
-        "actualizado": estado.actualizado_en,
-        "creado_por": orden.creada_por,
+        "id": r.id,
+        "modo": r.modo.as_str(),
+        "titulo": r.titulo,
+        "estado": r.estado.as_str(),
+        "fase_actual": r.fase_actual,
+        "fases": r.fases_total,
+        "iteracion": r.iteracion,
+        "actualizado": r.actualizado_en,
+        "creado_por": r.creada_por,
     }))
 }
 
@@ -128,11 +127,8 @@ fn resumen_bus() -> (serde_json::Value, serde_json::Value, serde_json::Value) {
     let mut por_estado = serde_json::Map::new();
     let mut colas = serde_json::Map::new();
     if let Ok(bus) = Bus::abrir() {
-        for id in bus.listar_trabajos().unwrap_or_default() {
-            if let Ok(e) = bus.leer_estado(&id) {
-                let n = por_estado.entry(e.estado.as_str()).or_insert(json!(0));
-                *n = json!(n.as_i64().unwrap_or(0) + 1);
-            }
+        for (estado, n) in bus.conteo_por_estado() {
+            por_estado.insert(estado.as_str().into(), json!(n));
         }
         for a in Rol::TODOS {
             let ids: Vec<_> = bus.listar_cola(a).unwrap_or_default().into_iter().map(|e| e.trabajo).collect();
@@ -419,11 +415,7 @@ impl EaTools {
                 "orquestador": {
                     "vivo": orquestador.vivo,
                     "ultimo_latido": orquestador.ultimo_latido.map(fmt_ts),
-                    "estado": match (orquestador.vivo, orquestador.ultimo_latido) {
-                        (true, _) => "vivo",
-                        (false, Some(_)) => "sin señal reciente",
-                        (false, None) => "sin señal (ningún heartbeat registrado todavía)",
-                    },
+                    "estado": orquestador.descripcion(),
                 },
                 "trabajos_por_estado": por_estado,
                 "colas": colas,

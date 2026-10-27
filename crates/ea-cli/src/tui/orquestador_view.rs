@@ -4,12 +4,14 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
+use ea_bus::EstadoTrabajo;
+
 /// Un trabajo del bus, ya resumido para la pestaña.
 pub struct TrabajoResumen {
     pub id: String,
     pub modo: &'static str,
     pub titulo: String,
-    pub estado: &'static str,
+    pub estado: EstadoTrabajo,
     /// «fase 2/5», «iteración 3» o vacío.
     pub avance: String,
     /// Resumen del informe (resultado, motivo, evidencia, fases), para Enter.
@@ -24,14 +26,14 @@ pub struct DatosOrquestador {
     pub trabajos: Vec<TrabajoResumen>,
 }
 
-fn glifo(estado: &str) -> &'static str {
+fn glifo(estado: EstadoTrabajo) -> &'static str {
     match estado {
-        "en_cola" => "○",
-        "ejecutando" => "◐",
-        "en_revision" => "◇",
-        "en_espera" => "!",
-        "cerrado" => "●",
-        _ => "⊘",
+        EstadoTrabajo::EnCola => "○",
+        EstadoTrabajo::Ejecutando => "◐",
+        EstadoTrabajo::EnRevision => "◇",
+        EstadoTrabajo::EnEspera => "!",
+        EstadoTrabajo::Cerrado => "●",
+        EstadoTrabajo::Cancelado => "⊘",
     }
 }
 
@@ -61,7 +63,7 @@ pub fn render(frame: &mut Frame, area: Rect, d: &DatosOrquestador, sel: usize, d
     let items: Vec<ListItem> = d
         .trabajos
         .iter()
-        .map(|t| ListItem::new(format!("{} {:<11} {:<6} {}  {}  {}", glifo(t.estado), t.estado, t.modo, &t.id[9.min(t.id.len())..], t.titulo, t.avance)))
+        .map(|t| ListItem::new(format!("{} {:<11} {:<6} {}  {}  {}", glifo(t.estado), t.estado.as_str(), t.modo, &t.id[9.min(t.id.len())..], t.titulo, t.avance)))
         .collect();
     let mut estado = ListState::default();
     if !d.trabajos.is_empty() {
@@ -73,7 +75,7 @@ pub fn render(frame: &mut Frame, area: Rect, d: &DatosOrquestador, sel: usize, d
     frame.render_stateful_widget(widget, abajo[0], &mut estado);
 
     if detalle && let Some(t) = d.trabajos.get(sel) {
-        let texto: Vec<Line> = std::iter::once(Line::from(format!("{} · {} · {}", t.id, t.modo, t.estado)))
+        let texto: Vec<Line> = std::iter::once(Line::from(format!("{} · {} · {}", t.id, t.modo, t.estado.as_str())))
             .chain(t.informe.lines().map(|l| Line::from(l.to_string())))
             .collect();
         let p = Paragraph::new(texto)
