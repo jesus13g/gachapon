@@ -484,7 +484,7 @@ export const notFound = {
 export const architecture: typeof import('./copy.en').architecture = {
   title: 'Arquitectura — cómo está hecho Gachapon · Gachapon',
   description:
-    'La arquitectura de Gachapon en ocho diagramas interactivos: mapa del sistema, workspace, flujo de misiones, planificador y ejecutor, ciclo de vida de un trabajo, acciones supervisadas, base de datos y plataforma.',
+    'Cómo está hecho Gachapon en ocho diagramas interactivos: mapa del sistema, repositorio, flujo, planificador y ejecutor, estados, acciones, base de datos y plataforma.',
   nav: 'Arquitectura',
   back: 'Historia',
   kicker: 'Arquitectura · diseño',
@@ -495,7 +495,7 @@ export const architecture: typeof import('./copy.en').architecture = {
   ],
   howTo: {
     label: 'Cómo leer los diagramas',
-    text: 'Todos los diagramas son interactivos: haz zoom con la rueda o pellizcando, arrastra para moverte, pulsa un nodo para enfocarlo con sus vecinos, busca una pieza y exporta el resultado como imagen o SVG. Ábrelo a pantalla completa para tener más espacio.',
+    text: 'Todos los diagramas son interactivos: haz zoom, arrastra para moverte, pulsa un nodo para enfocarlo con sus vecinos, busca una pieza y exporta el resultado como imagen o SVG. Ábrelo a pantalla completa para tener más espacio.',
   },
   indexLabel: 'Diagramas',
   fullscreen: 'Abrir a pantalla completa',
@@ -508,13 +508,13 @@ export const architecture: typeof import('./copy.en').architecture = {
       kicker: '01 · Mapa del sistema',
       short: '01 · Mapa',
       h: 'Todo el sistema de un vistazo',
-      p: 'El planificador llega a Gachapon por `ea-mcp`, un servidor MCP de solo lectura en `127.0.0.1:8765`, y crea los trabajos con la CLI `ea`. `ea-orchestrator` vigila la cola `modelo-local` del bus de ficheros, lanza al ejecutor en un sandbox que solo habla con un `llama-server` local y corre él mismo el criterio de éxito. Tú aceptas los cambios solo desde `ea` en una terminal real o desde el panel `ea-web`.',
+      p: 'El planificador llega a Gachapon por `ea-mcp`, un servidor MCP en `127.0.0.1:8765` que lee y propone pero nunca confirma, y crea los trabajos con la CLI `ea`. `ea-orchestrator` vigila la cola `modelo-local` del bus de ficheros, lanza al ejecutor en un sandbox que solo habla con un `llama-server` local y corre él mismo el criterio de éxito. Tú aceptas los cambios solo desde `ea` en una terminal real o desde el panel `ea-web`.',
       points: [
-        '`ea-mcp` solo recibe la capa `SoloConsulta`: puede leer y proponer, nunca confirmar.',
+        '`ea-mcp` solo recibe la capa `SoloConsulta`: puede leer, simular y proponer, nunca confirmar.',
         'Aceptar pasa por simular → proponer → aceptar de `ea-acciones`, desde `ea` (TTY real) o `ea-web` en `127.0.0.1:8092` (filtro de Host, clave de sesión).',
         'El ejecutor corre bajo `bwrap` o Seatbelt y solo llega al modelo local; la única pieza de nube opcional es el modelo del planificador.',
         'El bus de ficheros guarda colas, estado de los trabajos, rutinas, el semáforo `flock`, equipos y presencia.',
-        'Los crates van por capas: `ea-plataforma` en la base, luego `ea-ajustes`, `ea-store`, `ea-bus`, `ea-acciones`, `ea-boveda` y `ea-biblioteca`.',
+        'Los crates van por capas: `ea-plataforma` en la base, luego `ea-ajustes`, `ea-store`, `ea-bus` y `ea-boveda`, con `ea-biblioteca` y `ea-acciones` encima y los binarios arriba del todo.',
       ],
     },
     {
@@ -522,7 +522,7 @@ export const architecture: typeof import('./copy.en').architecture = {
       kicker: '02 · Workspace',
       short: '02 · Repo',
       h: 'Un workspace de Cargo con crates pequeños',
-      p: 'El repositorio es un workspace de Cargo con 11 miembros, listados en orden de dependencias desde `ea-plataforma` y `ea-ajustes` hasta `ea-cli`. De él salen cuatro binarios: `ea`, `ea-mcp`, `ea-orchestrator` y `ea-web`. Alrededor de los crates están la app de escritorio, el instalador, las skills y las herramientas del proyecto. El árbol es alto: usa el scroll y el zoom para recorrerlo.',
+      p: 'El repositorio es un workspace de Cargo con 11 miembros, desde `ea-plataforma` en la base hasta los crates de los binarios. De él salen cuatro binarios: `ea`, `ea-mcp`, `ea-orchestrator` y `ea-web`. Alrededor de los crates están la app de escritorio, el instalador, las skills y las herramientas del proyecto. El árbol es alto: usa el scroll y el zoom para recorrerlo.',
       points: [
         'El workspace excluye `escritorio/` (`ea-escritorio`, bandeja y avisos) e `instalador/` (`gachapon-instalar.exe`); ambos tienen su propio manifiesto.',
         '`instalar.sh` e `instalar.ps1` son los instaladores de un paso.',
@@ -555,8 +555,8 @@ export const architecture: typeof import('./copy.en').architecture = {
         '`ea-mcp` solo lee: `ea_status`, `ea_listar_trabajos`, `ea_ver_trabajo`. Crear y decidir va por la CLI.',
         'Llamadas de la CLI: `ea trabajo crear --orden`, `ea cola planificador --json`, `ea trabajo diff`, `ea trabajo cerrar|reformular|continuar`.',
         'Cada escritura del bus y cada llamada MCP añade un evento al diario (`bus_crear`, `bus_tomar`, `bus_entregar`, `bus_cerrar`, `mcp_status`…) en la tabla `events`, append-only.',
-        'El ejecutor habla con `llama-server`, una API compatible con OpenAI en `modelo.base_url`.',
-        'Al entregar recibes un aviso con `notify-send`.',
+        'El ejecutor habla con `llama-server`, una API compatible con OpenAI en `modelos.local.base_url`.',
+        'Al entregar recibes un aviso de escritorio (`notify-send` en Linux).',
       ],
     },
     {
@@ -578,10 +578,10 @@ export const architecture: typeof import('./copy.en').architecture = {
       kicker: '06 · Acciones supervisadas',
       short: '06 · Acciones',
       h: 'Los agentes proponen, tú decides',
-      p: 'Todo lo que cambia el sistema pasa por el catálogo de `ea-acciones`: 23 herramientas, 9 de lectura, 13 reversibles y 1 irreversible (`ea_eliminar_rutina`). Los agentes llegan por `ea-mcp` con la capa `SoloConsulta`, que solo simula y escribe una fila pendiente en `propuestas`. Tú aceptas y solo entonces se reclama, se revalida y se aplica la acción.',
+      p: 'Todo lo que cambia el sistema pasa por el catálogo de `ea-acciones`: 23 herramientas, 9 de lectura, 13 reversibles y 1 irreversible (`ea_eliminar_rutina`). Los agentes llegan por `ea-mcp` con la capa `SoloConsulta`, que solo simula y deja en cola una propuesta pendiente en `propuestas`. Tú aceptas y solo entonces se reclama, se revalida y se aplica la acción.',
       points: [
         'Se acepta desde la CLI o la TUI `ea` en una TTY real (lo irreversible exige `confirmo <id>`) o desde `ea-web`, donde lo irreversible responde 403.',
-        '`ejecutar()` reclama la fila de forma atómica, revalida la precondición y aplica; el resultado va a `propuestas` y al diario como `accion_ejecutada` o `accion_fallida`.',
+        'Aceptar reclama la fila de forma atómica; `ejecutar()` revalida la precondición y aplica. El resultado va a `propuestas` y al diario como `accion_ejecutada` o `accion_fallida`.',
         'El diario es append-only: los triggers abortan cualquier UPDATE o DELETE.',
         '`ea-boveda` es el único escritor de la bóveda (`flock` sobre `.ea-escritor.lock`); los agentes leen con `ea_buscar_notas` y `ea_leer_nota`.',
         '`ea-ajustes` escribe `ajustes.toml` desde la CLI y `ea-web`; un registro de claves dice quién puede cambiar cada una, y el orquestador solo lee.',
@@ -612,7 +612,7 @@ export const architecture: typeof import('./copy.en').architecture = {
         'Servicios: `systemctl --user`, `launchctl` o `schtasks`; en Windows, `--via wsl` ofrece WSL2.',
         'Con `sandbox = true` el ejecutor se niega a arrancar en Windows nativo; se recomienda WSL2.',
         'La app de escritorio con bandeja usa WebKitGTK en Linux y WebView2 en Windows; en modo WSL lee la clave de sesión vía `wsl.exe`.',
-        'El estado vive en `~/.config/ecosistema-asistente`, `~/.local/share/ecosistema-asistente` y `~/.local/state/ecosistema-asistente`, con overrides `EA_CONFIG_DIR`, `EA_DB_PATH`, `EA_ESTADO_DIR` y `EA_BOVEDA_DIR`. `ea-plataforma` concentra las diferencias entre sistemas.',
+        'En Linux, el estado vive en `~/.config/ecosistema-asistente`, `~/.local/share/ecosistema-asistente` y `~/.local/state/ecosistema-asistente`, con overrides `EA_CONFIG_DIR`, `EA_DB_PATH`, `EA_ESTADO_DIR` y `EA_BOVEDA_DIR`. `ea-plataforma` concentra las diferencias entre sistemas.',
       ],
     },
   ],

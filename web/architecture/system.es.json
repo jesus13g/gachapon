@@ -735,7 +735,7 @@
       "id": "planner-mcp",
       "from": "planner",
       "to": "ea_mcp",
-      "label": "MCP (solo lectura)",
+      "label": "MCP · SoloConsulta",
       "variant": "security"
     },
     {

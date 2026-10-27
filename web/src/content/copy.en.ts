@@ -238,7 +238,7 @@ export const notFound = {
 export const architecture = {
   title: 'Architecture — how Gachapon is built · Gachapon',
   description:
-    'The architecture of Gachapon in eight interactive diagrams: system map, workspace, mission flow, planner and executor, job lifecycle, supervised actions, database and platform.',
+    'How Gachapon is built, in eight interactive diagrams: system map, repository, job flow, planner and executor, job states, actions, database and platform.',
   nav: 'Architecture',
   back: 'Story',
   kicker: 'Architecture · design',
@@ -249,7 +249,7 @@ export const architecture = {
   ],
   howTo: {
     label: 'How to read the diagrams',
-    text: 'Every diagram is interactive: scroll or pinch to zoom, drag to pan, click a node to focus it and its neighbours, search to find a part, and export the result as an image or SVG. Open it full screen for more room.',
+    text: 'Every diagram is interactive: zoom, drag to pan, click a node to focus it and its neighbours, search to find a part, and export the result as an image or SVG. Open it full screen for more room.',
   },
   indexLabel: 'Diagrams',
   fullscreen: 'Open full screen',
@@ -262,13 +262,13 @@ export const architecture = {
       kicker: '01 · System map',
       short: '01 · Map',
       h: 'The whole system at a glance',
-      p: 'The planner reaches Gachapon through `ea-mcp`, a read-only MCP server on `127.0.0.1:8765`, and creates jobs with the `ea` CLI. `ea-orchestrator` watches the `modelo-local` queue on the file bus, launches the executor in a sandbox that only talks to a local `llama-server`, and runs the success criterion itself. You accept changes only from `ea` in a real terminal or from the `ea-web` panel.',
+      p: 'The planner reaches Gachapon through `ea-mcp`, an MCP server on `127.0.0.1:8765` that reads and proposes but never confirms, and creates jobs with the `ea` CLI. `ea-orchestrator` watches the `modelo-local` queue on the file bus, launches the executor in a sandbox that only talks to a local `llama-server`, and runs the success criterion itself. You accept changes only from `ea` in a real terminal or from the `ea-web` panel.',
       points: [
-        '`ea-mcp` only receives the `SoloConsulta` layer: it can read and propose, never confirm.',
+        '`ea-mcp` only receives the `SoloConsulta` layer: it can read, simulate and propose, never confirm.',
         'Accepting goes through simulate → propose → accept in `ea-acciones`, from `ea` (real TTY) or `ea-web` on `127.0.0.1:8092` (Host filter, session key).',
         'The executor runs under `bwrap` or Seatbelt and reaches only the local model; the only optional cloud piece is the planner\'s model.',
         'The file bus holds queues, job state, routines, the `flock` semaphore, teams and presence.',
-        'Crates are layered: `ea-plataforma` at the base, then `ea-ajustes`, `ea-store`, `ea-bus`, `ea-acciones`, `ea-boveda` and `ea-biblioteca`.',
+        'Crates are layered: `ea-plataforma` at the base, then `ea-ajustes`, `ea-store`, `ea-bus` and `ea-boveda`, with `ea-biblioteca` and `ea-acciones` above them and the binaries on top.',
       ],
     },
     {
@@ -276,7 +276,7 @@ export const architecture = {
       kicker: '02 · Workspace',
       short: '02 · Repo',
       h: 'A Cargo workspace of small crates',
-      p: 'The repository is a Cargo workspace of 11 members, listed in dependency order from `ea-plataforma` and `ea-ajustes` up to `ea-cli`. Four binaries come out of it: `ea`, `ea-mcp`, `ea-orchestrator` and `ea-web`. Around the crates sit the desktop app, the installer, the skills and the project tooling. The tree is tall: scroll and zoom to walk it.',
+      p: 'The repository is a Cargo workspace of 11 members, from `ea-plataforma` at the base up to the binary crates. Four binaries come out of it: `ea`, `ea-mcp`, `ea-orchestrator` and `ea-web`. Around the crates sit the desktop app, the installer, the skills and the project tooling. The tree is tall: scroll and zoom to walk it.',
       points: [
         'The workspace excludes `escritorio/` (`ea-escritorio`, tray and notifications) and `instalador/` (`gachapon-instalar.exe`); both have their own manifests.',
         '`instalar.sh` and `instalar.ps1` are the one-step installers.',
@@ -309,8 +309,8 @@ export const architecture = {
         '`ea-mcp` is read-only: `ea_status`, `ea_listar_trabajos`, `ea_ver_trabajo`. Creating and deciding goes through the CLI.',
         'CLI calls: `ea trabajo crear --orden`, `ea cola planificador --json`, `ea trabajo diff`, `ea trabajo cerrar|reformular|continuar`.',
         'Every bus write and every MCP call appends a journal event (`bus_crear`, `bus_tomar`, `bus_entregar`, `bus_cerrar`, `mcp_status`…) to the append-only `events` table.',
-        'The executor talks to `llama-server`, an OpenAI-compatible API at `modelo.base_url`.',
-        'On delivery you get a `notify-send` notification.',
+        'The executor talks to `llama-server`, an OpenAI-compatible API at `modelos.local.base_url`.',
+        'On delivery you get a desktop notification (`notify-send` on Linux).',
       ],
     },
     {
@@ -332,10 +332,10 @@ export const architecture = {
       kicker: '06 · Supervised actions',
       short: '06 · Actions',
       h: 'Agents propose, you decide',
-      p: 'Anything that changes the system goes through the catalog of `ea-acciones`: 23 tools, 9 read-only, 13 reversible and 1 irreversible (`ea_eliminar_rutina`). Agents reach it through `ea-mcp` with the `SoloConsulta` layer, which only simulates and writes a pending row in `propuestas`. You accept, and only then is the action claimed, revalidated and applied.',
+      p: 'Anything that changes the system goes through the catalog of `ea-acciones`: 23 tools, 9 read-only, 13 reversible and 1 irreversible (`ea_eliminar_rutina`). Agents reach it through `ea-mcp` with the `SoloConsulta` layer, which only simulates and queues a pending proposal in `propuestas`. You accept, and only then is the action claimed, revalidated and applied.',
       points: [
         'Accept from the `ea` CLI or TUI in a real TTY (an irreversible action needs `confirmo <id>`) or from `ea-web`, where irreversible actions answer 403.',
-        '`ejecutar()` claims the row atomically, revalidates the precondition and applies it; the result goes to `propuestas` and to the journal as `accion_ejecutada` or `accion_fallida`.',
+        'Accepting claims the row atomically; `ejecutar()` revalidates the precondition and applies it. The result goes to `propuestas` and to the journal as `accion_ejecutada` or `accion_fallida`.',
         'The journal is append-only: triggers abort any UPDATE or DELETE.',
         '`ea-boveda` is the single vault writer (`flock` on `.ea-escritor.lock`); agents read with `ea_buscar_notas` and `ea_leer_nota`.',
         '`ea-ajustes` writes `ajustes.toml` from the CLI and `ea-web`; a key registry says who may change each one, and the orchestrator only reads.',
@@ -366,7 +366,7 @@ export const architecture = {
         'Services: `systemctl --user`, `launchctl` or `schtasks`; on Windows `--via wsl` offers WSL2.',
         'With `sandbox = true` the executor refuses to start on native Windows; WSL2 is recommended.',
         'The desktop tray app uses WebKitGTK on Linux and WebView2 on Windows; in WSL mode it reads the session key through `wsl.exe`.',
-        'State lives in `~/.config/ecosistema-asistente`, `~/.local/share/ecosistema-asistente` and `~/.local/state/ecosistema-asistente`, overridable with `EA_CONFIG_DIR`, `EA_DB_PATH`, `EA_ESTADO_DIR` and `EA_BOVEDA_DIR`. `ea-plataforma` gathers the differences between systems.',
+        'On Linux, state lives in `~/.config/ecosistema-asistente`, `~/.local/share/ecosistema-asistente` and `~/.local/state/ecosistema-asistente`, overridable with `EA_CONFIG_DIR`, `EA_DB_PATH`, `EA_ESTADO_DIR` and `EA_BOVEDA_DIR`. `ea-plataforma` gathers the differences between systems.',
       ],
     },
   ],
