@@ -449,19 +449,6 @@ fn verificar(ctx: &Contexto, notas: Vec<String>, con_agentes: bool) -> Result<()
     Ok(())
 }
 
-#[cfg(test)]
-mod pruebas {
-    use super::*;
-
-    #[test]
-    fn la_via_se_lee_y_rechaza_lo_demas() {
-        assert_eq!(Via::desde("WSL").unwrap(), Via::Wsl);
-        assert_eq!(Via::desde("wsl2").unwrap(), Via::Wsl);
-        assert_eq!(Via::desde(" nativa ").unwrap(), Via::Nativa);
-        assert!(Via::desde("linux").is_err());
-    }
-}
-
 /// `ea desinstalar`.
 pub fn desinstalar() -> Result<()> {
     comprobar_terminal_y_usuario()?;
@@ -498,4 +485,17 @@ pub fn desinstalar() -> Result<()> {
         println!("\nWindows no deja borrar el `ea.exe` que está corriendo: bórralo a mano ({}).", ctx.destinos.bin.display());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+
+    #[test]
+    fn la_via_se_lee_y_rechaza_lo_demas() {
+        assert_eq!(Via::desde("WSL").unwrap(), Via::Wsl);
+        assert_eq!(Via::desde("wsl2").unwrap(), Via::Wsl);
+        assert_eq!(Via::desde(" nativa ").unwrap(), Via::Nativa);
+        assert!(Via::desde("linux").is_err());
+    }
 }

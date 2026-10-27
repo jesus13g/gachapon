@@ -1,46 +1,46 @@
-# Gachapon — landing
+# Gachapon · página del proyecto
 
-Narrative, scroll-driven landing for Gachapon (source of truth: `../ecosistema-asistente/FUNCIONALIDADES.md`).
+Página narrativa, guiada por el desplazamiento, que presenta Gachapon.
 
 ```bash
 npm install
 npm run dev      # astro dev
-npm run build    # astro check + production build
-SITE_URL=https://example.com SITE_BASE=/ npm run build   # real origin for canonical / OG / sitemap
+npm run build    # astro check + compilación de producción
+SITE_URL=https://example.com SITE_BASE=/ npm run build   # origen real para canonical / OG / sitemap
 ```
 
-Optional: `PUBLIC_GOOGLE_SITE_VERIFICATION` and `PUBLIC_BING_SITE_VERIFICATION` add the Search Console / Bing Webmaster meta tags. The Pages workflow reads them from the repository variables `GOOGLE_SITE_VERIFICATION` and `BING_SITE_VERIFICATION` (Settings → Secrets and variables → Actions → Variables); unset, no tag is emitted.
+Opcional: `PUBLIC_GOOGLE_SITE_VERIFICATION` y `PUBLIC_BING_SITE_VERIFICATION` añaden las etiquetas meta de Search Console y de Bing Webmaster. El workflow de Pages las lee de las variables del repositorio `GOOGLE_SITE_VERIFICATION` y `BING_SITE_VERIFICATION` (Settings → Secrets and variables → Actions → Variables); si no están, no se emite ninguna etiqueta.
 
-- `src/content/copy.en.ts`, `copy.es.ts` — all copy, English at `/` and Spanish at `/es/` (Astro i18n routing). Same shape in both; `svg` maps each English label of the artwork to its translation
-- `src/i18n.ts` — `copyFor(Astro.currentLocale)` for the copy, `tr()` for artwork labels, `pathFor(lang, page = 'landing', slug?)` for the language and view buttons in the header (`page` is `'landing'`, `'architecture'` or `'blog'`, and `slug` picks a blog article; the landing's language button also keeps the current chapter). A new language: add `copy.xx.ts`, list it in `i18n.ts` and `astro.config.mjs`, and add `src/pages/xx/index.astro`
-- `src/components/Hud.astro` — the fixed top header, shared by both pages (`<Hud page="landing" />` / `page="architecture"`). It holds the brand, pill buttons to the other two views (Story / Historia, Architecture / Arquitectura, Blog), the language switch (same page in the other language) and GitHub. `Footer.astro` is the shared footer
-- `src/components/Landing.astro` — the page itself, shared by `src/pages/index.astro` and `src/pages/es/index.astro`
-- `src/lib/tokens.ts` — story timing, camera transitions, motion constants
-- `src/lib/motion.ts` — motion grammar (transfer, lock, success, failure, wake, sleep, verify…)
-- `src/components/` — reusable SVG pieces (Capsule, AgentNode, LockGate, Worktree, Barrier, Terminal…) and `scenes/Act*.astro`
-- `src/scripts/` — `director.ts` (pinned stage, camera, scrub), `acts-*.ts` (one builder per act)
-- Desktop ≥900px: pinned cinematic stage (+ one lazy WebGL capsule ≥1100px). Narrow: stacked scenes played on entry. `prefers-reduced-motion`: static stacked composition.
+- `src/content/copy.en.ts`, `copy.es.ts`: todos los textos, en inglés en `/` y en español en `/es/` (rutas i18n de Astro). Los dos tienen la misma forma; `svg` asocia cada etiqueta en inglés de las ilustraciones con su traducción.
+- `src/i18n.ts`: `copyFor(Astro.currentLocale)` para los textos, `tr()` para las etiquetas de las ilustraciones y `pathFor(lang, page = 'landing', slug?)` para los botones de idioma y de vista de la cabecera (`page` es `'landing'`, `'architecture'` o `'blog'`, y `slug` elige un artículo del blog; el botón de idioma de la portada conserva además el capítulo actual). Para un idioma nuevo: añadir `copy.xx.ts`, darlo de alta en `i18n.ts` y en `astro.config.mjs`, y añadir `src/pages/xx/index.astro`.
+- `src/components/Hud.astro`: la cabecera fija de arriba, común a las páginas (`<Hud page="landing" />` / `page="architecture"`). Lleva la marca, botones en píldora a las otras dos vistas (Story / Historia, Architecture / Arquitectura, Blog), el cambio de idioma (la misma página en el otro idioma) y GitHub. `Footer.astro` es el pie común.
+- `src/components/Landing.astro`: la página en sí, que comparten `src/pages/index.astro` y `src/pages/es/index.astro`.
+- `src/lib/tokens.ts`: tiempos de la historia, transiciones de cámara y constantes de movimiento.
+- `src/lib/motion.ts`: la gramática del movimiento (transfer, lock, success, failure, wake, sleep, verify…).
+- `src/components/`: piezas SVG reutilizables (Capsule, AgentNode, LockGate, Worktree, Barrier, Terminal…) y `scenes/Act*.astro`.
+- `src/scripts/`: `director.ts` (escenario fijo, cámara y avance con el desplazamiento) y `acts-*.ts` (un constructor por acto).
+- Escritorio ≥900px: escenario cinematográfico fijo (y una cápsula WebGL diferida ≥1100px). En pantallas estrechas, escenas apiladas que se reproducen al entrar. Con `prefers-reduced-motion`, composición estática apilada.
 
-## Architecture page
+## Página de arquitectura
 
-`/architecture/` (English) and `/es/architecture/` (Spanish), both rendered by `src/components/Architecture.astro` from `src/pages/architecture.astro` and `src/pages/es/architecture.astro`. It is a normal scrolling page (no pinned stage, no `scripts/main`; `Base` only adds the `is-cinema` script for `page="landing"`) with a hero, a sticky chip index and eight sections, each with copy and a framed lazy `<iframe>` of one diagram plus an "open full screen" link.
+`/architecture/` (inglés) y `/es/architecture/` (español), las dos generadas por `src/components/Architecture.astro` desde `src/pages/architecture.astro` y `src/pages/es/architecture.astro`. Es una página con desplazamiento normal (sin escenario fijo ni `scripts/main`; `Base` solo añade el script `is-cinema` con `page="landing"`) con una portada, un índice de chips fijo y ocho secciones, cada una con su texto y un `<iframe>` diferido y enmarcado con un diagrama, más un enlace para «abrir a pantalla completa».
 
-- Copy: the `architecture` export of `copy.en.ts` / `copy.es.ts` (title, description, labels and `sections[]` with `slug`, `kicker`, `h`, `p`, `points`). Section order and slugs: `system`, `workspace`, `mission-flow`, `planner-executor`, `job-lifecycle`, `actions-flow`, `database`, `platform`.
-- `Base.astro` takes `page` so canonical, `hreflang` alternates and `x-default` point at the equivalent page in each language.
+- Textos: la exportación `architecture` de `copy.en.ts` / `copy.es.ts` (título, descripción, etiquetas y `sections[]` con `slug`, `kicker`, `h`, `p`, `points`). Orden de las secciones y sus slugs: `system`, `workspace`, `mission-flow`, `planner-executor`, `job-lifecycle`, `actions-flow`, `database`, `platform`.
+- `Base.astro` recibe `page` para que canonical, las alternativas `hreflang` y `x-default` apunten a la página equivalente en cada idioma.
 
-### Diagram contract
+### Contrato de los diagramas
 
-- Sources (archify specs): `web/architecture/<slug>.<lang>.json`, one per section and language.
-- Rendered output: `web/public/architecture/<lang>/<slug>.html`, standalone interactive HTML served as-is by Pages.
-- The page embeds `${BASE_URL}/architecture/<lang>/<slug>.html?theme=dark&embed=1` and links to the same file without `embed=1` for full screen. A new section needs its slug in both copy files and both HTML files.
-- Regenerate the HTML from the JSON sources with the project skill `.claude/skills/archify`.
+- Fuentes (especificaciones de archify): `web/architecture/<slug>.<lang>.json`, una por sección e idioma.
+- Resultado: `web/public/architecture/<lang>/<slug>.html`, HTML interactivo autónomo que Pages sirve tal cual.
+- La página incrusta `${BASE_URL}/architecture/<lang>/<slug>.html?theme=dark&embed=1` y enlaza el mismo fichero sin `embed=1` para la pantalla completa. Una sección nueva necesita su slug en los dos ficheros de textos y los dos HTML.
+- El HTML se regenera desde las fuentes JSON con la skill del proyecto `.claude/skills/archify`.
 
 ## Blog
 
-`/blog/` and `/es/blog/`, rendered by `src/components/Blog.astro`: the article list on the left (sticky on wide screens, on top on narrow ones) and the selected article on the right. `/blog/` opens the newest article; each article also has its own page, `/blog/<slug>/` and `/es/blog/<slug>/` (`src/pages/blog/[slug].astro`). Copy: the `blog` export of `copy.en.ts` / `copy.es.ts`.
+`/blog/` y `/es/blog/`, generados por `src/components/Blog.astro`: la lista de artículos a la izquierda (fija en pantallas anchas, arriba en las estrechas) y el artículo elegido a la derecha. `/blog/` abre el artículo más reciente; cada artículo tiene además su propia página, `/blog/<slug>/` y `/es/blog/<slug>/` (`src/pages/blog/[slug].astro`). Textos: la exportación `blog` de `copy.en.ts` / `copy.es.ts`.
 
-Articles are not written from the web: each one is a Markdown file in `src/blog/` (collection in `src/content.config.ts`) and goes live when it reaches `main` and the Pages workflow rebuilds the site.
+Los artículos no se escriben desde la web: cada uno es un fichero Markdown en `src/blog/` (colección en `src/content.config.ts`) y se publica cuando llega a `main` y el workflow de Pages recompila el sitio.
 
-1. Copy `src/blog/_plantilla.md` to `src/blog/<slug>.md` (e.g. `2026-10-27-dia-1.md`; the file name is the URL; files starting with `_` are not published).
-2. Fill the front matter: `title`, `date` (newest first), optional `summary` (list and meta description), `tags`, `lang` (`es` by default; every article shows in both languages, marked when it differs from the page's) and `draft` (only visible with `npm run dev`).
-3. Write the body in Markdown. Images go in `public/blog/` and are linked as `/gachapon/blog/<file>`.
+1. Copiar `src/blog/_plantilla.md` a `src/blog/<slug>.md` (p. ej. `2026-10-27-dia-1.md`; el nombre del fichero es la URL; los que empiezan por `_` no se publican).
+2. Rellenar la cabecera: `title`, `date` (los más recientes primero), `summary` opcional (lista y meta description), `tags`, `lang` (`es` por defecto; cada artículo sale en los dos idiomas, marcado cuando no coincide con el de la página) y `draft` (solo visible con `npm run dev`).
+3. Escribir el cuerpo en Markdown. Las imágenes van en `public/blog/` y se enlazan como `/gachapon/blog/<fichero>`.

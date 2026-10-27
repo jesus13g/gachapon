@@ -113,8 +113,7 @@ pub fn leer_calendario(contenido: &str) -> Option<String> {
         .lines()
         .filter_map(|l| l.trim().strip_prefix("OnCalendar="))
         .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .next_back()
+        .rfind(|v| !v.is_empty())
 }
 
 /// La salida de `systemd-analyze calendar --iterations=N`.

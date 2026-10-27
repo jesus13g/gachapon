@@ -2,9 +2,8 @@
 //!
 //! Único punto de acceso a la base de datos embebida (diario de eventos,
 //! propuestas, índice de la bóveda e historial de trabajos). Expone solo tipos de dominio y la fachada [`Store`], nunca
-//! tipos de `rusqlite`, para que futuros consumidores (proceso orquestador,
-//! servidor MCP) puedan reutilizar este crate sin acoplarse a la librería
-//! de acceso concreta.
+//! tipos de `rusqlite`, para que sus consumidores (CLI, orquestador, MCP, web)
+//! no se acoplen a la librería de acceso concreta.
 
 mod connection;
 mod error;

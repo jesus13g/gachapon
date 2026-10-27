@@ -462,8 +462,8 @@ fn la_vista_del_equipo_dice_presencia_cola_y_ultimo_informe() {
     let v = e.bus.vista_equipo(&eq.id, 10).unwrap();
     let miembro = |a: &str| v.miembros.iter().find(|m| m.agente == a).unwrap();
     assert!(miembro("claude-code").viva && !miembro("antigravity").viva && !miembro("codex").viva);
-    assert_eq!(miembro("antigravity").cola, [id.clone()]);
-    assert_eq!(miembro("codex").cola, [otro.clone()]);
+    assert_eq!(miembro("antigravity").cola, std::slice::from_ref(&id));
+    assert_eq!(miembro("codex").cola, std::slice::from_ref(&otro));
     assert_eq!((v.trabajos_total, v.trabajos.len()), (2, 2));
     let t = &v.trabajos[0];
     assert_eq!((t.id.as_str(), t.estado), (id.as_str(), EstadoTrabajo::EnRevision));

@@ -5,7 +5,11 @@ use crate::models::{Event, EventOutcome, NewEvent};
 
 use super::{fmt_ts, now_str, parse_ts};
 
-fn map_row(row: &Row) -> rusqlite::Result<(i64, String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>)> {
+/// Una fila de `events` tal como sale de SQLite: id, ts, actor, action,
+/// trabajo, outcome, duration_ms y detail.
+type FilaEvento = (i64, String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>);
+
+fn map_row(row: &Row) -> rusqlite::Result<FilaEvento> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -18,18 +22,7 @@ fn map_row(row: &Row) -> rusqlite::Result<(i64, String, String, String, Option<S
     ))
 }
 
-fn to_event(
-    raw: (
-        i64,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-    ),
-) -> StoreResult<Event> {
+fn to_event(raw: FilaEvento) -> StoreResult<Event> {
     let (id, ts, actor, action, trabajo, outcome, duration_ms, detail) = raw;
     let outcome = outcome
         .map(|o| o.parse::<EventOutcome>())

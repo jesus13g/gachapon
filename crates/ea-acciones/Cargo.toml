@@ -18,6 +18,5 @@ thiserror = "1.0"
 tokio = { version = "1", features = ["process", "time", "rt"] }
 
 [dev-dependencies]
-ea-ajustes = { path = "../ea-ajustes" }
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "macros"] }

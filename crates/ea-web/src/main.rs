@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use ea_store::Store;
-use ea_web::{api, clave, AppState, WebConfig};
+use ea_web::{clave, AppState, WebConfig};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     let bind_addr = format!("127.0.0.1:{}", config.puerto);
     let estado = AppState::new(store, config).context("no se pudo abrir la conexión de acciones")?;
     let estado = Arc::new(estado);
-    let router = api::router(estado.clone());
+    let router = ea_web::http::router(estado.clone());
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;

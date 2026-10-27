@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn todos_reparte_segun_lo_que_admite_cada_agente() {
         let (_d, a) = ajustes();
-        let (_b, path) = bin(&IDS_AGENTES.to_vec(), &a);
+        let (_b, path) = bin(IDS_AGENTES, &a);
         let (m, omitidos) = repartir_todos(&a, Some(&path)).unwrap();
         let rol = |id: &str| m.iter().find(|x| x.agente == id).map(|x| x.rol);
         assert_eq!(rol("claude-code"), Some(RolEquipo::Planificador));

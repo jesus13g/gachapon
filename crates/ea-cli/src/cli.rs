@@ -312,6 +312,9 @@ pub enum AjustesAccion {
     Ruta,
 }
 
+// Se lee una vez de la línea de órdenes: no compensa meter `Crear` en una
+// caja.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 pub enum TrabajoAccion {
     /// Crea un trabajo y lo encola en modelo-local

@@ -25,10 +25,8 @@ static CONTADOR_ID: AtomicU64 = AtomicU64::new(0);
 /// `$EA_ESTADO_DIR`, si no `rutas.estado` de los ajustes (por defecto
 /// `~/.local/state/ecosistema-asistente/`).
 pub fn raiz_estado() -> PathBuf {
-    if let Ok(v) = std::env::var(ENV_ESTADO) {
-        if !v.trim().is_empty() {
-            return PathBuf::from(v.trim());
-        }
+    if let Ok(v) = std::env::var(ENV_ESTADO) && !v.trim().is_empty() {
+        return PathBuf::from(v.trim());
     }
     ea_ajustes::cargar().rutas.estado
 }
@@ -889,13 +887,11 @@ pub fn comprobar_registro(store: &Store, texto: &str) -> Resultado<(Rutina, Opti
     }
     let r = Rutina::parsear(texto)?;
     let anterior = store.ultima_rutina(&r.rutina.slug)?;
-    if let Some(ult) = &anterior {
-        if i64::from(r.rutina.version) <= ult.version {
-            return Err(ErrorBus::Argumentos(format!(
-                "la rutina {} ya está en la versión {}; la nueva debe ser mayor (es la {})",
-                r.rutina.slug, ult.version, r.rutina.version
-            )));
-        }
+    if let Some(ult) = &anterior && i64::from(r.rutina.version) <= ult.version {
+        return Err(ErrorBus::Argumentos(format!(
+            "la rutina {} ya está en la versión {}; la nueva debe ser mayor (es la {})",
+            r.rutina.slug, ult.version, r.rutina.version
+        )));
     }
     Ok((r, anterior))
 }

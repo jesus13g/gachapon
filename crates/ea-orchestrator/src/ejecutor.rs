@@ -818,7 +818,7 @@ fn trabajar_obra(
             completa = true;
             break;
         }
-        if orden.revisar_cada.is_some_and(|k| k > 0 && hechas % k == 0) {
+        if orden.revisar_cada.is_some_and(|k| k > 0 && hechas.is_multiple_of(k)) {
             break;
         }
     }

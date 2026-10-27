@@ -93,7 +93,7 @@ fn plugins(r: &Raices, avisos: &mut Vec<String>) -> Vec<Elemento> {
         e.mecanismo = Mecanismo::ComandoOficial;
         let version = entrada.get("version").and_then(Value::as_str).unwrap_or("");
         let instalacion = entrada.get("installPath").and_then(Value::as_str).map(std::path::PathBuf::from);
-        e.descripcion = instalacion.as_deref().map(|d| descripcion_plugin(d)).filter(|d| !d.is_empty()).unwrap_or_else(|| version.to_string());
+        e.descripcion = instalacion.as_deref().map(descripcion_plugin).filter(|d| !d.is_empty()).unwrap_or_else(|| version.to_string());
         sal.push(e);
         // Lo que trae el plugin: solo si está en disco (barato) y no se ha pedido su exclusión.
         if let Some(dir) = instalacion.filter(|d| d.is_dir()) {

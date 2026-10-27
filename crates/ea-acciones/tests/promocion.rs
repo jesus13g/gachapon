@@ -3,7 +3,7 @@
 //! la ejecuta; el diario lo cuenta. Con bóveda y base temporales.
 
 use ea_acciones::*;
-use ea_boveda::{Limites, NuevaNota};
+use ea_boveda::{Boveda, Limites, NuevaNota};
 use ea_store::{EstadoEjecucion, EstadoPropuesta, EventFilter, Store};
 use serde_json::{json, Value};
 

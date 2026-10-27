@@ -188,7 +188,7 @@ async fn solo_consulta_simula_y_propone_pero_no_ejecuta() {
     }
     let rutinas = d.path().join("rutinas");
     fs::create_dir_all(&rutinas).unwrap();
-    let boveda = ea_acciones::Boveda::en(d.path().join("boveda"));
+    let boveda = ea_boveda::Boveda::en(d.path().join("boveda"));
     let consulta = SoloConsulta { rutinas_dir: rutinas, boveda };
     let store = Store::open_at(&d.path().join("t.db")).unwrap();
     let args = json!({ "elemento": "codex/mcp/usuario/docs" });

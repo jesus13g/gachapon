@@ -452,8 +452,7 @@ mod pruebas {
     #[test]
     fn repetir_no_duplica_ni_pisa_los_ajustes() {
         let ctx = contexto(Sistema::Linux, Origen::Paquete);
-        let mut sonda = SondaFalsa::default();
-        sonda.path = Some("/usr/bin".into());
+        let mut sonda = SondaFalsa { path: Some("/usr/bin".into()), ..Default::default() };
         let primero = plan_instalar_todo(&ctx, &entorno(Sistema::Linux), &ajustes(), &sonda).unwrap();
         let perfil = primero.iter().find_map(|x| match x {
             Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with(".profile") => Some(contenido.clone()),

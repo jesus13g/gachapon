@@ -225,15 +225,18 @@ fn casa(e: &Elemento, tipo: Tipo, nombre: &str) -> bool {
 }
 
 fn resolver<'a>(inv: &'a Inventario, agente: &str, tipo: Tipo, nombre: &str) -> Option<&'a Elemento> {
-    let del_agente = inv.elementos.iter().filter(|e| e.agente == agente);
+    let mut del_agente = inv.elementos.iter().filter(|e| e.agente == agente);
     if agente == "opencode" && tipo == Tipo::Mcp {
         // OpenCode llama a las herramientas MCP `<servidor>_<herramienta>`: gana el prefijo más largo.
         return del_agente
             .filter(|e| e.tipo == Tipo::Mcp && nombre.starts_with(&format!("{}_", normalizar_mcp(&e.nombre))))
             .max_by_key(|e| e.nombre.len());
     }
-    del_agente.filter(|e| casa(e, tipo, nombre)).next()
+    del_agente.find(|e| casa(e, tipo, nombre))
 }
+
+/// (agente, directorio de proyectos, extractor de cada línea, fuente).
+type GrupoTranscripciones<'a> = (&'static str, &'a Path, fn(&str) -> Vec<Hallazgo>, &'static str);
 
 // --- Acumulación ---------------------------------------------------------------
 
@@ -250,6 +253,7 @@ struct Acum {
 }
 
 impl Acum {
+    #[allow(clippy::too_many_arguments)]
     fn anota(&mut self, inv: &Inventario, agente: &str, tipo: Tipo, nombre: &str, actor: &str, fuente: &'static str, usos: u64, ultimo: Option<i64>) {
         let destino = match resolver(inv, agente, tipo, nombre) {
             Some(e) => Destino::Id(e.id.clone()),
@@ -310,7 +314,7 @@ pub fn calcular_uso(_raices: &Raices, inv: &Inventario, fuentes: &FuentesUso) ->
     }
 
     // 2. Transcripciones de Claude Code y de Qwen Code.
-    let mut grupos: Vec<(&str, &Path, fn(&str) -> Vec<Hallazgo>, &'static str)> = vec![
+    let mut grupos: Vec<GrupoTranscripciones> = vec![
         ("claude-code", &fuentes.claude_proyectos, claude::extraer, "transcripciones"),
         ("qwen-code", &fuentes.qwen_proyectos, qwen::extraer, "transcripciones"),
     ];

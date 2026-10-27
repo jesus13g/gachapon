@@ -132,7 +132,7 @@ del aviso va aparte: el ejecutor no lo espera).
 Cancelar un trabajo `ejecutando` (`ea trabajo cancelar`, o «Cancelar» en la web)
 lo detiene de verdad: el ejecutor relee el estado antes de cada iteración y de
 cada fase y, mientras corre Qwen, lo sondea cada 2 s; el agente va en su propio
-grupo de procesos, que recibe `SIGTERM` y, a los 5 s, `SIGKILL`. Tras cancelar no
+grupo de procesos, que recibe `SIGTERM` y, a los 10 s, `SIGKILL`. Tras cancelar no
 se corre el criterio ni hay informe: se suelta el semáforo y el diario apunta
 `bus_cancelado_en_curso`. **Lo que el agente ya escribió en el worktree no se
 deshace.** Mientras el semáforo siga cogido, la web muestra el trabajo como
@@ -160,6 +160,12 @@ su propio sandbox (`workspace-write`). Además: topes por ejecución (recortados
 al techo de los ajustes; Codex y OpenCode solo admiten el de tiempo), exclusión
 de las herramientas web y semáforo para que dos agentes no escriban a la vez en
 el mismo worktree.
+
+**Límite conocido:** el criterio de éxito no corre dentro del sandbox. El
+ejecutor lo lanza con `sh -c` en el worktree, con los permisos de tu usuario y un
+tope de 120 s, así que puede leer y escribir lo mismo que tú (también
+`ajustes.toml`). Revisa el criterio de un trabajo antes de lanzarlo como
+revisarías un script.
 
 Qué se le quita a cada agente para que no salga a la web:
 
@@ -307,13 +313,16 @@ volver a arrancar los servicios.
 
 ## Estructura
 
+- `crates/ea-plataforma`: todas las diferencias entre Linux, macOS y Windows
+  (rutas, procesos, ficheros privados, terminal, servicios); no depende de
+  ningún otro crate del workspace.
 - `crates/ea-ajustes`: los ajustes (`ajustes.toml` y los TOML heredados), con
-  su registro de claves, validación y escritura atómica; no depende de ningún
-  otro crate.
+  su registro de claves, validación y escritura atómica; solo depende de
+  `ea-plataforma`.
 - `crates/ea-biblioteca`: la biblioteca de herramientas (spec 018): inventario de
   solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de
   los agentes, su uso, los planes de activar y desactivar y de sesión efímera;
-  solo depende de `ea-ajustes`.
+  solo depende de `ea-ajustes` y `ea-plataforma`.
 - `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
   propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
@@ -327,6 +336,8 @@ volver a arrancar los servicios.
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
 - `escritorio/`: la app de escritorio `ea-escritorio` (spec 021); fuera del workspace.
+- `instalador/`: el instalador de Windows `gachapon-instalar.exe` (spec 023), que lleva
+  dentro los binarios y lanza `ea instalar`; también fuera del workspace.
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
   rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
 - `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).

@@ -58,6 +58,9 @@ pub struct Cabecera {
 }
 
 /// Resultado de mirar el principio de un texto.
+// Se interpreta y se consume en el acto: no compensa meter la cabecera en una
+// caja.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Cabeceras {
     /// No empieza por un bloque `---`.
@@ -243,10 +246,8 @@ fn separar(texto: &str) -> Option<(Vec<&str>, &str)> {
 
 fn desentrecomillar(v: &str) -> String {
     let v = v.trim();
-    if v.starts_with('"') {
-        if let Ok(s) = serde_json::from_str::<String>(v) {
-            return s;
-        }
+    if v.starts_with('"') && let Ok(s) = serde_json::from_str::<String>(v) {
+        return s;
     }
     if v.len() >= 2 && v.starts_with('\'') && v.ends_with('\'') {
         return v[1..v.len() - 1].replace("''", "'");
@@ -279,10 +280,8 @@ fn pares(lineas: &[&str]) -> Vec<(String, String)> {
             }
             continue;
         }
-        if let Some((k, v)) = l.split_once(':') {
-            if !l.starts_with(' ') {
-                out.push((k.trim().to_string(), v.trim().to_string()));
-            }
+        if let Some((k, v)) = l.split_once(':') && !l.starts_with(' ') {
+            out.push((k.trim().to_string(), v.trim().to_string()));
         }
     }
     out

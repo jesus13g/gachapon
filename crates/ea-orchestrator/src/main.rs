@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use ea_bus::Bus;
-use ea_orchestrator::config;
 use ea_orchestrator::trabajadores::{Contexto, Trabajadores};
 use ea_store::{EventOutcome, NewEvent, Store};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -36,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     for aviso in &efectivos.avisos {
         tracing::warn!(%aviso, "ajustes");
     }
-    let config: config::Config = efectivos.ajustes.orquestador.into();
+    let config = efectivos.ajustes.orquestador;
 
     let intervalo_heartbeat = config.intervalo_heartbeat_s;
     // Se relee en cada latido: `agente.sandbox` es en caliente. El motivo, si

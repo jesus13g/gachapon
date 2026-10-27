@@ -330,8 +330,3 @@ pub fn rechazar_propuesta(
     );
     Ok(p)
 }
-
-/// Útil para las interfaces: la simulación guardada, sin recalcular.
-pub fn simulacion_guardada(p: &Propuesta) -> Option<&str> {
-    p.accion.as_ref().map(|a| a.simulacion.as_str())
-}

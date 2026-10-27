@@ -109,7 +109,7 @@ async fn la_papelera_real_mueve_el_fichero_y_revalida() {
         Temporizadores::systemd(unidades, vec!["true".into()], vec!["true".into()]);
     let sis = SistemaReal {
         rutinas_dir: rutinas.clone(),
-        boveda: Boveda::en(d.path().join("boveda")),
+        boveda: ea_boveda::Boveda::en(d.path().join("boveda")),
         propio: None,
         temporizadores,
     };

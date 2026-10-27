@@ -49,10 +49,9 @@ fn ultimas(s: &AppState, slugs: &HashSet<String>) -> HashMap<String, crate::vist
             break;
         }
         let Some(slug) = bus.leer_orden(id).ok().and_then(|o| o.rutina).map(|r| r.slug) else { continue };
-        if slugs.contains(&slug) && !out.contains_key(&slug) {
-            if let Some(e) = ejecucion(&bus, id) {
-                out.insert(slug, e);
-            }
+        if slugs.contains(&slug) && !out.contains_key(&slug)
+            && let Some(e) = ejecucion(&bus, id) {
+            out.insert(slug, e);
         }
     }
     out

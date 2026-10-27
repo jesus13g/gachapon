@@ -510,7 +510,6 @@ dependencies = [
 name = "ea-biblioteca"
 version = "0.1.0"
 dependencies = [
- "directories",
  "ea-ajustes",
  "ea-plataforma",
  "rusqlite",
@@ -567,8 +566,6 @@ dependencies = [
  "ea-store",
  "ea-web",
  "ratatui",
- "reqwest 0.12.28",
- "serde",
  "serde_json",
  "tempfile",
  "time",
@@ -604,12 +601,10 @@ name = "ea-orchestrator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "directories",
  "ea-ajustes",
  "ea-bus",
  "ea-plataforma",
  "ea-store",
- "serde",
  "serde_json",
  "tempfile",
  "time",
@@ -1634,9 +1629,7 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "futures-channel",
  "futures-core",
- "futures-util",
  "http",
  "http-body",
  "http-body-util",

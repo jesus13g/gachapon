@@ -4,7 +4,8 @@
 //! heredadas de solo lectura. Precedencia por clave: entorno >
 //! `ajustes.toml` > heredado > valor por defecto.
 //!
-//! Está en la base del grafo (no depende de ningún otro crate `ea-*`). Quién
+//! Está en la base del grafo (de los crates `ea-*` solo depende de
+//! `ea-plataforma`). Quién
 //! puede cambiar qué lo dice el registro de claves (`claves`): lo que toca la
 //! seguridad del ejecutor solo se cambia desde una terminal real, y los
 //! topes solo se endurecen desde la web. Qué agente ocupa cada rol y con qué

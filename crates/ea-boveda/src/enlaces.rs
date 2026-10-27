@@ -27,25 +27,24 @@ pub fn reescribir(texto: &str, mut f: impl FnMut(Forma, &str) -> Option<String>)
     let mut resto = texto;
     let mut cambios = false;
     while !resto.is_empty() {
-        if let Some(tras) = resto.strip_prefix("[[") {
-            if let Some(fin) = tras.find("]]").filter(|&f| !tras[..f].contains('\n')) {
-                let dentro = &tras[..fin];
-                let corte = dentro.find(['|', '#']).unwrap_or(dentro.len());
-                let (destino, cola) = dentro.split_at(corte);
-                match f(Forma::Wiki, destino.trim()).filter(|n| n != destino.trim()) {
-                    Some(nuevo) => {
-                        out.push_str(&format!("[[{nuevo}{cola}]]"));
-                        cambios = true;
-                    }
-                    None => {
-                        out.push_str("[[");
-                        out.push_str(dentro);
-                        out.push_str("]]");
-                    }
+        if let Some(tras) = resto.strip_prefix("[[")
+            && let Some(fin) = tras.find("]]").filter(|&f| !tras[..f].contains('\n')) {
+            let dentro = &tras[..fin];
+            let corte = dentro.find(['|', '#']).unwrap_or(dentro.len());
+            let (destino, cola) = dentro.split_at(corte);
+            match f(Forma::Wiki, destino.trim()).filter(|n| n != destino.trim()) {
+                Some(nuevo) => {
+                    out.push_str(&format!("[[{nuevo}{cola}]]"));
+                    cambios = true;
                 }
-                resto = &tras[fin + 2..];
-                continue;
+                None => {
+                    out.push_str("[[");
+                    out.push_str(dentro);
+                    out.push_str("]]");
+                }
             }
+            resto = &tras[fin + 2..];
+            continue;
         }
         if let Some(tras) = resto.strip_prefix("](") {
             let fin = tras.find([')', '#', ' ', '\n']);

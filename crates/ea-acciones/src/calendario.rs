@@ -124,10 +124,8 @@ fn parsear_hora(t: &str) -> Result<(u8, u8), String> {
     }
     let hora = parte_numerica(partes[0], 24).ok_or_else(|| format!("la hora de «{t}» no está entre 0 y 23"))?;
     let minuto = parte_numerica(partes[1], 60).ok_or_else(|| format!("los minutos de «{t}» no están entre 0 y 59"))?;
-    if let Some(s) = partes.get(2) {
-        if parte_numerica(s, 60) != Some(0) {
-            return Err(format!("los segundos de «{t}» deben ser 00 (la resolución es de un minuto)"));
-        }
+    if let Some(s) = partes.get(2) && parte_numerica(s, 60) != Some(0) {
+        return Err(format!("los segundos de «{t}» deben ser 00 (la resolución es de un minuto)"));
     }
     Ok((hora, minuto))
 }

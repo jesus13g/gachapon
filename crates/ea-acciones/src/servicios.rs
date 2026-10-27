@@ -766,10 +766,8 @@ pub fn aplicar_con_espera(
                     std::thread::sleep(espera);
                     resultado = correr(argv);
                 }
-                if let Err(e) = resultado {
-                    if !tolerar {
-                        return Err(format!("{}: {e}", argv.join(" ")));
-                    }
+                if let Err(e) = resultado && !tolerar {
+                    return Err(format!("{}: {e}", argv.join(" ")));
                 }
             }
         }
@@ -782,10 +780,9 @@ pub fn aplicar_con_espera(
 /// un fichero normal (dotfiles gestionados con stow o chezmoi): se escribe
 /// en el fichero apuntado. Un enlace roto se sustituye.
 fn a_traves_de_enlace(ruta: &Path) -> PathBuf {
-    if std::fs::symlink_metadata(ruta).is_ok_and(|m| m.file_type().is_symlink()) {
-        if let Ok(real) = std::fs::canonicalize(ruta) {
-            return real;
-        }
+    if std::fs::symlink_metadata(ruta).is_ok_and(|m| m.file_type().is_symlink())
+        && let Ok(real) = std::fs::canonicalize(ruta) {
+        return real;
     }
     ruta.to_path_buf()
 }
@@ -1078,7 +1075,7 @@ mod pruebas {
     fn bootstrap_se_reintenta_si_bootout_aun_no_termino() {
         let paso = Paso::Ejecutar { argv: vec!["launchctl".into(), "bootstrap".into()], tolerar: false, reintentos: 5 };
         let mut intentos = 0;
-        let r = aplicar_con_espera(&[paso.clone()], &mut |_| {
+        let r = aplicar_con_espera(std::slice::from_ref(&paso), &mut |_| {
             intentos += 1;
             if intentos < 4 { Err("Input/output error".into()) } else { Ok(()) }
         }, Duration::ZERO);

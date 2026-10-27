@@ -112,24 +112,6 @@ pub fn sin_ventana(cmd: &mut Command) {
     }
 }
 
-/// Gemelo de [`preparar_grupo`] para `tokio::process::Command`.
-#[cfg(feature = "tokio")]
-pub fn preparar_grupo_tokio(cmd: &mut tokio::process::Command) {
-    #[cfg(unix)]
-    {
-        cmd.process_group(0);
-    }
-    #[cfg(windows)]
-    {
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = cmd;
-    }
-}
-
 /// Un hijo y todo lo que lance, para terminarlos juntos.
 ///
 /// - Unix: el hijo debe haberse lanzado con [`preparar_grupo`] (es cabeza de

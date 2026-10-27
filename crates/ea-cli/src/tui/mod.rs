@@ -92,7 +92,7 @@ struct AppData {
 /// al arrancar (§13.1: las interfaces de terminal no son servicios, son
 /// clientes bajo demanda) — para ver cambios se vuelve a lanzar `ea tui`.
 pub fn run(store: &mut Store) -> Result<()> {
-    let boveda = ea_acciones::Boveda::configurada();
+    let boveda = ea_boveda::Boveda::configurada();
     let notas = boveda
         .listar(store, None, Some(50), &ea_boveda::Limites { max_resultados: 50, ..ea_boveda::Limites::AMPLIOS })
         .unwrap_or_default();
@@ -251,27 +251,25 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
             }
         })?;
 
-        if event::poll(std::time::Duration::from_millis(250))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Down if current == Tab::Orquestador => {
-                            sel = (sel + 1).min(data.orquestador_bus.trabajos.len().saturating_sub(1));
-                        }
-                        KeyCode::Up if current == Tab::Orquestador => sel = sel.saturating_sub(1),
-                        KeyCode::Enter if current == Tab::Orquestador => detalle = !detalle,
-                        KeyCode::Right | KeyCode::Tab => {
-                            let idx = (current.index() + 1) % Tab::ALL.len();
-                            current = Tab::ALL[idx];
-                        }
-                        KeyCode::Left | KeyCode::BackTab => {
-                            let idx = (current.index() + Tab::ALL.len() - 1) % Tab::ALL.len();
-                            current = Tab::ALL[idx];
-                        }
-                        _ => {}
-                    }
+        if event::poll(std::time::Duration::from_millis(250))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => break,
+                KeyCode::Down if current == Tab::Orquestador => {
+                    sel = (sel + 1).min(data.orquestador_bus.trabajos.len().saturating_sub(1));
                 }
+                KeyCode::Up if current == Tab::Orquestador => sel = sel.saturating_sub(1),
+                KeyCode::Enter if current == Tab::Orquestador => detalle = !detalle,
+                KeyCode::Right | KeyCode::Tab => {
+                    let idx = (current.index() + 1) % Tab::ALL.len();
+                    current = Tab::ALL[idx];
+                }
+                KeyCode::Left | KeyCode::BackTab => {
+                    let idx = (current.index() + Tab::ALL.len() - 1) % Tab::ALL.len();
+                    current = Tab::ALL[idx];
+                }
+                _ => {}
             }
         }
     }

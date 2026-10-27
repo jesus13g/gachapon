@@ -72,15 +72,13 @@ pub fn render(frame: &mut Frame, area: Rect, d: &DatosOrquestador, sel: usize, d
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
     frame.render_stateful_widget(widget, abajo[0], &mut estado);
 
-    if detalle {
-        if let Some(t) = d.trabajos.get(sel) {
-            let texto: Vec<Line> = std::iter::once(Line::from(format!("{} · {} · {}", t.id, t.modo, t.estado)))
-                .chain(t.informe.lines().map(|l| Line::from(l.to_string())))
-                .collect();
-            let p = Paragraph::new(texto)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().borders(Borders::ALL).title(t.titulo.clone()));
-            frame.render_widget(p, abajo[1]);
-        }
+    if detalle && let Some(t) = d.trabajos.get(sel) {
+        let texto: Vec<Line> = std::iter::once(Line::from(format!("{} · {} · {}", t.id, t.modo, t.estado)))
+            .chain(t.informe.lines().map(|l| Line::from(l.to_string())))
+            .collect();
+        let p = Paragraph::new(texto)
+            .wrap(Wrap { trim: false })
+            .block(Block::default().borders(Borders::ALL).title(t.titulo.clone()));
+        frame.render_widget(p, abajo[1]);
     }
 }

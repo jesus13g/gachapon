@@ -16,7 +16,6 @@ thiserror = "1.0"
 # migraciones al abrir y rechaza esquemas ajenos, y aquí no se debe escribir nada.
 rusqlite = { version = "0.32", features = ["bundled"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
-directories = "5.0"
 
 [dev-dependencies]
 tempfile = "3"

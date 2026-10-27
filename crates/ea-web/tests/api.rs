@@ -18,7 +18,7 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use axum::Router;
 use ea_store::{EventOutcome, NewEvent, Store};
-use ea_web::{api, AppState, WebConfig};
+use ea_web::{AppState, WebConfig};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -94,7 +94,7 @@ fn montar() -> Fixture {
         biblioteca_raices: Some(raices_biblioteca(dir.path())),
     };
     let state = Arc::new(AppState::new(store, config).expect("estado"));
-    Fixture { app: api::router(state.clone()), state, _dir: dir, terminales }
+    Fixture { app: ea_web::http::router(state.clone()), state, _dir: dir, terminales }
 }
 
 // ---------------------------------------------------------------- biblioteca

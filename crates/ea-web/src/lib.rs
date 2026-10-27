@@ -27,9 +27,6 @@ pub mod sesiones;
 pub mod tema;
 pub mod vistas;
 
-/// Nombre histórico de la capa HTTP (`ea_web::api::router`).
-pub use http as api;
-
 pub struct WebConfig {
     pub puerto: u16,
     /// Antigüedad máxima del último heartbeat para considerar vivo al

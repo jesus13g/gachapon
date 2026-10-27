@@ -2,7 +2,7 @@
 //! skills, plugins, subagentes, servidores MCP, comandos y extensiones de
 //! cada agente del catálogo y del ecosistema.
 //!
-//! Depende solo de `ea-ajustes`. Nada de lo que sale de aquí lleva secretos
+//! Depende solo de `ea-ajustes` y `ea-plataforma`. Nada de lo que sale de aquí lleva secretos
 //! (ver [`redactar`]). Lo que no existe en disco es vacío, nunca error; lo que
 //! no se puede interpretar queda en [`Inventario::avisos`].
 

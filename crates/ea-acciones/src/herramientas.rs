@@ -388,21 +388,18 @@ pub struct Hechos {
 /// Consulta al sistema lo que la simulación de `nombre` necesita.
 pub async fn observar<C: Consulta>(consulta: &C, nombre: &str, args: &Value) -> Result<Hechos, ErrorAccion> {
     let mut h = Hechos::default();
-    if nombre == "ea_reiniciar_servicio" {
-        if let Some(srv) = args["servicio"].as_str().filter(|s| SERVICIOS_REINICIABLES.contains(s)) {
-            h.servicio = Some(consulta.servicio_estado(srv).await.map_err(ErrorAccion::Sistema)?);
-        }
+    if nombre == "ea_reiniciar_servicio"
+        && let Some(srv) = args["servicio"].as_str().filter(|s| SERVICIOS_REINICIABLES.contains(s)) {
+        h.servicio = Some(consulta.servicio_estado(srv).await.map_err(ErrorAccion::Sistema)?);
     }
     // Retirar también quita el timer: su simulación lo dice.
-    if matches!(nombre, "ea_programar_rutina" | "ea_desprogramar_rutina" | "ea_retirar_rutina") {
-        if let Some(slug) = args["slug"].as_str().filter(|s| slug_valido(s)) {
-            h.timer = Some(consulta.timer_estado(slug).await.map_err(ErrorAccion::Sistema)?);
-        }
+    if matches!(nombre, "ea_programar_rutina" | "ea_desprogramar_rutina" | "ea_retirar_rutina")
+        && let Some(slug) = args["slug"].as_str().filter(|s| slug_valido(s)) {
+        h.timer = Some(consulta.timer_estado(slug).await.map_err(ErrorAccion::Sistema)?);
     }
-    if nombre == "ea_programar_rutina" {
-        if let Some(c) = args["calendario"].as_str().filter(|c| comprobar_calendario(c).is_ok()) {
-            h.calendario = Some(consulta.calendario_validar(c).await.map_err(ErrorAccion::Sistema)?);
-        }
+    if nombre == "ea_programar_rutina"
+        && let Some(c) = args["calendario"].as_str().filter(|c| comprobar_calendario(c).is_ok()) {
+        h.calendario = Some(consulta.calendario_validar(c).await.map_err(ErrorAccion::Sistema)?);
     }
     Ok(h)
 }
@@ -850,7 +847,7 @@ pub fn revalidar_con<C: Consulta>(
 
 /// Aplica la parte de la acción que escribe en la base de datos. Devuelve
 /// `None` si la herramienta actúa sobre el sistema (ver [`aplicar_en_sistema`]).
-pub fn aplicar_en_store(
+pub(crate) fn aplicar_en_store(
     store: &mut Store,
     actor: &str,
     canal: Canal,
@@ -878,7 +875,7 @@ pub fn aplicar_en_store(
 }
 
 /// Aplica la parte de la acción que actúa sobre el sistema operativo.
-pub async fn aplicar_en_sistema<S: Sistema>(
+pub(crate) async fn aplicar_en_sistema<S: Sistema>(
     sistema: &S,
     store: &mut Store,
     actor: &str,

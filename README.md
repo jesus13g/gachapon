@@ -363,9 +363,10 @@ cargo test -p ea-bus       # un solo crate
 | `ea-ajustes` | Ajustes, validación y escritura atómica |
 | `ea-plataforma` | Diferencias entre Linux, macOS y Windows |
 
-Fuera del workspace: `escritorio/` (app de escritorio), `claude/` y `agentes/`
-(skills y adaptadores de los planificadores), `qwen/skills/` (skills del
-ejecutor) y `bench/` (banco de pruebas de modelos).
+Fuera del workspace: `escritorio/` (app de escritorio), `instalador/` (el
+instalador de Windows, `gachapon-instalar.exe`), `claude/` y `agentes/` (skills y
+adaptadores de los planificadores), `qwen/skills/` (skills del ejecutor), `web/`
+(la página del proyecto) y `bench/` (banco de pruebas de modelos).
 
 Todo el proyecto (código, mensajes y documentación) está en español. Las
 mejoras salen de la rama `desarrollo` y vuelven a ella; `main` es la versión

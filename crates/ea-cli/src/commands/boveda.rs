@@ -5,8 +5,7 @@
 
 use anyhow::{Context, Result};
 use comfy_table::Table;
-use ea_acciones::Boveda;
-use ea_boveda::{ruta::REGIONES, Limites};
+use ea_boveda::{ruta::REGIONES, Boveda, Limites};
 use ea_store::{ResultadoBusqueda, Store};
 use serde_json::json;
 

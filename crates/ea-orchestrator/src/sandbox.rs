@@ -108,6 +108,7 @@ fn literal(ruta: &Path) -> String {
 ///    en `localhost` y el socket de
 ///    `mDNSResponder`, que usa la resolución de nombres del sistema. No se
 ///    abre ningún otro socket unix.
+///
 /// Cierra las vías para lanzar código fuera del sandbox (con `allow default`
 /// los hijos heredan el perfil, pero `open`, `osascript` o `launchctl` piden a
 /// otro proceso, ya fuera, que lo ejecute): sin esos binarios ni los servicios

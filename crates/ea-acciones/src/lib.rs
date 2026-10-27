@@ -26,7 +26,6 @@ pub mod sistema;
 pub mod temporizador;
 pub mod terminal;
 
-pub use ea_boveda::Boveda;
 pub use catalogo::{autorizar_mcp, buscar, Canal, Ejecucion, Herramienta, Riesgo, CATALOGO};
 pub use diff::diff_lineas;
 pub use error::ErrorAccion;
