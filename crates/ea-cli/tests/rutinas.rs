@@ -86,3 +86,22 @@ fn una_rutina_retirada_no_se_lista_ni_se_lanza_desde_la_cli() {
     assert!(String::from_utf8_lossy(&o.stderr).contains("está retirada"), "{}", String::from_utf8_lossy(&o.stderr));
     assert!(!d.path().join("estado/trabajos").exists() || std::fs::read_dir(d.path().join("estado/trabajos")).unwrap().next().is_none());
 }
+
+/// B-07: `ea rutina lanzar` (lo que ejecuta su timer) no apila una segunda
+/// ejecución mientras la anterior sigue en cola: sale con error y el mismo
+/// texto que la web, sin crear otro trabajo.
+#[test]
+fn lanzar_dos_veces_seguidas_la_misma_rutina_falla_la_segunda() {
+    let d = tempfile::tempdir().unwrap();
+    let f = d.path().join("informe.toml");
+    std::fs::write(&f, RUTINA).unwrap();
+    let o = ea(d.path(), &["rutina", "registrar", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let o = ea(d.path(), &["rutina", "lanzar", "informe"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let o = ea(d.path(), &["rutina", "lanzar", "informe"]);
+    assert!(!o.status.success());
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("la rutina 'informe' ya tiene una ejecución en curso"), "{err}");
+    assert_eq!(std::fs::read_dir(d.path().join("estado/trabajos")).unwrap().count(), 1);
+}

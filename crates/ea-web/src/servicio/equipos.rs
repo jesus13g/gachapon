@@ -78,7 +78,7 @@ pub async fn despertar(s: &AppState, cuerpo: serde_json::Value) -> Resultado<Des
     }
     let titulo = texto_no_vacio(&p.titulo, "titulo", TITULO_MAX)?;
     let objetivo = texto_no_vacio(&p.objetivo, "objetivo", OBJETIVO_MAX)?;
-    let worktree = super::trabajos::validar_worktree(&p.worktree).await?;
+    let worktree = crate::git::validar_worktree(&p.worktree).await?;
     let ajustes = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
     let path = std::env::var_os("PATH");
     let (lista, omitidos): (Vec<Miembro>, Vec<String>) = if p.todos {

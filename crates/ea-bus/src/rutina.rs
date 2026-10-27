@@ -147,24 +147,10 @@ impl Rutina {
             obj.push_str(&format!("\n## Salida esperada\n{}\n", sustituir(&c.salida_esperada, &vals)));
         }
         Ok(Orden {
-            id: String::new(),
             modo: Modo::Rutina,
-            titulo: format!("Rutina {}", c.slug),
-            worktree: c.worktree.clone(),
-            objetivo: obj,
-            criterio_exito: Some(sustituir(&c.criterio_exito, &vals)),
-            fases: vec![],
-            revisar_cada: None,
             topes: self.topes.unwrap_or_default(),
             rutina: Some(RutinaRef { slug: c.slug.clone(), version: c.version }),
-            notas_revision: vec![],
-            skills: vec![],
-            equipo: None,
-            asignado_a: None,
-            revisor: None,
-            worktree_propio: false,
-            creada_en: String::new(),
-            creada_por: "rutina".into(),
+            ..Orden::mision(format!("Rutina {}", c.slug), c.worktree.clone(), obj, sustituir(&c.criterio_exito, &vals), "rutina")
         })
     }
 }

@@ -106,6 +106,48 @@ pub fn tiene_commits(wt: &Path, tope: Duration) -> Resultado<bool> {
     sin_fallos(git(wt, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], tope).map(|s| !s.trim().is_empty()))
 }
 
+/// Longitud máxima de la ruta del worktree de una orden nueva.
+const WORKTREE_MAX: usize = 4_096;
+
+/// El worktree de una orden nueva: no vacío, de hasta 4096 bytes, ruta
+/// absoluta, que existe y es un directorio con ruta UTF-8, dentro de un repo
+/// git ([`es_repo`]) que tiene algún commit ([`tiene_commits`]; el ejecutor
+/// arranca con `rev-parse HEAD` y bloquearía un repo sin commits). Devuelve
+/// la forma canónica, que es la que va a la orden (y al semáforo). Lo llaman
+/// `ea trabajo crear` y la web antes de crear el trabajo, con los mismos
+/// mensajes ([`ErrorBus::Argumentos`]); solo un git que no responde en
+/// `tope` es [`ErrorBus::GitSinRespuesta`].
+pub fn validar_worktree(wt: &str, tope: Duration) -> Resultado<String> {
+    let invalido = |m: String| Err(ErrorBus::Argumentos(m));
+    let wt = wt.trim();
+    if wt.is_empty() {
+        return invalido("'worktree' no puede estar vacío".into());
+    }
+    if wt.len() > WORKTREE_MAX {
+        return invalido(format!("'worktree' supera {WORKTREE_MAX} bytes"));
+    }
+    let ruta = Path::new(wt);
+    if !ruta.is_absolute() {
+        return invalido("'worktree' debe ser una ruta absoluta".into());
+    }
+    let Ok(canon) = ea_plataforma::rutas::canonica(ruta) else {
+        return invalido(format!("el worktree '{wt}' no existe"));
+    };
+    if !canon.is_dir() {
+        return invalido(format!("el worktree '{wt}' no es un directorio"));
+    }
+    let Some(canon) = canon.to_str().map(str::to_string) else {
+        return invalido("la ruta del worktree no es UTF-8".into());
+    };
+    if !es_repo(Path::new(&canon), tope)? {
+        return invalido(format!("'{canon}' no está dentro de un repositorio git"));
+    }
+    if !tiene_commits(Path::new(&canon), tope)? {
+        return invalido(format!("el repo no tiene ningún commit ('{canon}'): haz un commit inicial antes de encargarle trabajo"));
+    }
+    Ok(canon)
+}
+
 fn sin_fallos(r: Resultado<bool>) -> Resultado<bool> {
     match r {
         Err(e @ ErrorBus::GitSinRespuesta(_)) => Err(e),

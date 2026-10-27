@@ -246,21 +246,16 @@ pub async fn registrar(s: &AppState, toml: &str) -> Resultado<RutinaRegistrada> 
     Ok(RutinaRegistrada { rutina: c.slug.clone(), version: c.version, anterior })
 }
 
-/// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`): crea el
-/// trabajo en el bus y el orquestador lo recoge. Las entradas se validan
-/// antes de mirar si hay otra ejecución en curso, y si no valen no se crea
-/// nada.
+/// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`):
+/// `Bus::lanzar_rutina_en` crea el trabajo en el bus y el orquestador lo
+/// recoge. Sin registrar, 404. Retirada o sin fichero, 409, con el mismo
+/// texto que la simulación de `ea_encolar_rutina` y que `ea rutina lanzar`.
+/// Las entradas se validan antes de mirar si hay otra ejecución en curso
+/// (400, y no se crea nada); con otra en curso, 409.
 pub async fn lanzar(s: &AppState, slug: &str, entradas: &Entradas) -> Resultado<RutinaLanzada> {
     slug_valido(slug)?;
     let bus = bus_con_store(s).await?;
-    let rutina = bus.rutina(slug).map_err(|_| no_registrada(slug))?;
-    // Retirada o sin fichero: 409, con el mismo texto que la simulación de
-    // `ea_encolar_rutina` y que `ea rutina lanzar`.
-    ea_bus::comprobar_lanzable(&s.config.rutinas_dir, slug)?;
-    let orden = rutina.a_orden(&pares(entradas))?;
-    if !bus.trabajos_activos_de_rutina(slug)?.is_empty() {
-        return Err(ErrorWeb::Conflicto(format!("la rutina '{slug}' ya tiene una ejecución en curso")));
-    }
-    let id = bus.crear_trabajo(orden)?;
+    bus.rutina(slug).map_err(|_| no_registrada(slug))?;
+    let id = bus.lanzar_rutina_en(&s.config.rutinas_dir, slug, &pares(entradas))?;
     Ok(RutinaLanzada { trabajo: id, rutina: slug.into() })
 }

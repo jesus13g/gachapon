@@ -49,17 +49,11 @@ fn recortar(mut texto: String, max: usize) -> (String, bool) {
     (texto, truncado)
 }
 
-/// Si `wt` está dentro de un árbol de trabajo de git (sin shell y sin
-/// fsmonitor, que podría lanzar un programa del repo).
-pub async fn es_repo(wt: &str) -> Resultado<bool> {
-    let wt = PathBuf::from(wt);
-    bloqueante(move || ea_bus::git::es_repo(&wt, LIMITE)).await
-}
-
-/// Si el repo de `wt` tiene HEAD apuntando a un commit. El ejecutor arranca
-/// con `rev-parse HEAD` (es el `commit_inicio`) y bloquea un repo sin
-/// commits; esto lo detecta antes de encolar (D11).
-pub async fn tiene_commits(wt: &str) -> Resultado<bool> {
-    let wt = PathBuf::from(wt);
-    bloqueante(move || ea_bus::git::tiene_commits(&wt, LIMITE)).await
+/// El worktree de una orden nueva o de un equipo, como lo valida `ea trabajo
+/// crear` ([`ea_bus::validar_worktree`]: ruta absoluta, existente, directorio
+/// y repo git con commits), fuera del runtime y con el tope del panel.
+/// Devuelve la forma canónica.
+pub async fn validar_worktree(wt: &str) -> Resultado<String> {
+    let wt = wt.to_string();
+    bloqueante(move || ea_bus::validar_worktree(&wt, LIMITE)).await
 }

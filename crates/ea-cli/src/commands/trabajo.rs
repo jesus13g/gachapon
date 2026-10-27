@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Result};
-use ea_bus::{Bus, Rol, Evento, Modo, Orden, Topes};
+use ea_bus::{Bus, Rol, Evento, Modo, Orden};
 
 pub(super) fn bus() -> Result<Bus> {
     let b = Bus::abrir()?.con_actor("ea-cli");
@@ -34,7 +34,7 @@ pub fn crear(
     por: String,
     de_equipo: DeEquipo,
 ) -> Result<()> {
-    let orden: Orden = if let Some(f) = fichero {
+    let mut orden: Orden = if let Some(f) = fichero {
         serde_json::from_str(&std::fs::read_to_string(&f)?).map_err(|e| anyhow!("orden inválida ({}): {e}", f.display()))?
     } else {
         let modo = match modo {
@@ -44,28 +44,26 @@ pub fn crear(
             otro => bail!("modo desconocido: {otro} (mision, obra o rutina)"),
         };
         let worktree = worktree.ok_or_else(|| anyhow!("falta --worktree (o --orden)"))?;
-        let worktree = ea_plataforma::rutas::canonica(&worktree)?.to_string_lossy().into_owned();
+        // Aquí una ruta relativa lo es al directorio actual (`--worktree .`
+        // desde el repo): se hace absoluta antes de validarla.
+        let worktree = std::path::absolute(&worktree).map(|p| p.to_string_lossy().into_owned()).unwrap_or(worktree);
+        let titulo = titulo.ok_or_else(|| anyhow!("falta --titulo"))?;
+        let objetivo = objetivo.ok_or_else(|| anyhow!("falta --objetivo"))?;
         Orden {
-            id: String::new(),
             modo,
-            titulo: titulo.ok_or_else(|| anyhow!("falta --titulo"))?,
-            worktree,
-            objetivo: objetivo.ok_or_else(|| anyhow!("falta --objetivo"))?,
-            criterio_exito: criterio,
-            fases: vec![],
-            revisar_cada: None,
-            topes: Topes::default(),
-            rutina: None,
-            notas_revision: vec![],
             skills,
             equipo: de_equipo.equipo,
             asignado_a: de_equipo.asignar,
             revisor: de_equipo.revisor,
             worktree_propio: de_equipo.worktree_propio,
-            creada_en: String::new(),
-            creada_por: por,
+            // Sin `--criterio`, el bus la rechaza: el criterio es obligatorio.
+            ..Orden::mision(titulo, worktree, objetivo, criterio.unwrap_or_default(), por)
         }
     };
+    // Como en la web: ruta absoluta, existente, repo git con commits. La orden
+    // lleva la forma canónica (la del semáforo y el ejecutor). La estructura
+    // (fases 1..N) y los criterios los valida el bus al crear.
+    orden.worktree = ea_bus::validar_worktree(&orden.worktree, ea_bus::git::TOPE_LECTURA)?;
     println!("{}", bus()?.crear_trabajo(orden)?);
     Ok(())
 }

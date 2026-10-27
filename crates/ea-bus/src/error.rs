@@ -20,6 +20,10 @@ pub enum ErrorBus {
     /// ([`crate::Ubicacion::motivo_no_lanzable`]).
     #[error("{0}")]
     NoLanzable(String),
+    /// La rutina (su slug) ya tiene una ejecución activa, en cola o
+    /// ejecutándose: no se lanza otra ([`crate::Bus::lanzar_rutina`]).
+    #[error("la rutina '{0}' ya tiene una ejecución en curso")]
+    EnCurso(String),
     /// Las skills pedidas no pasan la llave, no existen, no están
     /// habilitadas o exceden los topes de `[agente.skills]`.
     #[error("skills: {0}")]

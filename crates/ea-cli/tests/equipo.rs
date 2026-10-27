@@ -127,7 +127,13 @@ fn listar_y_ver_en_json_traen_miembros_con_presencia() {
 fn trabajo_crear_con_equipo_asigna_revisa_y_pide_worktree_propio() {
     let d = tempfile::tempdir().unwrap();
     let id = equipo(d.path());
-    let wt = d.path().to_string_lossy().into_owned();
+    // `ea trabajo crear` exige, como la web, un repo git con algún commit.
+    let repo = d.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    for a in [&["init", "-q"][..], &["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "inicio"]] {
+        assert!(Command::new("git").arg("-C").arg(&repo).args(a).status().unwrap().success());
+    }
+    let wt = repo.to_string_lossy().into_owned();
     let base = ["trabajo", "crear", "--titulo", "tarea", "--worktree", &wt, "--objetivo", "haz algo", "--criterio", "true"];
     // asignar sin equipo lo rechaza clap
     let mut args = base.to_vec();

@@ -176,8 +176,11 @@ impl Bus {
 
     /// Escribe `orden.json` y `estado.json` y encola en `modelo-local`. Si la
     /// orden trae el id vacío se le asigna uno nuevo. Antes de escribir nada
-    /// valida los criterios y las skills (llave, existencia y topes), de modo
-    /// que cualquier punto de entrada (CLI, ea-web, rutinas) lo hereda.
+    /// valida la estructura (`validar_estructura`: worktree absoluto, fases
+    /// 1..N), los criterios y las skills (llave, existencia y topes), de modo
+    /// que cualquier punto de entrada (CLI, ea-web, rutinas) lo hereda. Que el
+    /// worktree exista y sea un repo con commits lo comprueban la CLI y la web
+    /// con [`crate::validar_worktree`] (aquí no se ejecuta git).
     ///
     /// Con `equipo` (spec 019, RF-004) comprueba además que el equipo existe y
     /// está despierto, que `asignado_a` es un ejecutor suyo, que `revisor` es
@@ -192,6 +195,7 @@ impl Bus {
     /// después de encolar y es de mejor esfuerzo, como el diario: si falla,
     /// el trabajo queda creado y en su cola.
     pub fn crear_trabajo(&self, mut orden: Orden) -> Resultado<String> {
+        validar_estructura(&orden)?;
         validar_criterios(&orden)?;
         let bloqueo_equipos = if orden.equipo.is_some() { Some(self.bloquear_equipos()?) } else { None };
         let equipo = self.validar_equipo_de_orden(&orden)?;
@@ -712,9 +716,30 @@ impl Bus {
         self.store_rutinas()?.listar_rutinas()?.iter().map(|f| Rutina::parsear(&f.definicion)).collect()
     }
 
-    /// Crea un trabajo de modo rutina con la última versión registrada.
+    /// Crea un trabajo de modo rutina con la última versión registrada. Una
+    /// rutina tiene como mucho una ejecución activa (en cola o ejecutándose).
+    /// Comprueba, por este orden: que está registrada, que las entradas valen
+    /// ([`Rutina::a_orden`]) y, bajo un `flock` de `<raiz>/.rutinas.lock` que
+    /// dura hasta crear el trabajo, que no hay otra en curso
+    /// ([`ErrorBus::EnCurso`]). Es la base de [`Bus::lanzar_rutina_en`] (CLI,
+    /// timer y web) y de la aplicación de `ea_encolar_rutina`.
     pub fn lanzar_rutina(&self, slug: &str, entradas: &[(String, String)]) -> Resultado<String> {
-        self.crear_trabajo(self.rutina(slug)?.a_orden(entradas)?)
+        let orden = self.rutina(slug)?.a_orden(entradas)?;
+        let _bloqueo = self.bloquear_rutinas()?;
+        if !self.trabajos_activos_de_rutina(slug)?.is_empty() {
+            return Err(ErrorBus::EnCurso(slug.into()));
+        }
+        self.crear_trabajo(orden)
+    }
+
+    /// `flock` exclusivo sobre `<raiz>/.rutinas.lock`: ordena entre procesos
+    /// mirar si una rutina tiene una ejecución en curso y crear la nueva. Se
+    /// toma antes que el de los equipos (que `crear_trabajo` pediría con una
+    /// orden de equipo) y nunca con otro en la mano. No es reentrante.
+    fn bloquear_rutinas(&self) -> Resultado<fs::File> {
+        let f = fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.raiz.join(".rutinas.lock"))?;
+        f.lock()?;
+        Ok(f)
     }
 
     /// Como [`Bus::lanzar_rutina`], pero antes mira el fichero en
@@ -1078,6 +1103,25 @@ fn fase_a_rehacer(orden: &Orden, estado: &Estado, pedida: Option<u32>) -> Result
         Some(n) => Ok(Some(n)),
         None => Ok(Some(estado.fase_actual.filter(|n| numeros.contains(n)).unwrap_or(ultima))),
     }
+}
+
+/// Lo que toda orden cumple, la cree quien la cree, sin mirar el disco ni
+/// ejecutar git: el worktree es una ruta absoluta (una relativa se
+/// resolvería contra el directorio del proceso que la ejecuta, el `$HOME`
+/// del servicio) y las fases de una obra se numeran 1, 2, …, N en el orden en
+/// que van (el ejecutor reanuda por número, y con 10/20/30 se saltaba fases).
+fn validar_estructura(o: &Orden) -> Resultado<()> {
+    if !Path::new(&o.worktree).is_absolute() {
+        return Err(ErrorBus::Argumentos("'worktree' debe ser una ruta absoluta".into()));
+    }
+    if o.modo == Modo::Obra && o.fases.iter().enumerate().any(|(i, f)| f.numero as usize != i + 1) {
+        let llegan: Vec<String> = o.fases.iter().map(|f| f.numero.to_string()).collect();
+        return Err(ErrorBus::Argumentos(format!(
+            "las fases deben numerarse 1, 2, …, N, en el orden en que van (esta obra trae {})",
+            llegan.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 /// El criterio de éxito es obligatorio: sin él, nadie puede decir que algo

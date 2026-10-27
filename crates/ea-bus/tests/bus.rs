@@ -539,6 +539,54 @@ fn cerrar_y_cancelar_retiran_el_trabajo_de_todas_las_colas() {
     assert!(bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
 }
 
+/// B-06: una obra numera sus fases 1, 2, …, N en el orden en que van. Con
+/// 10/20/30 (o repetidas, o desordenadas) el ejecutor confundía la cuenta de
+/// fases hechas con su número y se saltaba fases; ahora no se crea.
+#[test]
+fn una_obra_con_las_fases_mal_numeradas_no_se_crea() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    let fase = |n: u32| Fase { numero: n, ..orden(d.path()).fases[0].clone() };
+    let obra = |numeros: &[u32]| Orden { fases: numeros.iter().map(|n| fase(*n)).collect(), ..orden(d.path()) };
+    for malos in [&[10, 20, 30][..], &[1, 1, 2], &[0, 1, 2], &[2, 1, 3], &[1, 3]] {
+        let e = bus.crear_trabajo(obra(malos)).unwrap_err();
+        assert!(matches!(&e, ErrorBus::Argumentos(m) if m.contains("las fases deben numerarse 1, 2, …, N")), "{malos:?}: {e}");
+    }
+    sin_rastro(&bus);
+    let id = bus.crear_trabajo(obra(&[1, 2, 3])).unwrap();
+    assert_eq!(bus.leer_orden(&id).unwrap().fases.iter().map(|f| f.numero).collect::<Vec<_>>(), [1, 2, 3]);
+}
+
+/// El worktree de una orden es una ruta absoluta, la cree quien la cree: una
+/// relativa se resolvería contra el directorio del proceso que la ejecuta.
+#[test]
+fn una_orden_con_el_worktree_relativo_no_se_crea() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    for malo in [".", "repo", "~/repo", ""] {
+        let e = bus.crear_trabajo(Orden { worktree: malo.into(), ..orden(d.path()) }).unwrap_err();
+        assert!(matches!(&e, ErrorBus::Argumentos(m) if m.contains("ruta absoluta")), "{malo:?}: {e}");
+    }
+    sin_rastro(&bus);
+}
+
+/// Los constructores dejan una misión y una obra válidas con el resto de
+/// campos por defecto.
+#[test]
+fn orden_mision_y_obra_rellenan_lo_demas_por_defecto() {
+    let d = tempfile::tempdir().unwrap();
+    let wt = d.path().to_string_lossy().into_owned();
+    let m = Orden::mision("t", &wt, "o", "true", "claude-code");
+    assert_eq!((m.modo, m.criterio_exito.as_deref(), m.fases.len(), m.topes), (Modo::Mision, Some("true"), 0, Topes::default()));
+    assert!(m.id.is_empty() && m.creada_en.is_empty() && m.equipo.is_none() && !m.worktree_propio);
+    let fases = orden(d.path()).fases;
+    let o = Orden::obra("t", &wt, "o", fases.clone(), Some(1), "claude-code");
+    assert_eq!((o.modo, o.criterio_exito.as_deref(), &o.fases, o.revisar_cada), (Modo::Obra, None, &fases, Some(1)));
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    bus.crear_trabajo(m).unwrap();
+    bus.crear_trabajo(o).unwrap();
+}
+
 #[test]
 fn el_criterio_es_obligatorio() {
     let d = tempfile::tempdir().unwrap();
@@ -663,6 +711,58 @@ fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
     assert!(o.objetivo.contains("crea b.txt"));
     assert!(bus.lanzar_rutina("prueba", &[("otra".into(), "x".into())]).is_err());
     assert!(bus.lanzar_rutina("no-existe", &[]).is_err());
+}
+
+/// B-07: una rutina tiene como mucho una ejecución activa (en cola o
+/// ejecutándose), la lance quien la lance: la CLI y su timer, la web o
+/// `ea_encolar_rutina`. La siguiente se rechaza con `EnCurso` hasta que la
+/// anterior termine; las entradas se validan antes.
+#[test]
+fn una_rutina_no_se_lanza_dos_veces_mientras_la_anterior_sigue_activa() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let dir = d.path().join("rutinas");
+    bus.registrar_rutina(RUTINA, &dir).unwrap();
+    let id = bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap();
+    let e = bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap_err();
+    assert!(matches!(&e, ErrorBus::EnCurso(s) if s == "prueba"), "{e}");
+    assert_eq!(e.to_string(), "la rutina 'prueba' ya tiene una ejecución en curso");
+    assert!(matches!(bus.lanzar_rutina("prueba", &[]), Err(ErrorBus::EnCurso(_))));
+    // Las entradas que no valen se rechazan antes, con su propio error.
+    assert!(matches!(bus.lanzar_rutina("prueba", &[("otra".into(), "x".into())]), Err(ErrorBus::Argumentos(_))));
+    // Ejecutándose, también; terminada, ya se puede.
+    bus.tomar(Rol::Ejecutor).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    assert!(matches!(bus.lanzar_rutina("prueba", &[]), Err(ErrorBus::EnCurso(_))));
+    bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
+    bus.aplicar(&id, Evento::Cerrar).unwrap();
+    bus.lanzar_rutina("prueba", &[]).unwrap();
+    assert_eq!(bus.trabajos_activos_de_rutina("prueba").unwrap().len(), 1);
+}
+
+/// B-07 entre procesos: de varios lanzamientos a la vez solo uno crea el
+/// trabajo (la comprobación y la creación van bajo el mismo `flock`).
+#[test]
+fn varios_lanzamientos_a_la_vez_de_una_rutina_crean_un_solo_trabajo() {
+    let d = tempfile::tempdir().unwrap();
+    let db = d.path().join("ea.db");
+    let raiz = d.path().join("estado");
+    Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap()).registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
+    let barrera = Arc::new(Barrier::new(8));
+    let hilos: Vec<_> = (0..8)
+        .map(|_| {
+            let (raiz, db, barrera) = (raiz.clone(), db.clone(), barrera.clone());
+            std::thread::spawn(move || {
+                let bus = Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap());
+                barrera.wait();
+                bus.lanzar_rutina("prueba", &[]).is_ok()
+            })
+        })
+        .collect();
+    let creados = hilos.into_iter().map(|h| h.join().unwrap()).filter(|ok| *ok).count();
+    assert_eq!(creados, 1);
+    assert_eq!(Bus::abrir_en(&raiz).unwrap().listar_trabajos().unwrap().len(), 1);
 }
 
 /// La papelera de rutinas (spec 004, RF-011): el fichero decide si una

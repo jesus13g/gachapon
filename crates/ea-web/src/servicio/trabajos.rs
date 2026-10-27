@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use ea_bus::{Bus, Rol, Evento, Modo, Orden, Topes};
+use ea_bus::{Bus, Rol, Evento, Orden, Topes};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -156,7 +156,6 @@ const MODOS_WEB: [&str; 2] = ["mision", "obra"];
 const TITULO_MAX: usize = 200;
 const OBJETIVO_MAX: usize = 20_000;
 const CRITERIO_MAX: usize = 2_000;
-const WORKTREE_MAX: usize = 4_096;
 const SUGERENCIAS_MAX: usize = 30;
 const FASES_MAX: usize = 20;
 const ENTREGABLE_MAX: usize = 2_000;
@@ -292,40 +291,6 @@ pub fn probar_skills(s: &AppState, skills: &[String], por: Option<&str>) -> Resu
     })
 }
 
-/// Ruta absoluta, existente, directorio y dentro de un repo git; devuelve
-/// la forma canónica, que es la que va a la orden (y al semáforo).
-pub(super) async fn validar_worktree(wt: &str) -> Resultado<String> {
-    let wt = wt.trim();
-    if wt.is_empty() {
-        return Err(ErrorWeb::Invalido("'worktree' no puede estar vacío".into()));
-    }
-    if wt.len() > WORKTREE_MAX {
-        return Err(ErrorWeb::Invalido(format!("'worktree' supera {WORKTREE_MAX} bytes")));
-    }
-    let ruta = std::path::Path::new(wt);
-    if !ruta.is_absolute() {
-        return Err(ErrorWeb::Invalido("'worktree' debe ser una ruta absoluta".into()));
-    }
-    let canon = ea_plataforma::rutas::canonica(ruta)
-        .map_err(|_| ErrorWeb::Invalido(format!("el worktree '{wt}' no existe")))?;
-    if !canon.is_dir() {
-        return Err(ErrorWeb::Invalido(format!("el worktree '{wt}' no es un directorio")));
-    }
-    let canon = canon
-        .to_str()
-        .ok_or_else(|| ErrorWeb::Invalido("la ruta del worktree no es UTF-8".into()))?
-        .to_string();
-    if !crate::git::es_repo(&canon).await? {
-        return Err(ErrorWeb::Invalido(format!("'{canon}' no está dentro de un repositorio git")));
-    }
-    if !crate::git::tiene_commits(&canon).await? {
-        return Err(ErrorWeb::Invalido(format!(
-            "el repo no tiene ningún commit ('{canon}'): haz un commit inicial antes de encargarle trabajo"
-        )));
-    }
-    Ok(canon)
-}
-
 /// Texto no vacío de una sola línea, de hasta `TITULO_MAX` caracteres.
 fn una_linea(valor: &str, campo: &str) -> Resultado<String> {
     let v = texto_no_vacio(valor, campo, TITULO_MAX)?;
@@ -399,21 +364,22 @@ pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
     }
     let titulo = una_linea(&n.titulo, "titulo")?;
     let objetivo = texto_no_vacio(&n.objetivo, "objetivo", OBJETIVO_MAX)?;
-    let (modo, criterio, fases, revisar_cada) = if modo == "obra" {
+    // Misión u obra, sin el worktree todavía (se valida después, con git).
+    let base = if modo == "obra" {
         let (fases, revisar_cada) = fases_de_obra(&n)?;
-        (Modo::Obra, None, fases, revisar_cada)
+        Orden::obra(titulo, String::new(), objetivo, fases, revisar_cada, ACTOR)
     } else {
         if n.fases.is_some() || n.revisar_cada.is_some() {
             return Err(ErrorWeb::Invalido("'fases' y 'revisar_cada' son de las obras: usa modo 'obra'".into()));
         }
         let criterio = texto_no_vacio(n.criterio.as_deref().unwrap_or(""), "criterio", CRITERIO_MAX)?;
-        (Modo::Mision, Some(criterio), vec![], None)
+        Orden::mision(titulo, String::new(), objetivo, criterio, ACTOR)
     };
     let pedidos = n.topes.unwrap_or_default();
     if pedidos.iteraciones == Some(0) || pedidos.tiempo_s == Some(0) {
         return Err(ErrorWeb::Invalido("los topes deben ser al menos 1".into()));
     }
-    let worktree = validar_worktree(&n.worktree).await?;
+    let worktree = crate::git::validar_worktree(&n.worktree).await?;
     let d = Topes::default();
     let topes = Topes {
         iteraciones: pedidos.iteraciones.unwrap_or(d.iteraciones),
@@ -422,24 +388,13 @@ pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
     }
     .acotar(&techo(s));
     let orden = Orden {
-        id: String::new(),
-        modo,
-        titulo,
         worktree,
-        objetivo,
-        criterio_exito: criterio,
-        fases,
-        revisar_cada,
         topes,
-        rutina: None,
-        notas_revision: vec![],
-        skills: vec![],
         equipo: opcional(&n.equipo),
         asignado_a: opcional(&n.asignado_a),
         revisor: opcional(&n.revisor),
         worktree_propio: n.worktree_propio,
-        creada_en: String::new(),
-        creada_por: ACTOR.into(),
+        ..base
     };
     let id = bus_con_store(s).await?.crear_trabajo(orden)?;
     Ok(EstadoTrabajo { id, estado: ea_bus::EstadoTrabajo::EnCola.as_str() })

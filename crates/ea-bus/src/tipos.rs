@@ -128,6 +128,60 @@ pub struct Orden {
     pub creada_por: String,
 }
 
+impl Orden {
+    /// Una misión: alcanzar `objetivo` en `worktree` hasta que pase `criterio`.
+    /// El resto, por defecto (topes, sin fases, equipo ni skills); el id y la
+    /// fecha los pone [`crate::Bus::crear_trabajo`].
+    pub fn mision(
+        titulo: impl Into<String>,
+        worktree: impl Into<String>,
+        objetivo: impl Into<String>,
+        criterio: impl Into<String>,
+        creada_por: impl Into<String>,
+    ) -> Orden {
+        Orden {
+            id: String::new(),
+            modo: Modo::Mision,
+            titulo: titulo.into(),
+            worktree: worktree.into(),
+            objetivo: objetivo.into(),
+            criterio_exito: Some(criterio.into()),
+            fases: vec![],
+            revisar_cada: None,
+            topes: Topes::default(),
+            rutina: None,
+            notas_revision: vec![],
+            skills: vec![],
+            equipo: None,
+            asignado_a: None,
+            revisor: None,
+            worktree_propio: false,
+            creada_en: String::new(),
+            creada_por: creada_por.into(),
+        }
+    }
+
+    /// Una obra: `fases` (numeradas 1, 2, …, N, cada una con su criterio) con
+    /// revisión cada `revisar_cada` (`None`: solo al final). El resto, como en
+    /// [`Orden::mision`].
+    pub fn obra(
+        titulo: impl Into<String>,
+        worktree: impl Into<String>,
+        objetivo: impl Into<String>,
+        fases: Vec<Fase>,
+        revisar_cada: Option<u32>,
+        creada_por: impl Into<String>,
+    ) -> Orden {
+        Orden {
+            modo: Modo::Obra,
+            criterio_exito: None,
+            fases,
+            revisar_cada,
+            ..Orden::mision(titulo, worktree, objetivo, String::new(), creada_por)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EstadoEquipo {

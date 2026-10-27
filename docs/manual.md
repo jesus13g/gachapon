@@ -901,6 +901,15 @@ distintos de 0, rangos que dan la vuelta (`Fri..Mon`) ni días con una palabra
 clave (`Mon daily`); se rechazan con un motivo. Las horas son las locales, sin
 ajustar los cambios de horario de verano.
 
+Una rutina tiene como mucho **una ejecución activa** (en cola o ejecutándose),
+la lance quien la lance: `ea rutina lanzar` y su timer, la web (409) o
+`ea_encolar_rutina`. Si el timer se dispara con la anterior aún en curso (el
+orquestador parado, o el worktree ocupado por una obra larga), `ea rutina
+lanzar` sale con error («la rutina '<slug>' ya tiene una ejecución en curso»)
+sin crear otro trabajo: en systemd la unidad de ese disparo queda `failed`, y en
+launchd y el Programador de tareas el disparo termina con error. Los disparos
+perdidos no se acumulan.
+
 ### Limitaciones y garantías por sistema
 
 Las garantías son las mismas donde el sistema las puede dar; donde no, se dice
@@ -968,7 +977,7 @@ ea worktree limpiar <trabajo>                # simula y pide confirmar (TTY): gi
 ea rutina registrar <fichero.toml>           # valida y registra (la versión debe subir)
 ea rutina listar [--retiradas]|ver <slug>     # --retiradas: las de la papelera (o sin fichero)
 ea rutina ver <slug> --version N             # esa versión registrada y la lista de todas
-ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si está retirada)
+ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si está retirada ni si ya tiene una ejecución en curso)
 ea rutina retirar|restaurar <slug>           # a la papelera y vuelta (simula y confirma con TTY)
 
 # Resto del ecosistema
@@ -989,6 +998,15 @@ ea servicios ver|instalar|desinstalar        # servicios residentes en el gestor
 ea hook subagentes start|stop                # hook de Claude Code (ver «Hook de subagentes»)
 ea tui                                       # interfaz interactiva
 ```
+
+`ea trabajo crear` valida la orden como la web, por sus dos formas (opciones
+sueltas y `--orden`, que es lo que usan `/mision` y `/obra`), antes de escribir
+nada y con los mismos mensajes: el worktree es una ruta absoluta (en la forma
+corta, una relativa lo es al directorio actual: `--worktree .` desde el repo),
+existe, es un directorio y está en un repo git con algún commit; la orden lleva
+su forma canónica. Una obra numera sus fases `1, 2, …, N` en el orden en que
+van. El bus exige además, la cree quien la cree, el worktree absoluto, esa
+numeración, el criterio y las skills.
 
 La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
 (o en `rutas.db` de los ajustes, o en `$EA_DB_PATH`). Servicios de sesión (`systemd --user` en Linux; launchd y el Programador de tareas en los demás, ver `ea servicios`): `llama-server`,
