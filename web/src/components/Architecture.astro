@@ -21,10 +21,34 @@ const size: Record<string, 'tall' | 'compact'> = {
   database: 'compact',
 };
 // `identifier` markers in the copy render as <code>.
+// Index chips: "04 · Sequence" -> number + label, so the docked header can show numbers only.
+const chip = (short: string) => {
+  const [n, ...t] = short.split(' · ');
+  return { n, t: t.join(' · ') };
+};
 const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 === 1 }));
 ---
 <Base title={a.title} description={a.description} page="architecture">
-  <Hud page="architecture" />
+  <Hud page="architecture">
+    <div slot="index" class="hud-index" id="hud-index">
+      <nav class="hud-index__inline" aria-label={a.indexLabel}>
+        <ol>
+          {a.sections.map((s) => <li><a href={`#${s.slug}`} data-sec={s.slug} title={s.kicker}><span class="n">{chip(s.short).n}</span><span class="t">{' · '}{chip(s.short).t}</span></a></li>)}
+        </ol>
+      </nav>
+      <div class="hud-index__menu">
+        <button type="button" class="hud-index__btn" id="hud-index-btn" aria-expanded="false" aria-controls="hud-index-panel" data-label={a.indexLabel}>
+          <span class="hud-index__cur">{a.indexLabel}</span>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6" /></svg>
+        </button>
+        <nav class="hud-index__panel" id="hud-index-panel" aria-label={a.indexLabel} hidden>
+          <ol>
+            {a.sections.map((s) => <li><a href={`#${s.slug}`} data-sec={s.slug}><span class="n">{chip(s.short).n}</span><span class="t">{' · '}{chip(s.short).t}</span></a></li>)}
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </Hud>
   <main id="story" class="arch">
     <header class="arch-hero">
       <p class="kicker">{a.kicker}</p>
@@ -38,7 +62,7 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
       </aside>
     </header>
 
-    <nav class="arch-index" aria-label={a.indexLabel}>
+    <nav class="arch-index" id="arch-index" aria-label={a.indexLabel}>
       <ol>
         {a.sections.map((s) => <li><a href={`#${s.slug}`} data-sec={s.slug} title={s.kicker}>{s.short}</a></li>)}
       </ol>
@@ -80,39 +104,93 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
 </Base>
 
 <script>
-  // Highlight the chip of the section in view; smooth scrolling unless the visitor prefers reduced motion.
+  // Section index: chips in normal flow under the hero; once they scroll under the header they dock into it
+  // (inline chips on wide screens, a "current section" dropdown on narrow ones). The active section is marked everywhere.
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const chips = new Map<string, HTMLAnchorElement>();
-  document.querySelectorAll<HTMLAnchorElement>('.arch-index a[data-sec]').forEach((c) => chips.set(c.dataset.sec!, c));
+  const root = document.documentElement;
+  const flow = document.getElementById('arch-index') as HTMLElement | null;
+  const btn = document.getElementById('hud-index-btn') as HTMLButtonElement | null;
+  const panel = document.getElementById('hud-index-panel') as HTMLElement | null;
+  const cur = btn?.querySelector<HTMLElement>('.hud-index__cur') ?? null;
+  const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[data-sec]'));
+  const wide = window.matchMedia('(min-width: 1100px)');
+
+  const closeMenu = (refocus = false) => {
+    if (!btn || !panel || panel.hidden) return;
+    panel.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    if (refocus) btn.focus();
+  };
+  const openMenu = () => {
+    if (!btn || !panel) return;
+    panel.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    (panel.querySelector<HTMLAnchorElement>('a[aria-current]') ?? panel.querySelector('a'))?.focus();
+  };
+
+  let active = '';
   const setActive = (slug: string) => {
-    chips.forEach((c, k) => {
-      if (k === slug) {
+    active = slug;
+    let label = '';
+    links.forEach((c) => {
+      if (c.dataset.sec === slug) {
         c.setAttribute('aria-current', 'true');
-        const nav = c.closest<HTMLElement>('.arch-index')!;
-        if (nav.scrollWidth > nav.clientWidth) {
-          nav.scrollTo({ left: c.offsetLeft - nav.clientWidth / 2 + c.offsetWidth / 2, behavior: reduce ? 'auto' : 'smooth' });
-        }
+        label ||= c.textContent?.trim() ?? '';
       } else c.removeAttribute('aria-current');
+    });
+    if (cur && btn) cur.textContent = label || btn.dataset.label || '';
+  };
+
+  let docked = false;
+  const syncDock = () => {
+    if (!flow) return;
+    const hud = document.querySelector<HTMLElement>('.hud');
+    const limit = hud ? hud.getBoundingClientRect().height : 56;
+    const next = flow.getBoundingClientRect().bottom < limit + 8;
+    if (next === docked) return;
+    docked = next;
+    root.classList.toggle('arch-docked', docked);
+    flow.toggleAttribute('inert', docked);
+    if (!docked) closeMenu();
+  };
+  let raf = 0;
+  const onScroll = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      syncDock();
+      const line = window.innerHeight * 0.35;
+      let now = '';
+      for (const s of secs) if (s.getBoundingClientRect().top <= line) now = s.id;
+      if (now !== active) setActive(now);
     });
   };
   const secs = Array.from(document.querySelectorAll<HTMLElement>('.arch-sec'));
-  if ('IntersectionObserver' in window && secs.length) {
-    const io = new IntersectionObserver(
-      () => {
-        const line = window.innerHeight * 0.35;
-        let cur = '';
-        for (const s of secs) if (s.getBoundingClientRect().top <= line) cur = s.id;
-        setActive(cur);
-      },
-      { rootMargin: '-35% 0px -64% 0px', threshold: [0, 1] },
-    );
-    secs.forEach((s) => io.observe(s));
-  }
-  chips.forEach((c, slug) =>
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  onScroll();
+
+  btn?.addEventListener('click', () => (panel?.hidden ? openMenu() : closeMenu()));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panel && !panel.hidden) {
+      e.preventDefault();
+      closeMenu(true);
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (panel && !panel.hidden && !(e.target as Element).closest('.hud-index__menu')) closeMenu();
+  });
+  wide.addEventListener('change', () => closeMenu());
+
+  links.forEach((c) =>
     c.addEventListener('click', (e) => {
+      const slug = c.dataset.sec!;
       const target = document.getElementById(slug);
       if (!target) return;
       e.preventDefault();
+      const inMenu = !!c.closest('.hud-index__panel');
+      closeMenu(false);
+      if (inMenu) btn?.focus();
       target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
       history.replaceState(null, '', `#${slug}`);
     }),
@@ -178,16 +256,12 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
     font-weight: 600;
   }
 
-  /* Section index: sticky chips under the header; wraps on desktop, scrolls with a fade edge on mobile */
+  /* Section index, part 1: chips in normal flow under the hero (not sticky; they dock into the header once scrolled past) */
   .arch-index {
-    position: sticky;
-    top: 56px;
-    z-index: 20;
-    margin: 2.4rem calc(var(--gutter) * -1) 0;
-    padding: 10px var(--gutter);
-    background: linear-gradient(var(--bg) 70%, transparent);
+    margin-top: 2.4rem;
   }
-  .arch-index ol {
+  .arch-index ol,
+  .hud-index ol {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -219,20 +293,166 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
     background: var(--accent);
     border-color: var(--accent);
   }
-  @media (max-width: 760px) {
-    .arch-index {
-      overflow-x: auto;
-      scrollbar-width: none;
-      -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
-      mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+
+  /* Section index, part 2: docked into the fixed header. One backdrop and one hairline for the whole bar. */
+  :global(:root) {
+    --hud-h: 50px;
+  }
+  :global(html.arch-docked:not(.is-cinema) body .hud) {
+    padding-top: 10px;
+    padding-bottom: 10px;
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .hud-index {
+    display: none;
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: center;
+    margin: 0 clamp(8px, 2vw, 28px);
+  }
+  :global(html.arch-docked) .hud-index {
+    display: flex;
+  }
+  .hud-index a {
+    text-decoration: none;
+  }
+  .hud-index__inline {
+    display: none;
+  }
+  .hud-index__inline ol {
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+  .hud-index__inline a {
+    display: block;
+    padding: 6px 9px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font: 500 0.68rem var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--fg-dim);
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .hud-index__inline .t {
+    display: none;
+  }
+  .hud-index__inline a[aria-current] .t {
+    display: inline;
+  }
+  .hud-index__inline a:hover,
+  .hud-index__inline a:focus-visible {
+    color: var(--fg);
+    border-color: var(--line-hi);
+  }
+  .hud-index__inline a[aria-current] {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .hud-index__menu {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .hud-index__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    padding: 5px 10px 5px 12px;
+    border: 1px solid var(--line-hi);
+    border-radius: 999px;
+    background: transparent;
+    font: 500 0.68rem var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg);
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .hud-index__btn:hover,
+  .hud-index__btn:focus-visible,
+  .hud-index__btn[aria-expanded='true'] {
+    border-color: var(--accent);
+  }
+  .hud-index__cur {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hud-index__btn svg {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.2s;
+  }
+  .hud-index__btn[aria-expanded='true'] svg {
+    transform: rotate(180deg);
+  }
+  .hud-index__panel {
+    position: absolute;
+    top: 100%;
+    left: var(--gutter);
+    width: min(280px, calc(100vw - var(--gutter) * 2));
+    padding: 6px;
+    border: 1px solid var(--line-hi);
+    border-top: 0;
+    background: var(--bg);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  }
+  .hud-index__panel[hidden] {
+    display: none;
+  }
+  .hud-index__panel ol {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+  .hud-index__panel a {
+    display: block;
+    padding: 10px 12px;
+    border-left: 2px solid transparent;
+    font: 500 0.72rem var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+  .hud-index__panel a:hover,
+  .hud-index__panel a:focus-visible {
+    color: var(--fg);
+    background: var(--steel-0);
+  }
+  .hud-index__panel a[aria-current] {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    background: var(--steel-0);
+  }
+  @media (min-width: 1100px) {
+    .hud-index__inline {
+      display: block;
     }
-    .arch-index::-webkit-scrollbar {
+    .hud-index__menu {
       display: none;
     }
-    .arch-index ol {
-      flex-wrap: nowrap;
-      width: max-content;
-      padding-right: 36px;
+  }
+  /* Narrow + docked: logo only (no wordmark) and no GitHub link, so the bar never wraps. */
+  @media (max-width: 1099px) {
+    :global(html.arch-docked .brand__word) {
+      display: none;
+    }
+  }
+  @media (max-width: 520px) {
+    :global(html.arch-docked .hud__gh) {
+      display: none;
     }
   }
 
@@ -241,7 +461,7 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
     display: grid;
     gap: clamp(1.4rem, 3vw, 2.2rem);
     padding-top: clamp(2.6rem, 7vh, 5rem);
-    scroll-margin-top: 90px;
+    scroll-margin-top: calc(var(--hud-h) + 12px);
   }
   .arch-sec__copy {
     display: grid;
@@ -403,9 +623,6 @@ const parts = (s: string) => s.split('`').map((text, i) => ({ text, code: i % 2 
     }
     .arch-frame--compact .arch-frame__screen {
       height: min(56vh, 460px);
-    }
-    .arch-index {
-      top: 52px;
     }
   }
   @media (prefers-reduced-motion: reduce) {
