@@ -1,0 +1,689 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Flujo de una misión en Gachapon",
+    "locale": "es",
+    "quality_profile": "showcase",
+    "output": "web/architecture/.build/mission-flow.es.html",
+    "repository": {
+      "url": "https://github.com/jesus13g/gachapon",
+      "provider": "github",
+      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+    }
+  },
+  "lanes": [
+    {
+      "id": "plan",
+      "label": "Usuario y planificador"
+    },
+    {
+      "id": "bus",
+      "label": "Bus de ficheros"
+    },
+    {
+      "id": "orq",
+      "label": "ea-orchestrator y ejecutor"
+    },
+    {
+      "id": "exc",
+      "label": "Ramas de fallo y cancelación",
+      "variant": "exception"
+    },
+    {
+      "id": "usr",
+      "label": "Puertas del usuario y rutinas"
+    }
+  ],
+  "phases": [
+    {
+      "id": "formalize",
+      "label": "Formalizar",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "take",
+      "label": "Cola y toma",
+      "fromCol": 2,
+      "toCol": 2,
+      "variant": "emphasis"
+    },
+    {
+      "id": "run",
+      "label": "Ejecutar y comprobar",
+      "fromCol": 3,
+      "toCol": 4,
+      "variant": "dashed"
+    },
+    {
+      "id": "deliver",
+      "label": "Entregar y revisar",
+      "fromCol": 5,
+      "toCol": 5,
+      "variant": "emphasis"
+    }
+  ],
+  "groups": [
+    {
+      "id": "sandbox",
+      "label": "Sandbox del SO (bwrap / Seatbelt)",
+      "lane": "orq",
+      "fromCol": 3,
+      "toCol": 3,
+      "variant": "security"
+    }
+  ],
+  "mainPath": [
+    "user",
+    "formalize",
+    "crear",
+    "cola",
+    "tomar",
+    "agente",
+    "criterio",
+    "entregar",
+    "colaplan",
+    "review"
+  ],
+  "nodes": [
+    {
+      "id": "user",
+      "lane": "plan",
+      "col": 0,
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "pide un trabajo",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 52,
+          "end_line": 62,
+          "label": "Roles"
+        }
+      ]
+    },
+    {
+      "id": "formalize",
+      "lane": "plan",
+      "col": 1,
+      "type": "backend",
+      "label": "Planificador",
+      "sublabel": "/mision /obra /rutina",
+      "tag": "objetivo + criterio",
+      "sources": [
+        {
+          "path": "claude/skills/mision/SKILL.md",
+          "line": 10,
+          "end_line": 16
+        },
+        {
+          "path": "agentes/flujo/mision.md",
+          "line": 33,
+          "end_line": 70
+        },
+        {
+          "path": "agentes/flujo/obra.md",
+          "line": 1,
+          "end_line": 40
+        }
+      ]
+    },
+    {
+      "id": "review",
+      "lane": "plan",
+      "col": 5,
+      "type": "backend",
+      "label": "Revisión",
+      "sublabel": "/revisar",
+      "tag": "decide, no rehace",
+      "sources": [
+        {
+          "path": "claude/skills/revisar/SKILL.md",
+          "line": 10,
+          "end_line": 16
+        },
+        {
+          "path": "agentes/flujo/revisar.md",
+          "line": 18,
+          "end_line": 60
+        }
+      ]
+    },
+    {
+      "id": "cerrado",
+      "lane": "plan",
+      "col": 4,
+      "type": "database",
+      "label": "cerrado",
+      "sublabel": "trabajo cerrado",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/tipos.rs",
+          "line": 298,
+          "end_line": 316,
+          "label": "transicion"
+        }
+      ]
+    },
+    {
+      "id": "crear",
+      "lane": "bus",
+      "col": 1,
+      "type": "messagebus",
+      "label": "ea trabajo crear",
+      "sublabel": "orden.json + estado",
+      "tag": "criterio vacío se rechaza",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 179,
+          "end_line": 247,
+          "label": "crear_trabajo"
+        },
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 930,
+          "end_line": 947,
+          "label": "validar_criterios"
+        },
+        {
+          "path": "crates/ea-cli/src/commands/trabajo.rs",
+          "line": 26,
+          "end_line": 80
+        }
+      ]
+    },
+    {
+      "id": "cola",
+      "lane": "bus",
+      "col": 2,
+      "type": "messagebus",
+      "label": "colas/modelo-local",
+      "sublabel": "estado en_cola",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 819,
+          "end_line": 880,
+          "label": "tomar_en"
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 100,
+          "end_line": 116
+        }
+      ]
+    },
+    {
+      "id": "autocierre",
+      "lane": "bus",
+      "col": 4,
+      "type": "database",
+      "label": "cerrado",
+      "sublabel": "la rutina se cierra sola",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 554,
+          "end_line": 561,
+          "label": "Evento::Cerrar"
+        }
+      ]
+    },
+    {
+      "id": "colaplan",
+      "lane": "bus",
+      "col": 5,
+      "type": "messagebus",
+      "label": "colas/claude-code",
+      "sublabel": "estado en_revision",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 407,
+          "end_line": 427,
+          "label": "encolar al planificador"
+        }
+      ]
+    },
+    {
+      "id": "tomar",
+      "lane": "orq",
+      "col": 2,
+      "type": "backend",
+      "label": "Toma + semáforo",
+      "sublabel": "más antiguo, flock",
+      "tag": "en_cola → ejecutando",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 400,
+          "end_line": 486,
+          "label": "ejecutar_intento"
+        },
+        {
+          "path": "crates/ea-bus/src/candado.rs",
+          "line": 54,
+          "end_line": 86,
+          "label": "CandadoWorktree"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/main.rs",
+          "line": 62,
+          "end_line": 90
+        }
+      ]
+    },
+    {
+      "id": "agente",
+      "lane": "orq",
+      "col": 3,
+      "type": "backend",
+      "label": "Agente ejecutor",
+      "sublabel": "Qwen Code + llama-server",
+      "tag": "sin web, con topes",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/agentes.rs",
+          "line": 118,
+          "end_line": 171,
+          "label": "lanzar"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/agentes.rs",
+          "line": 202,
+          "end_line": 255,
+          "label": "QwenCode"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 99,
+          "end_line": 139,
+          "label": "correr_cancelable"
+        }
+      ]
+    },
+    {
+      "id": "criterio",
+      "lane": "orq",
+      "col": 4,
+      "type": "security",
+      "label": "Criterio del sistema",
+      "sublabel": "sh -c",
+      "tag": "nunca el agente",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 599,
+          "end_line": 611,
+          "label": "correr_criterio"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 620,
+          "end_line": 685,
+          "label": "bucle"
+        }
+      ]
+    },
+    {
+      "id": "entregar",
+      "lane": "orq",
+      "col": 5,
+      "type": "backend",
+      "label": "Entrega del informe",
+      "sublabel": "informe.json",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 525,
+          "end_line": 562,
+          "label": "entregar"
+        },
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 376,
+          "end_line": 445,
+          "label": "aplicar_bloqueado"
+        }
+      ]
+    },
+    {
+      "id": "cancelado",
+      "lane": "exc",
+      "col": 3,
+      "type": "security",
+      "label": "cancelado",
+      "sublabel": "cada 2 s, árbol muerto",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 99,
+          "end_line": 139,
+          "label": "correr_cancelable"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 512,
+          "end_line": 521,
+          "label": "cancelado_en_curso"
+        }
+      ]
+    },
+    {
+      "id": "bloqueado",
+      "lane": "exc",
+      "col": 4,
+      "type": "security",
+      "label": "Informe bloqueado",
+      "sublabel": "sin éxito, topes, sin ejecutor",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 360,
+          "end_line": 362,
+          "label": "bloqueado"
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 620,
+          "end_line": 685,
+          "label": "bucle"
+        }
+      ]
+    },
+    {
+      "id": "paquete",
+      "lane": "exc",
+      "col": 5,
+      "type": "database",
+      "label": "en_espera",
+      "sublabel": "paquete-correccion.md",
+      "sources": [
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 543,
+          "end_line": 553
+        },
+        {
+          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "line": 564,
+          "end_line": 583,
+          "label": "paquete_correccion"
+        }
+      ]
+    },
+    {
+      "id": "propuesta",
+      "lane": "usr",
+      "col": 0,
+      "type": "security",
+      "label": "El usuario acepta",
+      "sublabel": "ea propuestas decidir",
+      "tag": "propuesta del timer",
+      "sources": [
+        {
+          "path": "crates/ea-mcp/src/tools.rs",
+          "line": 285,
+          "end_line": 350,
+          "label": "mutante"
+        },
+        {
+          "path": "docs/manual.md",
+          "line": 948,
+          "end_line": 959
+        }
+      ]
+    },
+    {
+      "id": "timer",
+      "lane": "usr",
+      "col": 1,
+      "type": "external",
+      "label": "Timer / lanzar",
+      "sublabel": "ea rutina lanzar",
+      "sources": [
+        {
+          "path": "docs/manual.md",
+          "line": 837,
+          "end_line": 853,
+          "label": "Rutinas programadas"
+        },
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 601,
+          "end_line": 615,
+          "label": "lanzar_rutina_en"
+        },
+        {
+          "path": "crates/ea-bus/src/rutina.rs",
+          "line": 122,
+          "end_line": 170,
+          "label": "a_orden"
+        }
+      ]
+    },
+    {
+      "id": "confirmar",
+      "lane": "usr",
+      "col": 5,
+      "type": "security",
+      "label": "El usuario confirma",
+      "sublabel": "ea trabajo confirmar",
+      "sources": [
+        {
+          "path": "crates/ea-bus/src/bus.rs",
+          "line": 542,
+          "end_line": 554,
+          "label": "confirmar"
+        },
+        {
+          "path": "crates/ea-cli/src/cli.rs",
+          "line": 373,
+          "end_line": 379
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-ask",
+      "from": "user",
+      "to": "formalize",
+      "label": "pide",
+      "variant": "default"
+    },
+    {
+      "id": "e-crear",
+      "from": "formalize",
+      "to": "crear",
+      "label": "encola",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-encolar",
+      "from": "crear",
+      "to": "cola",
+      "label": "en_cola",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-tomar",
+      "from": "cola",
+      "to": "tomar",
+      "label": "toma el más antiguo",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-ocupado",
+      "from": "tomar",
+      "to": "cola",
+      "label": "ocupado: re-encola",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "e-lanza",
+      "from": "tomar",
+      "to": "agente",
+      "label": "lanza",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-corre",
+      "from": "agente",
+      "to": "criterio",
+      "label": "termina",
+      "variant": "default"
+    },
+    {
+      "id": "e-reintento",
+      "from": "criterio",
+      "to": "agente",
+      "label": "falla: reintenta",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "e-pasa",
+      "from": "criterio",
+      "to": "entregar",
+      "label": "pasa",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-agota",
+      "from": "criterio",
+      "to": "bloqueado",
+      "label": "agotado",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "e-bloqueado",
+      "from": "bloqueado",
+      "to": "entregar",
+      "label": "informe",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "e-cancela",
+      "from": "agente",
+      "to": "cancelado",
+      "label": "cancelar",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "e-planner",
+      "from": "entregar",
+      "to": "colaplan",
+      "label": "misión / obra",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-revisa",
+      "from": "colaplan",
+      "to": "review",
+      "label": "/revisar",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-cierra",
+      "from": "review",
+      "to": "cerrado",
+      "label": "cerrar",
+      "variant": "default"
+    },
+    {
+      "id": "e-reformula",
+      "from": "review",
+      "to": "cola",
+      "label": "reformular / continuar",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "e-autocierra",
+      "from": "entregar",
+      "to": "autocierre",
+      "label": "rutina pasa",
+      "variant": "default"
+    },
+    {
+      "id": "e-paquete",
+      "from": "entregar",
+      "to": "paquete",
+      "label": "rutina falla",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "e-confirma",
+      "from": "paquete",
+      "to": "confirmar",
+      "variant": "security"
+    },
+    {
+      "id": "e-corrige",
+      "from": "confirmar",
+      "to": "colaplan",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "right",
+      "route": "outside-right"
+    },
+    {
+      "id": "e-acepta",
+      "from": "formalize",
+      "to": "propuesta",
+      "label": "/rutina: programar",
+      "variant": "security"
+    },
+    {
+      "id": "e-programa",
+      "from": "propuesta",
+      "to": "timer",
+      "variant": "security"
+    },
+    {
+      "id": "e-timer",
+      "from": "timer",
+      "to": "crear",
+      "label": "crea el trabajo",
+      "variant": "dashed",
+      "role": "async"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Tres modos, una tubería",
+      "items": [
+        "/mision itera hasta que el criterio pasa o se agotan las iteraciones",
+        "/obra recorre fases, cada una con su criterio y una instantánea del árbol, y se detiene cada revisar_cada",
+        "/rutina la crea un timer, sin planificador: si pasa se cierra sola, si falla espera al usuario"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Nadie se aprueba a sí mismo",
+      "items": [
+        "El sistema ejecuta el criterio con sh -c; un criterio vacío se rechaza al crear y nunca cuenta como éxito",
+        "Las herramientas MCP mutantes solo simulan o proponen; el usuario acepta",
+        "Una rutina que falla llega al planificador solo tras ea trabajo confirmar"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Topes duros",
+      "items": [
+        "Sandbox, semáforo exclusivo del worktree, sin herramientas web",
+        "El tope de tiempo mata todo el árbol (SIGTERM y luego kill); Qwen sale con 55 al agotar turnos o llamadas",
+        "Cancelar no deshace lo que el agente ya escribió"
+      ]
+    }
+  ]
+}

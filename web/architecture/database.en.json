@@ -1,0 +1,465 @@
+{
+  "schema_version": 1,
+  "diagram_type": "erd",
+  "meta": {
+    "title": "SQLite schema of ea-store (migration 0001_inicial.sql)",
+    "locale": "en",
+    "output": ".archify/database-en/database.html",
+    "quality_profile": "standard",
+    "repository": {
+      "url": "https://github.com/jesus13g/gachapon",
+      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+    }
+  },
+  "layout": {
+    "mode": "grid",
+    "gapX": 84,
+    "gapY": 30
+  },
+  "entities": [
+    {
+      "id": "events",
+      "label": "events",
+      "sublabel": "Append-only journal: triggers events_no_update / events_no_delete abort any UPDATE or DELETE",
+      "tag": "journal · append-only",
+      "row": 0,
+      "col": 0,
+      "width": 224,
+      "attributes": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "key": "pk"
+        },
+        {
+          "name": "ts",
+          "type": "TEXT"
+        },
+        {
+          "name": "actor",
+          "type": "TEXT"
+        },
+        {
+          "name": "action",
+          "type": "TEXT"
+        },
+        {
+          "name": "trabajo",
+          "type": "TEXT"
+        },
+        {
+          "name": "outcome",
+          "type": "TEXT"
+        },
+        {
+          "name": "duration_ms",
+          "type": "INTEGER"
+        },
+        {
+          "name": "detail",
+          "type": "TEXT"
+        }
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 8,
+          "end_line": 17
+        },
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 26,
+          "end_line": 34
+        }
+      ]
+    },
+    {
+      "id": "trabajos",
+      "label": "trabajos",
+      "sublabel": "Job history; the bus state files stay the source of truth",
+      "tag": "jobs & phases",
+      "row": 0,
+      "col": 1,
+      "width": 224,
+      "attributes": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "key": "pk"
+        },
+        {
+          "name": "modo",
+          "type": "TEXT"
+        },
+        {
+          "name": "titulo",
+          "type": "TEXT"
+        },
+        {
+          "name": "worktree",
+          "type": "TEXT"
+        },
+        {
+          "name": "estado",
+          "type": "TEXT"
+        },
+        {
+          "name": "creado_en",
+          "type": "TEXT"
+        },
+        {
+          "name": "actualizado_en",
+          "type": "TEXT"
+        },
+        {
+          "name": "creado_por",
+          "type": "TEXT"
+        },
+        {
+          "name": "rutina_slug",
+          "type": "TEXT"
+        },
+        {
+          "name": "rutina_version",
+          "type": "INTEGER"
+        }
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 91,
+          "end_line": 103
+        }
+      ]
+    },
+    {
+      "id": "trabajo_fases",
+      "label": "trabajo_fases",
+      "sublabel": "Phases of a job; composite primary key",
+      "tag": "jobs & phases",
+      "row": 1,
+      "col": 1,
+      "width": 224,
+      "attributes": [
+        {
+          "name": "trabajo_id",
+          "type": "TEXT",
+          "key": [
+            "pk",
+            "fk"
+          ],
+          "references": "trabajos.id"
+        },
+        {
+          "name": "numero",
+          "type": "INTEGER",
+          "key": "pk"
+        },
+        {
+          "name": "titulo",
+          "type": "TEXT"
+        },
+        {
+          "name": "estado",
+          "type": "TEXT"
+        },
+        {
+          "name": "informe",
+          "type": "TEXT"
+        },
+        {
+          "name": "cerrado_en",
+          "type": "TEXT"
+        }
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 105,
+          "end_line": 113
+        }
+      ]
+    },
+    {
+      "id": "rutinas",
+      "label": "rutinas",
+      "sublabel": "Versioned routine definitions",
+      "tag": "routines",
+      "row": 0,
+      "col": 2,
+      "width": 224,
+      "attributes": [
+        {
+          "name": "slug",
+          "type": "TEXT",
+          "key": "pk"
+        },
+        {
+          "name": "version",
+          "type": "INTEGER",
+          "key": "pk"
+        },
+        {
+          "name": "definicion",
+          "type": "TEXT"
+        },
+        {
+          "name": "creada_en",
+          "type": "TEXT"
+        },
+        {
+          "name": "creada_por",
+          "type": "TEXT"
+        }
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 115,
+          "end_line": 122
+        }
+      ]
+    },
+    {
+      "id": "propuestas",
+      "label": "propuestas",
+      "sublabel": "Supervised mutations: an agent proposes, only the user accepts",
+      "tag": "proposals",
+      "row": 0,
+      "col": 3,
+      "width": 224,
+      "attributes": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "key": "pk"
+        },
+        {
+          "name": "creado_en",
+          "type": "TEXT"
+        },
+        {
+          "name": "descripcion",
+          "type": "TEXT"
+        },
+        {
+          "name": "estado",
+          "type": "TEXT"
+        },
+        {
+          "name": "decidido_en",
+          "type": "TEXT"
+        },
+        {
+          "name": "proponente",
+          "type": "TEXT"
+        },
+        {
+          "name": "accion_herramienta",
+          "type": "TEXT"
+        },
+        {
+          "name": "accion_argumentos",
+          "type": "TEXT"
+        },
+        {
+          "name": "accion_riesgo",
+          "type": "TEXT"
+        },
+        {
+          "name": "accion_simulacion",
+          "type": "TEXT"
+        },
+        {
+          "name": "accion_precondicion",
+          "type": "TEXT"
+        },
+        {
+          "name": "ejecucion_estado",
+          "type": "TEXT"
+        },
+        {
+          "name": "ejecucion_detalle",
+          "type": "TEXT"
+        },
+        {
+          "name": "ejecutada_en",
+          "type": "TEXT"
+        }
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 38,
+          "end_line": 57
+        }
+      ]
+    },
+    {
+      "id": "boveda_notas",
+      "label": "boveda_notas",
+      "sublabel": "Derived cache of the vault notes (rebuildable with ea boveda reindexar)",
+      "tag": "vault index",
+      "row": 0,
+      "col": 4,
+      "width": 224,
+      "attributes": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "key": "pk"
+        },
+        {
+          "name": "ruta",
+          "type": "TEXT",
+          "key": "uk"
+        },
+        {
+          "name": "region",
+          "type": "TEXT"
+        },
+        {
+          "name": "autor",
+          "type": "TEXT"
+        },
+        {
+          "name": "titulo",
+          "type": "TEXT"
+        },
+        {
+          "name": "origen",
+          "type": "TEXT"
+        },
+        {
+          "name": "promocion",
+          "type": "TEXT"
+        },
+        {
+          "name": "creada",
+          "type": "TEXT"
+        },
+        {
+          "name": "actualizada",
+          "type": "TEXT"
+        },
+        {
+          "name": "mtime_ns",
+          "type": "INTEGER"
+        },
+        {
+          "name": "bytes",
+          "type": "INTEGER"
+        }
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 65,
+          "end_line": 79
+        }
+      ]
+    },
+    {
+      "id": "boveda_fts",
+      "label": "boveda_fts",
+      "sublabel": "FTS5 virtual table; rowid = boveda_notas.id; unaccented, lower-cased",
+      "tag": "vault index",
+      "row": 1,
+      "col": 4,
+      "width": 224,
+      "attributes": [
+        {
+          "name": "titulo",
+          "type": "TEXT"
+        },
+        {
+          "name": "tags",
+          "type": "TEXT"
+        },
+        {
+          "name": "cuerpo",
+          "type": "TEXT"
+        }
+      ],
+      "sources": [
+        {
+          "path": "crates/ea-store/migrations/0001_inicial.sql",
+          "line": 83,
+          "end_line": 86
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "id": "r_ev_tr",
+      "from": "trabajos",
+      "to": "events",
+      "fromCardinality": "one",
+      "toCardinality": "many",
+      "toOptional": true,
+      "identifying": false,
+      "variant": "dashed",
+      "label": "trabajo (logical, no FK)"
+    },
+    {
+      "id": "r_tr_ru",
+      "from": "rutinas",
+      "to": "trabajos",
+      "fromCardinality": "one",
+      "toCardinality": "many",
+      "toOptional": true,
+      "identifying": false,
+      "variant": "dashed",
+      "label": "rutina_slug+version (logical, no FK)"
+    },
+    {
+      "id": "r_fa_tr",
+      "from": "trabajos",
+      "to": "trabajo_fases",
+      "fromCardinality": "one",
+      "toCardinality": "many",
+      "identifying": true,
+      "label": "phases of a job"
+    },
+    {
+      "id": "r_fts_n",
+      "from": "boveda_notas",
+      "to": "boveda_fts",
+      "fromCardinality": "one",
+      "toCardinality": "one",
+      "identifying": false,
+      "variant": "dashed",
+      "label": "rowid = id (virtual, no FK)"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Journal is append-only",
+      "items": [
+        "Triggers events_no_update and events_no_delete RAISE(ABORT) at engine level.",
+        "A wrong event is corrected by emitting another event, never by editing.",
+        "events.trabajo holds the bus job id as text; there is no foreign key."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Constraints in the migration",
+      "items": [
+        "events.outcome IN (ok, error); propuestas.estado IN (pendiente, aceptada, rechazada), default pendiente.",
+        "propuestas.accion_riesgo IN (reversible, irreversible); ejecucion_estado IN (ejecutando, ejecutada, fallida).",
+        "CHECK: accion_herramienta and accion_riesgo are both NULL or both set.",
+        "PRAGMA foreign_keys = ON; the only declared FK is trabajo_fases.trabajo_id."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Indexes",
+      "items": [
+        "events: ts, actor, trabajo, (trabajo, ts).",
+        "propuestas(estado), boveda_notas(region), trabajos(estado)."
+      ]
+    }
+  ]
+}

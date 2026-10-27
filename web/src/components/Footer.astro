@@ -1,0 +1,8 @@
+---
+import { copyFor } from '../i18n';
+const { site, ui } = copyFor(Astro.currentLocale);
+---
+<footer class="site-footer">
+  <span>{ui.footer}</span>
+  <span><a href={site.repo} rel="noopener">GitHub</a> · {site.license}</span>
+</footer>
