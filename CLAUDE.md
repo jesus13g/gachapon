@@ -33,8 +33,10 @@ código. Esas notas son de la bóveda: se escriben con `ea_escribir_nota` (escri
 
 ```bash
 cargo build --release      # binarios en target/release/{ea,ea-mcp,ea-orchestrator,ea-web}
-cargo test --workspace     # toda la suite (unas 790 pruebas)
+cargo test --workspace     # toda la suite (unas 830 pruebas)
 cargo test -p ea-bus       # un solo crate
+cargo fmt --all            # formato (rustfmt.toml; el CI lo comprueba)
+cargo deny check           # licencias y avisos de seguridad (deny.toml)
 systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en release (Linux)
 ./target/release/ea servicios ver|instalar|desinstalar   # unidades con la ruta real: systemd --user, launchd (macOS) o schtasks (Windows)
 ./instalar.sh              # instalación en un paso desde el clon (compila y ejecuta `ea instalar`; spec 023)
@@ -53,12 +55,12 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 | `ea-biblioteca` | Biblioteca de herramientas (spec 018): inventario de solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de los cinco agentes y del ecosistema, uso por actor, planes de activar/desactivar y de sesión efímera; depende de `ea-ajustes`, `ea-plataforma` y `ea-store` (el diario, en solo lectura) |
 | `ea-plataforma` | Todas las diferencias entre Linux, macOS y Windows (rutas y binario hermano, procesos con tope y muerte del árbol, ficheros privados, escritura atómica y huella FNV, WSL, terminal, servicios); sin dependencias `ea-*`; ningún otro crate usa `libc`, `std::os::unix` ni `cfg(target_os)`, salvo pruebas y el aviso con acción de Hyprland del orquestador (solo Linux) |
 | `ea-store` | SQLite: diario, propuestas, índice de la bóveda, trabajos, fases, rutinas. Una sola migración (`0001_inicial.sql`) |
-| `ea-bus` | Bus de ficheros (`bus/`: colas con tipo `Cola`, trabajos, transiciones, rutinas y recuperación): estado de trabajos (máquina de estados pura), artefactos de cada trabajo con escritura atómica, semáforo `flock`, rutinas TOML, validación de skills (`ConfigSkills`), equipos, presencia (`Latido`), marcas de subagentes y el único `git` que el sistema ejecuta fuera del sandbox (`ea_bus::git`) |
+| `ea-bus` | Bus de ficheros (`bus/`: colas con tipo `Cola`, trabajos, transiciones, rutinas y recuperación): estado de trabajos (máquina de estados pura), artefactos de cada trabajo con escritura atómica, semáforo `flock`, rutinas TOML, validación de skills (`ConfigSkills`), equipos, presencia (`Latido`), el latido del orquestador (`orquestador.json`), marcas de subagentes y el único `git` que el sistema ejecuta fuera del sandbox (`ea_bus::git`) |
 | `ea-orchestrator` | Ejecutor: su configuración (`config`) y cada intento como tubería de pasos (`ejecutor/`); toma de la cola `modelo-local`, lanza al agente en el sandbox del sistema, corre el criterio y entrega el informe; uno solo por bus (`<estado>/orquestador.lock`) y parada limpia con SIGTERM |
 | `ea-acciones` | Catálogo único de herramientas con riesgo, simulación, revalidación y flujo propuesta → aceptación → ejecución (cada herramienta supervisada es un caso de `Supervisada` y un módulo de `herramientas/`; todo lo que muta pasa por `Sistema`); también la salud de servicios y agentes (`salud`) y cambiar ajustes (`ajustes::cambiar`) |
 | `ea-boveda` | La bóveda de notas; **único código que escribe en ella** |
 | `ea-cli` | Binario `ea`: CLI, TUI (`ratatui`) e instalador (`ea instalar`, módulo `instalacion`) |
-| `ea-mcp` | Servidor MCP HTTP en `127.0.0.1:8765` (`ea_mcp::router` con los hosts fijados; `tools/` por área con una plantilla; lo que lee disco o SQLite va en `spawn_blocking`) |
+| `ea-mcp` | Servidor MCP HTTP en `127.0.0.1:8765` (`ea_mcp::router` con los hosts fijados; `tools/` por área con una plantilla; lo que lee disco o SQLite va en `spawn_blocking`); identifica al planificador por la credencial de `<ejecución>/ea-mcp/credencial` (cabecera `X-EA-Credencial`, `ea mcp cabeceras`); sin ella solo actúa el ejecutor |
 | `ea-web` | API JSON y panel en `127.0.0.1:8092`; `static/` va embebido con `include_str!` (recompilar para ver cambios) |
 | `ea-pruebas` | Utilidades de las pruebas de integración; solo en `[dev-dependencies]`, nunca en un binario; los dobles van tras la feature `dobles` |
 
@@ -71,8 +73,10 @@ crate propio **fuera del workspace**, con su `Cargo.toml` y su CI; se compila co
 binarios de Windows de `GACHAPON_BINARIOS` y lanza `ea instalar`), `instalar.sh` e
 `instalar.ps1` (los scripts de un paso; Pages los sirve y `release.yml` publica los
 paquetes al subir un tag `v*`), `claude/skills/` (skills `/mision`, `/obra`, `/rutina`,
-`/revisar`, `/equipo`, enlazadas desde `~/.claude/skills/`: editarlas cambia las skills
-vivas), `claude/hooks/` (envoltorio del hook de subagentes; el trabajo lo hace `ea hook subagentes`), `qwen/skills/`
+`/revisar`, `/equipo`: fuente única de cada adaptador; `ea instalar` genera de ellas
+las de Codex, OpenCode y Antigravity y las copia con la ruta real de las guías en
+lugar de `{{flujo}}/`, así que un cambio se instala volviendo a ejecutar `ea instalar`),
+`agentes/planificador.md` (reglas comunes del planificador), `qwen/skills/`
 (skills cortas de Qwen; `ea instalar` las copia a `agente.skills.dir` y lleva
 embebidos `claude/skills`, `agentes/` y `qwen/skills`: al añadir un fichero ahí, una
 prueba de `ea-cli` exige registrarlo en `instalacion/recursos.rs`) y `bench/` (banco de pruebas en Python, ajeno a los
@@ -103,7 +107,10 @@ en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
   macOS; Windows nativo se niega con `sandbox = true`; constitución 1.5.0),
   topes duros y muerte del árbol del agente, sin
   herramientas web, aprobación automática solo dentro del sandbox, con el `.git`
-  del worktree de solo lectura, y semáforo exclusivo del worktree.
+  del worktree de solo lectura, y semáforo exclusivo del worktree. El criterio corre en el mismo sandbox (escribe solo en el
+  worktree, su `/tmp` y `agente.criterio.escribibles`, de solo terminal), y el
+  worktree de una orden o rutina es la raíz de su repo y nunca `$HOME` ni un
+  ancestro suyo.
 - Si un cambio choca con un artículo de la constitución, se enmienda la
   constitución primero; no se hace una excepción callada.
 
@@ -112,7 +119,9 @@ en `~/.local/share/ecosistema-asistente/` (`$EA_DB_PATH`), bus en
 - **Todo en español**: identificadores, mensajes, CLI, commits y documentación
   (p. ej. `trabajo`, `orden`, `informe`, `semaforo`). Commits con frase
   descriptiva en español, sin prefijos tipo `feat:`.
-- Rust edition 2024, toolchain stable. Las bibliotecas definen errores con
+- Rust edition 2024, toolchain stable (mínimo 1.89; 1.90 en `escritorio/`). El
+  código pasa `cargo fmt` (`rustfmt.toml`). Hay tres `Cargo.lock` (workspace,
+  `escritorio/`, `instalador/`) que se actualizan juntos. Las bibliotecas definen errores con
   `thiserror` (`error.rs` por crate); los binarios (`ea-cli`, `ea-mcp`,
   `ea-orchestrator`, `ea-web`) usan `anyhow`.
 - Las dependencias externas que comparten varios crates fijan su versión una vez
