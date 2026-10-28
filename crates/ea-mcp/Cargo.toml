@@ -33,6 +33,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
+ea-pruebas = { path = "../ea-pruebas", features = ["mcp"] }
 rmcp = { version = "3.3", features = [
     "client",
     "transport-streamable-http-client-reqwest",

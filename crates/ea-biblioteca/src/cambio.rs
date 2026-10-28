@@ -62,7 +62,9 @@ use ea_ajustes::{Ajustes, Canal, Fuentes};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-pub use ordenes::{Ordenes, OrdenesDoble, OrdenesReales, SalidaOrden, LIMITE};
+pub use ordenes::{Ordenes, OrdenesReales, SalidaOrden, LIMITE};
+#[cfg(any(test, feature = "dobles"))]
+pub use ordenes::OrdenesDoble;
 
 use crate::agentes::comun::quitar_comentarios;
 use crate::error::ErrorBiblioteca;

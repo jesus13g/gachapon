@@ -4,7 +4,7 @@
 //! rechazan sin tocar nada.
 
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 
 /// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
 #[cfg(windows)]
@@ -24,15 +24,7 @@ use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{Bus, Miembro, NuevoEquipo, Presencia, RolEquipo};
 
 fn ea(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ea"))
-        .args(args)
-        .env("EA_CONFIG_DIR", dir.join("config"))
-        .env("EA_DB_PATH", dir.join("ea.db"))
-        .env("EA_ESTADO_DIR", dir.join("estado"))
-        .env("EA_BOVEDA_DIR", dir.join("boveda"))
-        .stdin(Stdio::piped())
-        .output()
-        .expect("lanzar ea")
+    ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea"), dir).args(args).output().expect("lanzar ea")
 }
 
 fn stderr(o: &Output) -> String {
@@ -128,11 +120,7 @@ fn trabajo_crear_con_equipo_asigna_revisa_y_pide_worktree_propio() {
     let d = tempfile::tempdir().unwrap();
     let id = equipo(d.path());
     // `ea trabajo crear` exige, como la web, un repo git con algún commit.
-    let repo = d.path().join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    for a in [&["init", "-q"][..], &["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "inicio"]] {
-        assert!(Command::new("git").arg("-C").arg(&repo).args(a).status().unwrap().success());
-    }
+    let repo = ea_pruebas::repo_git(&d.path().join("repo"), true);
     let wt = repo.to_string_lossy().into_owned();
     let base = ["trabajo", "crear", "--titulo", "tarea", "--worktree", &wt, "--objetivo", "haz algo", "--criterio", "true"];
     // asignar sin equipo lo rechaza clap

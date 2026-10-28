@@ -8,6 +8,7 @@ use std::path::Path;
 use ea_acciones::*;
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_biblioteca::{Biblioteca, Raices};
+use ea_pruebas::{escribe, sin_secretos};
 use ea_store::{EstadoEjecucion, EstadoPropuesta, Store};
 use serde_json::{json, Value};
 
@@ -21,19 +22,14 @@ struct Entorno {
     home: std::path::PathBuf,
 }
 
-fn escribe(ruta: &Path, texto: &str) {
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
-}
-
 fn entorno() -> Entorno {
     let d = tempfile::tempdir().unwrap();
     let home = d.path().join("home");
     let runtime = d.path().join("rt");
     fs::create_dir_all(&runtime).unwrap();
-    escribe(&home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
+    escribe(home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
     escribe(
-        &home.join(".claude.json"),
+        home.join(".claude.json"),
         r#"{"mcpServers":{
             "con-secretos":{"type":"stdio","command":"npx","args":["-y","pkg"],"env":{"API_KEY":"SECRETO_ENV"}},
             "remoto":{"type":"http","url":"https://m.ejemplo.com/SECRETO_RUTA/mcp","headers":{"Authorization":"Bearer SECRETO_HEADER"}}}}"#,
@@ -56,12 +52,6 @@ async fn simular<C: Consulta>(s: &Store, c: &C, args: &Value) -> Result<Simulaci
 
 fn diario(s: &Store) -> String {
     s.list_events(&Default::default()).unwrap().iter().map(|e| format!("{} {} {:?}", e.actor, e.action, e.detail)).collect::<Vec<_>>().join("\n")
-}
-
-fn sin_secretos(t: &str) {
-    for s in SECRETOS {
-        assert!(!t.contains(s), "se coló {s} en: {t}");
-    }
 }
 
 #[test]
@@ -105,8 +95,8 @@ async fn simular_describe_el_plan_sin_secretos_y_no_escribe_nada() {
     }
     let sep = std::path::MAIN_SEPARATOR;
     assert!(sim.texto.contains(&format!("complemento{sep}skills{sep}propia")), "{}", sim.texto);
-    sin_secretos(&sim.texto);
-    sin_secretos(&sim.precondicion.to_string());
+    sin_secretos(&sim.texto, SECRETOS);
+    sin_secretos(&sim.precondicion.to_string(), SECRETOS);
     assert!(!e.runtime.join("ea-biblioteca").exists(), "simular no escribe");
     assert!(e.sis.terminales().is_empty());
     assert!(e.sis.mutaciones().is_empty());
@@ -132,7 +122,7 @@ async fn proponer_no_abre_nada_y_aceptar_materializa_y_abre_la_terminal() {
     let h = observar(&e.sis, "ea_lanzar_sesion", &args).await.unwrap();
     let (p, nueva) = proponer(&e.store, &e.sis, &h, "claude-code", None, "ea_lanzar_sesion", &args).unwrap();
     assert!(nueva);
-    sin_secretos(&format!("{p:?}"));
+    sin_secretos(&format!("{p:?}"), SECRETOS);
     assert!(e.sis.terminales().is_empty(), "proponer no abre nada");
     assert!(!e.runtime.join("ea-biblioteca").exists());
 
@@ -147,7 +137,7 @@ async fn proponer_no_abre_nada_y_aceptar_materializa_y_abre_la_terminal() {
     assert_eq!(argv[0], "claude", "sin proyecto no hay `env`");
     assert!(argv.contains(&"--strict-mcp-config".to_string()));
     let mcp_json = argv[argv.iter().position(|a| a == "--mcp-config").unwrap() + 1].clone();
-    sin_secretos(&argv.join(" "));
+    sin_secretos(&argv.join(" "), SECRETOS);
 
     // El secreto solo está en el fichero 0600 del runtime.
     let contenido = fs::read_to_string(&mcp_json).unwrap();
@@ -162,7 +152,7 @@ async fn proponer_no_abre_nada_y_aceptar_materializa_y_abre_la_terminal() {
 
     // El diario: agente, ids y argv; ningún secreto.
     let d = diario(&e.store);
-    sin_secretos(&d);
+    sin_secretos(&d, SECRETOS);
     assert!(d.contains("accion_ejecutada") && d.contains("ea_lanzar_sesion"), "{d}");
     assert!(d.contains(MCP) && d.contains("claude-code") && d.contains("--strict-mcp-config"), "{d}");
 }
@@ -269,7 +259,7 @@ async fn si_la_terminal_falla_la_accion_falla_y_queda_en_el_diario() {
     assert!(err.to_string().contains("no hay terminal"), "{err}");
     let d = diario(&e.store);
     assert!(d.contains("accion_fallida"), "{d}");
-    sin_secretos(&d);
+    sin_secretos(&d, SECRETOS);
 }
 
 #[tokio::test]

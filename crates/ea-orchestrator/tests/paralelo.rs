@@ -11,12 +11,13 @@ use std::time::{Duration, Instant};
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{
-    Bus, Cola, EstadoTrabajo, Miembro, Modo, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
+    Bus, Cola, EstadoTrabajo, Miembro, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
 };
 use ea_orchestrator::config::ConfigOrquestador;
 use ea_orchestrator::ejecutor::{correr_criterio, ejecutar_uno, Ejecutor, SalidaAgente};
 use ea_orchestrator::sandbox::Sandbox;
 use ea_orchestrator::trabajadores::{arrancar, ejecutores_despiertos, Contexto, Trabajadores};
+use ea_pruebas::git;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -30,48 +31,12 @@ fn esperar_que(mut cond: impl FnMut() -> bool, que: &str) {
     }
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
-    let s = Command::new("git")
-        .args(["-c", "user.email=a@b", "-c", "user.name=x", "-C"])
-        .arg(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(s.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&s.stderr));
-    String::from_utf8_lossy(&s.stdout).trim().to_string()
-}
-
 fn repo(d: &Path, nombre: &str) -> PathBuf {
-    let r = d.join(nombre);
-    std::fs::create_dir_all(&r).unwrap();
-    git(&r, &["init", "-q", "-b", "main"]);
-    std::fs::write(r.join("a.txt"), "a").unwrap();
-    git(&r, &["add", "."]);
-    git(&r, &["commit", "-q", "-m", "inicial"]);
-    r
+    ea_pruebas::repo_git(&d.join(nombre), true)
 }
 
 fn orden(wt: &Path) -> Orden {
-    Orden {
-        id: String::new(),
-        modo: Modo::Mision,
-        titulo: "prueba".into(),
-        worktree: wt.to_string_lossy().into(),
-        objetivo: "crea ok.txt".into(),
-        criterio_exito: Some("test -f ok.txt".into()),
-        fases: vec![],
-        revisar_cada: None,
-        topes: Topes::default(),
-        rutina: None,
-        notas_revision: vec![],
-        skills: vec![],
-        equipo: None,
-        asignado_a: None,
-        revisor: None,
-        worktree_propio: false,
-        creada_en: String::new(),
-        creada_por: "claude-code".into(),
-    }
+    Orden::mision("prueba", wt.to_string_lossy(), "crea ok.txt", "test -f ok.txt", "claude-code")
 }
 
 fn m(agente: &str, rol: RolEquipo) -> Miembro {

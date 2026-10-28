@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use ea_acciones::*;
 use ea_ajustes::{Canal as CanalAjustes, Fuentes};
 use ea_biblioteca::{Contexto, Raices};
+use ea_pruebas::escribe;
 use ea_store::{EstadoEjecucion, EventFilter, Store};
 use serde_json::{json, Value};
 
@@ -23,10 +24,6 @@ struct Mundo {
 fn mundo() -> Mundo {
     let d = tempfile::tempdir().unwrap();
     let home = d.path().join("home");
-    let escribe = |r: PathBuf, t: &str| {
-        fs::create_dir_all(r.parent().unwrap()).unwrap();
-        fs::write(r, t).unwrap();
-    };
     escribe(home.join(".codex/config.toml"), CODEX);
     escribe(home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Propia\n---\n");
     escribe(

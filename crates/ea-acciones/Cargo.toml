@@ -4,6 +4,11 @@ version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# Los dobles de prueba (`SistemaSimulado`, `TerminalSimulada`); solo los activan las
+# `[dev-dependencies]`.
+dobles = ["ea-biblioteca/dobles"]
+
 [dependencies]
 ea-store = { path = "../ea-store" }
 ea-boveda = { path = "../ea-boveda" }
@@ -20,5 +25,8 @@ tokio = { version = "1", features = ["process", "time", "rt"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
+# Las pruebas de `tests/` usan los dobles (`SistemaSimulado`, `TerminalSimulada`).
+ea-acciones = { path = ".", features = ["dobles"] }
+ea-pruebas = { path = "../ea-pruebas" }
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util"] }

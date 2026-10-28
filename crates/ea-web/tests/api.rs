@@ -17,6 +17,7 @@ macro_rules! tmp {
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use axum::Router;
+use ea_pruebas::{escribe, sin_secretos};
 use ea_store::{EventOutcome, NewEvent, Store};
 use ea_web::{AppState, WebConfig};
 use http_body_util::BodyExt;
@@ -54,17 +55,9 @@ fn montar() -> Fixture {
     std::fs::write(rutinas_dir.join("revision-diaria.toml"), RUTINA_EJEMPLO).unwrap();
 
     let store = Store::open_at(&dir.path().join("test.db")).expect("abrir store");
-    store
-        .guardar_rutina(&ea_store::FilaRutina {
-            slug: "revision-diaria".into(),
-            version: 1,
-            definicion: RUTINA_BUS.into(),
-            creada_en: "2026-01-01T00:00:00Z".into(),
-            creada_por: "test".into(),
-        })
-        .unwrap();
+    ea_pruebas::guardar_rutinas(&store, &[("revision-diaria", 1, RUTINA_BUS)]);
     // El `ea` que abriría la terminal: un fichero, como el de junto a ea-web.
-    escribir(dir.path().join("bin/ea"), "");
+    escribe(dir.path().join("bin/ea"), "");
     let terminal = Arc::new(ea_acciones::TerminalSimulada::default());
     let terminales = terminal.lanzadas.clone();
     let config = WebConfig {
@@ -101,12 +94,6 @@ const SECRETOS: [&str; 7] = [
     "SECRETO_HEADER_OPENCODE",
 ];
 
-fn escribir(ruta: impl AsRef<std::path::Path>, texto: &str) {
-    let ruta = ruta.as_ref();
-    std::fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    std::fs::write(ruta, texto).unwrap();
-}
-
 const SKILL: &str = "claude-code/skill/usuario/propia";
 const MCP_CLAUDE: &str = "claude-code/mcp/usuario/remoto-claude";
 const MCP_CODEX: &str = "codex/mcp/usuario/docs";
@@ -118,19 +105,19 @@ fn raices_biblioteca(dir: &std::path::Path) -> ea_biblioteca::Raices {
     let home = dir.join("home");
     let proyecto = dir.join("proyecto");
     std::fs::create_dir_all(&proyecto).unwrap();
-    escribir(home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
-    escribir(
+    escribe(home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
+    escribe(
         home.join(".claude.json"),
         r#"{"mcpServers":{
             "stdio-claude":{"type":"stdio","command":"npx","args":["-y","@scope/server","--token","SECRETO_ARG_TOKEN"],"env":{"API_KEY":"SECRETO_ENV_CLAUDE"}},
             "remoto-claude":{"type":"http","url":"https://mcp.ejemplo.com:8443/SECRETO_RUTA_URL/mcp?k=SECRETO_CONSULTA_URL","headers":{"Authorization":"Bearer SECRETO_HEADER_CLAUDE"}}},
           "skillUsage":{"propia":{"usageCount":4,"lastUsedAt":1791408135818}}}"#,
     );
-    escribir(
+    escribe(
         home.join(".codex/config.toml"),
         "[mcp_servers.docs]\ncommand = \"docs-mcp\"\nargs = [\"--api-key=SECRETO_ENV_CODEX\"]\n[mcp_servers.docs.env]\nTOKEN = \"SECRETO_ENV_CODEX\"\n[mcp_servers.apagado]\ncommand = \"otro\"\nenabled = false\n",
     );
-    escribir(
+    escribe(
         home.join(".config/opencode/opencode.json"),
         r#"{"mcp":{"servers":{"remoto-oc":{"type":"remote","url":"https://oc.ejemplo.com/SECRETO_RUTA_URL","headers":{"Authorization":"SECRETO_HEADER_OPENCODE"}}}}}"#,
     );
@@ -842,26 +829,7 @@ async fn la_ficha_de_una_rutina_lista_sus_ejecuciones_mas_recientes_primero() {
 }
 
 fn orden(modo: ea_bus::Modo, titulo: &str, worktree: &str) -> ea_bus::Orden {
-    ea_bus::Orden {
-        id: String::new(),
-        modo,
-        titulo: titulo.into(),
-        worktree: worktree.into(),
-        objetivo: "hacer algo".into(),
-        criterio_exito: Some("true".into()),
-        fases: vec![],
-        revisar_cada: None,
-        topes: Default::default(),
-        rutina: None,
-        notas_revision: vec![],
-        skills: vec![],
-        equipo: None,
-        asignado_a: None,
-        revisor: None,
-        worktree_propio: false,
-        creada_en: String::new(),
-        creada_por: "test".into(),
-    }
+    ea_bus::Orden { modo, ..ea_bus::Orden::mision(titulo, worktree, "hacer algo", "true", "test") }
 }
 
 #[tokio::test]
@@ -2863,48 +2831,24 @@ async fn las_versiones_de_una_rutina_se_listan_y_se_leen() {
 #[cfg(not(unix))]
 fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
     let no = || vec!["orden-inexistente-para-las-pruebas".to_string()];
-    ea_acciones::Temporizadores::systemd(dir.join("systemd-user"), no(), no())
+    ea_acciones::Temporizadores::systemd(dir.join("unidades"), no(), no())
 }
 
-/// `systemctl` y `systemd-analyze` falsos para los timers de las rutinas:
-/// nunca el `~/.config/systemd/user` real ni el `systemctl` de verdad. Las
-/// unidades van a `<dir>/systemd-user`; las órdenes, a `<dir>/ordenes.log`.
+/// `systemctl` y `systemd-analyze` falsos para los timers de las rutinas
+/// (`ea_pruebas::systemd_falso`): nunca el `~/.config/systemd/user` real ni el
+/// `systemctl` de verdad. Las unidades van a `<dir>/unidades`; las órdenes, a
+/// `<dir>/ordenes.log`.
 #[cfg(unix)]
 fn temporizadores_falsos(dir: &std::path::Path) -> ea_acciones::Temporizadores {
-    let log = dir.join("ordenes.log");
-    let unidades = dir.join("systemd-user");
-    let sc = dir.join("systemctl-falso.sh");
-    std::fs::write(
-        &sc,
-        format!(
-            "printf '%s\\n' systemctl \"$@\" >> '{log}'\n\
-             if [ \"$2\" = is-active ]; then\n\
-               if [ -f '{u}/'\"$3\" ]; then echo active; else echo inactive; exit 3; fi\n\
-             fi\n",
-            log = log.display(),
-            u = unidades.display()
-        ),
-    )
-    .unwrap();
-    let sa = dir.join("systemd-analyze-falso.sh");
-    std::fs::write(
-        &sa,
-        "case \"$4\" in *malo*) echo \"Failed to parse calendar specification '$4'\" >&2; exit 1;; esac\n\
-         echo \"Normalized form: $4\"\n\
-         echo '    Next elapse: Thu 2026-10-22 08:00:00 CEST'\n\
-         echo '   Iteration #2: Fri 2026-10-23 08:00:00 CEST'\n\
-         echo '   Iteration #3: Sat 2026-10-24 08:00:00 CEST'\n",
-    )
-    .unwrap();
-    let sh = |p: &std::path::Path| vec!["sh".to_string(), p.display().to_string()];
-    ea_acciones::Temporizadores::systemd(unidades, sh(&sc), sh(&sa))
+    let (systemctl, analyze, _) = ea_pruebas::systemd_falso(dir);
+    ea_acciones::Temporizadores::systemd(dir.join("unidades"), systemctl, analyze)
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn programar_desde_la_web_pide_simulacion_y_revalida() {
     let f = montar();
-    let timer = f._dir.path().join("systemd-user/ea-rutina@revision-diaria.timer");
+    let timer = f._dir.path().join("unidades/ea-rutina@revision-diaria.timer");
 
     // La consola ofrece la herramienta con las rutinas registradas como dominio.
     let (_, cat) = get(&f, "/api/acciones").await;
@@ -3122,7 +3066,7 @@ async fn abrir_en_terminal_instalar_y_desinstalar_servicios() {
 async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     let f = montar();
     let dir = f.state.config.rutinas_dir.clone();
-    let timer = f._dir.path().join("systemd-user/ea-rutina@revision-diaria.timer");
+    let timer = f._dir.path().join("unidades/ea-rutina@revision-diaria.timer");
     let ejecutar = |sim: &Value| {
         json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] })
     };
@@ -3198,12 +3142,6 @@ async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
 
 fn ids(v: &Value) -> Vec<String> {
     v["elementos"].as_array().unwrap().iter().map(|e| e["id"].as_str().unwrap().to_string()).collect()
-}
-
-fn sin_secretos(t: &str) {
-    for s in SECRETOS {
-        assert!(!t.contains(s), "la respuesta lleva el secreto {s}: {t}");
-    }
 }
 
 #[tokio::test]
@@ -3317,7 +3255,7 @@ async fn ninguna_respuesta_de_la_biblioteca_lleva_secretos() {
         .await;
         todo += &t;
     }
-    sin_secretos(&todo);
+    sin_secretos(&todo, &SECRETOS);
 }
 
 #[tokio::test]
@@ -3410,7 +3348,7 @@ async fn proponer_y_aceptar_una_sesion_abre_la_terminal_sin_secretos() {
     assert_eq!(st, StatusCode::OK, "{sim}");
     let texto = sim["texto"].as_str().unwrap();
     assert!(texto.contains("claude") && texto.contains("--strict-mcp-config"), "{sim}");
-    sin_secretos(&sim.to_string());
+    sin_secretos(&sim.to_string(), &SECRETOS);
     assert!(f.terminales.lock().unwrap().is_empty(), "simular no abre nada");
 
     let (st, r) = post(
@@ -3420,11 +3358,11 @@ async fn proponer_y_aceptar_una_sesion_abre_la_terminal_sin_secretos() {
     )
     .await;
     assert_eq!(st, StatusCode::OK, "{r}");
-    sin_secretos(&r.to_string());
+    sin_secretos(&r.to_string(), &SECRETOS);
     let abiertas = f.terminales.lock().unwrap().clone();
     assert_eq!(abiertas.len(), 1, "una terminal");
     assert!(abiertas[0].iter().any(|a| a == "claude"), "{abiertas:?}");
-    sin_secretos(&format!("{abiertas:?}"));
+    sin_secretos(&format!("{abiertas:?}"), &SECRETOS);
     // Los secretos solo están en los ficheros efímeros, con permisos 0600.
     let mcp = std::fs::read_dir(f._dir.path().join("runtime/ea-biblioteca/sesiones"))
         .unwrap()
@@ -3994,20 +3932,20 @@ async fn el_ecosistema_junta_sesiones_subagentes_presencias_y_trabajos() {
     // Una sesión viva de Claude Code con su transcripción (el modelo sale de ahí).
     let propio = std::process::id();
     let cwd = tmp!();
-    escribir(
+    escribe(
         raiz.join("sesiones").join(format!("{propio}.json")),
         &json!({"pid": propio, "sessionId": "s-uno", "cwd": cwd, "name": "f5", "status": "busy", "startedAt": 1000, "updatedAt": 2000}).to_string(),
     );
     let dir_proy: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
     let transcript = raiz.join("proyectos").join(&dir_proy).join("s-uno.jsonl");
-    escribir(&transcript, "{\"message\":{\"model\":\"claude-opus-5-5\"}}\n{\"message\":{\"model\":\"<synthetic>\"}}\n");
+    escribe(&transcript, "{\"message\":{\"model\":\"claude-opus-5-5\"}}\n{\"message\":{\"model\":\"<synthetic>\"}}\n");
     // Dos subagentes: uno en marcha y otro que Claude Code dio por acabado sin SubagentStop.
     let subs = raiz.join("proyectos").join(&dir_proy).join("s-uno/subagents");
-    escribir(subs.join("agent-a1.meta.json"), &json!({"agentType": "Explore", "description": "Buscar", "model": "haiku"}).to_string());
-    escribir(subs.join("agent-a2.meta.json"), &json!({"agentType": "Plan", "description": "Planear", "finished": true}).to_string());
+    escribe(subs.join("agent-a1.meta.json"), &json!({"agentType": "Explore", "description": "Buscar", "model": "haiku"}).to_string());
+    escribe(subs.join("agent-a2.meta.json"), &json!({"agentType": "Plan", "description": "Planear", "finished": true}).to_string());
     let ahora = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
     for (id, tipo) in [("a1", "Explore"), ("a2", "Plan")] {
-        escribir(
+        escribe(
             raiz.join("subagentes/s-uno").join(format!("{id}.json")),
             &json!({"agente": id, "tipo": tipo, "transcript": transcript, "desde": ahora}).to_string(),
         );
@@ -4035,39 +3973,12 @@ async fn el_ecosistema_junta_sesiones_subagentes_presencias_y_trabajos() {
     assert_eq!((t["lugar"].as_str(), t["planificador"].as_str()), (Some("agente:qwen-code"), Some("claude:s-uno")));
 }
 
-/// Cuatro trabajos que aparecen en un orden distinto del de los estados: una
-/// misión cerrada, otra en cola, una obra en curso y una misión bloqueada en
-/// revisión.
-fn sembrar_trabajos(bus: &ea_bus::Bus, wt: &str) -> [String; 4] {
-    use ea_bus::{Evento, Fase, Orden};
-    let ids = ["20260101T000001-00000001", "20260101T000002-00000002", "20260101T000003-00000003", "20260101T000004-00000004"]
-        .map(String::from);
-    let fase = |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
-    for (i, id) in ids.iter().enumerate() {
-        let base = if i == 2 {
-            Orden::obra("una obra", wt, "o", vec![fase(1), fase(2)], None, "prueba")
-        } else {
-            Orden::mision(format!("misión {}", i + 1), wt, "o", "true", "prueba")
-        };
-        bus.crear_trabajo(Orden { id: id.clone(), creada_en: "2026-01-01T00:00:00Z".into(), ..base }).unwrap();
-    }
-    for id in [&ids[0], &ids[2], &ids[3]] {
-        bus.retirar_de_colas(id).unwrap();
-        bus.aplicar(id, Evento::Tomar).unwrap();
-    }
-    let informe = |v: Value| serde_json::from_value(v).unwrap();
-    bus.aplicar(&ids[0], Evento::Entregar(informe(json!({ "resultado": "terminado", "duracion_s": 12 })))).unwrap();
-    bus.aplicar(&ids[0], Evento::Cerrar).unwrap();
-    bus.aplicar(&ids[3], Evento::Entregar(informe(json!({ "resultado": "bloqueado", "motivo": "no pasa", "duracion_s": 30 })))).unwrap();
-    ids
-}
-
 /// El texto exacto de los trabajos de `/api/trabajos` y de su cuenta en `/api/estado`.
 #[tokio::test]
 async fn los_resumenes_de_trabajos_dicen_lo_mismo_que_siempre() {
     let f = montar();
     let bus = ea_bus::Bus::abrir_en(&f.state.config.estado_dir).unwrap();
-    let ids = sembrar_trabajos(&bus, tmp!());
+    let ids = ea_pruebas::sembrar_trabajos(&bus, tmp!());
 
     let (s, estado) = enviar(&f, Method::GET, "/api/estado", "localhost:8092", None, false).await;
     assert_eq!(s, StatusCode::OK);

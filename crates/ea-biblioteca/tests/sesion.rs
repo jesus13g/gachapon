@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_biblioteca::*;
+use ea_pruebas::escribe;
 
 struct Mundo {
     _d: tempfile::TempDir,
@@ -16,12 +17,6 @@ struct Mundo {
     runtime: PathBuf,
     inv: Inventario,
     r: Raices,
-}
-
-fn escribe(ruta: impl AsRef<Path>, texto: &str) {
-    let ruta = ruta.as_ref();
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
 }
 
 const SECRETOS: &[&str] = &[
@@ -129,9 +124,7 @@ fn ids(m: &Mundo, textos: &[&str]) -> Vec<Id> {
 
 fn sin_secretos(plan: &PlanSesion) {
     let todo = serde_json::to_string(plan).unwrap() + &plan.comando() + &format!("{:?}", plan.entorno);
-    for s in SECRETOS {
-        assert!(!todo.contains(s), "el plan lleva {s}: {todo}");
-    }
+    ea_pruebas::sin_secretos(&todo, SECRETOS);
 }
 
 /// Comprueba los bits de permiso (solo en Unix; en Windows no hay modos).

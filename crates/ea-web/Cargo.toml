@@ -30,6 +30,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
+# Las pruebas usan la terminal simulada.
+ea-acciones = { path = "../ea-acciones", features = ["dobles"] }
+ea-pruebas = { path = "../ea-pruebas" }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 tempfile = "3"

@@ -478,11 +478,13 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "ea-acciones"
 version = "0.1.0"
 dependencies = [
+ "ea-acciones",
  "ea-ajustes",
  "ea-biblioteca",
  "ea-boveda",
  "ea-bus",
  "ea-plataforma",
+ "ea-pruebas",
  "ea-store",
  "reqwest 0.12.28",
  "serde",
@@ -512,7 +514,9 @@ name = "ea-biblioteca"
 version = "0.1.0"
 dependencies = [
  "ea-ajustes",
+ "ea-biblioteca",
  "ea-plataforma",
+ "ea-pruebas",
  "ea-store",
  "rusqlite",
  "serde",
@@ -543,6 +547,7 @@ version = "0.1.0"
 dependencies = [
  "ea-ajustes",
  "ea-plataforma",
+ "ea-pruebas",
  "ea-store",
  "rusqlite",
  "serde",
@@ -568,6 +573,7 @@ dependencies = [
  "ea-boveda",
  "ea-bus",
  "ea-plataforma",
+ "ea-pruebas",
  "ea-store",
  "ratatui",
  "serde_json",
@@ -589,6 +595,7 @@ dependencies = [
  "ea-boveda",
  "ea-bus",
  "ea-plataforma",
+ "ea-pruebas",
  "ea-store",
  "rmcp",
  "schemars",
@@ -609,6 +616,7 @@ dependencies = [
  "ea-ajustes",
  "ea-bus",
  "ea-plataforma",
+ "ea-pruebas",
  "ea-store",
  "serde_json",
  "tempfile",
@@ -626,6 +634,19 @@ dependencies = [
  "tempfile",
  "tokio",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ea-pruebas"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "ea-bus",
+ "ea-store",
+ "rmcp",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -655,6 +676,7 @@ dependencies = [
  "ea-boveda",
  "ea-bus",
  "ea-plataforma",
+ "ea-pruebas",
  "ea-store",
  "getrandom 0.2.17",
  "http-body-util",

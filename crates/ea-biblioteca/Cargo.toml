@@ -4,6 +4,10 @@ version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# Los dobles de prueba (`OrdenesDoble`); solo los activan las `[dev-dependencies]`.
+dobles = []
+
 [dependencies]
 ea-ajustes = { path = "../ea-ajustes" }
 ea-plataforma = { path = "../ea-plataforma" }
@@ -20,4 +24,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [dev-dependencies]
+# Las pruebas de `tests/` usan los dobles (`OrdenesDoble`).
+ea-biblioteca = { path = ".", features = ["dobles"] }
+ea-pruebas = { path = "../ea-pruebas" }
 tempfile = "3"

@@ -7,8 +7,7 @@ use ea_store::Store;
 use serde_json::{json, Value};
 
 fn store() -> (Store, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    (Store::open_at(&dir.path().join("t.db")).unwrap(), dir)
+    ea_pruebas::store(&[])
 }
 
 fn info(trabajo: &str, estado: &'static str, limpio: Option<bool>, ocupado: bool) -> InfoWorktree {

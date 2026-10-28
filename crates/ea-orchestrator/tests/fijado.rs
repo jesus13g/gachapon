@@ -27,6 +27,7 @@ use std::time::Duration;
 use ea_bus::{Bus, CandadoWorktree, Evento, Fase, Miembro, NuevoEquipo, Ocupante, Orden, Rol, RolEquipo, Topes};
 use ea_orchestrator::config::ConfigOrquestador;
 use ea_orchestrator::ejecutor::{ejecutar_intento, ejecutar_uno, Ejecutor, SalidaAgente};
+use ea_pruebas::git;
 use ea_store::Store;
 
 /// Qué hace el doble, además de su guion, la primera vez que lo llaman.
@@ -95,20 +96,9 @@ impl Ejecutor for Doble {
     }
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
-    let s = Command::new("git").args(["-c", "user.email=a@b", "-c", "user.name=x", "-C"]).arg(dir).args(args).output().unwrap();
-    assert!(s.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&s.stderr));
-    String::from_utf8_lossy(&s.stdout).trim().to_string()
-}
-
 /// Un repo con un commit; apunta el commit para normalizarlo.
 fn repo(d: &Path, nombre: &str, commits: &mut Vec<String>) -> PathBuf {
-    let r = d.join(nombre);
-    fs::create_dir_all(&r).unwrap();
-    git(&r, &["init", "-q", "-b", "main"]);
-    fs::write(r.join("a.txt"), "a\n").unwrap();
-    git(&r, &["add", "."]);
-    git(&r, &["commit", "-q", "-m", "inicial"]);
+    let r = ea_pruebas::repo_git(&d.join(nombre), true);
     commits.push(git(&r, &["rev-parse", "HEAD"]));
     r
 }

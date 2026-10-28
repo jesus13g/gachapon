@@ -9,6 +9,7 @@
 //! Sin shell: el comando va como argv. Las pruebas usan [`TerminalSimulada`];
 //! nunca abren una ventana de verdad.
 
+#[cfg(any(test, feature = "dobles"))]
 use std::sync::{Arc, Mutex};
 
 pub use ea_plataforma::escritorio::OrdenTerminal;
@@ -62,6 +63,8 @@ impl Terminal for TerminalSistema {
 /// El doble de las pruebas: apunta cada argv que se habría abierto (en la
 /// forma de Linux, con `env -C` si la orden lleva directorio o entorno). El
 /// registro se comparte (`Arc`) para mirarlo después de entregar la terminal.
+/// Solo en las pruebas (la *feature* `dobles`).
+#[cfg(any(test, feature = "dobles"))]
 #[derive(Debug, Default)]
 pub struct TerminalSimulada {
     pub lanzadas: Arc<Mutex<Vec<Vec<String>>>>,
@@ -69,12 +72,14 @@ pub struct TerminalSimulada {
     pub fallo: Mutex<Option<String>>,
 }
 
+#[cfg(any(test, feature = "dobles"))]
 impl TerminalSimulada {
     pub fn lanzadas(&self) -> Vec<Vec<String>> {
         self.lanzadas.lock().unwrap().clone()
     }
 }
 
+#[cfg(any(test, feature = "dobles"))]
 impl Terminal for TerminalSimulada {
     fn abrir(&self, argv: &[String]) -> Result<(), String> {
         if let Some(m) = self.fallo.lock().unwrap().clone() {

@@ -3,7 +3,7 @@
 //! `systemctl` de mentira delante en el PATH (la próxima ejecución de
 //! `ea rutina listar` y `ver` nunca pregunta al systemd real).
 
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 
 /// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
 #[cfg(windows)]
@@ -37,22 +37,7 @@ fn sin_systemd(_dir: &std::path::Path) -> std::ffi::OsString {
 }
 
 fn ea(dir: &std::path::Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ea"))
-        .args(args)
-        .env("PATH", sin_systemd(dir))
-        .env("HOME", dir.join("home"))
-        .env("USERPROFILE", dir.join("home"))
-        .env("XDG_CONFIG_HOME", dir.join("xdg/config"))
-        .env("XDG_DATA_HOME", dir.join("xdg/datos"))
-        .env("XDG_STATE_HOME", dir.join("xdg/estado"))
-        .env("XDG_RUNTIME_DIR", dir.join("xdg/rt"))
-        .env("EA_CONFIG_DIR", dir.join("config"))
-        .env("EA_DB_PATH", dir.join("ea.db"))
-        .env("EA_ESTADO_DIR", dir.join("estado"))
-        .env("EA_BOVEDA_DIR", dir.join("boveda"))
-        .stdin(Stdio::piped())
-        .output()
-        .expect("lanzar ea")
+    ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea"), dir).args(args).env("PATH", sin_systemd(dir)).output().expect("lanzar ea")
 }
 
 const RUTINA: &str = concat!("[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n\n[[pasos]]\ntexto = \"primer texto\"\n");

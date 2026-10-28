@@ -2,45 +2,12 @@
 //! texto exacto, con los trabajos por estado, las colas y el orquestador.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
 
-use ea_bus::{Bus, Evento, Fase, Orden};
-use serde_json::json;
-
-/// Cuatro trabajos que aparecen en un orden distinto del de los estados: una
-/// misión cerrada, otra en cola, una obra en curso y una misión bloqueada en
-/// revisión.
-fn sembrar(bus: &Bus, wt: &str) {
-    let ids = ["20260101T000001-00000001", "20260101T000002-00000002", "20260101T000003-00000003", "20260101T000004-00000004"];
-    let fase = |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
-    for (i, id) in ids.iter().enumerate() {
-        let base = if i == 2 {
-            Orden::obra("una obra", wt, "o", vec![fase(1), fase(2)], None, "prueba")
-        } else {
-            Orden::mision(format!("misión {}", i + 1), wt, "o", "true", "prueba")
-        };
-        bus.crear_trabajo(Orden { id: id.to_string(), creada_en: "2026-01-01T00:00:00Z".into(), ..base }).unwrap();
-    }
-    for id in [ids[0], ids[2], ids[3]] {
-        bus.retirar_de_colas(id).unwrap();
-        bus.aplicar(id, Evento::Tomar).unwrap();
-    }
-    let informe = |v: serde_json::Value| serde_json::from_value(v).unwrap();
-    bus.aplicar(ids[0], Evento::Entregar(informe(json!({ "resultado": "terminado", "duracion_s": 12 })))).unwrap();
-    bus.aplicar(ids[0], Evento::Cerrar).unwrap();
-    bus.aplicar(ids[3], Evento::Entregar(informe(json!({ "resultado": "bloqueado", "motivo": "no pasa", "duracion_s": 30 })))).unwrap();
-}
+use ea_bus::Bus;
+use ea_pruebas::sembrar_trabajos;
 
 fn status(dir: &Path) -> String {
-    let o = Command::new(env!("CARGO_BIN_EXE_ea"))
-        .arg("status")
-        .env("EA_CONFIG_DIR", dir.join("config"))
-        .env("EA_DB_PATH", dir.join("ea.db"))
-        .env("EA_ESTADO_DIR", dir.join("estado"))
-        .env("EA_BOVEDA_DIR", dir.join("boveda"))
-        .stdin(Stdio::null())
-        .output()
-        .expect("lanzar ea");
+    let o = ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea"), dir).arg("status").output().expect("lanzar ea");
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     String::from_utf8(o.stdout).unwrap().replace(&dir.join("ea.db").display().to_string(), "<db>")
 }
@@ -69,7 +36,7 @@ Semáforos: ningún worktree ocupado
 #[test]
 fn ea_status_dice_lo_mismo_que_siempre() {
     let d = tempfile::tempdir().unwrap();
-    sembrar(&Bus::abrir_en(&d.path().join("estado")).unwrap(), &d.path().to_string_lossy());
+    sembrar_trabajos(&Bus::abrir_en(&d.path().join("estado")).unwrap(), &d.path().to_string_lossy());
 
     let cabecera = "Ecosistema de asistente — estado
 ---------------------------------

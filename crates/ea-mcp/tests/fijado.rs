@@ -19,13 +19,11 @@ use ea_boveda::Boveda;
 use ea_bus::{Bus, Evento, Fase, Orden};
 use ea_mcp::EaTools;
 use ea_store::{EventFilter, Store};
-use rmcp::model::{CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams, ProtocolVersion};
-use rmcp::transport::StreamableHttpClientTransport;
-use rmcp::{ClientLifecycleMode, ClientServiceExt};
+use ea_pruebas::escribe;
+use ea_pruebas::mcp::{conectar, Cliente};
+use rmcp::model::CallToolRequestParams;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-
-type Client = rmcp::service::RunningService<rmcp::RoleClient, InitializeRequestParams>;
 
 const RUTINA: &str = "[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n";
 
@@ -43,21 +41,6 @@ fn sembrar(bus: &Bus, wt: &str) -> [String; 2] {
     bus.aplicar(&ids[0], Evento::Entregar(informe)).unwrap();
     bus.aplicar(&ids[0], Evento::Cerrar).unwrap();
     ids
-}
-
-fn escribe(ruta: &Path, texto: &str) {
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
-}
-
-async fn conectar(url: &str, nombre: &str) -> Client {
-    InitializeRequestParams::new(ClientCapabilities::default(), Implementation::new(nombre, "0.0.1"))
-        .serve_with_lifecycle(
-            StreamableHttpClientTransport::from_uri(url.to_string()),
-            ClientLifecycleMode::Auto { preferred_versions: vec![ProtocolVersion::V_2025_11_25], legacy_version: None },
-        )
-        .await
-        .unwrap()
 }
 
 /// `AAAA-MM-DDThh:mm:ss`, con fracción y zona opcionales: los bytes que ocupa.
@@ -121,7 +104,7 @@ struct Registro {
 }
 
 impl Registro {
-    async fn llamar(&mut self, c: &Client, cliente: &str, herramienta: &str, args: Value) {
+    async fn llamar(&mut self, c: &Cliente, cliente: &str, herramienta: &str, args: Value) {
         let r = c
             .call_tool(CallToolRequestParams::new(herramienta.to_string()).with_arguments(args.as_object().cloned().unwrap_or_default()))
             .await;
@@ -146,22 +129,14 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     let bus = Bus::abrir_en(&estado).unwrap();
     let ids = sembrar(&bus, &tmp);
     let rutinas = dir.path().join("rutinas");
-    escribe(&rutinas.join("nocturna.toml"), RUTINA);
-    escribe(&rutinas.join(".papelera/retirada.toml"), "[rutina]\n");
+    escribe(rutinas.join("nocturna.toml"), RUTINA);
+    escribe(rutinas.join(".papelera/retirada.toml"), "[rutina]\n");
     let home = dir.path().join("home");
-    escribe(&home.join(".codex/config.toml"), "[mcp_servers.docs]\ncommand = \"docs-mcp\"\n");
+    escribe(home.join(".codex/config.toml"), "[mcp_servers.docs]\ncommand = \"docs-mcp\"\n");
     let raices = Raices::nuevo(home, None, dir.path().join("estado-biblioteca"), None);
     let db = dir.path().join("t.db");
     let store = Store::open_at(&db).unwrap();
-    store
-        .guardar_rutina(&ea_store::FilaRutina {
-            slug: "nocturna".into(),
-            version: 1,
-            definicion: RUTINA.into(),
-            creada_en: "2026-01-01T00:00:00Z".into(),
-            creada_por: "test".into(),
-        })
-        .unwrap();
+    ea_pruebas::guardar_rutinas(&store, &[("nocturna", 1, RUTINA)]);
     let store = Arc::new(Mutex::new(store));
     let boveda = dir.path().join("boveda");
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
@@ -170,11 +145,7 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
         move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), e.clone()).con_ajustes(ajustes.clone()).con_raices(raices.clone()),
         Default::default(),
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}/mcp", listener.local_addr().unwrap());
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, router).await;
-    });
+    let url = ea_pruebas::mcp::servidor(router).await;
 
     let mut reg = Registro { texto: String::new(), tmp };
     let planificador = conectar(&url, "claude-code").await;

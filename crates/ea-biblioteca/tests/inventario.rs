@@ -1,10 +1,11 @@
 //! Pruebas del inventario sobre un HOME de `tempfile`: jamás se lee el real.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_biblioteca::*;
+use ea_pruebas::escribe;
 
 struct Mundo {
     _d: tempfile::TempDir,
@@ -12,12 +13,6 @@ struct Mundo {
     proyecto: PathBuf,
     repo: PathBuf,
     ajustes: Ajustes,
-}
-
-fn escribe(ruta: impl AsRef<Path>, texto: &str) {
-    let ruta = ruta.as_ref();
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
 }
 
 const SECRETOS: &[&str] = &[

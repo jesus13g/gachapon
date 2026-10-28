@@ -6,18 +6,13 @@ use std::path::{Path, PathBuf};
 
 use ea_ajustes::{Canal, Fuentes};
 use ea_biblioteca::*;
+use ea_pruebas::escribe;
 
 struct Mundo {
     _d: tempfile::TempDir,
     home: PathBuf,
     proyecto: PathBuf,
     ctx: Contexto,
-}
-
-fn escribe(ruta: impl AsRef<Path>, texto: &str) {
-    let ruta = ruta.as_ref();
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
 }
 
 fn lee(ruta: impl AsRef<Path>) -> String {

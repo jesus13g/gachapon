@@ -5,13 +5,12 @@
 //! (solo lo construyen las interfaces del usuario). Sin shell: argumentos
 //! como vector, y nombres de una lista cerrada o validados.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use ea_biblioteca::{Biblioteca, Cambio, Contexto, Hecho, Ordenes, OrdenesDoble, OrdenesReales};
-use ea_biblioteca::{Inventario, PlanSesion, Raices};
+use ea_biblioteca::{Biblioteca, Cambio, Contexto, Hecho, OrdenesReales};
+use ea_biblioteca::{PlanSesion, Raices};
 use ea_boveda::{Boveda, ErrorBoveda, PlanPromocion};
 use ea_bus::{Bus, InfoWorktree};
 use ea_store::Store;
@@ -19,8 +18,8 @@ use ea_store::Store;
 use crate::catalogo::Canal;
 use crate::error::ErrorAccion;
 use crate::servicios::GestorServicios;
-use crate::temporizador::{comprobar_calendario, Calendario, EstadoTimer, Temporizadores};
-use crate::terminal::{Terminal, TerminalSimulada, TerminalSistema};
+use crate::temporizador::{Calendario, EstadoTimer, Temporizadores};
+use crate::terminal::{Terminal, TerminalSistema};
 
 /// Servicios que se pueden reiniciar: lista cerrada (de la tabla de `ea-ajustes`).
 pub use ea_ajustes::SERVICIOS_REINICIABLES;
@@ -373,8 +372,18 @@ impl Sistema for SistemaReal {
     }
 }
 
+#[cfg(feature = "dobles")]
+use {
+    crate::temporizador::comprobar_calendario,
+    crate::terminal::TerminalSimulada,
+    ea_biblioteca::{Inventario, Ordenes, OrdenesDoble},
+    std::collections::HashMap,
+    std::sync::Mutex,
+};
+
 /// Sistema en memoria para pruebas: no toca `systemd` ni el disco, y apunta
-/// qué mutaciones se le pidieron.
+/// qué mutaciones se le pidieron. Solo en las pruebas (la *feature* `dobles`).
+#[cfg(feature = "dobles")]
 #[derive(Default)]
 pub struct SistemaSimulado {
     pub servicios: Mutex<HashMap<String, EstadoServicio>>,
@@ -406,6 +415,7 @@ pub struct SistemaSimulado {
     pub estado: Option<PathBuf>,
 }
 
+#[cfg(feature = "dobles")]
 impl SistemaSimulado {
     pub fn con_servicio(self, nombre: &str, activo: &str) -> Self {
         self.servicios.lock().unwrap().insert(
@@ -469,6 +479,7 @@ impl SistemaSimulado {
     }
 }
 
+#[cfg(feature = "dobles")]
 impl Consulta for SistemaSimulado {
     async fn servicio_estado(&self, nombre: &str) -> Result<EstadoServicio, String> {
         Ok(self
@@ -561,6 +572,7 @@ impl Consulta for SistemaSimulado {
     }
 }
 
+#[cfg(feature = "dobles")]
 impl Sistema for SistemaSimulado {
     async fn servicio_reiniciar(&self, nombre: &str) -> Result<(), String> {
         if let Some(e) = self.fallo_reinicio.lock().unwrap().clone() {

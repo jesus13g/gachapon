@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use ea_biblioteca::uso::{calcular_uso, FuentesUso};
 use ea_biblioteca::{Ambito, Elemento, Inventario, Raices, Tipo};
+use ea_pruebas::escribe;
 
 const SECRETO: &str = "TEXTO_PRIVADO_DEL_MENSAJE_9f3a";
 
@@ -55,11 +56,6 @@ fn tool(nombre: &str, entrada: &str) -> String {
     format!(r#"{{"type":"tool_use","id":"toolu_1","name":"{nombre}","input":{entrada}}}"#)
 }
 
-fn escribe(p: &Path, t: &str) {
-    fs::create_dir_all(p.parent().unwrap()).unwrap();
-    fs::write(p, t).unwrap();
-}
-
 fn añade(p: &Path, t: &str) {
     let mut f = fs::OpenOptions::new().append(true).open(p).unwrap();
     f.write_all(t.as_bytes()).unwrap();
@@ -83,10 +79,10 @@ fn contenido_basico() -> String {
 #[test]
 fn cuenta_skill_mcp_y_agente_de_una_transcripcion() {
     let m = mundo();
-    escribe(&transcripcion(&m), &contenido_basico());
+    escribe(transcripcion(&m), &contenido_basico());
     // Y una de subagente.
     escribe(
-        &m.raices.home.join(".claude/projects/-p/sesion1/subagents/agent-a.jsonl"),
+        m.raices.home.join(".claude/projects/-p/sesion1/subagents/agent-a.jsonl"),
         &linea("2026-10-06T10:00:00.000Z", &tool("Skill", r#"{"skill":"pl:dentro"}"#)),
     );
     let r = calcular_uso(&m.raices, &m.inv, &m.fuentes);
@@ -111,7 +107,7 @@ fn cuenta_skill_mcp_y_agente_de_una_transcripcion() {
 #[test]
 fn el_informe_no_contiene_texto_de_los_mensajes() {
     let m = mundo();
-    escribe(&transcripcion(&m), &contenido_basico());
+    escribe(transcripcion(&m), &contenido_basico());
     let r = calcular_uso(&m.raices, &m.inv, &m.fuentes);
     let json = serde_json::to_string(&r).unwrap();
     assert!(!json.contains(SECRETO));
@@ -163,8 +159,8 @@ fn la_cache_es_incremental() {
 #[test]
 fn una_cache_corrupta_se_ignora() {
     let m = mundo();
-    escribe(&transcripcion(&m), &contenido_basico());
-    escribe(&m.raices.estado.join("biblioteca/cache-uso.json"), "{no es json");
+    escribe(transcripcion(&m), &contenido_basico());
+    escribe(m.raices.estado.join("biblioteca/cache-uso.json"), "{no es json");
     let r = calcular_uso(&m.raices, &m.inv, &m.fuentes);
     assert_eq!(r.buscar("claude-code/mcp/usuario/srv").unwrap().total, 2);
     assert_eq!(r.estadisticas.lineas_leidas, 6);
@@ -174,7 +170,7 @@ fn una_cache_corrupta_se_ignora() {
 fn claude_json_corrupto_avisa_y_no_rompe() {
     let m = mundo();
     escribe(&m.fuentes.claude_json, r#"{"skillUsage":{"x":{"usageCount":4,"lastUs"#);
-    escribe(&transcripcion(&m), &contenido_basico());
+    escribe(transcripcion(&m), &contenido_basico());
     let r = calcular_uso(&m.raices, &m.inv, &m.fuentes);
     assert_eq!(r.avisos.len(), 1);
     assert!(!r.avisos[0].contains("usageCount"));
@@ -192,7 +188,7 @@ fn claude_json_y_transcripciones_no_se_suman() {
             "agentLastUsed":{"revisor":1790875531863,"desconocido":1790875531863},
             "mcpServers":{"srv":{"env":{"K":"SECRETO_NO_LEER"}}}}"#,
     );
-    escribe(&transcripcion(&m), &contenido_basico());
+    escribe(transcripcion(&m), &contenido_basico());
     let r = calcular_uso(&m.raices, &m.inv, &m.fuentes);
     let x = r.buscar("claude-code/skill/usuario/x").unwrap();
     // Manda el mayor (5 del contador), no 5 + 1.
@@ -233,15 +229,15 @@ fn las_skills_del_ejecutor_se_cuentan_por_trabajo() {
     let m = mundo();
     let t = m.raiz.join("estado/trabajos");
     // Entregó las skills: cuenta (y una skill repetida en orden y fase, una vez).
-    escribe(&t.join("a/orden.json"), r#"{"id":"a","skills":["depurar"],"fases":[{"skills":["depurar","otra"]}],"creada_en":"2026-10-07T08:00:00Z"}"#);
-    escribe(&t.join("a/skills-agente.md"), "# Skills\n");
-    escribe(&t.join("b/orden.json"), r#"{"id":"b","skills":["depurar"],"creada_en":"2026-10-08T08:00:00Z"}"#);
-    escribe(&t.join("b/skills-agente.md"), "x");
+    escribe(t.join("a/orden.json"), r#"{"id":"a","skills":["depurar"],"fases":[{"skills":["depurar","otra"]}],"creada_en":"2026-10-07T08:00:00Z"}"#);
+    escribe(t.join("a/skills-agente.md"), "# Skills\n");
+    escribe(t.join("b/orden.json"), r#"{"id":"b","skills":["depurar"],"creada_en":"2026-10-08T08:00:00Z"}"#);
+    escribe(t.join("b/skills-agente.md"), "x");
     // No llegó a ejecutarse: no cuenta.
-    escribe(&t.join("c/orden.json"), r#"{"id":"c","skills":["depurar"]}"#);
+    escribe(t.join("c/orden.json"), r#"{"id":"c","skills":["depurar"]}"#);
     // Orden ilegible: aviso.
-    escribe(&t.join("d/orden.json"), "{roto");
-    escribe(&t.join("d/skills-agente.md"), "x");
+    escribe(t.join("d/orden.json"), "{roto");
+    escribe(t.join("d/skills-agente.md"), "x");
     let r = calcular_uso(&m.raices, &m.inv, &m.fuentes);
     let u = r.buscar("qwen-code/skill/ecosistema/depurar").unwrap();
     assert_eq!((u.total, u.por[0].actor.as_str()), (2, "ejecutor"));
@@ -259,10 +255,10 @@ fn qwen_y_actividad_de_antigravity() {
     let mut inv = m.inv.clone();
     inv.elementos.push(elem("qwen-code", Tipo::Mcp, Ambito::Usuario, "srv"));
     escribe(
-        &m.raices.home.join(".qwen/projects/p/chats/s.jsonl"),
+        m.raices.home.join(".qwen/projects/p/chats/s.jsonl"),
         &(linea_qwen("mcp__srv__cosa") + &linea_qwen("read_file")),
     );
-    escribe(&m.raices.home.join(".gemini/antigravity-cli/log/cli-1.log"), "x");
+    escribe(m.raices.home.join(".gemini/antigravity-cli/log/cli-1.log"), "x");
     let r = calcular_uso(&m.raices, &inv, &m.fuentes);
     let u = r.buscar("qwen-code/mcp/usuario/srv").unwrap();
     assert_eq!((u.total, u.por[0].actor.as_str()), (1, "qwen-code"));

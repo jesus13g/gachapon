@@ -4,20 +4,12 @@
 //! programas que el agente pudiera haber dejado configurados en el repo.
 
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 
 use ea_bus::{Bus, Informe, ResultadoInforme};
 
 fn ea(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ea"))
-        .args(args)
-        .env("EA_CONFIG_DIR", dir.join("config"))
-        .env("EA_DB_PATH", dir.join("ea.db"))
-        .env("EA_ESTADO_DIR", dir.join("estado"))
-        .env("EA_BOVEDA_DIR", dir.join("boveda"))
-        .stdin(Stdio::null())
-        .output()
-        .expect("lanzar ea")
+    ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea"), dir).args(args).output().expect("lanzar ea")
 }
 
 /// `git` sin nada más, como lo lanzaría a mano el usuario. Devuelve stdout tal cual.
@@ -56,12 +48,8 @@ fn repo(wt: &Path) -> String {
 }
 
 fn orden(wt: &Path) -> ea_bus::Orden {
-    serde_json::from_value(serde_json::json!({
-        "id": "", "modo": "obra", "titulo": "diff", "worktree": wt.to_string_lossy(), "objetivo": "o",
-        "fases": [{ "numero": 1, "titulo": "f1", "instrucciones": "i", "entregable": "e", "criterio": "true" }],
-        "creada_en": "", "creada_por": "test",
-    }))
-    .unwrap()
+    let fase = ea_bus::Fase { numero: 1, titulo: "f1".into(), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
+    ea_bus::Orden::obra("diff", wt.to_string_lossy(), "o", vec![fase], None, "test")
 }
 
 /// Lo que `ea trabajo diff` saca tras el `git diff`: cada fichero nuevo con su

@@ -21,4 +21,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
+ea-pruebas = { path = "../ea-pruebas" }
 time = { version = "0.3", features = ["formatting", "parsing"] }

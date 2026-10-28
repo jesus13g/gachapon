@@ -20,17 +20,7 @@ macro_rules! tmp {
 }
 
 fn store() -> (Store, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let s = Store::open_at(&dir.path().join("t.db")).unwrap();
-    s.guardar_rutina(&ea_store::FilaRutina {
-        slug: "nocturna".into(),
-        version: 1,
-        definicion: RUTINA.into(),
-        creada_en: "2026-01-01T00:00:00Z".into(),
-        creada_por: "test".into(),
-    })
-    .unwrap();
-    (s, dir)
+    ea_pruebas::store(&[("nocturna", 1, RUTINA)])
 }
 
 const RUTINA: &str = concat!("[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n");

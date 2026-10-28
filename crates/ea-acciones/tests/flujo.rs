@@ -26,30 +26,19 @@ fn estado() -> &'static std::path::Path {
 }
 
 fn store() -> (Store, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let s = Store::open_at(&dir.path().join("t.db")).unwrap();
-    for slug in ["revision-diaria", "vieja", "nocturna"] {
-        s.guardar_rutina(&ea_store::FilaRutina {
-            slug: slug.into(),
-            version: 1,
-            definicion: format!(
-                concat!("[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"),
-                slug = slug
-            ),
-            creada_en: "2026-01-01T00:00:00Z".into(),
-            creada_por: "test".into(),
-        })
-        .unwrap();
-    }
-    s.guardar_rutina(&ea_store::FilaRutina {
-        slug: "con-entradas".into(),
-        version: 1,
-        definicion: concat!("[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n").into(),
-        creada_en: "2026-01-01T00:00:00Z".into(),
-        creada_por: "test".into(),
-    })
-    .unwrap();
-    (s, dir)
+    let def = |slug: &str| {
+        format!(
+            concat!("[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"),
+            slug = slug
+        )
+    };
+    let (revision, vieja, nocturna) = (def("revision-diaria"), def("vieja"), def("nocturna"));
+    ea_pruebas::store(&[
+        ("revision-diaria", 1, &revision),
+        ("vieja", 1, &vieja),
+        ("nocturna", 1, &nocturna),
+        ("con-entradas", 1, concat!("[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n")),
+    ])
 }
 
 fn sistema() -> SistemaSimulado {

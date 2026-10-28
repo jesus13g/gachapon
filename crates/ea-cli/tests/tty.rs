@@ -14,6 +14,7 @@ use std::process::{Command, Output, Stdio};
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{Bus, Miembro, NuevoEquipo, Presencia, RolEquipo};
+use ea_pruebas::escribe;
 use ea_store::{EstadoPropuesta, EventFilter, Propuesta, PropuestaFilter, Store};
 use serde_json::json;
 
@@ -51,11 +52,6 @@ struct Mundo {
     equipo: String,
 }
 
-fn escribe(ruta: &Path, texto: &str) {
-    std::fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    std::fs::write(ruta, texto).unwrap();
-}
-
 #[cfg(unix)]
 fn dobles(bin: &Path, marcas: &Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -78,14 +74,14 @@ fn mundo() -> Mundo {
         std::fs::create_dir_all(r.join(dir)).unwrap();
     }
     dobles(&r.join("bin"), &r.join("marcas"));
-    escribe(&r.join("home/.claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
+    escribe(r.join("home/.claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
     // Una rutina en uso y otra retirada (en la papelera).
     let rutina = |slug: &str| format!("[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n");
-    escribe(&r.join("config/rutinas/activa.toml"), &rutina("activa"));
-    escribe(&r.join("config/rutinas/.papelera/vieja.toml"), &rutina("vieja"));
+    escribe(r.join("config/rutinas/activa.toml"), &rutina("activa"));
+    escribe(r.join("config/rutinas/.papelera/vieja.toml"), &rutina("vieja"));
     // Una nota de un agente y algo en la papelera de la bóveda.
-    escribe(&r.join("boveda/claude-code/nota.md"), "# Nota\n");
-    escribe(&r.join("boveda/.papelera/borrada.md"), "# Borrada\n");
+    escribe(r.join("boveda/claude-code/nota.md"), "# Nota\n");
+    escribe(r.join("boveda/.papelera/borrada.md"), "# Borrada\n");
 
     let bus = Bus::abrir_en(&r.join("estado")).unwrap();
     let ajustes = Ajustes::por_defecto(&Fuentes::aislada(&r.join("config")));
@@ -305,7 +301,7 @@ fn sin_terminal_se_rechaza_y_se_acepta_lo_que_no_ejecuta_nada() {
 #[test]
 fn trabajo_confirmar_hoy_no_exige_terminal_u04() {
     let m = mundo();
-    escribe(&m.ruta("informe.toml"), "[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n");
+    escribe(m.ruta("informe.toml"), "[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n");
     let o = m.ea(&["rutina", "registrar", m.ruta("informe.toml").to_str().unwrap()], "");
     assert!(o.status.success(), "{}", salida(&o));
     std::fs::copy(m.ruta("informe.toml"), m.ruta("config/rutinas/informe.toml")).unwrap();

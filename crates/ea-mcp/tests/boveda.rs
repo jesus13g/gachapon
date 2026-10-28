@@ -8,16 +8,9 @@ use std::sync::Arc;
 use ea_boveda::Boveda;
 use ea_mcp::EaTools;
 use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
-use rmcp::model::{
-    CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams,
-    ProtocolVersion,
-};
-use rmcp::transport::StreamableHttpClientTransport;
-use rmcp::{ClientLifecycleMode, ClientServiceExt};
-use serde_json::{json, Value};
+use ea_pruebas::mcp::{conectar, llamar};
+use serde_json::json;
 use tokio::sync::Mutex;
-
-type Client = rmcp::service::RunningService<rmcp::RoleClient, InitializeRequestParams>;
 
 struct Entorno {
     url: String,
@@ -42,37 +35,7 @@ async fn entorno() -> Entorno {
         move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone()), estado.to_path_buf()).con_ajustes(ajustes.clone()),
         Default::default(),
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, router).await;
-    });
-    Entorno { url: format!("http://{addr}/mcp"), db, boveda, _dir: dir }
-}
-
-async fn conectar(url: &str, nombre: &str) -> Client {
-    InitializeRequestParams::new(ClientCapabilities::default(), Implementation::new(nombre, "0.0.1"))
-        .serve_with_lifecycle(
-            StreamableHttpClientTransport::from_uri(url.to_string()),
-            ClientLifecycleMode::Auto {
-                preferred_versions: vec![ProtocolVersion::V_2025_11_25],
-                legacy_version: None,
-            },
-        )
-        .await
-        .unwrap()
-}
-
-async fn llamar(c: &Client, nombre: &str, args: Value) -> Result<Value, String> {
-    let r = c
-        .call_tool(
-            CallToolRequestParams::new(nombre.to_string())
-                .with_arguments(args.as_object().cloned().unwrap_or_default()),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    let t = &r.content[0].as_text().unwrap().text;
-    Ok(serde_json::from_str(t).unwrap_or(Value::String(t.clone())))
+    Entorno { url: ea_pruebas::mcp::servidor(router).await, db, boveda, _dir: dir }
 }
 
 fn acciones(e: &Entorno) -> Vec<String> {

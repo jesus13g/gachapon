@@ -51,26 +51,7 @@ pub(super) fn repo() -> tempfile::TempDir {
 }
 
 pub(super) fn orden(wt: &Path, criterio: &str) -> Orden {
-    Orden {
-        id: String::new(),
-        modo: Modo::Mision,
-        titulo: "prueba".into(),
-        worktree: wt.to_string_lossy().into(),
-        objetivo: "crea ok.txt".into(),
-        criterio_exito: Some(criterio.into()),
-        fases: vec![],
-        revisar_cada: None,
-        topes: Topes::default(),
-        rutina: None,
-        notas_revision: vec!["usa mayúsculas".into()],
-        skills: vec![],
-        equipo: None,
-        asignado_a: None,
-        revisor: None,
-        worktree_propio: false,
-        creada_en: String::new(),
-        creada_por: "test".into(),
-    }
+    Orden { notas_revision: vec!["usa mayúsculas".into()], ..Orden::mision("prueba", wt.to_string_lossy(), "crea ok.txt", criterio, "test") }
 }
 
 pub(super) fn inf_obra_completa(bus: &Bus, id: &str) -> bool {

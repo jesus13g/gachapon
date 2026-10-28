@@ -25,6 +25,9 @@ const PERMITIDAS: &[(&str, &[&str])] = &[
     ("ea-mcp", BAJO_LAS_PRESENTACIONES),
     // Nunca `ea-acciones`: el ejecutor no muta nada a través de ellas.
     ("ea-orchestrator", &["ea-store", "ea-bus", "ea-ajustes", "ea-plataforma"]),
+    // Utilidades de prueba: fuera del mapa, solo en `[dev-dependencies]`
+    // (ver `lo_de_prueba_solo_entra_por_dev_dependencies`).
+    ("ea-pruebas", BAJO_LAS_PRESENTACIONES),
 ];
 
 /// Las presentaciones no dependen entre sí, ni siquiera en las pruebas.
@@ -45,14 +48,55 @@ fn miembros() -> Vec<String> {
     t["workspace"]["members"].as_array().unwrap().iter().map(|m| m.as_str().unwrap().to_string()).collect()
 }
 
-/// Los nombres de las dependencias de las secciones `seccion` de un manifiesto,
-/// también las de `[target.<cfg>.<seccion>]`.
-fn dependencias(manifiesto: &toml::Table, seccion: &str) -> Vec<String> {
+/// Las dependencias (nombre y valor) de las secciones `seccion` de un
+/// manifiesto, también las de `[target.<cfg>.<seccion>]`.
+fn entradas<'a>(manifiesto: &'a toml::Table, seccion: &str) -> Vec<(&'a String, &'a toml::Value)> {
     let mut tablas: Vec<&toml::Table> = manifiesto.get(seccion).and_then(|v| v.as_table()).into_iter().collect();
     if let Some(objetivos) = manifiesto.get("target").and_then(|v| v.as_table()) {
         tablas.extend(objetivos.values().filter_map(|o| o.get(seccion).and_then(|v| v.as_table())));
     }
-    tablas.into_iter().flat_map(|t| t.keys().cloned()).collect()
+    tablas.into_iter().flat_map(|t| t.iter()).collect()
+}
+
+/// Los nombres de las dependencias de las secciones `seccion` de un manifiesto.
+fn dependencias(manifiesto: &toml::Table, seccion: &str) -> Vec<String> {
+    entradas(manifiesto, seccion).into_iter().map(|(d, _)| d.clone()).collect()
+}
+
+/// Lo de prueba que un manifiesto mete fuera de `[dev-dependencies]`:
+/// `ea-pruebas` como dependencia normal o de compilación, los dobles (la
+/// *feature* `dobles`) activados desde ellas, o por defecto.
+fn de_prueba_fuera_de_las_pruebas(nombre: &str, manifiesto: &toml::Table) -> Vec<String> {
+    let es_dobles = |f: &toml::Value| f.as_str().is_some_and(|f| f == "dobles" || f.ends_with("/dobles"));
+    let mut fallos = Vec::new();
+    for seccion in ["dependencies", "build-dependencies"] {
+        for (dep, valor) in entradas(manifiesto, seccion) {
+            if dep == "ea-pruebas" {
+                fallos.push(format!("{nombre} → ea-pruebas ({seccion}): solo en [dev-dependencies]"));
+            }
+            if valor.get("features").and_then(|f| f.as_array()).is_some_and(|f| f.iter().any(es_dobles)) {
+                fallos.push(format!("{nombre} → {dep} ({seccion}): los dobles solo se activan desde [dev-dependencies]"));
+            }
+        }
+    }
+    let defecto = manifiesto.get("features").and_then(|f| f.get("default")).and_then(|d| d.as_array());
+    if defecto.is_some_and(|d| d.iter().any(es_dobles)) {
+        fallos.push(format!("{nombre}: los dobles no van en las features por defecto"));
+    }
+    fallos
+}
+
+/// Las utilidades de prueba y los dobles no llegan a ningún binario: solo
+/// entran por `[dev-dependencies]`.
+#[test]
+fn lo_de_prueba_solo_entra_por_dev_dependencies() {
+    let mut fallos = Vec::new();
+    for miembro in miembros() {
+        let manifiesto = leer_toml(&raiz().join(&miembro).join("Cargo.toml"));
+        let nombre = manifiesto["package"]["name"].as_str().unwrap().to_string();
+        fallos.extend(de_prueba_fuera_de_las_pruebas(&nombre, &manifiesto));
+    }
+    assert!(fallos.is_empty(), "algo de prueba fuera de las pruebas:\n{}", fallos.join("\n"));
 }
 
 #[test]
@@ -146,6 +190,12 @@ fn las_comprobaciones_detectan_lo_prohibido() {
         .parse()
         .unwrap();
     assert_eq!(dependencias(&m, "dependencies"), ["ea-web", "libc"]);
+    let m: toml::Table = "[features]\ndefault = [\"x/dobles\"]\n[dependencies]\nea-pruebas = { path = \"../ea-pruebas\" }\n\
+        [target.'cfg(unix)'.dependencies]\nea-acciones = { path = \"../ea-acciones\", features = [\"dobles\"] }\n\
+        [dev-dependencies]\nea-biblioteca = { path = \"../ea-biblioteca\", features = [\"dobles\"] }\n"
+        .parse()
+        .unwrap();
+    assert_eq!(de_prueba_fuera_de_las_pruebas("x", &m).len(), 3, "{:?}", de_prueba_fuera_de_las_pruebas("x", &m));
     for linea in ["#[cfg(unix)]", "#[cfg(not(windows))]", "#![cfg(target_os = \"macos\")]", "use std::os::unix::fs::PermissionsExt;", "unsafe { libc::kill(1, 0) };"] {
         assert!(es_de_sistema(linea), "{linea}");
     }

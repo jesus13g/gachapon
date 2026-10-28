@@ -403,6 +403,10 @@ volver a arrancar los servicios.
   `instalacion/recursos.rs`).
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
+- `crates/ea-pruebas`: utilidades que comparten las pruebas de integración
+  (`tests/`): escribir ficheros, repos git, bases con rutinas, órdenes, un bus
+  sembrado, `systemctl` falsos, el binario `ea` aislado y el servidor y el cliente
+  MCP de prueba. Solo como `[dev-dependencies]`; no entra en ningún binario.
 - `escritorio/`: la app de escritorio `ea-escritorio` (spec 021); fuera del workspace.
 - `instalador/`: el instalador de Windows `gachapon-instalar.exe` (spec 023), que lleva
   dentro los binarios y lanza `ea instalar`; también fuera del workspace.
@@ -428,7 +432,9 @@ Lo que leen o deciden dos presentaciones vive debajo de ellas. Además, `libc`,
 `std::os::unix` y los `cfg` por sistema solo aparecen en `ea-plataforma` (salvo en
 las pruebas y en el aviso con acción del orquestador, solo de Linux). La prueba
 `crates/ea-cli/tests/arquitectura.rs` lee los `Cargo.toml` y el código y falla si
-alguien se sale del mapa.
+alguien se sale del mapa. También vigila que `ea-pruebas` y los dobles de prueba
+(`SistemaSimulado`, `TerminalSimulada`, `OrdenesDoble`, detrás de la *feature*
+`dobles`) solo entren por `[dev-dependencies]`.
 
 ## Equipos de agentes
 
@@ -1759,6 +1765,13 @@ el diario por su acción, así que los demás eventos del orquestador (los del b
 durante un trabajo) no lo tapan ni dan un «sin señal» falso.
 
 ## Verificación
+
+Las pruebas nunca tocan el estado real: todo va a directorios de `tempfile`.
+Las de integración comparten sus ayudantes en `crates/ea-pruebas` (el binario `ea`
+de las pruebas de la CLI corre con `HOME`, `XDG_*` y `EA_*` temporales y sin el bus
+de sesión del usuario), y los dobles (`SistemaSimulado`, `TerminalSimulada`,
+`OrdenesDoble`) solo se compilan en las pruebas: la *feature* `dobles` la activan las
+`[dev-dependencies]`.
 
 ```bash
 cargo test --workspace

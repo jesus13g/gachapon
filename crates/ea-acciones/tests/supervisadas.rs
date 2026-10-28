@@ -19,6 +19,7 @@ use ea_acciones::*;
 use ea_ajustes::{Ajustes, Canal as CanalAjustes, Fuentes};
 use ea_biblioteca::{Biblioteca, Contexto, Raices};
 use ea_bus::InfoWorktree;
+use ea_pruebas::escribe;
 use ea_store::{EventFilter, Store};
 use serde_json::{json, Value};
 
@@ -51,25 +52,12 @@ impl Mundo {
     fn nuevo() -> Self {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open_at(&d.path().join("t.db")).unwrap();
-        for (slug, definicion) in [("nocturna", nocturna(1)), ("con-entradas", con_entradas()), ("vieja", rutina("vieja", 1, "true", ""))] {
-            store
-                .guardar_rutina(&ea_store::FilaRutina {
-                    slug: slug.into(),
-                    version: 1,
-                    definicion,
-                    creada_en: "2026-01-01T00:00:00Z".into(),
-                    creada_por: "test".into(),
-                })
-                .unwrap();
-        }
+        let (n, c, v) = (nocturna(1), con_entradas(), rutina("vieja", 1, "true", ""));
+        ea_pruebas::guardar_rutinas(&store, &[("nocturna", 1, &n), ("con-entradas", 1, &c), ("vieja", 1, &v)]);
         let home = d.path().join("home");
-        let escribe = |r: &Path, t: &str| {
-            fs::create_dir_all(r.parent().unwrap()).unwrap();
-            fs::write(r, t).unwrap();
-        };
-        escribe(&home.join(".codex/config.toml"), CODEX);
-        escribe(&home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Propia\n---\n");
-        escribe(&home.join(".claude.json"), r#"{"mcpServers":{"srv":{"type":"stdio","command":"srv-mcp","args":["-v"]}}}"#);
+        escribe(home.join(".codex/config.toml"), CODEX);
+        escribe(home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Propia\n---\n");
+        escribe(home.join(".claude.json"), r#"{"mcpServers":{"srv":{"type":"stdio","command":"srv-mcp","args":["-v"]}}}"#);
         fs::create_dir_all(d.path().join("rt")).unwrap();
         let raices = Raices::nuevo(home, None, d.path().join("estado-biblioteca"), Some(d.path().join("rt")));
         let inventario = Biblioteca::cargar(&raices, &Ajustes::por_defecto(&Fuentes::aislada(d.path())));

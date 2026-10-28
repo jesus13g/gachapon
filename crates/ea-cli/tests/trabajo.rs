@@ -5,41 +5,12 @@
 //! diario` y `ea propuestas`).
 
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
+
+use ea_pruebas::repo_git;
 
 fn ea(dir: &Path, cwd: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ea"))
-        .args(args)
-        .current_dir(cwd)
-        .env("EA_CONFIG_DIR", dir.join("config"))
-        .env("EA_DB_PATH", dir.join("ea.db"))
-        .env("EA_ESTADO_DIR", dir.join("estado"))
-        .env("EA_BOVEDA_DIR", dir.join("boveda"))
-        .stdin(Stdio::null())
-        .output()
-        .expect("lanzar ea")
-}
-
-fn git(wt: &Path, args: &[&str]) {
-    let o = Command::new("git")
-        .arg("-C")
-        .arg(wt)
-        .args(["-c", "user.name=prueba", "-c", "user.email=prueba@localhost", "-c", "commit.gpgsign=false"])
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
-}
-
-/// Un repo git en `wt`, con un commit si `commit`.
-fn repo(wt: &Path, commit: bool) {
-    std::fs::create_dir_all(wt).unwrap();
-    git(wt, &["init", "-q"]);
-    if commit {
-        std::fs::write(wt.join("a.txt"), "a\n").unwrap();
-        git(wt, &["add", "-A"]);
-        git(wt, &["commit", "-q", "-m", "inicio"]);
-    }
+    ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea"), dir).args(args).current_dir(cwd).output().expect("lanzar ea")
 }
 
 /// Escribe una orden de misión (o de obra con `fases`) para `worktree` y la
@@ -87,7 +58,7 @@ fn crear_con_orden_rechaza_un_worktree_relativo_sin_repo_o_sin_commits() {
     std::fs::create_dir_all(&sin_repo).unwrap();
     falla_con(&crear_con_orden(d, sin_repo.to_str().unwrap(), None), "no está dentro de un repositorio git");
     let vacio = d.join("vacio");
-    repo(&vacio, false);
+    repo_git(&vacio, false);
     falla_con(&crear_con_orden(d, vacio.to_str().unwrap(), None), "el repo no tiene ningún commit");
     sin_trabajos(d);
 }
@@ -98,7 +69,7 @@ fn crear_con_orden_rechaza_las_fases_mal_numeradas() {
     let d = tempfile::tempdir().unwrap();
     let d = d.path();
     let wt = d.join("repo");
-    repo(&wt, true);
+    repo_git(&wt, true);
     let wt = wt.to_str().unwrap();
     falla_con(&crear_con_orden(d, wt, Some(&[10, 20, 30])), "las fases deben numerarse 1, 2, …, N");
     falla_con(&crear_con_orden(d, wt, Some(&[1, 1, 2])), "las fases deben numerarse 1, 2, …, N");
@@ -115,7 +86,7 @@ fn el_worktree_queda_canonico_por_las_dos_formas() {
     let d = tempfile::tempdir().unwrap();
     let d = d.path();
     let wt = d.join("repo");
-    repo(&wt, true);
+    repo_git(&wt, true);
     let canon = std::fs::canonicalize(&wt).unwrap().to_string_lossy().into_owned();
     let ver = |id: &[u8]| {
         let id = String::from_utf8_lossy(id).trim().to_string();
@@ -157,7 +128,7 @@ fn ver_y_listar_no_pasan_a_la_terminal_las_secuencias_de_los_agentes() {
     let d = tempfile::tempdir().unwrap();
     let d = d.path();
     let wt = d.join("repo");
-    repo(&wt, true);
+    repo_git(&wt, true);
     let bus = Bus::abrir_en(&d.join("estado")).unwrap();
     let orden: ea_bus::Orden = serde_json::from_value(serde_json::json!({
         "id": "", "modo": "mision", "titulo": format!("titulo{SECUENCIAS}"), "worktree": wt.to_string_lossy(),

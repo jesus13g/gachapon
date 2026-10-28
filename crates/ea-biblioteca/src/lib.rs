@@ -20,7 +20,9 @@ use std::collections::HashSet;
 use ea_ajustes::{Ajustes, IDS_AGENTES};
 use serde::Serialize;
 
-pub use cambio::{aplicar, aplicar_con, desactivadas, plan_cambio, plan_cambio_con, planear, Cambio, Contexto, Hecho, Objetivo, Ordenes, OrdenesDoble, OrdenesReales};
+pub use cambio::{aplicar, aplicar_con, desactivadas, plan_cambio, plan_cambio_con, planear, Cambio, Contexto, Hecho, Objetivo, Ordenes, OrdenesReales};
+#[cfg(any(test, feature = "dobles"))]
+pub use cambio::OrdenesDoble;
 pub use error::ErrorBiblioteca;
 pub use redactar::sin_control;
 pub use modelo::{Activado, Ambito, DefMcp, Elemento, Id, Mecanismo, Tipo, AGENTE_ECOSISTEMA};

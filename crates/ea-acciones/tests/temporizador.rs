@@ -22,17 +22,7 @@ macro_rules! tmp {
 }
 
 fn store() -> (Store, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let s = Store::open_at(&dir.path().join("t.db")).unwrap();
-    s.guardar_rutina(&ea_store::FilaRutina {
-        slug: "diaria".into(),
-        version: 2,
-        definicion: concat!("[rutina]\nslug = \"diaria\"\nversion = 2\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n").into(),
-        creada_en: "2026-01-01T00:00:00Z".into(),
-        creada_por: "test".into(),
-    })
-    .unwrap();
-    (s, dir)
+    ea_pruebas::store(&[("diaria", 2, concat!("[rutina]\nslug = \"diaria\"\nversion = 2\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"))])
 }
 
 async fn simular<C: Consulta>(s: &Store, c: &C, nombre: &str, args: &Value) -> Result<Simulacion, ErrorAccion> {
@@ -119,40 +109,11 @@ async fn programar_se_propone_se_revalida_y_al_aceptar_se_programa() {
     assert!(sim.texto.contains("OnCalendar=daily") && sim.texto.contains("disable --now"), "{}", sim.texto);
 }
 
-/// Un `systemctl` y un `systemd-analyze` falsos: apuntan sus argumentos (uno
-/// por línea) y responden como los de verdad lo justo para las pruebas.
+/// Los `systemctl` y `systemd-analyze` falsos de `ea_pruebas::systemd_falso`.
 #[cfg(unix)]
 fn temporizadores(dir: &std::path::Path) -> (Temporizadores, std::path::PathBuf) {
-    let log = dir.join("ordenes.log");
-    let sc = dir.join("systemctl.sh");
-    std::fs::write(
-        &sc,
-        format!(
-            "printf '%s\\n' systemctl \"$@\" -- >> '{log}'\n\
-             if [ \"$2\" = is-active ]; then\n\
-               if [ -f '{dir}/unidades/'\"$3\" ]; then echo active; else echo inactive; exit 3; fi\n\
-             fi\n",
-            log = log.display(),
-            dir = dir.display()
-        ),
-    )
-    .unwrap();
-    let sa = dir.join("analyze.sh");
-    std::fs::write(
-        &sa,
-        format!(
-            "printf '%s\\n' analyze \"$@\" -- >> '{log}'\n\
-             case \"$4\" in *malo*) echo \"Failed to parse calendar specification '$4'\" >&2; exit 1;; esac\n\
-             echo \"Normalized form: $4\"\n\
-             echo '    Next elapse: Thu 2026-10-22 08:00:00 CEST'\n\
-             echo '   Iteration #2: Fri 2026-10-23 08:00:00 CEST'\n\
-             echo '   Iteration #3: Sat 2026-10-24 08:00:00 CEST'\n",
-            log = log.display()
-        ),
-    )
-    .unwrap();
-    let sh = |p: &std::path::Path| vec!["sh".to_string(), p.display().to_string()];
-    (Temporizadores::systemd(dir.join("unidades"), sh(&sc), sh(&sa)), log)
+    let (systemctl, analyze, log) = ea_pruebas::systemd_falso(dir);
+    (Temporizadores::systemd(dir.join("unidades"), systemctl, analyze), log)
 }
 
 #[cfg(unix)]

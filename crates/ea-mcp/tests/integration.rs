@@ -7,33 +7,9 @@ use std::sync::Arc;
 
 use ea_mcp::EaTools;
 use ea_store::Store;
-use rmcp::model::{
-    CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams,
-    ProtocolVersion,
-};
-use rmcp::transport::StreamableHttpClientTransport;
-use rmcp::{ClientLifecycleMode, ClientServiceExt};
+use ea_pruebas::mcp::conectar;
+use rmcp::model::CallToolRequestParams;
 use tokio::sync::Mutex;
-
-type Client = rmcp::service::RunningService<rmcp::RoleClient, InitializeRequestParams>;
-
-async fn connect(url: String) -> Client {
-    let transport = StreamableHttpClientTransport::from_uri(url);
-    let client_info = InitializeRequestParams::new(
-        ClientCapabilities::default(),
-        Implementation::new("ea-mcp-test-client", "0.0.1"),
-    );
-    client_info
-        .serve_with_lifecycle(
-            transport,
-            ClientLifecycleMode::Auto {
-                preferred_versions: vec![ProtocolVersion::V_2025_11_25],
-                legacy_version: None,
-            },
-        )
-        .await
-        .expect("conectar al servidor MCP de prueba")
-}
 
 fn text_of(result: &rmcp::model::CallToolResult) -> serde_json::Value {
     let text = &result.content[0].as_text().expect("contenido de texto").text;
@@ -60,16 +36,7 @@ async fn start_server(db_path: std::path::PathBuf) -> String {
         Default::default(),
     );
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind puerto efímero");
-    let addr = listener.local_addr().expect("local_addr");
-
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, router).await;
-    });
-
-    format!("http://{addr}/mcp")
+    ea_pruebas::mcp::servidor(router).await
 }
 
 #[tokio::test]
@@ -77,7 +44,7 @@ async fn expone_el_catalogo_y_responde_a_una_llamada() {
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("ecosistema-test.db");
     let url = start_server(db_path).await;
-    let client = connect(url).await;
+    let client = conectar(&url, "ea-mcp-test-client").await;
 
     let tools = client
         .list_tools(Default::default())
@@ -125,21 +92,7 @@ async fn atribuye_al_modelo_local_cuando_el_cliente_es_qwen_code() {
     let db_path = dir.path().join("ecosistema-test.db");
     let url = start_server(db_path).await;
 
-    let transport = StreamableHttpClientTransport::from_uri(url);
-    let client_info = InitializeRequestParams::new(
-        ClientCapabilities::default(),
-        Implementation::new("qwen-code-mcp-client", "0.0.1"),
-    );
-    let client = client_info
-        .serve_with_lifecycle(
-            transport,
-            ClientLifecycleMode::Auto {
-                preferred_versions: vec![ProtocolVersion::V_2025_11_25],
-                legacy_version: None,
-            },
-        )
-        .await
-        .expect("conectar como qwen-code");
+    let client = conectar(&url, "qwen-code-mcp-client").await;
 
     client
         .call_tool(CallToolRequestParams::new("ea_status"))
@@ -175,21 +128,7 @@ async fn atribuye_al_orquestador_cuando_el_cliente_es_ea_orchestrator() {
     let db_path = dir.path().join("ecosistema-test.db");
     let url = start_server(db_path).await;
 
-    let transport = StreamableHttpClientTransport::from_uri(url);
-    let client_info = InitializeRequestParams::new(
-        ClientCapabilities::default(),
-        Implementation::new("ea-orchestrator", "0.0.1"),
-    );
-    let client = client_info
-        .serve_with_lifecycle(
-            transport,
-            ClientLifecycleMode::Auto {
-                preferred_versions: vec![ProtocolVersion::V_2025_11_25],
-                legacy_version: None,
-            },
-        )
-        .await
-        .expect("conectar como ea-orchestrator");
+    let client = conectar(&url, "ea-orchestrator").await;
 
     client
         .call_tool(CallToolRequestParams::new("ea_status"))
@@ -224,7 +163,7 @@ async fn los_trabajos_del_bus_se_leen_pero_no_se_crean_desde_mcp() {
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("ecosistema-test.db");
     let url = start_server(db_path).await;
-    let client = connect(url).await;
+    let client = conectar(&url, "ea-mcp-test-client").await;
 
     // Un trabajo creado por el bus (como haría `ea trabajo crear`).
     let wt = tempfile::tempdir().expect("worktree");
@@ -295,7 +234,7 @@ async fn los_trabajos_del_bus_se_leen_pero_no_se_crean_desde_mcp() {
 async fn ea_listar_diario_acepta_las_fechas_de_siempre() {
     let dir = tempfile::tempdir().expect("tempdir");
     let url = start_server(dir.path().join("ecosistema-test.db")).await;
-    let client = connect(url).await;
+    let client = conectar(&url, "ea-mcp-test-client").await;
     let llamar = |desde: &str| {
         let mut args = serde_json::Map::new();
         args.insert("desde".into(), serde_json::json!(desde));
@@ -314,7 +253,7 @@ async fn ea_status_informa_del_estado_real_del_orquestador() {
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("ecosistema-test.db");
     let url = start_server(db_path.clone()).await;
-    let client = connect(url).await;
+    let client = conectar(&url, "ea-mcp-test-client").await;
 
     let sin_latido = text_of(
         &client
@@ -378,7 +317,7 @@ fn equipo_de_prueba() -> String {
 async fn los_equipos_se_leen_con_su_presencia_pero_no_se_crean_ni_se_duermen_desde_mcp() {
     let dir = tempfile::tempdir().expect("tempdir");
     let url = start_server(dir.path().join("ecosistema-test.db")).await;
-    let client = connect(url).await;
+    let client = conectar(&url, "ea-mcp-test-client").await;
     let id = equipo_de_prueba();
 
     let listado = text_of(&client.call_tool(CallToolRequestParams::new("ea_listar_equipos")).await.expect("listar equipos"));

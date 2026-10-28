@@ -6,32 +6,10 @@ use std::path::Path;
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{
     Bus, Cola, ConfigSkills, EjecutadoPor, Equipo, ErrorBus, EstadoEquipo, EstadoTrabajo, Evento, Fase, Informe, Miembro, Modo, NuevoEquipo,
-    Orden, ResultadoInforme, Rol, RolEquipo, Topes,
+    Orden, ResultadoInforme, Rol, RolEquipo,
 };
+use ea_pruebas::orden;
 use ea_store::Store;
-
-fn orden(wt: &Path) -> Orden {
-    Orden {
-        id: String::new(),
-        modo: Modo::Mision,
-        titulo: "prueba".into(),
-        worktree: wt.to_string_lossy().into(),
-        objetivo: "haz algo".into(),
-        criterio_exito: Some("true".into()),
-        fases: vec![],
-        revisar_cada: None,
-        topes: Topes::default(),
-        rutina: None,
-        notas_revision: vec![],
-        skills: vec![],
-        equipo: None,
-        asignado_a: None,
-        revisor: None,
-        worktree_propio: false,
-        creada_en: String::new(),
-        creada_por: "claude-code".into(),
-    }
-}
 
 fn informe() -> Informe {
     Informe { evidencia: "ok".into(), fases_hechas: 1, duracion_s: 3, ..Informe::nuevo(ResultadoInforme::Terminado) }
