@@ -436,6 +436,20 @@ fn invariantes_del_catalogo() {
     assert_eq!(nombres.len(), CATALOGO.len());
 }
 
+/// Las supervisadas del catálogo (la tabla de riesgo) son exactamente los
+/// casos de `Supervisada`, en el mismo orden, y cada nombre vuelve a su caso.
+#[test]
+fn las_supervisadas_del_catalogo_son_las_del_enum() {
+    let catalogo: Vec<_> = CATALOGO.iter().filter(|h| h.ejecucion == Ejecucion::Supervisada).map(|h| h.nombre).collect();
+    let todas: Vec<_> = Supervisada::TODAS.iter().map(|s| s.nombre()).collect();
+    assert_eq!(catalogo, todas);
+    for s in Supervisada::TODAS {
+        assert_eq!(Supervisada::desde(s.nombre()), Some(s));
+        assert_eq!(s.ficha().nombre, s.nombre());
+    }
+    assert_eq!(Supervisada::desde("ea_status"), None);
+}
+
 #[test]
 fn autorizacion_por_actor() {
     let h = |n| buscar(n).unwrap();

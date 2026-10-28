@@ -17,6 +17,7 @@ use ea_bus::{Bus, InfoWorktree};
 use ea_store::Store;
 
 use crate::catalogo::Canal;
+use crate::error::ErrorAccion;
 use crate::servicios::GestorServicios;
 use crate::temporizador::{comprobar_calendario, Calendario, EstadoTimer, Temporizadores};
 use crate::terminal::{Terminal, TerminalSimulada, TerminalSistema};
@@ -103,6 +104,17 @@ pub trait Sistema: Consulta {
     /// la versión en SQLite y la copia en `rutinas_dir`). Devuelve el slug y
     /// la versión registrados.
     fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String>;
+
+    /// Lanza la rutina `slug` con esas entradas por el bus de
+    /// [`Consulta::estado_dir`] (lo mismo que `ea rutina lanzar`): crea el
+    /// trabajo, con su historial en `store` y el evento a nombre de `actor`, y
+    /// devuelve su id. Igual para todo sistema: el de pruebas lanza en su raíz
+    /// temporal.
+    fn rutina_lanzar(&self, store: &Store, slug: &str, entradas: &[(String, String)], actor: &str) -> Result<String, ErrorAccion> {
+        crate::herramientas::bus_de(&self.estado_dir(), store, actor)?
+            .lanzar_rutina(slug, entradas)
+            .map_err(|e| ErrorAccion::Sistema(e.to_string()))
+    }
 
     /// Copia una nota a la región compartida (la promoción que acepta el
     /// usuario). `huella` es la del contenido que se simuló.

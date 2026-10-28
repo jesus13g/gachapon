@@ -602,7 +602,7 @@ mod tests {
             format!("{h:016x}")
         }
 
-        // ea-acciones/src/herramientas.rs (`huella`).
+        // ea-acciones/src/herramientas/mod.rs (`huella`).
         fn herramientas(texto: &str) -> String {
             let mut h: u64 = 0xcbf29ce484222325;
             for b in texto.bytes() {

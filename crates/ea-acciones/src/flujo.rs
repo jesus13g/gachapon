@@ -120,7 +120,8 @@ pub async fn ejecutar<S: Sistema>(
     precondicion: &Value,
     propuesta: Option<&Propuesta>,
 ) -> Result<Resultado, ErrorAccion> {
-    let h = supervisada(herramienta)?;
+    let s = supervisada(herramienta)?;
+    let h = s.ficha();
     let contexto = |extra: Value| {
         let mut v = json!({
             "herramienta": herramienta, "riesgo": h.riesgo.as_str(), "canal": canal.nombre(),
@@ -138,12 +139,7 @@ pub async fn ejecutar<S: Sistema>(
         puede_confirmar(canal, h.riesgo)?;
         let hechos = herramientas::observar(sistema, herramienta, args).await?;
         herramientas::revalidar_con(store, sistema, &hechos, herramienta, args, precondicion)?;
-        match herramientas::aplicar_en_store(store, &sistema.estado_dir(), actor, canal, herramienta, args)? {
-            Some(a) => Ok(a),
-            None => {
-                herramientas::aplicar_en_sistema(sistema, store, actor, canal, herramienta, args, precondicion).await
-            }
-        }
+        herramientas::aplicar(s, sistema, store, actor, canal, args, precondicion).await
     }
     .await;
 
@@ -184,7 +180,7 @@ pub async fn ejecutar_directo<S: Sistema>(
     herramienta: &str,
     args: &Value,
 ) -> Result<Resultado, ErrorAccion> {
-    let h = supervisada(herramienta)?;
+    let h = supervisada(herramienta)?.ficha();
     if let Err(e) = puede_confirmar(canal, h.riesgo) {
         evento(
             store,
