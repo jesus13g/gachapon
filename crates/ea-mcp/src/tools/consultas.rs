@@ -75,16 +75,17 @@ impl EaTools {
                 // El bus antes de tomar la base de datos.
                 let (por_estado, colas, semaforos) = resumen_bus(&t.estado_dir);
                 let (equipos, presencias) = resumen_equipos(&t.estado_dir);
-                // Mismo criterio que `ea status` y `ea-web`: último latido del
-                // diario, con umbral del doble del intervalo configurado.
+                // Mismo criterio que `ea status` y `ea-web`: el último latido,
+                // del fichero del bus, con umbral del doble del intervalo.
                 let umbral_s = ea_ajustes::cargar_de(&t.ajustes).ajustes.umbral_latido_s();
+                let orquestador = ea_bus::estado_orquestador(&t.estado_dir, umbral_s);
                 let store = t.store.blocking_lock();
                 let events = store.list_events(&EventFilter { limit: Some(5), ..Default::default() }).map_err(|e| e.to_string())?;
-                let orquestador = store.estado_orquestador(umbral_s).map_err(|e| e.to_string())?;
                 Ok(json!({
                     "orquestador": {
                         "vivo": orquestador.vivo,
                         "ultimo_latido": orquestador.ultimo_latido.map(ea_store::rfc3339),
+                        "trabajadores": orquestador.trabajadores,
                         "estado": orquestador.descripcion(),
                     },
                     "trabajos_por_estado": por_estado,

@@ -32,8 +32,33 @@ async fn el_diario_oculta_los_latidos_salvo_que_se_pidan() {
     let (_, con) = get(&f, "/api/diario?latidos=1").await;
     assert_eq!(con.as_array().unwrap().len(), 3);
 
+    // Son latidos antiguos (U-07): el estado ya no sale del diario.
     let (_, e) = get(&f, "/api/estado").await;
-    assert_eq!(e["orquestador"]["vivo"], true);
+    assert_eq!(e["orquestador"]["vivo"], false);
+}
+
+/// U-07: solo se ocultan los `heartbeat` antiguos; el arranque y la parada
+/// del orquestador salen siempre.
+#[tokio::test]
+async fn el_arranque_y_la_parada_del_orquestador_no_se_ocultan() {
+    let f = montar();
+    {
+        let store = f.state.store.lock().await;
+        for accion in ["orquestador_arrancado", "heartbeat", "orquestador_parado"] {
+            store
+                .append_event(NewEvent {
+                    actor: "orquestador".into(),
+                    action: accion.into(),
+                    trabajo: None,
+                    outcome: Some(EventOutcome::Ok),
+                    duration_ms: None,
+                    detail: None,
+                })
+                .unwrap();
+        }
+    }
+    let (_, sin) = get(&f, "/api/diario").await;
+    assert_eq!(acciones(&sin), ["orquestador_arrancado", "orquestador_parado"]);
 }
 
 fn acciones(d: &Value) -> Vec<String> {

@@ -22,6 +22,23 @@ fn abrir_bus() -> anyhow::Result<Bus> {
     })
 }
 
+/// Un evento del orquestador en el diario (arranque o parada). El diario es
+/// secundario: si la base no abre, queda en el registro y sigue.
+fn diario(accion: &str, detalle: Option<String>) {
+    let r = Store::open_at(&ea_ajustes::cargar().rutas.db).and_then(|s| {
+        s.append_event(NewEvent {
+            actor: ACTOR.to_string(),
+            action: accion.to_string(),
+            outcome: Some(EventOutcome::Ok),
+            detail: detalle,
+            ..Default::default()
+        })
+    });
+    if let Err(e) = r {
+        tracing::warn!(%accion, error = %e, "no se pudo anotar en el diario");
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
@@ -49,26 +66,18 @@ async fn main() -> anyhow::Result<()> {
     // Se relee en cada latido: `agente.sandbox` es en caliente. El motivo, si
     // el aislamiento no puede arrancar, viaja en el latido para que el panel lo
     // muestre (spec 020, «sandbox visible»).
-    let sandbox_detalle = || {
+    let sandbox_info = || {
         let activado = ea_ajustes::cargar_de(&ea_ajustes::Fuentes::sistema()).ajustes.agente.sandbox;
-        let info = ea_orchestrator::sandbox::Sandbox::actual(activado).info(ea_plataforma::Sistema::actual());
-        serde_json::to_string(&info).ok()
+        ea_orchestrator::sandbox::Sandbox::actual(activado).info(ea_plataforma::Sistema::actual())
     };
-    tokio::spawn(async move {
+    // El latido va a `orquestador.json` del bus (U-07); en el diario, solo el
+    // arranque y la parada.
+    diario("orquestador_arrancado", serde_json::to_string(&sandbox_info()).ok());
+    let latido = tokio::spawn(async move {
         loop {
-            match Store::open_at(&ea_ajustes::cargar().rutas.db) {
-                Ok(store) => {
-                    if let Err(e) = store.append_event(NewEvent {
-                        actor: ACTOR.to_string(),
-                        action: "heartbeat".to_string(),
-                        outcome: Some(EventOutcome::Ok),
-                        detail: sandbox_detalle(),
-                        ..Default::default()
-                    }) {
-                        tracing::warn!(error = %e, "no se pudo registrar el heartbeat");
-                    }
-                }
-                Err(e) => tracing::warn!(error = %e, "no se pudo abrir la base de datos para el heartbeat"),
+            let latir = Bus::abrir_en(&ea_ajustes::cargar().rutas.estado).and_then(|b| b.latir_orquestador(Some(sandbox_info())));
+            if let Err(e) = latir {
+                tracing::warn!(error = %e, "no se pudo escribir el latido");
             }
             tokio::time::sleep(Duration::from_secs(intervalo_heartbeat)).await;
         }
@@ -96,6 +105,8 @@ async fn main() -> anyhow::Result<()> {
     // volver, `recuperar` lo entrega como «interrumpido».
     tracing::info!("parada pedida: se corta lo que está en marcha");
     tokio::task::spawn_blocking(move || trabajadores.detener()).await?;
+    latido.abort();
+    diario("orquestador_parado", None);
     tracing::info!("ea-orchestrator parado");
     Ok(())
 }

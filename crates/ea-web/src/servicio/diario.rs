@@ -16,7 +16,8 @@ pub struct Filtro {
     pub resultado: Option<String>,
     /// Prefijo de la acción, la familia de eventos (`bus_`, `mcp_`…).
     pub accion: Option<String>,
-    /// Incluir los heartbeats del orquestador (por defecto se omiten).
+    /// Incluir los heartbeats que el orquestador anotaba antes en el diario (por
+    /// defecto se omiten; ahora el latido va a `orquestador.json` del bus).
     pub latidos: bool,
     /// Cursor «cargar más»: el id del último evento ya cargado; se devuelven
     /// los anteriores a él con los mismos filtros.

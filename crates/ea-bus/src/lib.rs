@@ -12,6 +12,7 @@ mod fs_atomico;
 /// El `git` endurecido y con tope que el sistema ejecuta fuera del sandbox.
 pub mod git;
 mod instantanea;
+mod orquestador;
 mod papelera;
 mod presencia;
 mod rutina;
@@ -27,6 +28,7 @@ pub use git::validar_worktree;
 pub use bus::{comprobar_registro, id_valido, Bus, Cola, Entrega, EntradaCola, raiz_estado};
 pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo, Miembro, NuevoEquipo, RolEquipo};
 pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, ResumenTrabajo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
+pub use orquestador::{estado_orquestador, latido_orquestador, EstadoOrquestador, LatidoOrquestador, SandboxInfo, FICHERO_LATIDO};
 pub use presencia::{Latido, Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};
 pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
 pub use skills::{bloque_prompt, ConfigSkills, Skill};

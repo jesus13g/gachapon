@@ -328,7 +328,7 @@ async fn ea_status_informa_del_estado_real_del_orquestador() {
     assert_eq!(sin_latido["orquestador"]["vivo"], false);
     assert!(sin_latido["orquestador"]["ultimo_latido"].is_null());
 
-    // Otra conexión al mismo fichero hace de orquestador emitiendo su latido.
+    // Un latido viejo en el diario (de antes de U-07) ya no cuenta.
     let otro = Store::open_at(&db_path).expect("segunda conexión");
     otro.append_event(ea_store::NewEvent {
         actor: "orquestador".into(),
@@ -339,6 +339,11 @@ async fn ea_status_informa_del_estado_real_del_orquestador() {
         detail: None,
     })
     .expect("registrar latido");
+    let solo_diario = text_of(&client.call_tool(CallToolRequestParams::new("ea_status")).await.expect("llamar a ea_status"));
+    assert_eq!(solo_diario["orquestador"]["vivo"], false);
+
+    // El bus hace de orquestador escribiendo su latido en el fichero.
+    ea_bus::Bus::abrir_en(estado_temporal()).expect("bus temporal").latir_orquestador(None).expect("latir");
 
     let con_latido = text_of(
         &client
@@ -349,6 +354,7 @@ async fn ea_status_informa_del_estado_real_del_orquestador() {
     assert_eq!(con_latido["orquestador"]["vivo"], true);
     assert_eq!(con_latido["orquestador"]["estado"], "vivo");
     assert!(con_latido["orquestador"]["ultimo_latido"].is_string());
+    assert_eq!(con_latido["orquestador"]["trabajadores"], 0);
 
     client.cancel().await.ok();
 }

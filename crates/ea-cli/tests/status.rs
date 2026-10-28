@@ -52,7 +52,8 @@ ejecutor: Qwen Code (qwen3-coder-30b)
         format!("{cabecera}Orquestador: sin señal (ningún heartbeat registrado todavía)\n{roles}{BUS}\nÚltimos eventos:\n  (sin eventos todavía)\n")
     );
 
-    // Con un latido: vivo, con su hora, y el latido entre los últimos eventos.
+    // Un latido viejo en el diario (de antes de U-07) sale entre los últimos
+    // eventos, pero ya no dice nada del orquestador.
     let store = ea_store::Store::open_at(&d.path().join("ea.db")).unwrap();
     store
         .append_event(ea_store::NewEvent {
@@ -65,7 +66,8 @@ ejecutor: Qwen Code (qwen3-coder-30b)
         })
         .unwrap();
     let ts = store.list_events(&Default::default()).unwrap()[0].ts;
-    let hora = ts.format(time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second] UTC")).unwrap();
+    let formato = time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second] UTC");
+    let hora = ts.format(formato).unwrap();
     let eventos = format!(
         "+-------------------------+-------------+-----------+---------+
 | Cuándo                  | Actor       | Acción    | Trabajo |
@@ -76,6 +78,15 @@ ejecutor: Qwen Code (qwen3-coder-30b)
     );
     assert_eq!(
         status(d.path()),
-        format!("{cabecera}Orquestador: vivo (heartbeat {hora})\n{roles}{BUS}\nÚltimos eventos:\n{eventos}")
+        format!("{cabecera}Orquestador: sin señal (ningún heartbeat registrado todavía)\n{roles}{BUS}\nÚltimos eventos:\n{eventos}")
+    );
+
+    // Con el latido en el fichero del bus: vivo, con su hora y sus trabajadores.
+    let l = Bus::abrir_en(&d.path().join("estado")).unwrap().latir_orquestador(None).unwrap();
+    let t = time::OffsetDateTime::parse(&l.ts, &time::format_description::well_known::Rfc3339).unwrap();
+    let hora = t.format(formato).unwrap();
+    assert_eq!(
+        status(d.path()),
+        format!("{cabecera}Orquestador: vivo (heartbeat {hora}, 0 trabajadores)\n{roles}{BUS}\nÚltimos eventos:\n{eventos}")
     );
 }

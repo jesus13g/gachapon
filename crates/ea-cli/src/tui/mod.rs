@@ -108,7 +108,7 @@ pub fn run(store: &mut Store) -> Result<()> {
 
     let data = AppData {
         servicios,
-        orquestador: crate::commands::status::estado_orquestador(store)?,
+        orquestador: crate::commands::status::estado_orquestador(),
         agentes: store.resumen_agentes()?,
         ajustes: ea_ajustes::cargar(),
         events: store.list_events(&EventFilter {

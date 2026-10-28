@@ -39,6 +39,7 @@ async fn ea_status_y_ea_listar_trabajos_dicen_lo_mismo_que_siempre() {
   "orquestador": {
     "vivo": false,
     "ultimo_latido": null,
+    "trabajadores": null,
     "estado": "sin señal (ningún heartbeat registrado todavía)"
   },
   "trabajos_por_estado": {

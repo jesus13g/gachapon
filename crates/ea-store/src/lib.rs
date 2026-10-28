@@ -19,7 +19,7 @@ pub use filtro::{ahora_rfc3339, fecha_flexible, prefijo_accion_valido, rfc3339, 
 pub use models::{
     AccionPropuesta, EjecucionPropuesta, EntradaIndice, ResultadoBusqueda, RutaIndexada, EstadoEjecucion, EstadoPropuesta, Event, EventOutcome, NewEvent, NuevaPropuesta, Propuesta,
 };
-pub use orquestador::{ultimo_latido, ultimo_sandbox, EstadoOrquestador, SandboxInfo, ResumenAgente, AGENTES};
+pub use orquestador::{ResumenAgente, AGENTES};
 pub use repository::events::EventFilter;
 pub use repository::notas::{NuevaNota, ACCION_NOTA, ACTOR_NOTA, MAX_TEXTO_NOTA};
 pub use repository::propuestas::PropuestaFilter;

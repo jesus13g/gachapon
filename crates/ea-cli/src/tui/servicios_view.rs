@@ -5,7 +5,7 @@ use ratatui::Frame;
 use ea_acciones::salud::Servicio;
 
 /// Servicios residentes (preguntados a `systemd --user` al arrancar la TUI)
-/// y salud del orquestador según su último heartbeat en el diario.
+/// y salud del orquestador según su último latido (`orquestador.json` del bus).
 pub fn render(frame: &mut Frame, area: Rect, servicios: &[Servicio], orquestador: &str) {
     let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
 

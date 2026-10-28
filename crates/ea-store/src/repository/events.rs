@@ -81,8 +81,8 @@ pub struct EventFilter {
     pub since: Option<time::OffsetDateTime>,
     pub until: Option<time::OffsetDateTime>,
     /// Excluye las filas con esta acción (p. ej. `heartbeat`, que el
-    /// orquestador emite cada pocos segundos y ahogaría cualquier listado
-    /// acotado por `limit`).
+    /// orquestador anotaba cada pocos segundos antes de llevar su latido a un
+    /// fichero del bus y que ahogarían cualquier listado acotado por `limit`).
     pub exclude_action: Option<String>,
     /// Solo los eventos con este resultado (`ok` o `error`).
     pub outcome: Option<EventOutcome>,

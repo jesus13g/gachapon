@@ -803,6 +803,7 @@
   "orquestador": {
     "vivo": false,
     "ultimo_latido": null,
+    "trabajadores": null,
     "estado": "sin señal (ningún heartbeat registrado todavía)"
   },
   "trabajos_por_estado": {
@@ -1344,6 +1345,7 @@ failed to deserialize parameters: invalid type: integer `3`, expected a string
   "orquestador": {
     "vivo": false,
     "ultimo_latido": null,
+    "trabajadores": null,
     "estado": "sin señal (ningún heartbeat registrado todavía)"
   },
   "trabajos_por_estado": {

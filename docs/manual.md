@@ -405,10 +405,11 @@ volver a arrancar los servicios.
 - `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
   propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
-  del worktree, rutinas versionadas, equipos y presencia de los agentes, las
+  del worktree, rutinas versionadas, el latido del orquestador
+  (`orquestador.json`), equipos y presencia de los agentes, las
   marcas del hook de subagentes y la validación de las skills de cada orden.
 - `crates/ea-orchestrator`: binario `ea-orchestrator`, el ejecutor del agente
-  local con su configuración (la parte de los ajustes que usa) y el heartbeat.
+  local con su configuración (la parte de los ajustes que usa) y el latido.
 - `crates/ea-acciones`: catálogo único de herramientas con riesgo, simulación,
   revalidación y el flujo propuesta → aceptación → ejecución; también cambiar
   los ajustes con sus efectos y su evento en el diario (`ajustes`, para
@@ -1616,7 +1617,7 @@ de un ajuste (panel, terminal, variable de entorno); el candado, el modo solo le
 | Biblioteca | Herramientas | Biblioteca (spec 018): las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo (●/○ activado, usos), con filtros de agente, tipo, categoría y estado y el cuadro de buscar. La ficha da origen, descripción, cómo se cambia, la definición de un MCP sin secretos (solo los nombres de sus variables y cabeceras) y el uso por actor. ⏻ desactivar/activar simula (antes/después) y pide aceptar, ▶ sesión con… abre una terminal con solo las herramientas elegidas (la simulación lleva el comando sin secretos) y ✎ categoría escribe `biblioteca.categorias` por los ajustes. Enlace `#biblioteca/<id>` | `7` |
 | Acciones | Herramientas | Acciones: simular y ejecutar las herramientas supervisadas. Los formularios guían: la ruta de `ea_promover_nota` sugiere las notas de `claude-code` y `modelo-local` aún sin promover (se puede escribir otra), el servicio de `ea_reiniciar_servicio` dice el estado de cada uno y el slug elige entre las rutinas registradas (`GET /api/acciones` trae por campo `opciones`, `sugerencias` y `estados`). La simulación dice en un renglón qué se revalidará al ejecutar («se comprobará: huella …») y avisa cuando tiene más de 60 s. En la ficha de cada herramienta (también de las directas), sus últimos 10 eventos del diario | `8` |
 | Sistema | Sistema | Sistema: servicios (reiniciar ↻, pide confirmar), el bloque «servicios residentes» (gestor, unidad, binario e instalado como `ea servicios ver`, con ⌨ instalar y ⌨ desinstalar en terminal), orquestador, el sandbox del ejecutor (sistema, aislamiento en uso y, si no puede arrancar, el motivo; lo declara el latido del orquestador) y una fila por rol (planificador y ejecutor) con su agente, modelo y última actividad. Debajo, «worktrees propios» (si hay): una fila por trabajo con su rama `ea/<id>`, el estado del trabajo y si está limpio, y en su ficha «▣ limpiar worktree» (clic para simular, segundo clic para confirmar; clave de sesión). La ficha de un rol lista los agentes que lo admiten (binario ●/✕, modelo, si responde, topes) y cambia el agente con «⇄ poner de …» (segundo clic) | `9` |
-| Diario | Sistema | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`, `usuario_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. ✎ anotar abre en línea una nota del usuario (texto y, si quieres, trabajo) que queda como `usuario_nota`; en el detalle de un evento, ✎ corregir abre lo mismo apuntando a ese evento, que no se toca: el corregido muestra «corregido por #n» y la nota «corrige #m», enlazados. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros. Al pie, ↓ más antiguos añade la página siguiente con los mismos filtros (desaparece cuando no queda nada); el sondeo refresca solo la primera sin perder las cargadas, y cambiar un filtro vuelve a la primera | `0` o `d` |
+| Diario | Sistema | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`, `usuario_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos que el orquestador anotaba antes en el diario (ahora van a `orquestador.json` del bus; arranques y paradas salen siempre). ✎ anotar abre en línea una nota del usuario (texto y, si quieres, trabajo) que queda como `usuario_nota`; en el detalle de un evento, ✎ corregir abre lo mismo apuntando a ese evento, que no se toca: el corregido muestra «corregido por #n» y la nota «corrige #m», enlazados. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros. Al pie, ↓ más antiguos añade la página siguiente con los mismos filtros (desaparece cuando no queda nada); el sondeo refresca solo la primera sin perder las cargadas, y cambiar un filtro vuelve a la primera | `0` o `d` |
 | Ajustes | Sistema | Ajustes: los de `ajustes.toml` por secciones, con valor, origen (por defecto, `ajustes.toml`, heredado o entorno) y si se aplican en caliente o piden reinicio; avisos arriba. ◐ se cambia aquí (✓ guardar y ↺ por defecto piden un segundo clic; los techos solo bajan), ⌨ solo en una terminal (la fila da el comando) y ⊘ lo fija una variable de entorno. Apunta `ajustes_cambiados` en el diario | `a` |
 
 `1`-`9` y `0` cambian de sección en el orden del raíl (`1` Inicio, `2` Actividad,
@@ -1668,7 +1669,7 @@ aceptada sigue a la vista con esos enlaces (en Actividad, en su pastilla) hasta 
 (`evento`: id de ese evento) y `POST /api/propuestas/<id>/decidir`, al aceptar
 una que se ejecuta bien, añade lo mismo en `resultado`.
 
-API (JSON): `GET /api/estado` (servicios, orquestador —con `sandbox`: `{sistema, sandbox, disponible, motivo}` del último latido, o `null`— y una entrada por rol con
+API (JSON): `GET /api/estado` (servicios, orquestador —`vivo`, `ultimo_latido`, `trabajadores` y `sandbox`: `{sistema, sandbox, disponible, motivo}`, del último latido de `orquestador.json`, o `null`— y una entrada por rol con
 `rol`, `agente`, `agente_nombre`, `modelo` y `ultimo_agente`), `GET /api/agentes`
 (`{version, fijados, agentes}`: cada agente del catálogo con `id`, `nombre`,
 `admite`, `rol`, `bin`, `ruta` (null si no está en el `PATH`), `perfil`, `modelo`,
@@ -1682,7 +1683,7 @@ reciente primero, sin la definición), `/api/rutinas/<slug>/versiones/<n>`
 (`{slug, version, creada_en, creada_por, contenido}`; 404 si no existe, 400 si
 `<n>` no es un entero), `/api/diario` (`?trabajo=`,
 `actor`, `desde`, `hasta`, `resultado=ok|error`, `accion=<prefijo>` —solo
-`[a-z_]`, si no 400—, `latidos=1`, `limite`, `antes_de=<id>` —cursor: los
+`[a-z_]`, si no 400—, `latidos=1` (incluye los `heartbeat` antiguos), `limite`, `antes_de=<id>` —cursor: los
 eventos anteriores a ese id con los mismos filtros, estable aunque lleguen
 nuevos; no numérico, 400—; cada evento corregido trae
 `corregido_por: [ids]`); y, con `Content-Type:
@@ -1838,9 +1839,17 @@ o.exec_on_start(os.getenv("HOME") .. "/Proyectos/ecosistema-asistente/crates/ea-
 
 La máquina arranca con la hora desajustada tras Windows hasta que NTP la
 corrige, así que el panel mide el tiempo activo de los servicios con el reloj
-monotónico e ignora latidos fechados en el futuro. El último latido se busca en
-el diario por su acción, así que los demás eventos del orquestador (los del bus
-durante un trabajo) no lo tapan ni dan un «sin señal» falso.
+monotónico y no da por vivo al orquestador con un latido fechado en el futuro.
+
+El latido del orquestador no va al diario: cada `orquestador.intervalo_heartbeat_s`
+reescribe (con escritura atómica) `orquestador.json` en la raíz del bus, con la
+hora, su pid, cuántos de sus trabajadores tienen la presencia al día
+(`trabajadores`) y el sandbox del ejecutor. `ea status`, la TUI, `ea_status` del
+MCP y el panel lo leen de ahí: vivo si tiene como mucho el doble del intervalo.
+En el diario el orquestador solo deja `orquestador_arrancado` (con el sandbox en
+el detalle) y, tras una parada limpia, `orquestador_parado`. Los `heartbeat` que
+se anotaban antes siguen en el diario (es append-only): ya no cuentan para la
+salud, y el diario del panel los oculta salvo con ♡ (`latidos=1`).
 
 ## Verificación
 

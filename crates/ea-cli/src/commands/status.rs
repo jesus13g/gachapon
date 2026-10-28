@@ -5,21 +5,19 @@ use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 
 use super::fmt_ts;
 
-/// Salud del orquestador derivada del heartbeat más reciente en el diario
-/// (§13.2, y la nota dejada en fase 1: "cuando el orquestador real exista,
-/// la forma correcta de liveness es que él mismo emita eventos
-/// actor='orquestador', action='heartbeat'"). Nunca inventa un heartbeat
-/// contra un proceso que no responde: si no hay ninguno, dice que no hay
-/// señal, no que esté "caído".
-pub fn estado_orquestador(store: &Store) -> Result<String> {
-    let umbral_s = ea_ajustes::cargar().umbral_latido_s();
-    let estado = store.estado_orquestador(umbral_s)?;
+/// Salud del orquestador según su último latido, el que él mismo escribe en
+/// `orquestador.json` del bus (§13.2; U-07). Nunca inventa un latido contra un
+/// proceso que no responde: si no hay ninguno, dice que no hay señal, no que
+/// esté "caído". Vivo, dice también cuántos trabajadores contó.
+pub fn estado_orquestador() -> String {
+    let a = ea_ajustes::cargar();
+    let estado = ea_bus::estado_orquestador(&a.rutas.estado, a.umbral_latido_s());
     let texto = estado.descripcion();
-    Ok(match estado.ultimo_latido {
-        None => texto.to_string(),
-        Some(t) if estado.vivo => format!("{texto} (heartbeat {})", fmt_ts(t)),
-        Some(t) => format!("{texto} (último heartbeat {})", fmt_ts(t)),
-    })
+    match (estado.ultimo_latido, estado.trabajadores) {
+        (Some(t), Some(n)) if estado.vivo => format!("{texto} (heartbeat {}, {n} trabajador{})", fmt_ts(t), if n == 1 { "" } else { "es" }),
+        (Some(t), _) => format!("{texto} (último heartbeat {})", fmt_ts(t)),
+        _ => texto.to_string(),
+    }
 }
 
 /// Resumen no interactivo del estado del sistema: una sola invocación,
@@ -27,7 +25,7 @@ pub fn estado_orquestador(store: &Store) -> Result<String> {
 pub fn mostrar(store: &Store) -> Result<()> {
     println!("Ecosistema de asistente — estado");
     println!("---------------------------------");
-    println!("Orquestador: {}", estado_orquestador(store)?);
+    println!("Orquestador: {}", estado_orquestador());
     let pendientes = store
         .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?
         .len();

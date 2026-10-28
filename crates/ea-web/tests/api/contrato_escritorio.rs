@@ -26,19 +26,7 @@ async fn el_estado_lleva_lo_que_mira_la_bandeja() {
     // Sin gestor de servicios (`systemctl: false`), «desconocido»: no degrada la bandeja.
     assert!(servicios.iter().all(|s| s["activo"] == "desconocido"), "{e}");
 
-    f.state
-        .store
-        .lock()
-        .await
-        .append_event(NewEvent {
-            actor: "orquestador".into(),
-            action: "heartbeat".into(),
-            trabajo: None,
-            outcome: Some(EventOutcome::Ok),
-            duration_ms: None,
-            detail: None,
-        })
-        .unwrap();
+    bus(&f).latir_orquestador(None).unwrap();
     let (_, e) = como_el_escritorio(&f, "/api/estado").await;
     assert_eq!(e["orquestador"]["vivo"], true, "{e}");
 }

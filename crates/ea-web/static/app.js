@@ -226,7 +226,9 @@ function fila(k, cls, row, txt, det = '', extra = '') {
 // ea-acciones, ea-web, ea-cli, ea-orchestrator) con su frase. El diario sigue
 // guardando el identificador técnico: la etiqueta solo se pinta.
 const EVENTOS = {
-  heartbeat: 'Latido del orquestador',
+  heartbeat: 'Latido del orquestador (antiguo)',
+  orquestador_arrancado: 'Orquestador arrancado',
+  orquestador_parado: 'Orquestador parado',
   bus_crear: 'Trabajo creado',
   bus_tomar: 'Trabajo tomado por el ejecutor',
   bus_entregar: 'Informe entregado',
@@ -3722,7 +3724,9 @@ function construir() {
 
 
 // Los filtros del diario, que se aplican en el servidor. Los actores y las
-// familias son los que escribe el código (spec 009, «Familias de eventos»).
+// familias son los que escribe el código (spec 009, «Familias de eventos»);
+// `ea-cli` ya no se escribe (la CLI firma como `usuario` o `claude-code`),
+// pero sigue para encontrar los eventos de antes.
 const ACTORES = ['usuario', 'claude-code', 'modelo-local', 'orquestador', 'ea-cli', 'sin-rol', 'desconocido'];
 const FAMILIAS = { bus_: 'bus', mcp_: 'mcp', propuesta_: 'propuestas', accion_: 'acciones', boveda_: 'bóveda', memoria_: 'memoria', ajustes_: 'ajustes', usuario_: 'notas' };
 const RANGOS = { hoy: 'hoy', ayer: 'ayer', '24h': '24 h', '7d': '7 días' };
@@ -3843,7 +3847,7 @@ function barraDiario() {
     h += `<input type="date" class="c${d ? ' on' : ''}" data-df="desde" value="${esc(d)}" title="desde (incluido)" aria-label="Desde">` +
       `<input type="date" class="c${st.dHasta ? ' on' : ''}" data-df="hasta" value="${esc(st.dHasta ?? '')}" title="hasta (incluido)" aria-label="Hasta">`;
   }
-  h += `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
+  h += `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos que el orquestador anotaba antes en el diario (ahora van a un fichero del bus)" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
   const activos = [];
   if (st.dActor) activos.push(chipFiltro('actor', 'quién: ' + st.dActor));
   if (st.dResultado) activos.push(chipFiltro('resultado', st.dResultado === 'ok' ? 'resultado: ✓' : 'resultado: ✕'));
@@ -3898,6 +3902,8 @@ function cabecera() {
   const o = $('#orq');
   o.classList.toggle('hot', !e.orquestador.vivo);
   let latido = e.orquestador.ultimo_latido ? 'orquestador: latido hace ' + hace(e.orquestador.ultimo_latido) : 'orquestador sin latido';
+  const trab = e.orquestador.trabajadores;
+  if (e.orquestador.vivo && trab != null) latido += ` · ${trab} trabajador${trab === 1 ? '' : 'es'}`;
   const sb = e.orquestador.sandbox;
   if (sb) latido += sb.disponible ? ` · sandbox: ${sb.sandbox} (${sb.sistema})` : ` · sandbox no disponible: ${sb.motivo ?? ''}`;
   $('title', o).textContent = latido;
@@ -4906,7 +4912,7 @@ const AYUDA_VISTA = {
     'Despliega un rol para cambiar el agente que lo ocupa.']],
   diario: ['Todo lo que ocurre, lo más reciente arriba.', [
     'Filtra por quién, <b>✓</b>/<b>✕</b>, familia de evento y fecha; los filtros quedan en la dirección.',
-    '<b>✎ anotar</b> deja constancia de algo; <b>♡</b> muestra los latidos.']],
+    '<b>✎ anotar</b> deja constancia de algo; <b>♡</b> muestra los latidos antiguos del orquestador.']],
   ajustes: ['Cómo se comporta el ecosistema.', [
     '<b>✎</b> se cambia aquí (segundo clic); <b>⌨</b> solo con <b>ea ajustes</b> en una terminal; <b>$</b> lo fija una variable de entorno.',
     'Todo se aplica en caliente salvo lo marcado <b>al reiniciar</b>.']],

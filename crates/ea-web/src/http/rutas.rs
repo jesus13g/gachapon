@@ -58,7 +58,8 @@ pub struct DiarioQuery {
     resultado: Option<String>,
     /// Prefijo de la acción (`bus_`, `propuesta_`…): solo `[a-z_]+`.
     accion: Option<String>,
-    /// `1` incluye los heartbeats del orquestador (por defecto se omiten).
+    /// `1` incluye los heartbeats que el orquestador anotaba antes en el diario
+    /// (por defecto se omiten; desde U-07 el latido va a un fichero del bus).
     latidos: Option<String>,
     /// Cursor «cargar más»: id del último evento ya cargado.
     antes_de: Option<String>,

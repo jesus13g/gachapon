@@ -65,14 +65,14 @@ impl Sandbox {
     }
 
     /// Lo que el latido declara al panel: sistema, aislamiento y motivo.
-    pub fn info(&self, sistema: Sistema) -> ea_store::SandboxInfo {
+    pub fn info(&self, sistema: Sistema) -> ea_bus::SandboxInfo {
         let (nombre, motivo) = match self {
             Sandbox::Ninguno => ("ninguno", None),
             Sandbox::Bwrap => ("bwrap", None),
             Sandbox::Seatbelt => ("seatbelt", None),
             Sandbox::NoDisponible(m) => ("no disponible", Some(m.clone())),
         };
-        ea_store::SandboxInfo {
+        ea_bus::SandboxInfo {
             sistema: sistema.nombre().into(),
             sandbox: nombre.into(),
             disponible: motivo.is_none(),
