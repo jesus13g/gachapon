@@ -617,3 +617,21 @@ export const architecture: typeof import('./copy.en').architecture = {
     },
   ],
 };
+
+export const blog: typeof import('./copy.en').blog = {
+  title: 'Blog — Gachapon',
+  description: 'Noticias y notas de desarrollo de Gachapon: lo que se hace cada día y las nuevas mejoras del sistema.',
+  nav: 'Blog',
+  kicker: 'Blog · diario de desarrollo',
+  h: 'Blog',
+  intro: 'Lo que se hace cada día y las nuevas mejoras del sistema.',
+  listLabel: 'Artículos',
+  langTag: { en: 'EN', es: 'ES' },
+  writtenIn: { en: 'Escrito en inglés', es: 'Escrito en español' },
+  empty: {
+    kicker: 'Blog · aún sin artículos',
+    h: 'Todavía no hay nada publicado.',
+    p: 'Los primeros artículos están en camino: el avance de cada día y las nuevas mejoras de Gachapon.',
+    list: 'Aún no hay artículos.',
+  },
+};

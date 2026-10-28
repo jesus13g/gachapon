@@ -49,8 +49,8 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # tras compilar en rele
 
 | Crate | Qué es |
 |---|---|
-| `ea-ajustes` | Ajustes: `ajustes.toml` (más los TOML heredados), registro de claves con quién las cambia, validación y escritura atómica; base del grafo, no depende de ningún `ea-*` |
-| `ea-biblioteca` | Biblioteca de herramientas (spec 018): inventario de solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de los cinco agentes y del ecosistema, uso por actor, planes de activar/desactivar y de sesión efímera; solo depende de `ea-ajustes` |
+| `ea-ajustes` | Ajustes: `ajustes.toml` (más los TOML heredados), registro de claves con quién las cambia, validación y escritura atómica; base del grafo, solo depende de `ea-plataforma` |
+| `ea-biblioteca` | Biblioteca de herramientas (spec 018): inventario de solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de los cinco agentes y del ecosistema, uso por actor, planes de activar/desactivar y de sesión efímera; depende de `ea-ajustes` y `ea-plataforma` |
 | `ea-plataforma` | Todas las diferencias entre Linux, macOS y Windows (rutas, procesos, ficheros privados, terminal, servicios); sin dependencias `ea-*`; ningún otro crate usa `libc`, `std::os::unix` ni `cfg(target_os)`, salvo pruebas y el aviso con acción de Hyprland del orquestador (solo Linux) |
 | `ea-store` | SQLite: diario, propuestas, índice de la bóveda, trabajos, fases, rutinas. Una sola migración (`0001_inicial.sql`) |
 | `ea-bus` | Bus de ficheros: colas, estado de trabajos (máquina de estados pura), semáforo `flock`, rutinas TOML, `ConfigOrquestador` (la parte de los ajustes que usa el ejecutor) |

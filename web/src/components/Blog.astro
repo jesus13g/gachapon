@@ -1,0 +1,374 @@
+---
+// Blog view: article list on the left, the selected article on the right.
+// Articles are Markdown files in src/blog/ (src/content.config.ts); /blog/ opens the newest, /blog/<slug>/ a given one.
+import { render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import Hud from './Hud.astro';
+import Footer from './Footer.astro';
+import { copyFor, langOf, pathFor } from '../i18n';
+import { posts } from '../lib/blog';
+
+interface Props {
+  slug?: string;
+}
+const { slug } = Astro.props;
+const { blog: b } = copyFor(Astro.currentLocale);
+const lang = langOf(Astro.currentLocale);
+const all = await posts();
+const post = slug ? all.find((p) => p.id === slug) : all[0];
+const { Content } = post ? await render(post) : { Content: null };
+const fecha = new Intl.DateTimeFormat(lang, { dateStyle: 'long', timeZone: 'UTC' });
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+// An article keeps its own language: mark it when it differs from the page's.
+const otherLang = (l: 'en' | 'es') => (l === lang ? undefined : l);
+---
+<Base
+  title={slug && post ? `${post.data.title} · ${b.title}` : b.title}
+  description={(slug && post?.data.summary) || b.description}
+  type={slug ? 'article' : 'website'}
+  page="blog"
+  slug={slug}
+>
+  <Hud page="blog" slug={slug} />
+  <main id="story" class="blog">
+    <aside class="blog-list">
+      <p class="kicker">{b.kicker}</p>
+      <p class="blog-list__title">{b.h}</p>
+      <p class="blog-list__intro">{b.intro}</p>
+      <nav aria-label={b.listLabel}>
+        {all.length ? (
+          <ol>
+            {all.map((p) => (
+              <li>
+                <a href={pathFor(lang, 'blog', p.id)} aria-current={p.id === post?.id ? 'page' : undefined} lang={otherLang(p.data.lang)}>
+                  <span class="blog-list__meta">
+                    <time datetime={iso(p.data.date)}>{fecha.format(p.data.date)}</time>
+                    {otherLang(p.data.lang) && <span class="blog-tag" title={b.writtenIn[p.data.lang]}>{b.langTag[p.data.lang]}</span>}
+                    {p.data.draft && <span class="blog-tag">draft</span>}
+                  </span>
+                  <span class="blog-list__name">{p.data.title}</span>
+                  {p.data.summary && <span class="blog-list__sum">{p.data.summary}</span>}
+                </a>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p class="blog-list__empty">{b.empty.list}</p>
+        )}
+      </nav>
+    </aside>
+
+    {post && Content ? (
+      <article class="post" lang={otherLang(post.data.lang)} aria-labelledby="post-h">
+        <header class="post__head">
+          <p class="kicker">
+            <time datetime={iso(post.data.date)}>{fecha.format(post.data.date)}</time>
+            {post.data.tags.map((t) => <span class="post__tag">{t}</span>)}
+          </p>
+          <h1 id="post-h">{post.data.title}</h1>
+          {post.data.summary && <p class="post__sum">{post.data.summary}</p>}
+        </header>
+        <div class="post__body">
+          <Content />
+        </div>
+      </article>
+    ) : (
+      <section class="post post--empty" aria-labelledby="post-h">
+        <p class="kicker">{b.empty.kicker}</p>
+        <h1 id="post-h">{b.empty.h}</h1>
+        <p class="post__sum">{b.empty.p}</p>
+      </section>
+    )}
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  /* Blog: two columns on the shared tokens — the list is a sticky steel rail, the article a framed panel. */
+  .blog {
+    position: relative;
+    z-index: 9;
+    display: grid;
+    gap: clamp(1.6rem, 3vw, 2.6rem);
+    align-items: start;
+    min-height: 100svh;
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: clamp(88px, 12vh, 130px) var(--gutter) clamp(48px, 8vh, 96px);
+  }
+  @media (min-width: 900px) {
+    .blog {
+      grid-template-columns: minmax(250px, 340px) minmax(0, 1fr);
+    }
+  }
+  /* The article scrolls under the fixed header: denser backdrop, as on the architecture page. */
+  :global(html:not(.is-cinema) body .hud) {
+    background: linear-gradient(var(--bg) 75%, transparent);
+  }
+
+  .blog-list__title {
+    margin: 0 0 0.6rem;
+    font: 800 clamp(2.6rem, 5vw, 4rem) / 0.9 var(--display);
+    text-transform: uppercase;
+  }
+  .blog-list__intro {
+    margin: 0 0 1.4rem;
+    font-size: 0.92rem;
+    line-height: 1.55;
+    color: var(--fg-dim);
+  }
+  .blog-list nav {
+    border-top: 1px solid var(--line);
+  }
+  .blog-list ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .blog-list li {
+    border-bottom: 1px solid var(--line);
+  }
+  .blog-list a {
+    display: grid;
+    gap: 4px;
+    padding: 12px 12px 12px 14px;
+    border-left: 2px solid transparent;
+    text-decoration: none;
+    color: var(--fg-dim);
+    transition: color 0.2s, background 0.2s, border-color 0.2s;
+  }
+  .blog-list a:hover,
+  .blog-list a:focus-visible {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--steel-0) 80%, transparent);
+  }
+  .blog-list a[aria-current] {
+    color: var(--fg);
+    border-left-color: var(--accent);
+    background: var(--steel-0);
+  }
+  .blog-list__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font: 500 0.66rem var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .blog-list a[aria-current] .blog-list__meta {
+    color: var(--accent);
+  }
+  .blog-list__name {
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .blog-list__sum {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--fg-faint);
+  }
+  .blog-list__empty {
+    margin: 0;
+    padding: 14px 0;
+    font: 500 0.72rem var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .blog-tag {
+    padding: 1px 6px;
+    border: 1px solid var(--line-hi);
+    border-radius: 999px;
+    font-size: 0.6rem;
+    color: var(--fg-dim);
+  }
+  /* Wide screens: the list stays in view and scrolls on its own. */
+  @media (min-width: 900px) {
+    .blog-list {
+      position: sticky;
+      top: calc(var(--hud-h, 50px) + 34px);
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - var(--hud-h, 50px) - 60px);
+    }
+    .blog-list nav {
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-hi) transparent;
+    }
+  }
+  /* Narrow: list on top, capped so the article is never far below it. */
+  @media (max-width: 899px) {
+    .blog-list nav {
+      max-height: 42vh;
+      overflow-y: auto;
+    }
+  }
+
+  /* Article panel: the same steel frame as the architecture diagrams. */
+  .post {
+    position: relative;
+    min-width: 0;
+    padding: clamp(1.6rem, 4vw, 3.2rem) clamp(1.2rem, 4vw, 3.4rem);
+    border: 1px solid var(--line-hi);
+    background: linear-gradient(160deg, var(--steel-1), var(--steel-0));
+    box-shadow: inset 0 0 40px color-mix(in srgb, var(--accent) 6%, transparent), 0 18px 50px rgba(0, 0, 0, 0.45);
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+  }
+  .post--empty {
+    min-height: 40vh;
+    display: grid;
+    align-content: center;
+  }
+  .post .kicker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+  }
+  .post__tag {
+    padding: 1px 8px;
+    border: 1px solid var(--line-hi);
+    border-radius: 999px;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    color: var(--fg-dim);
+  }
+  .post h1 {
+    margin: 0 0 1rem;
+    max-width: 40rem;
+    font: 800 clamp(2.2rem, 4.6vw, 4rem) / 0.95 var(--display);
+    text-transform: uppercase;
+  }
+  .post__sum {
+    margin: 0;
+    max-width: 42rem;
+    font-size: clamp(1rem, 1.3vw, 1.15rem);
+    line-height: 1.6;
+    color: var(--fg-dim);
+  }
+  .post__head {
+    padding-bottom: 1.6rem;
+    margin-bottom: 1.8rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* Markdown body */
+  .post__body {
+    max-width: 44rem;
+    line-height: 1.7;
+  }
+  .post__body > :global(:first-child) {
+    margin-top: 0;
+  }
+  .post__body :global(p),
+  .post__body :global(ul),
+  .post__body :global(ol),
+  .post__body :global(blockquote),
+  .post__body :global(pre),
+  .post__body :global(table),
+  .post__body :global(figure) {
+    margin: 0 0 1.2rem;
+  }
+  .post__body :global(h2),
+  .post__body :global(h3),
+  .post__body :global(h4) {
+    margin: 2.2rem 0 0.8rem;
+    line-height: 1.1;
+  }
+  .post__body :global(h2) {
+    font: 800 clamp(1.6rem, 2.6vw, 2.2rem) / 1 var(--display);
+    text-transform: uppercase;
+  }
+  .post__body :global(h3) {
+    font: 600 1.15rem var(--sans);
+  }
+  .post__body :global(h4) {
+    font: 500 0.78rem var(--mono);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .post__body :global(a) {
+    color: var(--fg);
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-underline-offset: 3px;
+  }
+  .post__body :global(a:hover) {
+    color: var(--accent);
+  }
+  .post__body :global(ul),
+  .post__body :global(ol) {
+    padding-left: 1.3rem;
+  }
+  .post__body :global(li) {
+    margin-bottom: 0.35rem;
+  }
+  .post__body :global(li::marker) {
+    color: var(--accent);
+  }
+  .post__body :global(:not(pre) > code) {
+    padding: 0.05em 0.35em;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    font: 500 0.86em var(--mono);
+    overflow-wrap: anywhere;
+  }
+  .post__body :global(pre) {
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    background: var(--bg) !important;
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.6);
+    font: 400 0.84rem / 1.6 var(--mono);
+  }
+  .post__body :global(blockquote) {
+    padding: 0.6rem 1.1rem;
+    border-left: 2px solid var(--accent);
+    background: color-mix(in srgb, var(--steel-0) 70%, transparent);
+    color: var(--fg-dim);
+  }
+  .post__body :global(blockquote > :last-child) {
+    margin-bottom: 0;
+  }
+  .post__body :global(img) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--line);
+  }
+  .post__body :global(hr) {
+    margin: 2.2rem 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+  }
+  .post__body :global(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .post__body :global(th),
+  .post__body :global(td) {
+    padding: 0.45rem 0.8rem;
+    border: 1px solid var(--line);
+    text-align: left;
+  }
+  .post__body :global(th) {
+    font: 500 0.7rem var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    background: var(--steel-0);
+  }
+</style>

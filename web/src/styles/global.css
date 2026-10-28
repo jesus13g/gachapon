@@ -123,6 +123,10 @@ a {
   .hud__links { gap: 10px; }
   .hud__links .nav-pill span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
+/* Very narrow: three view buttons, language and GitHub only fit with the logo alone. */
+@media (max-width: 400px) {
+  .brand__word { display: none; }
+}
 
 .rail {
   position: fixed;
