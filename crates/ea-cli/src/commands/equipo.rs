@@ -48,7 +48,7 @@ pub fn prompt_sesion(equipo: &ea_bus::Equipo, miembro: &Miembro) -> String {
 pub fn despertar(miembros: &[String], todos: bool, titulo: &str, objetivo: &str, worktree: &str, sin_terminal: bool) -> Result<()> {
     // Lo primero: una persona delante de un teclado, no un agente con `ea`
     // como subproceso.
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     despertar_sin_tty(miembros, todos, titulo, objetivo, worktree, sin_terminal, &mut |argv| {
         ea_acciones::terminal::lanzar_en_terminal(argv)
     })
@@ -114,7 +114,7 @@ pub fn despertar_sin_tty(
 }
 
 pub fn dormir(id: &str) -> Result<()> {
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     let e = super::trabajo::bus()?.dormir_equipo(id)?;
     println!("Equipo {} dormido: lo pendiente de sus ejecutores vuelve a la cola de modelo-local.", e.id);
     Ok(())
@@ -209,7 +209,7 @@ pub fn texto_equipo(v: &VistaEquipo) -> String {
 /// con un [`Latido`] (deja de latir si el equipo duerme), ejecuta el agente con
 /// su prompt y quita la presencia al terminar.
 pub fn sesion(id: &str, agente: &str) -> Result<()> {
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     let bus = super::trabajo::bus()?;
     let equipo = bus.leer_equipo(id)?;
     if equipo.estado != EstadoEquipo::Despierto {

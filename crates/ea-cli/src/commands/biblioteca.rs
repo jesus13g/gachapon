@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{bail, Context, Result};
 use comfy_table::Table;
-use ea_acciones::{aceptar_propuesta, observar, proponer, Canal};
+use ea_acciones::{aceptar_propuesta, observar, proponer};
 use ea_ajustes::Fuentes;
 use ea_biblioteca::uso::{calcular_uso, FuentesUso, InformeUso, Uso};
 use ea_biblioteca::{Activado, Biblioteca, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo};
@@ -269,7 +269,7 @@ fn proponer_y_quiza_aceptar(store: &mut Store, herramienta: &str, args: &Value, 
         println!("No se ha hecho nada. Para aplicarla: `ea propuestas decidir {} --aceptar`.", p.id);
         return Ok(());
     }
-    let Ok(canal) = Canal::terminal_interactiva() else {
+    let Ok(canal) = ea_acciones::terminal_interactiva() else {
         println!("Sin terminal interactiva no se acepta: la propuesta #{} queda pendiente.", p.id);
         return Ok(());
     };
@@ -324,7 +324,7 @@ pub fn sesion(store: &mut Store, agente: &str, ids: &[String], directorio: Optio
 /// elemento: lee el mapa, cambia o quita la entrada y lo escribe por la vía
 /// de los ajustes (que exige terminal interactiva y valida la clave).
 pub fn categoria(id: &str, categoria: Option<&str>, quitar: bool) -> Result<()> {
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     let (_, inv) = cargar();
     if !quitar && inv.buscar(id).is_none() {
         bail!("no existe el elemento {id:?} (mira `ea biblioteca listar --ids`)");

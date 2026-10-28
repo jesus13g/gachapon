@@ -1,5 +1,6 @@
 //! API del bus: colas por agente, estado de los trabajos y su historial.
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -51,6 +52,12 @@ pub(crate) fn nuevo_id() -> String {
         t.second(),
         n & 0xffff
     )
+}
+
+/// Los ids de trabajo (y de equipo) acaban en una ruta del bus: nada que no
+/// sea `[A-Za-z0-9-]`.
+pub fn id_valido(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// Lo que hizo [`Bus::entregar`] con el trabajo, según su modo.
@@ -165,7 +172,7 @@ impl Bus {
     }
 
     pub(crate) fn dir_trabajo(&self, id: &str) -> Resultado<PathBuf> {
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        if !id_valido(id) {
             return Err(ErrorBus::Argumentos(format!("id de trabajo inválido: {id:?}")));
         }
         Ok(self.raiz.join("trabajos").join(id))
@@ -774,6 +781,26 @@ impl Bus {
             }
         }
         Ok(v)
+    }
+
+    /// La última ejecución (el trabajo más reciente, con su estado) de cada
+    /// una de `slugs`, en una sola pasada del más nuevo al más viejo (los ids
+    /// empiezan por la fecha) que acaba en cuanto las ha visto todas. Un
+    /// trabajo con la orden o el estado ilegibles no cuenta, como en
+    /// [`Bus::trabajos_de_rutina`].
+    pub fn ultimas_ejecuciones(&self, slugs: &HashSet<String>) -> Resultado<HashMap<String, (String, Estado)>> {
+        let mut out = HashMap::new();
+        for id in self.listar_trabajos()?.into_iter().rev() {
+            if out.len() == slugs.len() {
+                break;
+            }
+            let Some(slug) = self.leer_orden(&id).ok().and_then(|o| o.rutina).map(|r| r.slug) else { continue };
+            if slugs.contains(&slug) && !out.contains_key(&slug)
+                && let Ok(e) = self.leer_estado(&id) {
+                out.insert(slug, (id, e));
+            }
+        }
+        Ok(out)
     }
 
     /// Reformula un trabajo en revisión: añade las notas de la revisión a

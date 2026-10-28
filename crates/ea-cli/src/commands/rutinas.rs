@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -28,25 +29,8 @@ fn proxima_ejecucion(slug: &str) -> Option<String> {
     super::bloquear(ea_acciones::Temporizadores::usuario().proxima_legible(slug))
 }
 
-/// Las rutinas registradas cruzadas con su fichero en `rutinas_dir`
-/// ([`ea_bus::ubicacion_rutina`]): las activas o, con `retiradas`, las que
-/// están en la papelera o sin fichero.
-pub fn filtrar_por_ubicacion(
-    filas: Vec<ea_store::FilaRutina>,
-    dir: &std::path::Path,
-    retiradas: bool,
-) -> Vec<(ea_store::FilaRutina, ea_bus::Ubicacion)> {
-    filas
-        .into_iter()
-        .filter_map(|f| {
-            let u = ea_bus::ubicacion_rutina(dir, &f.slug).unwrap_or(ea_bus::Ubicacion::SinFichero);
-            ((u == ea_bus::Ubicacion::Activa) != retiradas).then_some((f, u))
-        })
-        .collect()
-}
-
 pub fn listar(store: &Store, retiradas: bool) -> Result<()> {
-    let rutinas = filtrar_por_ubicacion(store.listar_rutinas()?, &rutinas_dir(), retiradas);
+    let rutinas = ea_bus::rutinas_por_ubicacion(store.listar_rutinas()?, &rutinas_dir(), retiradas);
     if rutinas.is_empty() {
         if retiradas {
             println!("No hay rutinas retiradas.");
@@ -55,6 +39,7 @@ pub fn listar(store: &Store, retiradas: bool) -> Result<()> {
         }
         return Ok(());
     }
+    let mut ultimas = ultimas_ejecuciones(&rutinas);
     let mut table = Table::new();
     if retiradas {
         table.set_header(vec!["Rutina", "Versión", "Dónde", "Última ejecución"]);
@@ -63,7 +48,8 @@ pub fn listar(store: &Store, retiradas: bool) -> Result<()> {
                 ea_bus::Ubicacion::Retirada => "papelera (ea rutina restaurar)",
                 _ => "sin fichero (registra una versión nueva)",
             };
-            let ultima = ultimo_trabajo(&r.slug)
+            let ultima = ultimas
+                .remove(&r.slug)
                 .map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str()))
                 .unwrap_or_else(|| "nunca".to_string());
             table.add_row(vec![r.slug, r.version.to_string(), donde.to_string(), ultima]);
@@ -74,7 +60,8 @@ pub fn listar(store: &Store, retiradas: bool) -> Result<()> {
     let proxima_cabecera = format!("Próxima ({})", programador());
     table.set_header(vec!["Rutina", "Versión", "Última ejecución", proxima_cabecera.as_str()]);
     for (r, _) in rutinas {
-        let ultima = ultimo_trabajo(&r.slug)
+        let ultima = ultimas
+            .remove(&r.slug)
             .map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str()))
             .unwrap_or_else(|| "nunca".to_string());
         let proxima = proxima_ejecucion(&r.slug).unwrap_or_else(|| "—".to_string());
@@ -128,9 +115,11 @@ pub fn ver(store: &Store, slug: &str) -> Result<()> {
     Ok(())
 }
 
-/// Trabajo más reciente de una rutina en el bus (cualquiera que sea su estado).
-pub fn ultimo_trabajo(slug: &str) -> Option<(String, ea_bus::Estado)> {
-    super::trabajo::bus().ok()?.trabajos_de_rutina(slug).ok()?.into_iter().next()
+/// El trabajo más reciente de cada una de `rutinas` en el bus (cualquiera
+/// que sea su estado), en una sola pasada; sin bus, ninguno.
+pub fn ultimas_ejecuciones(rutinas: &[(ea_store::FilaRutina, ea_bus::Ubicacion)]) -> HashMap<String, (String, ea_bus::Estado)> {
+    let slugs = rutinas.iter().map(|(r, _)| r.slug.clone()).collect();
+    super::trabajo::bus().ok().and_then(|b| b.ultimas_ejecuciones(&slugs).ok()).unwrap_or_default()
 }
 
 pub fn registrar(fichero: &std::path::Path) -> Result<()> {

@@ -75,7 +75,7 @@ pub fn ruta() -> Result<()> {
 pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
     // Lo primero: una persona delante de un teclado, no un agente con `ea`
     // como subproceso.
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     if cambios.is_empty() && quitar.is_empty() {
         bail!("nada que cambiar: `ea ajustes establecer clave=valor ...` o `--quitar clave`");
     }

@@ -89,7 +89,7 @@ pub fn decidir(store: &mut Store, id: i64, aceptar: bool, rechazar: bool) -> Res
                 if previa.estado != EstadoPropuesta::Pendiente {
                     bail!("propuesta #{id} ya decidida");
                 }
-                canal = Canal::terminal_interactiva()?;
+                canal = ea_acciones::terminal_interactiva()?;
                 println!("Propuesta #{id}: {}", limpio(&previa.descripcion));
                 if !confirmar_en_terminal(&a.herramienta, &a.riesgo, &a.argumentos, &a.simulacion, &id.to_string())? {
                     println!("Cancelado: la propuesta sigue pendiente y no se ha hecho nada.");

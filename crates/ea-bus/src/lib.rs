@@ -24,7 +24,7 @@ mod worktree;
 
 pub use worktree::InfoWorktree;
 pub use git::validar_worktree;
-pub use bus::{comprobar_registro, Bus, Entrega, EntradaCola, ENV_ESTADO, raiz_estado};
+pub use bus::{comprobar_registro, id_valido, Bus, Entrega, EntradaCola, ENV_ESTADO, raiz_estado};
 pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo, Miembro, NuevoEquipo, RolEquipo};
 pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, ResumenTrabajo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
 pub use presencia::{Latido, Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};
@@ -35,8 +35,8 @@ pub use rutina::{slug_valido, validar_entradas, CabeceraRutina, Paso, Rutina, MA
 pub use error::{ErrorBus, Resultado};
 /// La papelera de las rutinas: retirar y restaurar sin tocar SQLite (spec 004, RF-011).
 pub use papelera::{
-    comprobar_lanzable, quitar_de_papelera, restaurar_rutina, retirar_rutina, ruta_activa, ruta_retirada, ubicacion_rutina,
-    Ubicacion, DIR_PAPELERA,
+    comprobar_lanzable, quitar_de_papelera, restaurar_rutina, retirar_rutina, ruta_activa, ruta_retirada, rutinas_por_ubicacion,
+    ubicacion_rutina, Ubicacion, DIR_PAPELERA,
 };
 /// Escritura atómica (temporal, `fsync` y renombrado), también para quien
 /// escribe fuera del bus (el timer de una rutina, en `ea-acciones`).

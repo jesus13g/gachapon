@@ -20,8 +20,8 @@ use crate::plist;
 use crate::sistema::EstadoServicio;
 
 /// Los servicios que se instalan con `ea servicios instalar` (el
-/// `llama-server` es del usuario y no se toca).
-pub const SERVICIOS_INSTALABLES: [&str; 3] = ["ea-mcp", "ea-orchestrator", "ea-web"];
+/// `llama-server` es del usuario y no se toca), de la tabla de `ea-ajustes`.
+pub use ea_ajustes::SERVICIOS_INSTALABLES;
 
 const LIMITE_CONSULTA: Duration = Duration::from_secs(5);
 const LIMITE_REINICIO: Duration = Duration::from_secs(30);
@@ -51,6 +51,24 @@ impl Backend {
             Backend::Systemd => "systemctl",
             Backend::Launchd => "launchctl",
             Backend::Schtasks => "schtasks",
+        }
+    }
+
+    /// `systemd`, `launchd` o `schtasks`.
+    pub fn nombre(self) -> &'static str {
+        match self {
+            Backend::Systemd => "systemd",
+            Backend::Launchd => "launchd",
+            Backend::Schtasks => "schtasks",
+        }
+    }
+
+    /// El gestor, en una frase (`ea servicios ver` y el panel).
+    pub fn descripcion(self) -> &'static str {
+        match self {
+            Backend::Systemd => "systemd --user (unidades en ~/.config/systemd/user)",
+            Backend::Launchd => "launchd (LaunchAgents en ~/Library/LaunchAgents)",
+            Backend::Schtasks => "Programador de tareas de Windows (tareas «ecosistema-asistente\\…» al iniciar sesión)",
         }
     }
 }

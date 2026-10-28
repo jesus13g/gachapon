@@ -281,46 +281,34 @@ pub fn proyeccion_local() -> impl Iterator<Item = &'static Herramienta> {
     CATALOGO.iter().filter(|h| h.local)
 }
 
-/// Por dónde da el usuario su confirmación (§11.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Canal {
-    Terminal,
-    Web,
+/// Por dónde da el usuario su confirmación (§11.1): el mismo canal con el
+/// que se cambian los ajustes. Nunca por voz ni por MCP: esos canales ni
+/// siquiera existen como variantes.
+pub use ea_ajustes::Canal;
+
+/// Terminal interactiva real: stdin y stdout deben ser un TTY. Es lo que
+/// distingue a una persona delante de un teclado de un agente que lanza
+/// `ea` como subproceso sin terminal.
+pub fn terminal_interactiva() -> Result<Canal, ErrorAccion> {
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        Ok(Canal::Terminal)
+    } else {
+        Err(ErrorAccion::Prohibida(
+            "la confirmación debe darse en una terminal interactiva (sin TTY no se confirma)"
+                .into(),
+        ))
+    }
 }
 
-impl Canal {
-    /// Terminal interactiva real: stdin y stdout deben ser un TTY. Es lo que
-    /// distingue a una persona delante de un teclado de un agente que lanza
-    /// `ea` como subproceso sin terminal.
-    pub fn terminal_interactiva() -> Result<Canal, ErrorAccion> {
-        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-            Ok(Canal::Terminal)
-        } else {
-            Err(ErrorAccion::Prohibida(
-                "la confirmación debe darse en una terminal interactiva (sin TTY no se confirma)"
-                    .into(),
-            ))
-        }
-    }
-
-    pub fn nombre(self) -> &'static str {
-        match self {
-            Canal::Terminal => "terminal",
-            Canal::Web => "web",
-        }
-    }
-
-    /// §11.1: reversible requiere confirmación (terminal o web);
-    /// irreversible, solo terminal. Nunca por voz ni por MCP: esos canales
-    /// ni siquiera existen como variantes.
-    pub fn puede_confirmar(self, riesgo: Riesgo) -> Result<(), ErrorAccion> {
-        match (self, riesgo) {
-            (Canal::Web, Riesgo::Irreversible) => Err(ErrorAccion::Prohibida(
-                "una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)"
-                    .into(),
-            )),
-            _ => Ok(()),
-        }
+/// §11.1: reversible requiere confirmación (terminal o web); irreversible,
+/// solo terminal.
+pub fn puede_confirmar(canal: Canal, riesgo: Riesgo) -> Result<(), ErrorAccion> {
+    match (canal, riesgo) {
+        (Canal::Web, Riesgo::Irreversible) => Err(ErrorAccion::Prohibida(
+            "una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)"
+                .into(),
+        )),
+        _ => Ok(()),
     }
 }
 

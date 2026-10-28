@@ -27,12 +27,12 @@ pub mod sistema;
 pub mod temporizador;
 pub mod terminal;
 
-pub use catalogo::{autorizar_mcp, buscar, Canal, Ejecucion, Herramienta, Riesgo, CATALOGO};
+pub use catalogo::{autorizar_mcp, buscar, puede_confirmar, terminal_interactiva, Canal, Ejecucion, Herramienta, Riesgo, CATALOGO};
 pub use diff::diff_lineas;
 pub use error::ErrorAccion;
 pub use flujo::{aceptar_propuesta, aceptar_propuesta_con_resultado, ejecutar, ejecutar_directo, proponer, rechazar_propuesta, Resultado};
 pub use herramientas::{campos, observar, simular_con, validar_argumentos, Campo, Hechos, Simulacion};
-pub use sistema::{canal_de_ajustes, Consulta, EstadoServicio, Sistema, SistemaReal, SistemaSimulado, SoloConsulta};
+pub use sistema::{Consulta, EstadoServicio, Sistema, SistemaReal, SistemaSimulado, SoloConsulta};
 pub use temporizador::{Calendario, EstadoTimer, Temporizadores};
 pub use servicios::{Backend, GestorServicios, InfoServicio, SERVICIOS_INSTALABLES};
 pub use terminal::{lanzar_en_terminal, OrdenTerminal, Terminal, TerminalSimulada, TerminalSistema};

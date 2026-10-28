@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use ea_acciones::servicios::{aplicar, correr_orden, Entorno, Paso};
-use ea_acciones::Canal;
 use ea_ajustes::Fuentes;
 use ea_plataforma::Sistema;
 use serde_json::Value;
@@ -59,7 +58,7 @@ fn dentro_de_wsl() -> bool {
 /// Lo primero: una persona delante de un teclado y no `root` (los servicios
 /// son del usuario).
 fn comprobar_terminal_y_usuario() -> Result<()> {
-    Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     if ea_plataforma::usuario::uid() == Some(0) {
         bail!("no ejecutes `ea instalar` como root: los servicios, los ajustes y la app son de tu usuario (lo que necesite sudo lo pedirá él)");
     }

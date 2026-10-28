@@ -302,7 +302,9 @@ pub fn contenido_desktop(binario: &Path) -> String {
     )
 }
 
-fn escapar_xml(t: &str) -> String {
+/// Escapa un texto para ir dentro de un elemento (o un atributo) XML: el
+/// LaunchAgent de aquí y los de `ea-acciones` (plist y tareas de Windows).
+pub fn escapar_xml(t: &str) -> String {
     t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 

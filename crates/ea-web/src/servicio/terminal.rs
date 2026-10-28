@@ -128,7 +128,7 @@ fn validar_herramienta(nombre: &str, argumentos: Value) -> Resultado<Orden> {
     let h = ea_acciones::buscar(nombre)
         .filter(|h| h.ejecucion == ea_acciones::Ejecucion::Supervisada)
         .ok_or_else(|| invalido(format!("'{nombre}' no es una herramienta supervisada del catálogo")))?;
-    if Canal::Web.puede_confirmar(h.riesgo).is_ok() {
+    if ea_acciones::puede_confirmar(Canal::Web, h.riesgo).is_ok() {
         return Err(invalido(format!("'{nombre}' se confirma desde la web; la terminal es para lo irreversible")));
     }
     let args: &Map<String, Value> =
@@ -153,7 +153,7 @@ async fn validar_propuesta(s: &AppState, id: i64) -> Resultado<Orden> {
     }
     let riesgo = p.accion.as_ref().and_then(|a| Riesgo::parse(&a.riesgo));
     match riesgo {
-        Some(r) if Canal::Web.puede_confirmar(r).is_err() => Ok(Orden::Propuesta(id)),
+        Some(r) if ea_acciones::puede_confirmar(Canal::Web, r).is_err() => Ok(Orden::Propuesta(id)),
         _ => Err(invalido(format!("la propuesta #{id} se decide desde la web; la terminal es para lo irreversible"))),
     }
 }

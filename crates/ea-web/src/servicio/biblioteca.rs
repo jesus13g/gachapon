@@ -247,7 +247,7 @@ pub async fn simular(s: &AppState, herramienta: &str, argumentos: &Value) -> Res
         argumentos: sim.argumentos,
         texto: sim.texto,
         precondicion: sim.precondicion,
-        confirmable: Canal::Web.puede_confirmar(sim.riesgo).is_ok(),
+        confirmable: ea_acciones::puede_confirmar(Canal::Web, sim.riesgo).is_ok(),
     })
 }
 

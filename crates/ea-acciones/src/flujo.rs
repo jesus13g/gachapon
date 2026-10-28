@@ -8,7 +8,7 @@ use ea_store::{
 };
 use serde_json::{json, Value};
 
-use crate::catalogo::{Canal, Riesgo};
+use crate::catalogo::{puede_confirmar, Canal, Riesgo};
 use crate::error::ErrorAccion;
 use crate::herramientas::{self, supervisada, Hechos};
 use crate::sistema::{Consulta, Sistema};
@@ -135,7 +135,7 @@ pub async fn ejecutar<S: Sistema>(
     };
 
     let intento: Result<herramientas::Aplicada, ErrorAccion> = async {
-        canal.puede_confirmar(h.riesgo)?;
+        puede_confirmar(canal, h.riesgo)?;
         let hechos = herramientas::observar(sistema, herramienta, args).await?;
         herramientas::revalidar_con(store, sistema, &hechos, herramienta, args, precondicion)?;
         match herramientas::aplicar_en_store(store, &sistema.estado_dir(), actor, canal, herramienta, args)? {
@@ -185,7 +185,7 @@ pub async fn ejecutar_directo<S: Sistema>(
     args: &Value,
 ) -> Result<Resultado, ErrorAccion> {
     let h = supervisada(herramienta)?;
-    if let Err(e) = canal.puede_confirmar(h.riesgo) {
+    if let Err(e) = puede_confirmar(canal, h.riesgo) {
         evento(
             store,
             actor,
@@ -268,7 +268,7 @@ pub async fn aceptar_propuesta_con_resultado<S: Sistema>(
 
     // La política de canal se comprueba antes de reclamar: una web que
     // intenta aceptar un irreversible no consume la propuesta.
-    if let Err(e) = canal.puede_confirmar(riesgo_de(&previa, &accion)?) {
+    if let Err(e) = puede_confirmar(canal, riesgo_de(&previa, &accion)?) {
         evento(
             store,
             actor,

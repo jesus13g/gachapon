@@ -181,7 +181,7 @@ pub struct NuevoEquipo {
 
 impl Bus {
     fn dir_equipo(&self, id: &str) -> Resultado<PathBuf> {
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        if !crate::bus::id_valido(id) {
             return Err(ErrorBus::Argumentos(format!("id de equipo inválido: {id:?}")));
         }
         Ok(self.raiz.join("equipos").join(id))

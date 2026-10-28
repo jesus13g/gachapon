@@ -92,9 +92,10 @@ pub fn run(store: &mut Store) -> Result<()> {
     let mut rutinas = Vec::new();
     // Solo las que están en uso: las retiradas, con `ea rutina listar --retiradas`.
     let dir = ea_ajustes::cargar().orquestador.rutinas_dir;
-    for (r, _) in crate::commands::rutinas::filtrar_por_ubicacion(store.listar_rutinas().unwrap_or_default(), &dir, false) {
-        let ultima_ejecucion = crate::commands::rutinas::ultimo_trabajo(&r.slug)
-            .map(|(_, e)| format!("{} ({})", e.actualizado_en, e.estado.as_str()));
+    let en_uso = ea_bus::rutinas_por_ubicacion(store.listar_rutinas().unwrap_or_default(), &dir, false);
+    let mut ultimas = crate::commands::rutinas::ultimas_ejecuciones(&en_uso);
+    for (r, _) in en_uso {
+        let ultima_ejecucion = ultimas.remove(&r.slug).map(|(_, e)| format!("{} ({})", e.actualizado_en, e.estado.as_str()));
         rutinas.push(RutinaResumen { slug: r.slug, version: r.version, ultima_ejecucion });
     }
 

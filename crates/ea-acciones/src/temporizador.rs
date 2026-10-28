@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use ea_bus::slug_valido;
 use ea_plataforma::Sistema;
 use time::{OffsetDateTime, PrimitiveDateTime};
 use tokio::process::Command;
@@ -24,7 +25,6 @@ use tokio::time::timeout;
 use crate::calendario::{self, Cuando, Horario, IntervaloLaunchd};
 use crate::plist;
 use crate::servicios::{bloques_show, cita_systemd, dir_unidades, Backend};
-use crate::sistema::slug_valido;
 
 /// Longitud máxima de una expresión `OnCalendar`.
 pub const MAX_CALENDARIO: usize = 200;

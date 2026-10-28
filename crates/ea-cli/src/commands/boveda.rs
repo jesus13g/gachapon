@@ -124,7 +124,7 @@ pub fn promover(store: &mut Store, ruta: &str, destino: Option<String>) -> Resul
 /// borraría a la vista y la frase `confirmo vaciar-papelera`.
 pub fn vaciar_papelera(store: &mut Store) -> Result<()> {
     let b = Boveda::configurada();
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     let r = b.simular_vaciar_papelera()?;
     if r.entradas == 0 {
         println!("La papelera de la bóveda está vacía: no hay nada que borrar.");

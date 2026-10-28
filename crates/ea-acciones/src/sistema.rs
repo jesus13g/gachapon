@@ -21,9 +21,8 @@ use crate::servicios::GestorServicios;
 use crate::temporizador::{comprobar_calendario, Calendario, EstadoTimer, Temporizadores};
 use crate::terminal::{Terminal, TerminalSimulada, TerminalSistema};
 
-/// Servicios que se pueden reiniciar: lista cerrada.
-pub const SERVICIOS_REINICIABLES: [&str; 4] =
-    ["llama-server", "ea-mcp", "ea-orchestrator", "ea-web"];
+/// Servicios que se pueden reiniciar: lista cerrada (de la tabla de `ea-ajustes`).
+pub use ea_ajustes::SERVICIOS_REINICIABLES;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EstadoServicio {
@@ -135,30 +134,8 @@ pub trait Sistema: Consulta {
     fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> impl Future<Output = Result<Hecho, String>> + Send;
 }
 
-/// El canal de ajustes que corresponde al de la confirmación.
-pub fn canal_de_ajustes(canal: Canal) -> ea_ajustes::Canal {
-    match canal {
-        Canal::Terminal => ea_ajustes::Canal::Terminal,
-        Canal::Web => ea_ajustes::Canal::Web,
-    }
-}
-
-/// Los slugs acaban en una ruta de fichero: nada que no sea `[A-Za-z0-9_-]`.
-pub fn slug_valido(slug: &str) -> bool {
-    !slug.is_empty()
-        && slug.len() <= 64
-        && slug.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
-
-fn ruta_rutina(dir: &std::path::Path, slug: &str) -> Result<PathBuf, String> {
-    if !slug_valido(slug) {
-        return Err(format!("slug de rutina inválido: '{slug}'"));
-    }
-    Ok(dir.join(format!("{slug}.toml")))
-}
-
 fn leer_rutina(dir: &std::path::Path, slug: &str) -> Result<Option<String>, String> {
-    leer_opcional(&ruta_rutina(dir, slug)?)
+    leer_opcional(&ea_bus::ruta_activa(dir, slug).map_err(|e| e.to_string())?)
 }
 
 fn leer_retirada(dir: &std::path::Path, slug: &str) -> Result<Option<String>, String> {
@@ -375,7 +352,7 @@ impl Sistema for SistemaReal {
 
     /// En un hilo aparte: puede lanzar una orden de hasta 30 s.
     async fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> Result<Hecho, String> {
-        let (c, ctx) = (cambio.clone(), Contexto { canal: canal_de_ajustes(canal), ..self.consulta.contexto_biblioteca() });
+        let (c, ctx) = (cambio.clone(), Contexto { canal, ..self.consulta.contexto_biblioteca() });
         tokio::task::spawn_blocking(move || ea_biblioteca::aplicar_con(&c, &ctx, &OrdenesReales))
             .await
             .map_err(|e| format!("la tarea del cambio falló: {e}"))?
@@ -482,13 +459,13 @@ impl Consulta for SistemaSimulado {
             .unwrap_or(EstadoServicio { cargado: false, activo: "inactive".into() }))
     }
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
-        if !slug_valido(slug) {
+        if !ea_bus::slug_valido(slug) {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
         Ok(self.rutinas.lock().unwrap().get(slug).cloned())
     }
     fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String> {
-        if !slug_valido(slug) {
+        if !ea_bus::slug_valido(slug) {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
         Ok(self.retiradas.lock().unwrap().get(slug).cloned())
@@ -522,7 +499,7 @@ impl Consulta for SistemaSimulado {
         crate::sesion::plan_en(agente, ids, directorio, inventario, raices)
     }
     async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
-        if !slug_valido(slug) {
+        if !ea_bus::slug_valido(slug) {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
         let cal = self.timers.lock().unwrap().get(slug).cloned();
@@ -666,7 +643,7 @@ impl Sistema for SistemaSimulado {
         Ok(habia)
     }
     async fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> Result<Hecho, String> {
-        let ctx = Contexto { canal: canal_de_ajustes(canal), ..self.contexto_biblioteca()? };
+        let ctx = Contexto { canal, ..self.contexto_biblioteca()? };
         let h = ea_biblioteca::aplicar_con(cambio, &ctx, &self.ordenes).map_err(|e| e.to_string())?;
         self.mutaciones.lock().unwrap().push(format!("biblioteca:{}:{}", if h.activar { "activar" } else { "desactivar" }, h.id));
         Ok(h)

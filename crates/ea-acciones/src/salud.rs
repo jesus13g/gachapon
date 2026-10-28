@@ -20,8 +20,9 @@ use serde::Serialize;
 
 use crate::GestorServicios;
 
-/// Los únicos servicios que la interfaz puede consultar y reiniciar.
-pub const SERVICIOS: [&str; 3] = ["llama-server", "ea-mcp", "ea-orchestrator"];
+/// Los únicos servicios que la interfaz puede consultar y reiniciar (de la
+/// tabla de `ea-ajustes`).
+pub use ea_ajustes::SERVICIOS_MONITORIZADOS as SERVICIOS;
 
 pub struct Servicio {
     pub nombre: &'static str,

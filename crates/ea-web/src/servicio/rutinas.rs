@@ -31,25 +31,13 @@ fn ejecucion(bus: &Bus, id: &str) -> Option<crate::vistas::RutinaEjecucion> {
     })
 }
 
-/// El trabajo más reciente de cada una de `slugs`, en una sola pasada por
-/// el bus del más nuevo al más viejo (los ids empiezan por la fecha): se lee
-/// la orden de cada trabajo hasta haber visto todas, y el estado y el
-/// informe solo del elegido. Si el bus no se puede abrir, ninguna.
+/// La última ejecución de cada una de `slugs`, en una sola pasada por el
+/// bus ([`Bus::ultimas_ejecuciones`]); el informe, solo de la elegida. Si el
+/// bus no se puede abrir, ninguna.
 fn ultimas(s: &AppState, slugs: &HashSet<String>) -> HashMap<String, crate::vistas::RutinaEjecucion> {
-    let mut out = HashMap::new();
-    let Ok(bus) = super::bus_lectura(s) else { return out };
-    let Ok(ids) = bus.listar_trabajos() else { return out };
-    for id in ids.iter().rev() {
-        if out.len() == slugs.len() {
-            break;
-        }
-        let Some(slug) = bus.leer_orden(id).ok().and_then(|o| o.rutina).map(|r| r.slug) else { continue };
-        if slugs.contains(&slug) && !out.contains_key(&slug)
-            && let Some(e) = ejecucion(&bus, id) {
-            out.insert(slug, e);
-        }
-    }
-    out
+    let Ok(bus) = super::bus_lectura(s) else { return HashMap::new() };
+    let ultimas = bus.ultimas_ejecuciones(slugs).unwrap_or_default();
+    ultimas.into_iter().filter_map(|(slug, (id, _))| Some((slug, ejecucion(&bus, &id)?))).collect()
 }
 
 /// Dónde está el TOML de la rutina; un error de lectura cuenta como sin
@@ -61,23 +49,11 @@ fn ubicacion(s: &AppState, slug: &str) -> ea_bus::Ubicacion {
 /// Las rutinas registradas cruzadas con su fichero (spec 004, RF-011): las
 /// activas o, con `retiradas`, las que están en la papelera o sin fichero.
 pub async fn listar(s: &AppState, retiradas: bool) -> Resultado<Vec<RutinaFila>> {
-    let filas: Vec<_> = s
-        .store
-        .lock()
-        .await
-        .listar_rutinas()?
-        .into_iter()
-        .map(|f| {
-            let u = ubicacion(s, &f.slug);
-            (f, u)
-        })
-        .filter(|(_, u)| (*u == ea_bus::Ubicacion::Activa) != retiradas)
-        .collect();
-    let filas_u: Vec<ea_bus::Ubicacion> = filas.iter().map(|(_, u)| *u).collect();
-    let filas: Vec<_> = filas.into_iter().map(|(f, _)| f).collect();
-    let mut ultimas = ultimas(s, &filas.iter().map(|f| f.slug.clone()).collect());
+    let registradas = s.store.lock().await.listar_rutinas()?;
+    let filas = ea_bus::rutinas_por_ubicacion(registradas, &s.config.rutinas_dir, retiradas);
+    let mut ultimas = ultimas(s, &filas.iter().map(|(f, _)| f.slug.clone()).collect());
     let mut out = Vec::with_capacity(filas.len());
-    for (f, u) in filas.into_iter().zip(filas_u) {
+    for (f, u) in filas {
         let r = ea_bus::Rutina::parsear(&f.definicion).ok();
         let (proxima, timer) = if s.config.systemctl && ea_bus::slug_valido(&f.slug) {
             match s.config.temporizadores.proxima(&f.slug).await {

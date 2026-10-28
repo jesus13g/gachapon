@@ -105,3 +105,25 @@ fn lanzar_dos_veces_seguidas_la_misma_rutina_falla_la_segunda() {
     assert!(err.contains("la rutina 'informe' ya tiene una ejecución en curso"), "{err}");
     assert_eq!(std::fs::read_dir(d.path().join("estado/trabajos")).unwrap().count(), 1);
 }
+
+/// `ea rutina listar` cruza cada rutina con su última ejecución en el bus:
+/// la lanzada muestra su trabajo y su estado; la que no se lanzó, «nunca».
+#[test]
+fn listar_muestra_la_ultima_ejecucion_de_cada_rutina() {
+    let d = tempfile::tempdir().unwrap();
+    for (slug, texto) in [("informe", RUTINA.to_string()), ("otra", RUTINA.replace("\"informe\"", "\"otra\""))] {
+        let f = d.path().join(format!("{slug}.toml"));
+        std::fs::write(&f, texto).unwrap();
+        let o = ea(d.path(), &["rutina", "registrar", f.to_str().unwrap()]);
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    }
+    let o = ea(d.path(), &["rutina", "lanzar", "informe"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let id = String::from_utf8_lossy(&o.stdout).trim().to_string();
+
+    let o = ea(d.path(), &["rutina", "listar"]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    let fila = |slug: &str| out.lines().find(|l| l.contains(&format!(" {slug} "))).unwrap_or_else(|| panic!("{slug}: {out}")).to_string();
+    assert!(fila("informe").contains(&format!("(en_cola, {id})")), "{out}");
+    assert!(fila("otra").contains("nunca"), "{out}");
+}

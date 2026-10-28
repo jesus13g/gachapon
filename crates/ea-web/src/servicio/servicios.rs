@@ -46,14 +46,6 @@ pub struct PlanServicios {
     pub path_fijo: bool,
 }
 
-fn gestor(b: Backend) -> &'static str {
-    match b {
-        Backend::Systemd => "systemd --user (unidades en ~/.config/systemd/user)",
-        Backend::Launchd => "launchd (LaunchAgents en ~/Library/LaunchAgents)",
-        Backend::Schtasks => "Programador de tareas de Windows (tareas «ecosistema-asistente\\…» al iniciar sesión)",
-    }
-}
-
 /// Solo lectura: no cambia nada. Si el gestor no responde (o no se consulta,
 /// en las pruebas), cada servicio sale `desconocido`.
 pub async fn plan(s: &AppState) -> Resultado<PlanServicios> {
@@ -78,12 +70,8 @@ pub async fn plan(s: &AppState) -> Resultado<PlanServicios> {
     }
     Ok(PlanServicios {
         sistema: ea_plataforma::Sistema::actual().nombre(),
-        backend: match env.backend {
-            Backend::Systemd => "systemd",
-            Backend::Launchd => "launchd",
-            Backend::Schtasks => "schtasks",
-        },
-        gestor: gestor(env.backend),
+        backend: env.backend.nombre(),
+        gestor: env.backend.descripcion(),
         binarios: env.exes_dir.display().to_string(),
         unidades: env.unidades_dir.display().to_string(),
         faltan: env.faltan().iter().map(|p| p.display().to_string()).collect(),

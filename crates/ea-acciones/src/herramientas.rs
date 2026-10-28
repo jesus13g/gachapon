@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use ea_biblioteca::{Cambio, Id};
+use ea_bus::slug_valido;
 use ea_store::{EventOutcome, NewEvent, Store};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -13,7 +14,7 @@ use serde_json::{json, Value};
 use crate::catalogo::{self, Canal, Ejecucion, Herramienta, Riesgo};
 use crate::diff::diff_lineas;
 use crate::error::ErrorAccion;
-use crate::sistema::{slug_valido, Consulta, EstadoServicio, Sistema, SERVICIOS_REINICIABLES};
+use crate::sistema::{Consulta, EstadoServicio, Sistema, SERVICIOS_REINICIABLES};
 use crate::temporizador::{comprobar_calendario, unidad_timer, Calendario, EstadoTimer};
 
 /// Qué haría una herramienta con unos argumentos, sin hacerlo.
@@ -50,7 +51,7 @@ struct PorTrabajo {
 }
 
 fn comprobar_trabajo(id: &str) -> Result<(), ErrorAccion> {
-    if !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if id.len() <= 64 && ea_bus::id_valido(id) {
         Ok(())
     } else {
         Err(ErrorAccion::Argumentos(format!("id de trabajo inválido: '{id}'")))

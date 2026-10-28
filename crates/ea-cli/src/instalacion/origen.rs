@@ -8,8 +8,10 @@ use ea_plataforma::Sistema;
 
 use super::{Destinos, Origen};
 
-/// Los binarios que lleva un paquete, sin extensión. `ea-escritorio` es
-/// opcional: el paquete puede no traerlo (p. ej. dentro de WSL).
+/// Los binarios que lleva un paquete, sin extensión: `ea` y los servicios
+/// instalables ([`ea_ajustes::SERVICIOS_INSTALABLES`]), en el orden del plan.
+/// `ea-escritorio` es opcional: el paquete puede no traerlo (p. ej. dentro de
+/// WSL).
 pub const BINARIOS: [&str; 4] = ["ea", "ea-web", "ea-mcp", "ea-orchestrator"];
 pub const BINARIO_ESCRITORIO: &str = "ea-escritorio";
 
@@ -74,6 +76,13 @@ mod pruebas {
 
     fn sin_var(_: &str) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn los_binarios_son_ea_y_los_servicios_instalables() {
+        let mut servicios = BINARIOS[1..].to_vec();
+        servicios.sort();
+        assert_eq!((BINARIOS[0], servicios.as_slice()), ("ea", ea_ajustes::SERVICIOS_INSTALABLES.as_slice()));
     }
 
     #[test]

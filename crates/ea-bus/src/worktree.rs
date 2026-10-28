@@ -99,7 +99,7 @@ impl Bus {
     }
 
     fn ruta_worktree(&self, id: &str) -> Resultado<PathBuf> {
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        if !crate::bus::id_valido(id) {
             return Err(ErrorBus::Argumentos(format!("id de trabajo inválido: {id:?}")));
         }
         Ok(self.raiz.join("worktrees").join(id))

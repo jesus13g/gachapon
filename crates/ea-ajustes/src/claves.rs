@@ -69,7 +69,9 @@ impl Edicion {
     }
 }
 
-/// Desde dónde llega un cambio.
+/// Desde dónde llega un cambio (de los ajustes) o la confirmación del
+/// usuario (de una acción, `ea_acciones::puede_confirmar`). No tiene variante
+/// MCP a propósito: por ahí no se cambia ni se confirma nada.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Canal {
     Web,
@@ -145,6 +147,64 @@ pub static SECCIONES: &[(&str, &str)] = &[
     ("biblioteca", "Biblioteca"),
 ];
 
+/// Un servicio residente: su unidad en el gestor del sistema (y su binario)
+/// se llama `nombre`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Servicio {
+    pub nombre: &'static str,
+    /// Lo vigila el panel de salud.
+    pub monitorizado: bool,
+    /// Se puede reiniciar (`ea_reiniciar_servicio`).
+    pub reiniciable: bool,
+    /// Es un binario nuestro que se registra en el gestor (`ea servicios instalar`).
+    pub instalable: bool,
+}
+
+/// La tabla única de los servicios; las listas cerradas salen de ella, en este orden.
+pub const SERVICIOS: [Servicio; 4] = [
+    Servicio { nombre: "llama-server", monitorizado: true, reiniciable: true, instalable: false },
+    Servicio { nombre: "ea-mcp", monitorizado: true, reiniciable: true, instalable: true },
+    Servicio { nombre: "ea-orchestrator", monitorizado: true, reiniciable: true, instalable: true },
+    Servicio { nombre: "ea-web", monitorizado: false, reiniciable: true, instalable: true },
+];
+
+/// Los que vigila el panel (ea-web no se vigila a sí mismo).
+pub const SERVICIOS_MONITORIZADOS: [&str; 3] = servicios(Columna::Monitorizado);
+/// Los que se pueden reiniciar: lista cerrada.
+pub const SERVICIOS_REINICIABLES: [&str; 4] = servicios(Columna::Reiniciable);
+/// Los que instalan `ea servicios instalar` y `ea instalar`.
+pub const SERVICIOS_INSTALABLES: [&str; 3] = servicios(Columna::Instalable);
+
+#[derive(Clone, Copy)]
+enum Columna {
+    Monitorizado,
+    Reiniciable,
+    Instalable,
+}
+
+/// Los nombres de [`SERVICIOS`] con esa columna a `true`, en su orden. `N`
+/// tiene que ser justo cuántos son: si no, no compila.
+const fn servicios<const N: usize>(columna: Columna) -> [&'static str; N] {
+    let mut v = [""; N];
+    let (mut i, mut n) = (0, 0);
+    while i < SERVICIOS.len() {
+        let s = SERVICIOS[i];
+        if match columna {
+            Columna::Monitorizado => s.monitorizado,
+            Columna::Reiniciable => s.reiniciable,
+            Columna::Instalable => s.instalable,
+        } {
+            v[n] = s.nombre;
+            n += 1;
+        }
+        i += 1;
+    }
+    assert!(n == N, "la lista no tiene tantos servicios");
+    v
+}
+
+/// Lo que hay que reiniciar tras cambiar una clave que leen todos los
+/// servicios del ecosistema: los instalables, en el orden en que se dice.
 const TODOS: &[&str] = &["ea-orchestrator", "ea-web", "ea-mcp"];
 const ORQ: &str = "orquestador.toml";
 /// La sección `[modelo]` que `ajustes.toml` tenía antes de la 017: se lee
@@ -759,5 +819,23 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
                 .unwrap_or_default();
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Las listas que salen de la tabla son las que había escritas a mano,
+    /// en el mismo orden (se ven en la interfaz).
+    #[test]
+    fn las_listas_de_servicios_salen_de_la_tabla_como_estaban() {
+        assert_eq!(SERVICIOS_MONITORIZADOS, ["llama-server", "ea-mcp", "ea-orchestrator"]);
+        assert_eq!(SERVICIOS_REINICIABLES, ["llama-server", "ea-mcp", "ea-orchestrator", "ea-web"]);
+        assert_eq!(SERVICIOS_INSTALABLES, ["ea-mcp", "ea-orchestrator", "ea-web"]);
+        // `TODOS` va en otro orden (el de «Requiere reiniciar»), pero son los mismos.
+        let mut todos = TODOS.to_vec();
+        todos.sort();
+        assert_eq!(todos, SERVICIOS_INSTALABLES);
     }
 }

@@ -72,7 +72,7 @@ fn la_herramienta_es_supervisada_reversible_y_no_es_del_ejecutor() {
     assert!(autorizar_mcp("orquestador", h).is_err());
     assert!(autorizar_mcp("claude-code", h).is_ok(), "el planificador solo propone");
     // La web puede confirmarla (es reversible), pero no es una lectura.
-    assert!(Canal::Web.puede_confirmar(h.riesgo).is_ok());
+    assert!(puede_confirmar(Canal::Web, h.riesgo).is_ok());
 }
 
 #[test]

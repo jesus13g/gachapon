@@ -43,7 +43,7 @@ pub async fn catalogo(s: &AppState) -> Resultado<Vec<AccionCatalogo>> {
                 local: h.local,
                 resumen: h.resumen,
                 campos,
-                confirmable: supervisada && Canal::Web.puede_confirmar(h.riesgo).is_ok(),
+                confirmable: supervisada && ea_acciones::puede_confirmar(Canal::Web, h.riesgo).is_ok(),
             }
         })
         .collect())
@@ -123,7 +123,7 @@ pub async fn simular(s: &AppState, herramienta: &str, argumentos: &Value) -> Res
         argumentos: sim.argumentos,
         texto: sim.texto,
         precondicion: sim.precondicion,
-        confirmable: Canal::Web.puede_confirmar(sim.riesgo).is_ok(),
+        confirmable: ea_acciones::puede_confirmar(Canal::Web, sim.riesgo).is_ok(),
     })
 }
 

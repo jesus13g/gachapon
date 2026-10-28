@@ -464,9 +464,9 @@ fn autorizacion_por_actor() {
 
 #[test]
 fn el_canal_web_nunca_confirma_irreversibles() {
-    assert!(Canal::Web.puede_confirmar(Riesgo::Reversible).is_ok());
-    assert!(Canal::Web.puede_confirmar(Riesgo::Irreversible).is_err());
-    assert!(Canal::Terminal.puede_confirmar(Riesgo::Irreversible).is_ok());
+    assert!(puede_confirmar(Canal::Web, Riesgo::Reversible).is_ok());
+    assert!(puede_confirmar(Canal::Web, Riesgo::Irreversible).is_err());
+    assert!(puede_confirmar(Canal::Terminal, Riesgo::Irreversible).is_ok());
 }
 
 #[test]

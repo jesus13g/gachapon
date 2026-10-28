@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use comfy_table::Table;
-use ea_acciones::{Canal, Ejecucion, CATALOGO};
+use ea_acciones::{Ejecucion, CATALOGO};
 use ea_store::Store;
 use serde_json::Value;
 
@@ -49,7 +49,7 @@ pub fn simular(store: &Store, herramienta: &str, args: &str) -> Result<()> {
 pub fn ejecutar(store: &mut Store, herramienta: &str, args: &str) -> Result<()> {
     let args = parsear(args)?;
     let sis = sistema();
-    let canal = Canal::terminal_interactiva()?;
+    let canal = ea_acciones::terminal_interactiva()?;
     let hechos = bloquear(ea_acciones::observar(&sis, herramienta, &args))?;
     let sim = ea_acciones::simular_con(store, &sis, &hechos, herramienta, &args)?;
     if !confirmar_en_terminal(herramienta, sim.riesgo.as_str(), &sim.argumentos, &sim.texto, herramienta)? {

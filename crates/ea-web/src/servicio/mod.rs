@@ -159,12 +159,9 @@ async fn bus_con_store(s: &AppState) -> Resultado<Bus> {
 // --------------------------------------------------------------- validación
 
 /// Los slugs acaban en una ruta de fichero (`<dir>/<slug>.toml`) y en el
-/// nombre de una unidad de systemd: nada que no sea `[A-Za-z0-9_-]`.
+/// nombre de una unidad de systemd ([`ea_bus::slug_valido`]).
 fn slug_valido(slug: &str) -> Resultado<()> {
-    let ok = !slug.is_empty()
-        && slug.len() <= 64
-        && slug.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if ok { Ok(()) } else { Err(ErrorWeb::Invalido("slug de rutina inválido".into())) }
+    if ea_bus::slug_valido(slug) { Ok(()) } else { Err(ErrorWeb::Invalido("slug de rutina inválido".into())) }
 }
 
 fn texto_no_vacio(valor: &str, campo: &str, max: usize) -> Resultado<String> {
