@@ -24,7 +24,7 @@ mod worktree;
 
 pub use worktree::InfoWorktree;
 pub use git::validar_worktree;
-pub use bus::{comprobar_registro, id_valido, Bus, Entrega, EntradaCola, raiz_estado};
+pub use bus::{comprobar_registro, id_valido, Bus, Cola, Entrega, EntradaCola, raiz_estado};
 pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo, Miembro, NuevoEquipo, RolEquipo};
 pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, ResumenTrabajo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
 pub use presencia::{Latido, Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};

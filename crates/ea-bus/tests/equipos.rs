@@ -5,7 +5,7 @@ use std::path::Path;
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{
-    Bus, ConfigSkills, EjecutadoPor, Equipo, ErrorBus, EstadoEquipo, EstadoTrabajo, Evento, Fase, Informe, Miembro, Modo, NuevoEquipo,
+    Bus, Cola, ConfigSkills, EjecutadoPor, Equipo, ErrorBus, EstadoEquipo, EstadoTrabajo, Evento, Fase, Informe, Miembro, Modo, NuevoEquipo,
     Orden, ResultadoInforme, Rol, RolEquipo, Topes,
 };
 use ea_store::Store;
@@ -176,10 +176,10 @@ fn tomar_para_prefiere_la_cola_propia_y_luego_la_del_rol() {
         e.bus.crear_trabajo(orden(e.d.path())).unwrap(),
     );
     e.bus.retirar_de_colas(&c).unwrap();
-    e.bus.encolar_agente("codex", &c, "propio").unwrap();
-    e.bus.encolar_agente("qwen-code", "ajeno", "de otro").unwrap();
-    assert_eq!(e.bus.listar_cola_agente("codex").unwrap().len(), 1);
-    assert_eq!(e.bus.listar_cola_agente("opencode").unwrap(), vec![]);
+    e.bus.encolar(Cola::Agente("codex"), &c, "propio").unwrap();
+    e.bus.encolar(Cola::Agente("qwen-code"), "ajeno", "de otro").unwrap();
+    assert_eq!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().len(), 1);
+    assert_eq!(e.bus.listar_cola(Cola::Agente("opencode")).unwrap(), vec![]);
     // la cola propia, aunque sea la más nueva
     assert_eq!(e.bus.tomar_para("codex").unwrap(), Some(c));
     // luego la del rol, por orden
@@ -187,15 +187,15 @@ fn tomar_para_prefiere_la_cola_propia_y_luego_la_del_rol() {
     assert_eq!(e.bus.tomar_para("codex").unwrap(), Some(b));
     assert_eq!(e.bus.tomar_para("codex").unwrap(), None);
     // lo del otro agente no se toca
-    assert_eq!(e.bus.listar_cola_agente("qwen-code").unwrap().len(), 1);
+    assert_eq!(e.bus.listar_cola(Cola::Agente("qwen-code")).unwrap().len(), 1);
 }
 
 #[test]
 fn las_colas_por_agente_solo_abren_ids_del_catalogo() {
     let e = entorno();
     for malo in ["../../etc", "", "desconocido", "codex/../x"] {
-        assert!(e.bus.encolar_agente(malo, "t", "m").is_err(), "{malo:?}");
-        assert!(e.bus.listar_cola_agente(malo).is_err(), "{malo:?}");
+        assert!(e.bus.encolar(Cola::Agente(malo), "t", "m").is_err(), "{malo:?}");
+        assert!(e.bus.listar_cola(Cola::Agente(malo)).is_err(), "{malo:?}");
         assert!(e.bus.tomar_para(malo).is_err(), "{malo:?}");
     }
     assert!(!e.d.path().join("etc").exists());
@@ -210,7 +210,7 @@ fn crear_trabajo_enruta_y_anota_en_el_equipo() {
     let a = e.bus.crear_trabajo(para_codex).unwrap();
     let b = e.bus.crear_trabajo(libre).unwrap();
     // el asignado no aparece en la cola de rol
-    assert_eq!(e.bus.listar_cola_agente("codex").unwrap()[0].trabajo, a);
+    assert_eq!(e.bus.listar_cola(Cola::Agente("codex")).unwrap()[0].trabajo, a);
     let rol: Vec<String> = e.bus.listar_cola(Rol::Ejecutor).unwrap().into_iter().map(|x| x.trabajo).collect();
     assert_eq!(rol, vec![b.clone()]);
     assert_eq!(e.bus.leer_equipo(&eq.id).unwrap().trabajos, vec![a.clone(), b.clone()]);
@@ -250,7 +250,7 @@ fn crear_trabajo_valida_el_equipo_y_no_deja_rastro() {
     assert!(error_de(e.bus.crear_trabajo(con(&|_| {}))).contains("dormido"));
     assert!(e.bus.listar_trabajos().unwrap().is_empty());
     assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
-    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty());
     assert!(e.bus.leer_equipo(&eq.id).unwrap().trabajos.is_empty());
     // worktree_propio no necesita equipo
     assert!(e.bus.crear_trabajo(Orden { worktree_propio: true, ..orden(e.d.path()) }).is_ok());
@@ -272,12 +272,12 @@ fn la_entrega_llega_al_revisor_ademas_de_al_planificador() {
     let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
     let id = entregar(&e, &eq.id, Some("antigravity"), "codex");
     assert_eq!(e.bus.listar_cola(Rol::Planificador).unwrap()[0].trabajo, id);
-    let cola = e.bus.listar_cola_revision("antigravity").unwrap();
+    let cola = e.bus.listar_cola(Cola::Revision("antigravity")).unwrap();
     assert_eq!((cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (id.as_str(), "terminado"));
     // cerrar limpia las dos
     e.bus.aplicar(&id, Evento::Cerrar).unwrap();
     assert!(e.bus.listar_cola(Rol::Planificador).unwrap().is_empty());
-    assert!(e.bus.listar_cola_revision("antigravity").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Revision("antigravity")).unwrap().is_empty());
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn si_el_revisor_es_quien_ejecuto_la_entrega_solo_va_a_la_cola_del_rol() {
     // claude-code (planificador del equipo) revisa un trabajo que consta ejecutado por él
     let id = entregar(&e, &eq.id, Some("claude-code"), "claude-code");
     assert_eq!(e.bus.listar_cola(Rol::Planificador).unwrap().len(), 1);
-    assert!(e.bus.listar_cola_revision("claude-code").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Revision("claude-code")).unwrap().is_empty());
     let aviso = e.bus.leer_informe(&id).unwrap().unwrap().aviso.unwrap();
     assert!(aviso.contains("claude-code") && aviso.contains("sin revisión independiente"), "{aviso}");
     e.bus.aplicar(&id, Evento::Cancelar).unwrap();
@@ -295,7 +295,7 @@ fn si_el_revisor_es_quien_ejecuto_la_entrega_solo_va_a_la_cola_del_rol() {
     let sin = entregar(&e, &eq.id, None, "codex");
     assert_eq!(e.bus.leer_informe(&sin).unwrap().unwrap().aviso, None);
     assert_eq!(e.bus.listar_cola(Rol::Planificador).unwrap()[0].trabajo, sin);
-    assert!(e.bus.listar_cola_revision("antigravity").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Revision("antigravity")).unwrap().is_empty());
 }
 
 #[test]
@@ -305,11 +305,11 @@ fn reformular_un_trabajo_asignado_vuelve_a_la_cola_de_ese_agente() {
     let id = entregar(&e, &eq.id, Some("antigravity"), "codex");
     e.bus.reformular(&id, "falta algo", None).unwrap();
     assert_eq!(e.bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
-    assert_eq!(e.bus.listar_cola_agente("codex").unwrap()[0].motivo, "reformulado");
+    assert_eq!(e.bus.listar_cola(Cola::Agente("codex")).unwrap()[0].motivo, "reformulado");
     assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
     // y la entrega vieja del revisor y del planificador se retiró
     assert!(e.bus.listar_cola(Rol::Planificador).unwrap().is_empty());
-    assert!(e.bus.listar_cola_revision("antigravity").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Revision("antigravity")).unwrap().is_empty());
 }
 
 #[test]
@@ -322,9 +322,9 @@ fn recuperar_devuelve_a_su_cola_de_agente_el_reclamo_huerfano() {
     let f = std::fs::read_dir(&cola).unwrap().flatten().next().unwrap().path();
     let nombre = f.file_name().unwrap().to_string_lossy().into_owned();
     std::fs::rename(&f, cola.join(format!(".{nombre}.tomada-1"))).unwrap();
-    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty());
     assert_eq!(e.bus.recuperar().unwrap(), vec![id.clone()]);
-    assert_eq!(e.bus.listar_cola_agente("codex").unwrap()[0].trabajo, id);
+    assert_eq!(e.bus.listar_cola(Cola::Agente("codex")).unwrap()[0].trabajo, id);
 }
 
 /// B-04 con equipo: lo reclamado de la cola de un agente que no se llegó a
@@ -337,7 +337,7 @@ fn recuperar_devuelve_a_su_agente_lo_reclamado_que_no_se_llego_a_tomar() {
     let id = e.bus.crear_trabajo(o).unwrap();
     assert_eq!(e.bus.tomar_para("codex").unwrap(), Some(id.clone()));
     assert_eq!(e.bus.recuperar().unwrap(), vec![id.clone()]);
-    let cola = e.bus.listar_cola_agente("codex").unwrap();
+    let cola = e.bus.listar_cola(Cola::Agente("codex")).unwrap();
     assert_eq!((cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (id.as_str(), "recuperado"));
     assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
 }
@@ -352,11 +352,11 @@ fn devolver_va_a_la_cola_del_agente_o_a_la_del_rol_si_su_equipo_se_durmio() {
     let id = e.bus.crear_trabajo(o).unwrap();
     assert_eq!(e.bus.tomar_para("codex").unwrap(), Some(id.clone()));
     e.bus.devolver(&id, "worktree ocupado").unwrap();
-    assert_eq!(e.bus.listar_cola_agente("codex").unwrap()[0].motivo, "worktree ocupado");
+    assert_eq!(e.bus.listar_cola(Cola::Agente("codex")).unwrap()[0].motivo, "worktree ocupado");
     assert_eq!(e.bus.tomar_para("codex").unwrap(), Some(id.clone()));
     e.bus.dormir_equipo(&eq.id).unwrap();
     e.bus.devolver(&id, "worktree ocupado").unwrap();
-    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty());
     let cola = e.bus.listar_cola(Rol::Ejecutor).unwrap();
     assert_eq!((cola.len(), cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (1, id.as_str(), "worktree ocupado"));
 }
@@ -384,7 +384,7 @@ fn crear_un_trabajo_de_un_equipo_que_se_esta_durmiendo_no_lo_encola() {
     bloqueo.unlock().unwrap();
     let r = hilo.join().unwrap();
     assert!(matches!(&r, Err(ErrorBus::Argumentos(m)) if m.contains("dormido")), "{r:?}");
-    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty());
     assert!(e.bus.listar_trabajos().unwrap().is_empty());
 }
 
@@ -426,19 +426,19 @@ fn la_revision_dirigida_no_la_toma_un_ejecutor_con_tomar_para() {
     let e = entorno();
     let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
     let id = entregar(&e, &eq.id, Some("antigravity"), "codex");
-    assert_eq!(e.bus.listar_cola_revision("antigravity").unwrap()[0].trabajo, id);
-    assert!(e.bus.listar_cola_agente("antigravity").unwrap().is_empty());
+    assert_eq!(e.bus.listar_cola(Cola::Revision("antigravity")).unwrap()[0].trabajo, id);
+    assert!(e.bus.listar_cola(Cola::Agente("antigravity")).unwrap().is_empty());
     // ni siquiera quien tiene la entrega en su cola de revisión la toma como trabajo
     assert_eq!(e.bus.tomar_para("antigravity").unwrap(), None);
-    assert_eq!(e.bus.listar_cola_revision("antigravity").unwrap().len(), 1);
-    assert!(e.bus.listar_cola_revision("no-existe").is_err());
+    assert_eq!(e.bus.listar_cola(Cola::Revision("antigravity")).unwrap().len(), 1);
+    assert!(e.bus.listar_cola(Cola::Revision("no-existe")).is_err());
     // un reclamo huérfano de la cola de revisión vuelve a ella
     let cola = e.d.path().join("estado/colas/revision/antigravity");
     let f = std::fs::read_dir(&cola).unwrap().flatten().next().unwrap().path();
     let nombre = f.file_name().unwrap().to_string_lossy().into_owned();
     std::fs::rename(&f, cola.join(format!(".{nombre}.tomada-1"))).unwrap();
     assert_eq!(e.bus.recuperar().unwrap(), vec![id.clone()]);
-    assert_eq!(e.bus.listar_cola_revision("antigravity").unwrap()[0].trabajo, id);
+    assert_eq!(e.bus.listar_cola(Cola::Revision("antigravity")).unwrap()[0].trabajo, id);
 }
 
 #[test]
@@ -447,9 +447,9 @@ fn dormir_un_equipo_devuelve_lo_pendiente_de_sus_ejecutores_a_la_cola_del_rol() 
     let eq = e.bus.crear_equipo(nuevo(miembros()), &e.a).unwrap();
     let o = Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), ..orden(e.d.path()) };
     let id = e.bus.crear_trabajo(o).unwrap();
-    assert_eq!(e.bus.listar_cola_agente("codex").unwrap().len(), 1);
+    assert_eq!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().len(), 1);
     e.bus.dormir_equipo(&eq.id).unwrap();
-    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty());
     let cola = e.bus.listar_cola(Rol::Ejecutor).unwrap();
     assert_eq!((cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (id.as_str(), "equipo dormido"));
     // un ejecutor del rol lo toma, queda como ejecutado_por y ya no puede revisarlo
@@ -465,7 +465,7 @@ fn reformular_un_asignado_de_un_equipo_dormido_va_a_la_cola_del_rol() {
     let id = entregar(&e, &eq.id, Some("antigravity"), "codex");
     e.bus.dormir_equipo(&eq.id).unwrap();
     e.bus.reformular(&id, "otra vez", None).unwrap();
-    assert!(e.bus.listar_cola_agente("codex").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty());
     assert_eq!(e.bus.listar_cola(Rol::Ejecutor).unwrap()[0].trabajo, id);
 }
 
@@ -479,7 +479,7 @@ fn el_revisor_sigue_sin_poder_ser_quien_ejecuto_aunque_el_equipo_durmiera() {
     assert_eq!(e.bus.tomar_para("claude-code").unwrap(), Some(id.clone()));
     e.bus.tomar_con(&id, EjecutadoPor { agente: "claude-code".into(), modelo: "m".into() }).unwrap();
     e.bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
-    assert!(e.bus.listar_cola_revision("claude-code").unwrap().is_empty());
+    assert!(e.bus.listar_cola(Cola::Revision("claude-code")).unwrap().is_empty());
     assert!(e.bus.leer_informe(&id).unwrap().unwrap().aviso.is_some());
 }
 

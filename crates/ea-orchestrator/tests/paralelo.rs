@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{
-    Bus, EstadoTrabajo, Miembro, Modo, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
+    Bus, Cola, EstadoTrabajo, Miembro, Modo, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
 };
 use ea_orchestrator::config::ConfigOrquestador;
 use ea_orchestrator::ejecutor::{correr_criterio, ejecutar_uno, Ejecutor, SalidaAgente};
@@ -336,7 +336,7 @@ fn un_trabajo_asignado_lo_toma_el_trabajador_de_ese_agente() {
     let para_codex = Orden { equipo: Some(eq), asignado_a: Some("codex".into()), ..orden(&r1) };
     let ic = e.bus.crear_trabajo(para_codex).unwrap();
     let ig = e.bus.crear_trabajo(orden(&r2)).unwrap();
-    assert_eq!(e.bus.listar_cola_agente("codex").unwrap().len(), 1);
+    assert_eq!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().len(), 1);
     let doble = Doble::simple();
     let mut t = Trabajadores::new(e.contexto(&doble));
     t.reconciliar();
@@ -359,7 +359,7 @@ fn un_semaforo_ocupado_devuelve_el_asignado_a_la_cola_de_su_agente() {
     let doble = Doble::simple();
     assert_eq!(ejecutar_uno(&e.bus, &cfg, &Adaptador(doble)), Some(id.clone()));
     assert_eq!(e.estado(&id), EstadoTrabajo::EnCola);
-    assert_eq!(e.bus.listar_cola_agente("qwen-code").unwrap()[0].trabajo, id, "a SU cola");
+    assert_eq!(e.bus.listar_cola(Cola::Agente("qwen-code")).unwrap()[0].trabajo, id, "a SU cola");
     assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
 }
 

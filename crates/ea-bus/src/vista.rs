@@ -7,7 +7,7 @@
 use serde::Serialize;
 use time::OffsetDateTime;
 
-use crate::bus::Bus;
+use crate::bus::{Bus, Cola};
 use crate::error::Resultado;
 use crate::presencia::Presencia;
 use crate::equipo::RolEquipo;
@@ -210,11 +210,11 @@ impl Bus {
             .map(|m| {
                 let presencia = self.presencia_de(&m.agente).ok().flatten().filter(|p| p.equipo.as_deref() == Some(id));
                 let viva = self.viva_en_equipo(&equipo, &m.agente, ahora);
-                let entradas = match m.rol {
-                    RolEquipo::Ejecutor => self.listar_cola_agente(&m.agente),
-                    _ => self.listar_cola_revision(&m.agente),
-                }
-                .unwrap_or_default();
+                let cola = match m.rol {
+                    RolEquipo::Ejecutor => Cola::Agente(&m.agente),
+                    _ => Cola::Revision(&m.agente),
+                };
+                let entradas = self.listar_cola(cola).unwrap_or_default();
                 let pendientes = entradas.len();
                 let cola = entradas.into_iter().take(MAX_COLA).map(|e| e.trabajo).collect();
                 let trabajo_actual = if viva { presencia.as_ref().and_then(|p| p.trabajo.clone()) } else { None };

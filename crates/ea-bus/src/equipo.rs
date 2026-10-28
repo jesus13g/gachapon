@@ -13,7 +13,7 @@ use ea_ajustes::{buscar_binario, ficha, Ajustes, Rol, IDS_AGENTES};
 use ea_store::{EventOutcome, NewEvent};
 use serde::{Deserialize, Serialize};
 
-use crate::bus::{ahora_rfc3339, nuevo_id, Bus};
+use crate::bus::{ahora_rfc3339, nuevo_id, Bus, Cola};
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::escribir_json;
 use crate::tipos::{Equipo, EstadoEquipo, Orden};
@@ -296,8 +296,7 @@ impl Bus {
         equipo.estado = EstadoEquipo::Dormido;
         escribir_json(&self.dir_equipo(id)?.join("equipo.json"), &equipo)?;
         for m in equipo.miembros.iter().filter(|m| m.rol == RolEquipo::Ejecutor) {
-            let dir = self.dir_cola_agente(&m.agente)?;
-            while let Some(trabajo) = crate::bus::tomar_en(&dir, &|_| true)? {
+            while let Some(trabajo) = self.tomar(Cola::Agente(&m.agente))? {
                 self.devolver_bloqueado(&trabajo, "equipo dormido")?;
             }
         }

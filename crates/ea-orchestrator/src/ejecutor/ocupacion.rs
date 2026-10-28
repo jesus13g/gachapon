@@ -81,7 +81,7 @@ mod tests {
 
     use crate::ejecutor::pruebas::*;
     use crate::ejecutor::*;
-    use ea_bus::{Bus, CandadoWorktree, EstadoTrabajo, Evento, Ocupante, Orden, ResultadoInforme, Rol};
+    use ea_bus::{Bus, CandadoWorktree, Cola, EstadoTrabajo, Evento, Ocupante, Orden, ResultadoInforme, Rol};
 
     #[test]
     fn candado_ocupado_vuelve_a_encolar() {
@@ -132,7 +132,7 @@ mod tests {
             std::thread::spawn(move || {
                 let bus = Bus::abrir_en(&raiz).unwrap();
                 let limite = Instant::now() + Duration::from_secs(10);
-                while !bus.listar_cola_agente("codex").unwrap().is_empty() && Instant::now() < limite {
+                while !bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty() && Instant::now() < limite {
                     std::thread::sleep(Duration::from_millis(5));
                 }
                 bus.dormir_equipo(&eq).unwrap();
@@ -145,7 +145,7 @@ mod tests {
             Intento::Ocupado(id.clone())
         );
         dormir.join().unwrap();
-        assert!(bus.listar_cola_agente("codex").unwrap().is_empty(), "el trabajo quedó en la cola de un agente dormido");
+        assert!(bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty(), "el trabajo quedó en la cola de un agente dormido");
         let cola = bus.listar_cola(Rol::Ejecutor).unwrap();
         assert_eq!((cola.len(), cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (1, id.as_str(), "worktree ocupado"));
     }
