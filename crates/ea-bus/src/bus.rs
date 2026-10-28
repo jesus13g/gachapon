@@ -16,7 +16,7 @@ use crate::fs_atomico::{escribir_atomico, escribir_json};
 use crate::rutina::{Rutina, MAX_DEFINICION};
 use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
-    transicion, EjecutadoPor, Estado, EstadoTrabajo, Evento, FaseInforme, Informe, Modo, Orden, ResultadoInforme, Rol,
+    transicion, EjecutadoPor, Estado, EstadoFase, EstadoTrabajo, Evento, Informe, InformeFase, Modo, Orden, ResultadoInforme, Rol,
 };
 
 static CONTADOR_ID: AtomicU64 = AtomicU64::new(0);
@@ -266,7 +266,7 @@ impl Bus {
                     trabajo_id: id.clone(),
                     numero: i64::from(f.numero),
                     titulo: f.titulo.clone(),
-                    estado: "pendiente".into(),
+                    estado: EstadoFase::Pendiente.as_str().into(),
                     informe: None,
                     cerrado_en: None,
                 };
@@ -563,11 +563,11 @@ impl Bus {
     }
 
     /// Anota en SQLite el resultado de una fase de obra (`hecha`, `bloqueada`…).
-    pub fn registrar_fase(&self, id: &str, numero: u32, estado: &str, informe: &serde_json::Value) -> Resultado<()> {
+    pub fn registrar_fase(&self, id: &str, numero: u32, estado: EstadoFase, informe: &InformeFase) -> Resultado<()> {
         let Some(s) = &self.store else { return Ok(()) };
         if let Some(mut f) = s.listar_fases(id)?.into_iter().find(|f| f.numero == i64::from(numero)) {
-            f.estado = estado.into();
-            f.informe = Some(informe.to_string());
+            f.estado = estado.as_str().into();
+            f.informe = Some(serde_json::to_string(informe)?);
             f.cerrado_en = Some(ahora_rfc3339());
             s.guardar_fase(&f)?;
         }
@@ -583,10 +583,7 @@ impl Bus {
         let estado = self.leer_estado(id)?;
         transicion(estado.estado, &Evento::Confirmar)?;
         if !contexto.trim().is_empty() {
-            use std::io::Write;
-            let ruta = self.dir_trabajo(id)?.join("paquete-correccion.md");
-            let mut f = fs::OpenOptions::new().create(true).append(true).open(ruta)?;
-            writeln!(f, "\n## Contexto del usuario\n\n{}", contexto.trim())?;
+            self.artefactos(id)?.anadir_al_paquete_correccion(&format!("\n## Contexto del usuario\n\n{}\n", contexto.trim()))?;
         }
         self.aplicar_bloqueado(id, Evento::Confirmar, None, None)
     }
@@ -612,11 +609,11 @@ impl Bus {
             return Ok(Entrega::EnRevision);
         }
         let paquete = (informe.resultado != ResultadoInforme::Terminado).then(|| self.paquete_correccion(id, &orden, &informe));
-        let ruta_paquete = self.dir_trabajo(id)?.join("paquete-correccion.md");
+        let artefactos = self.artefactos(id)?;
         self.aplicar(id, Evento::Entregar(informe))?;
         let (evento, entrega, que) = match paquete {
             Some(texto) => {
-                if let Err(e) = escribir_atomico(&ruta_paquete, texto.as_bytes()) {
+                if let Err(e) = artefactos.guardar_paquete_correccion(&texto) {
                     tracing::error!(%id, error = %e, "no se pudo escribir el paquete de corrección");
                 }
                 (Evento::PonerEnEspera, Entrega::EnEspera, "no se pudo poner en espera")
@@ -830,19 +827,19 @@ impl Bus {
     /// `fases-informe.json` (si existe) y devuelve sus filas de SQLite a
     /// `pendiente`, sin informe (que llevaba el árbol de la fase).
     fn recortar_fases(&self, id: &str, desde: u32) -> Resultado<()> {
-        let p = self.dir_trabajo(id)?.join("fases-informe.json");
-        if let Ok(b) = fs::read(&p) {
-            let mut v: Vec<FaseInforme> = serde_json::from_slice(&b).unwrap_or_default();
+        let artefactos = self.artefactos(id)?;
+        if let Some(mut v) = artefactos.fases_informe() {
             v.retain(|f| f.numero < desde);
-            escribir_json(&p, &v)?;
+            artefactos.guardar_fases_informe(&v)?;
         }
         // El espejo en SQLite, de mejor esfuerzo: la orden y el informe de
         // fases ya están escritos.
         if let Some(s) = &self.store {
             let filas = espejo(id, "leer las fases", s.listar_fases(id)).unwrap_or_default();
+            let pendiente = EstadoFase::Pendiente.as_str();
             for mut f in filas.into_iter().filter(|f| f.numero >= i64::from(desde)) {
-                if f.estado != "pendiente" || f.informe.is_some() {
-                    f.estado = "pendiente".into();
+                if f.estado != pendiente || f.informe.is_some() {
+                    f.estado = pendiente.into();
                     f.informe = None;
                     f.cerrado_en = None;
                     espejo(id, "guardar la fase", s.guardar_fase(&f));
@@ -934,9 +931,10 @@ impl Bus {
         match evento {
             Evento::Entregar(inf) => {
                 let json = serde_json::to_string(inf)?;
+                let hecha = EstadoFase::Hecha.as_str();
                 for mut f in fases.into_iter().filter(|f| inf.fases_hechas > 0 && f.numero <= i64::from(inf.fases_hechas)) {
-                    if f.estado != "hecha" {
-                        f.estado = "hecha".into();
+                    if f.estado != hecha {
+                        f.estado = hecha.into();
                         f.informe = Some(json.clone());
                         f.cerrado_en = Some(nuevo.actualizado_en.clone());
                         s.guardar_fase(&f)?;
@@ -944,8 +942,8 @@ impl Bus {
                 }
             }
             Evento::Cancelar => {
-                for mut f in fases.into_iter().filter(|f| f.estado == "pendiente") {
-                    f.estado = "cancelada".into();
+                for mut f in fases.into_iter().filter(|f| f.estado == EstadoFase::Pendiente.as_str()) {
+                    f.estado = EstadoFase::Cancelada.as_str().into();
                     f.cerrado_en = Some(nuevo.actualizado_en.clone());
                     s.guardar_fase(&f)?;
                 }
@@ -966,7 +964,7 @@ impl Bus {
         if let Some(por) = &estado.ejecutado_por {
             linea["ejecutado_por"] = serde_json::json!(por);
         }
-        let mut f = fs::OpenOptions::new().create(true).append(true).open(self.dir_trabajo(id)?.join("historial.jsonl"))?;
+        let mut f = fs::OpenOptions::new().create(true).append(true).open(self.artefactos(id)?.ruta_historial())?;
         writeln!(f, "{linea}")?;
         f.sync_all()?;
         Ok(())

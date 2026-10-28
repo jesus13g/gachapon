@@ -88,15 +88,12 @@ fn ver_bus(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
     if let Some(o) = informe.as_object_mut() {
         o.remove("diff"); // el diff va aparte, bajo demanda
     }
-    let dir = bus.raiz().join("trabajos").join(id);
-    let historial = std::fs::read_to_string(dir.join("historial.jsonl"))
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect();
-    let paquete = std::fs::read_to_string(dir.join("paquete-correccion.md")).ok();
+    let artefactos = bus.artefactos(id)?;
+    let historial = artefactos.historial();
+    let paquete = artefactos.paquete_correccion();
     let tipo = ea_bus::tipo_ejecutor(estado.ejecutado_por.as_ref());
-    let resumen_agente = ea_bus::leer_salida_agente(&dir)
+    let resumen_agente = artefactos
+        .salida_agente()
         .map(|b| ea_bus::resumen_salida_agente(tipo, &b))
         .map(|r| r.trim().chars().take(RESUMEN_MAX).collect::<String>())
         .filter(|r| !r.is_empty());

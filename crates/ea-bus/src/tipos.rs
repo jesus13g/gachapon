@@ -296,13 +296,55 @@ impl ResultadoInforme {
     }
 }
 
+/// El estado de una fase de obra: el de su fila en SQLite (`pendiente` al
+/// crear, `hecha` o `bloqueada` al cerrarla, `cancelada` si se cancela la
+/// obra) y el resultado de cada fase del informe (`hecha` o `bloqueada`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EstadoFase {
+    Pendiente,
+    Hecha,
+    Bloqueada,
+    Cancelada,
+}
+
+impl EstadoFase {
+    /// Como en disco.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EstadoFase::Pendiente => "pendiente",
+            EstadoFase::Hecha => "hecha",
+            EstadoFase::Bloqueada => "bloqueada",
+            EstadoFase::Cancelada => "cancelada",
+        }
+    }
+}
+
+/// El informe de una fase en SQLite (`trabajo_fases.informe`). El ejecutor
+/// guarda `{diff_stat, arbol}` al cerrar una fase hecha y `{motivo,
+/// diff_stat}` al bloquearse (por este orden: el de los `json!` de antes con
+/// `preserve_order`, que es como se compila el workspace); la entrega de una
+/// obra guarda el [`Informe`] entero en las fases que aún no estaban hechas.
+/// Se leen los dos esquemas: lo que falta queda en `None`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InformeFase {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motivo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff_stat: Option<String>,
+    /// La instantánea del árbol al cerrar la fase.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arbol: Option<String>,
+}
+
 /// Resultado de una fase en el informe de una obra.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FaseInforme {
     pub numero: u32,
     pub titulo: String,
     /// `hecha` o `bloqueada`.
-    pub resultado: String,
+    pub resultado: EstadoFase,
     #[serde(default)]
     pub diff_stat: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -415,7 +457,22 @@ impl Informe {
 
 #[cfg(test)]
 mod tests {
-    use super::Topes;
+    use super::{EstadoFase, InformeFase, Topes};
+
+    #[test]
+    fn el_informe_de_una_fase_se_escribe_como_antes_y_lee_los_dos_esquemas() {
+        let hecha = InformeFase { diff_stat: Some("s".into()), arbol: Some("a1".into()), ..Default::default() };
+        assert_eq!(serde_json::to_string(&hecha).unwrap(), r#"{"diff_stat":"s","arbol":"a1"}"#);
+        let bloqueada = InformeFase { motivo: Some("m".into()), diff_stat: Some("s".into()), arbol: None };
+        assert_eq!(serde_json::to_string(&bloqueada).unwrap(), r#"{"motivo":"m","diff_stat":"s"}"#);
+        // El de la entrega de una obra: el informe entero, sin árbol.
+        let entera: InformeFase = serde_json::from_str(r#"{"resultado":"terminado","diff_stat":null,"motivo":null,"fases":[]}"#).unwrap();
+        assert_eq!(entera, InformeFase::default());
+        let fases = [EstadoFase::Pendiente, EstadoFase::Hecha, EstadoFase::Bloqueada, EstadoFase::Cancelada];
+        for e in fases {
+            assert_eq!(serde_json::to_string(&e).unwrap(), format!("\"{}\"", e.as_str()));
+        }
+    }
 
     #[test]
     fn acotar_recorta_cada_tope_al_techo() {

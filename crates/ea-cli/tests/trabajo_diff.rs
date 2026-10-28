@@ -93,7 +93,8 @@ fn el_diff_es_el_de_git_mas_los_ficheros_nuevos() {
     let idx = d.path().join("indice");
     git(&wt, &["add", "-A"], Some(&idx));
     let arbol = git(&wt, &["write-tree"], Some(&idx)).trim().to_string();
-    bus.registrar_fase(&id, 1, "hecha", &serde_json::json!({ "arbol": arbol })).unwrap();
+    let informe = ea_bus::InformeFase { arbol: Some(arbol.clone()), ..Default::default() };
+    bus.registrar_fase(&id, 1, ea_bus::EstadoFase::Hecha, &informe).unwrap();
     let o = ea(d.path(), &["trabajo", "diff", &id, "--fase", "1"]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let esperado = git(&wt, &["diff", &format!("{inicio}^{{tree}}"), &arbol, "--", ".", ea_bus::EXCLUIR_DIFF], None);

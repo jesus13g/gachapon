@@ -2703,11 +2703,12 @@ async fn diff_de_una_fase_usa_las_instantaneas() {
     // La obra cierra las fases 1 y 2 con su instantánea; la 3 sigue pendiente.
     std::fs::write(wt.join("f1.txt"), "uno\n").unwrap();
     let a1 = instantanea(&wt);
-    bus.registrar_fase(&id, 1, "hecha", &json!({ "diff_stat": " f1.txt | 1 +", "arbol": a1 })).unwrap();
+    let hecha = |diff_stat: &str, arbol: &str| ea_bus::InformeFase { diff_stat: Some(diff_stat.into()), arbol: Some(arbol.into()), motivo: None };
+    bus.registrar_fase(&id, 1, ea_bus::EstadoFase::Hecha, &hecha(" f1.txt | 1 +", &a1)).unwrap();
     std::fs::write(wt.join("f2.txt"), "dos\n").unwrap();
     std::fs::write(wt.join("base.txt"), "base cambiada\n").unwrap();
     let a2 = instantanea(&wt);
-    bus.registrar_fase(&id, 2, "hecha", &json!({ "diff_stat": " 2 files changed", "arbol": a2 })).unwrap();
+    bus.registrar_fase(&id, 2, ea_bus::EstadoFase::Hecha, &hecha(" 2 files changed", &a2)).unwrap();
 
     // Sin informe todavía: la fase 2 ya tiene base (la instantánea de la 1);
     // la 1 no (le falta commit_inicio) y lo dice con un 404 claro.

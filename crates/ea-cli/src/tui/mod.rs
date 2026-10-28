@@ -198,7 +198,7 @@ fn datos_de(bus: &ea_bus::Bus) -> orquestador_view::DatosOrquestador {
                     informe.push_str(&format!("motivo: {m}\n"));
                 }
                 for f in &i.fases {
-                    informe.push_str(&format!("fase {} [{}] {}\n", f.numero, f.resultado, f.titulo));
+                    informe.push_str(&format!("fase {} [{}] {}\n", f.numero, f.resultado.as_str(), f.titulo));
                 }
                 if !i.evidencia.trim().is_empty() {
                     informe.push_str(&format!("\nevidencia:\n{}\n", i.evidencia.trim_end()));

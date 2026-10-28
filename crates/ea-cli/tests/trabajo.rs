@@ -166,7 +166,7 @@ fn ver_y_listar_no_pasan_a_la_terminal_las_secuencias_de_los_agentes() {
     .unwrap();
     let id = bus.crear_trabajo(orden).unwrap();
     let evidencia = format!("salida{SECUENCIAS}\nfin\tok");
-    let fase = FaseInforme { numero: 1, titulo: format!("fase{SECUENCIAS}"), resultado: "hecha".into(), diff_stat: String::new(), ejecutado_por: None };
+    let fase = FaseInforme { numero: 1, titulo: format!("fase{SECUENCIAS}"), resultado: ea_bus::EstadoFase::Hecha, diff_stat: String::new(), ejecutado_por: None };
     bus.escribir_informe(
         &id,
         &Informe {

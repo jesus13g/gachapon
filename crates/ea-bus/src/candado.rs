@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bus::raiz_estado;
 use crate::error::{ErrorBus, Resultado};
+use crate::fs_atomico::escribir_atomico;
 use crate::tipos::Rol;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,7 +75,7 @@ impl CandadoWorktree {
         // Ya tenemos el lock: el ocupante que hubiera es el residuo de un
         // proceso muerto y un lector no debe verlo en la ventana de abajo.
         let _ = fs::remove_file(&lado);
-        std::fs::write(&lado, serde_json::to_vec(&ocupante)?)?;
+        escribir_atomico(&lado, &serde_json::to_vec(&ocupante)?)?;
         Ok(Self { fichero: f, ruta_lock: ruta })
     }
 

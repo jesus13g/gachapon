@@ -1,0 +1,1646 @@
+==== t01-feliz: misión que pasa
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 1,
+  "actualizado_en": "<FECHA>",
+  "detalle": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":1,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "terminado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "nuevos: ok.txt",
+  "motivo": null,
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": true,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t01-feliz",
+  "modo": "mision",
+  "titulo": "misión t01-feliz",
+  "worktree": "<TMP>/r01",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "test -f ok.txt",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 5
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "skills": [
+    "rust"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- skills-agente.md
+# Skills para esta tarea
+Sigue estas pautas además de las instrucciones de la tarea.
+
+## rust
+Usa cargo test.
+
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t01-feliz","trabajo":"t01-feliz"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t01-feliz"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t01-feliz"}
+-- ocupante del semáforo mientras corre
+{"agente":"qwen-code","trabajo":"t01-feliz","pid":<PID>,"desde":"","rol":"modelo-local"}
+==== t02-reintento: misión que pasa en la segunda iteración
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 2,
+  "actualizado_en": "<FECHA>",
+  "detalle": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":2,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "terminado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "nuevos: marca, ok.txt",
+  "motivo": null,
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": true,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t02-reintento",
+  "modo": "mision",
+  "titulo": "misión t02-reintento",
+  "worktree": "<TMP>/r02",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "test -f ok.txt || { echo FALTA-OK; exit 1; }",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 3
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t02-reintento","trabajo":"t02-reintento"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t02-reintento"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t02-reintento"}
+==== t03-falla: misión cuyo criterio falla
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 2,
+  "actualizado_en": "<FECHA>",
+  "detalle": "iteraciones agotadas",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":2,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "bloqueado",
+  "evidencia": "roto\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "",
+  "motivo": "iteraciones agotadas",
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t03-falla",
+  "modo": "mision",
+  "titulo": "misión t03-falla",
+  "worktree": "<TMP>/r03",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "echo roto; exit 1",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 2
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t03-falla","trabajo":"t03-falla"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t03-falla"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t03-falla"}
+==== t04-topes: topes agotados
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 1,
+  "actualizado_en": "<FECHA>",
+  "detalle": "topes agotados (55)",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":1,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "bloqueado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "",
+  "motivo": "topes agotados (55)",
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t04-topes",
+  "modo": "mision",
+  "titulo": "misión t04-topes",
+  "worktree": "<TMP>/r04",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "false",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 3
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t04-topes","trabajo":"t04-topes"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t04-topes"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t04-topes"}
+==== t05-cancelada: cancelada en curso
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "cancelado",
+  "fase_actual": null,
+  "iteracion": 1,
+  "actualizado_en": "<FECHA>",
+  "detalle": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"cancelado","evento":"cancelar","iteracion":1,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"cancelado","evento":"cancelado_en_curso","iteracion":1,"ts":"<FECHA>"}
+
+-- fin
+-- orden.json
+{
+  "id": "t05-cancelada",
+  "modo": "mision",
+  "titulo": "misión t05-cancelada",
+  "worktree": "<TMP>/r05",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "touch criterio-corrio; false",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 3
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t05-cancelada","trabajo":"t05-cancelada"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t05-cancelada"}
+-- diario orquestador bus_cancelado_en_curso ok {"fase":null,"iteracion":1,"trabajo":"t05-cancelada"}
+==== t06-parada: parada en curso
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "ejecutando",
+  "fase_actual": null,
+  "iteracion": 1,
+  "actualizado_en": "<FECHA>",
+  "detalle": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+
+-- fin
+-- orden.json
+{
+  "id": "t06-parada",
+  "modo": "mision",
+  "titulo": "misión t06-parada",
+  "worktree": "<TMP>/r06",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "touch criterio-corrio; true",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 3
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t06-parada","trabajo":"t06-parada"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t06-parada"}
+==== t06-parada: recuperada al arrancar
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 1,
+  "actualizado_en": "<FECHA>",
+  "detalle": "interrumpido",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":1,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "bloqueado",
+  "evidencia": "",
+  "commit_inicio": null,
+  "diff_stat": null,
+  "motivo": "interrumpido",
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t06-parada",
+  "modo": "mision",
+  "titulo": "misión t06-parada",
+  "worktree": "<TMP>/r06",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "touch criterio-corrio; true",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 3
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t06-parada","trabajo":"t06-parada"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t06-parada"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t06-parada"}
+==== t07-tiempo: tope de tiempo del agente
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 1,
+  "actualizado_en": "<FECHA>",
+  "detalle": "iteraciones agotadas",
+  "ejecutado_por": {
+    "agente": "codex",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"codex","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"codex","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":1,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "bloqueado",
+  "evidencia": "\n(el agente salió con código None)",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "",
+  "motivo": "iteraciones agotadas",
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "codex",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t07-tiempo",
+  "modo": "mision",
+  "titulo": "misión t07-tiempo",
+  "worktree": "<TMP>/r07",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "test -f ok.txt",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 1,
+    "llamadas_herramienta": 60,
+    "iteraciones": 1
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json (vacío)
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t07-tiempo","trabajo":"t07-tiempo"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t07-tiempo"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t07-tiempo"}
+==== t08-obra: obra en revisión intermedia
+-- .estado.lock (vacío)
+-- arbol-revision.txt
+8279d86387feae95686ea82d6afca78a73340fac
+-- fin
+-- arbol-ultimo.txt
+8279d86387feae95686ea82d6afca78a73340fac
+-- fin
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": 3,
+  "iteracion": 2,
+  "actualizado_en": "<FECHA>",
+  "detalle": "revisión intermedia tras 2 fases; quedan 1",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- fases-informe.json
+[
+  {
+    "numero": 1,
+    "titulo": "f1",
+    "resultado": "hecha",
+    "diff_stat": "f1 | 1 +\n 1 file changed, 1 insertion(+)",
+    "ejecutado_por": {
+      "agente": "qwen-code",
+      "modelo": "qwen3-coder-30b"
+    }
+  },
+  {
+    "numero": 2,
+    "titulo": "f2",
+    "resultado": "hecha",
+    "diff_stat": "f2 | 1 +\n 1 file changed, 1 insertion(+)",
+    "ejecutado_por": {
+      "agente": "qwen-code",
+      "modelo": "qwen3-coder-30b"
+    }
+  }
+]
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":2,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "terminado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "f1 | 1 +\n f2 | 1 +\n 2 files changed, 2 insertions(+)",
+  "motivo": "revisión intermedia tras 2 fases; quedan 1",
+  "fases_hechas": 2,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [
+    {
+      "numero": 1,
+      "titulo": "f1",
+      "resultado": "hecha",
+      "diff_stat": "f1 | 1 +\n 1 file changed, 1 insertion(+)",
+      "ejecutado_por": {
+        "agente": "qwen-code",
+        "modelo": "qwen3-coder-30b"
+      }
+    },
+    {
+      "numero": 2,
+      "titulo": "f2",
+      "resultado": "hecha",
+      "diff_stat": "f2 | 1 +\n 1 file changed, 1 insertion(+)",
+      "ejecutado_por": {
+        "agente": "qwen-code",
+        "modelo": "qwen3-coder-30b"
+      }
+    }
+  ],
+  "diff": "diff --git a/f1 b/f1\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/f1\n@@ -0,0 +1 @@\n+x\ndiff --git a/f2 b/f2\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/f2\n@@ -0,0 +1 @@\n+x",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t08-obra",
+  "modo": "obra",
+  "titulo": "obra t08-obra",
+  "worktree": "<TMP>/r08",
+  "objetivo": "tres ficheros",
+  "criterio_exito": null,
+  "fases": [
+    {
+      "numero": 1,
+      "titulo": "f1",
+      "instrucciones": "crea el fichero f1",
+      "entregable": "f1",
+      "criterio": "test -f f1"
+    },
+    {
+      "numero": 2,
+      "titulo": "f2",
+      "instrucciones": "crea el fichero f2",
+      "entregable": "f2",
+      "criterio": "test -f f2",
+      "skills": [
+        "tests"
+      ]
+    },
+    {
+      "numero": 3,
+      "titulo": "f3",
+      "instrucciones": "crea el fichero f3",
+      "entregable": "f3",
+      "criterio": "test -f f3"
+    }
+  ],
+  "revisar_cada": 2,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 2
+  },
+  "rutina": null,
+  "notas_revision": [],
+  "skills": [
+    "rust"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- skills-agente.md
+# Skills para esta tarea
+Sigue estas pautas además de las instrucciones de la tarea.
+
+## tests
+Prueba primero.
+
+-- fin
+-- fase 1 hecha {"arbol":"fd690d601e373b1dc8e7540839b9dc67fa38a38d","diff_stat":"f1 | 1 +\n 1 file changed, 1 insertion(+)"} Some("<FECHA>")
+-- fase 2 hecha {"arbol":"8279d86387feae95686ea82d6afca78a73340fac","diff_stat":"f2 | 1 +\n 1 file changed, 1 insertion(+)"} Some("<FECHA>")
+-- fase 3 pendiente  None
+-- diario orquestador bus_crear ok {"modo":"obra","titulo":"obra t08-obra","trabajo":"t08-obra"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t08-obra"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t08-obra"}
+==== t08-obra: obra completa
+-- .estado.lock (vacío)
+-- arbol-revision.txt
+7941e5c3fcecb31ff835e41819e3dff1833c6f6a
+-- fin
+-- arbol-ultimo.txt
+7941e5c3fcecb31ff835e41819e3dff1833c6f6a
+-- fin
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": 4,
+  "iteracion": 3,
+  "actualizado_en": "<FECHA>",
+  "detalle": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- fases-informe.json
+[
+  {
+    "numero": 1,
+    "titulo": "f1",
+    "resultado": "hecha",
+    "diff_stat": "f1 | 1 +\n 1 file changed, 1 insertion(+)",
+    "ejecutado_por": {
+      "agente": "qwen-code",
+      "modelo": "qwen3-coder-30b"
+    }
+  },
+  {
+    "numero": 2,
+    "titulo": "f2",
+    "resultado": "hecha",
+    "diff_stat": "f2 | 1 +\n 1 file changed, 1 insertion(+)",
+    "ejecutado_por": {
+      "agente": "qwen-code",
+      "modelo": "qwen3-coder-30b"
+    }
+  },
+  {
+    "numero": 3,
+    "titulo": "f3",
+    "resultado": "hecha",
+    "diff_stat": "f3 | 1 +\n 1 file changed, 1 insertion(+)",
+    "ejecutado_por": {
+      "agente": "qwen-code",
+      "modelo": "qwen3-coder-30b"
+    }
+  }
+]
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":2,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_cola","evento":"reformular","iteracion":2,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":2,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":3,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "terminado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "f3 | 1 +\n 1 file changed, 1 insertion(+)",
+  "motivo": null,
+  "fases_hechas": 3,
+  "duracion_s": <S>,
+  "obra_completa": true,
+  "fases": [
+    {
+      "numero": 1,
+      "titulo": "f1",
+      "resultado": "hecha",
+      "diff_stat": "f1 | 1 +\n 1 file changed, 1 insertion(+)",
+      "ejecutado_por": {
+        "agente": "qwen-code",
+        "modelo": "qwen3-coder-30b"
+      }
+    },
+    {
+      "numero": 2,
+      "titulo": "f2",
+      "resultado": "hecha",
+      "diff_stat": "f2 | 1 +\n 1 file changed, 1 insertion(+)",
+      "ejecutado_por": {
+        "agente": "qwen-code",
+        "modelo": "qwen3-coder-30b"
+      }
+    },
+    {
+      "numero": 3,
+      "titulo": "f3",
+      "resultado": "hecha",
+      "diff_stat": "f3 | 1 +\n 1 file changed, 1 insertion(+)",
+      "ejecutado_por": {
+        "agente": "qwen-code",
+        "modelo": "qwen3-coder-30b"
+      }
+    }
+  ],
+  "diff": "diff --git a/f3 b/f3\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/f3\n@@ -0,0 +1 @@\n+x",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t08-obra",
+  "modo": "obra",
+  "titulo": "obra t08-obra",
+  "worktree": "<TMP>/r08",
+  "objetivo": "tres ficheros",
+  "criterio_exito": null,
+  "fases": [
+    {
+      "numero": 1,
+      "titulo": "f1",
+      "instrucciones": "crea el fichero f1",
+      "entregable": "f1",
+      "criterio": "test -f f1"
+    },
+    {
+      "numero": 2,
+      "titulo": "f2",
+      "instrucciones": "crea el fichero f2",
+      "entregable": "f2",
+      "criterio": "test -f f2",
+      "skills": [
+        "tests"
+      ]
+    },
+    {
+      "numero": 3,
+      "titulo": "f3",
+      "instrucciones": "crea el fichero f3",
+      "entregable": "f3",
+      "criterio": "test -f f3"
+    }
+  ],
+  "revisar_cada": 2,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 2
+  },
+  "rutina": null,
+  "notas_revision": [],
+  "skills": [
+    "rust"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- skills-agente.md
+# Skills para esta tarea
+Sigue estas pautas además de las instrucciones de la tarea.
+
+## rust
+Usa cargo test.
+
+-- fin
+-- fase 1 hecha {"arbol":"fd690d601e373b1dc8e7540839b9dc67fa38a38d","diff_stat":"f1 | 1 +\n 1 file changed, 1 insertion(+)"} Some("<FECHA>")
+-- fase 2 hecha {"arbol":"8279d86387feae95686ea82d6afca78a73340fac","diff_stat":"f2 | 1 +\n 1 file changed, 1 insertion(+)"} Some("<FECHA>")
+-- fase 3 hecha {"arbol":"7941e5c3fcecb31ff835e41819e3dff1833c6f6a","diff_stat":"f3 | 1 +\n 1 file changed, 1 insertion(+)"} Some("<FECHA>")
+-- diario orquestador bus_crear ok {"modo":"obra","titulo":"obra t08-obra","trabajo":"t08-obra"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t08-obra"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t08-obra"}
+-- diario orquestador bus_reformular ok {"estado":"en_cola","fase":3,"trabajo":"t08-obra"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t08-obra"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t08-obra"}
+==== t09-obra-bloqueada: obra bloqueada
+-- .estado.lock (vacío)
+-- arbol-revision.txt
+08585692ce06452da6f82ae66b90d98b55536fca
+-- fin
+-- arbol-ultimo.txt
+fd690d601e373b1dc8e7540839b9dc67fa38a38d
+-- fin
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": 2,
+  "iteracion": 3,
+  "actualizado_en": "<FECHA>",
+  "detalle": "fase 2: iteraciones agotadas",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- fases-informe.json
+[
+  {
+    "numero": 1,
+    "titulo": "f1",
+    "resultado": "hecha",
+    "diff_stat": "f1 | 1 +\n 1 file changed, 1 insertion(+)",
+    "ejecutado_por": {
+      "agente": "qwen-code",
+      "modelo": "qwen3-coder-30b"
+    }
+  },
+  {
+    "numero": 2,
+    "titulo": "f2",
+    "resultado": "bloqueada",
+    "diff_stat": "",
+    "ejecutado_por": {
+      "agente": "qwen-code",
+      "modelo": "qwen3-coder-30b"
+    }
+  }
+]
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":3,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "bloqueado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "f1 | 1 +\n 1 file changed, 1 insertion(+)",
+  "motivo": "fase 2: iteraciones agotadas",
+  "fases_hechas": 1,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [
+    {
+      "numero": 1,
+      "titulo": "f1",
+      "resultado": "hecha",
+      "diff_stat": "f1 | 1 +\n 1 file changed, 1 insertion(+)",
+      "ejecutado_por": {
+        "agente": "qwen-code",
+        "modelo": "qwen3-coder-30b"
+      }
+    },
+    {
+      "numero": 2,
+      "titulo": "f2",
+      "resultado": "bloqueada",
+      "diff_stat": "",
+      "ejecutado_por": {
+        "agente": "qwen-code",
+        "modelo": "qwen3-coder-30b"
+      }
+    }
+  ],
+  "diff": "diff --git a/f1 b/f1\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/f1\n@@ -0,0 +1 @@\n+x",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t09-obra-bloqueada",
+  "modo": "obra",
+  "titulo": "obra t09-obra-bloqueada",
+  "worktree": "<TMP>/r09",
+  "objetivo": "tres ficheros",
+  "criterio_exito": null,
+  "fases": [
+    {
+      "numero": 1,
+      "titulo": "f1",
+      "instrucciones": "crea el fichero f1",
+      "entregable": "f1",
+      "criterio": "test -f f1"
+    },
+    {
+      "numero": 2,
+      "titulo": "f2",
+      "instrucciones": "crea el fichero f2",
+      "entregable": "f2",
+      "criterio": "test -f f2",
+      "skills": [
+        "tests"
+      ]
+    },
+    {
+      "numero": 3,
+      "titulo": "f3",
+      "instrucciones": "crea el fichero f3",
+      "entregable": "f3",
+      "criterio": "test -f f3"
+    }
+  ],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 2
+  },
+  "rutina": null,
+  "notas_revision": [],
+  "skills": [
+    "rust"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- skills-agente.md
+# Skills para esta tarea
+Sigue estas pautas además de las instrucciones de la tarea.
+
+## tests
+Prueba primero.
+
+-- fin
+-- fase 1 hecha {"arbol":"fd690d601e373b1dc8e7540839b9dc67fa38a38d","diff_stat":"f1 | 1 +\n 1 file changed, 1 insertion(+)"} Some("<FECHA>")
+-- fase 2 bloqueada {"diff_stat":"","motivo":"iteraciones agotadas"} Some("<FECHA>")
+-- fase 3 pendiente  None
+-- diario orquestador bus_crear ok {"modo":"obra","titulo":"obra t09-obra-bloqueada","trabajo":"t09-obra-bloqueada"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t09-obra-bloqueada"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t09-obra-bloqueada"}
+==== t10-rutina-falla: rutina fallida
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 2,
+  "actualizado_en": "<FECHA>",
+  "detalle": "iteraciones agotadas",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":2,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_espera","evento":"poner_en_espera","iteracion":2,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"confirmar","iteracion":2,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "bloqueado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "nuevos: ok.txt",
+  "motivo": "iteraciones agotadas",
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t10-rutina-falla",
+  "modo": "rutina",
+  "titulo": "Rutina fallida",
+  "worktree": "<TMP>/r10",
+  "objetivo": "Ejecuta la rutina «fallida» (versión 1).\n## Pasos, en orden\n1. crea ok.txt\n",
+  "criterio_exito": "false",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 2
+  },
+  "rutina": {
+    "slug": "fallida",
+    "version": 1
+  },
+  "notas_revision": [],
+  "creada_en": "<FECHA>",
+  "creada_por": "rutina"
+}
+-- fin
+-- paquete-correccion.md
+# Paquete de corrección: rutina fallida (versión 1)
+
+Trabajo: t10-rutina-falla
+Motivo: iteraciones agotadas
+
+## Definición
+
+```toml
+[rutina]
+slug = "fallida"
+version = 1
+worktree = '<TMP>/r10'
+criterio_exito = "false"
+[topes]
+iteraciones = 2
+[[pasos]]
+texto = "crea ok.txt"
+```
+
+## Ejecución (entradas y pasos tal como se le dieron al agente)
+
+Ejecuta la rutina «fallida» (versión 1).
+## Pasos, en orden
+1. crea ok.txt
+
+## Criterio de éxito
+
+`false`
+
+## Salida y evidencia del error
+
+```
+--- resumen del agente ---
+hecho
+```
+
+## Qué se espera
+
+Corrige la definición de la rutina y sube su versión (`ea rutina registrar <fichero>`).
+
+## Contexto del usuario
+
+revisa la ruta
+
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"rutina","titulo":"Rutina fallida","trabajo":"t10-rutina-falla"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t10-rutina-falla"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t10-rutina-falla"}
+-- diario orquestador bus_poner_en_espera ok {"estado":"en_espera","trabajo":"t10-rutina-falla"}
+-- diario orquestador bus_confirmar ok {"estado":"en_revision","trabajo":"t10-rutina-falla"}
+==== t11-rutina-pasa: rutina buena
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "cerrado",
+  "fase_actual": null,
+  "iteracion": 1,
+  "actualizado_en": "<FECHA>",
+  "detalle": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":1,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"cerrado","evento":"cerrar","iteracion":1,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "terminado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "nuevos: ok.txt",
+  "motivo": null,
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": true,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t11-rutina-pasa",
+  "modo": "rutina",
+  "titulo": "Rutina buena",
+  "worktree": "<TMP>/r11",
+  "objetivo": "Ejecuta la rutina «buena» (versión 1).\n## Pasos, en orden\n1. crea ok.txt\n",
+  "criterio_exito": "test -f ok.txt",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 2
+  },
+  "rutina": {
+    "slug": "buena",
+    "version": 1
+  },
+  "notas_revision": [],
+  "creada_en": "<FECHA>",
+  "creada_por": "rutina"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"rutina","titulo":"Rutina buena","trabajo":"t11-rutina-pasa"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t11-rutina-pasa"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t11-rutina-pasa"}
+-- diario orquestador bus_cerrar ok {"estado":"cerrado","trabajo":"t11-rutina-pasa"}
+==== t12-sin-git: sin repo git
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 0,
+  "actualizado_en": "<FECHA>",
+  "detalle": "el worktree no es un repo git",
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"qwen-code","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":0,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "bloqueado",
+  "evidencia": "",
+  "commit_inicio": null,
+  "diff_stat": null,
+  "motivo": "el worktree no es un repo git",
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "qwen-code",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t12-sin-git",
+  "modo": "mision",
+  "titulo": "misión t12-sin-git",
+  "worktree": "<TMP>/r12",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "true",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 1
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t12-sin-git","trabajo":"t12-sin-git"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t12-sin-git"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t12-sin-git"}
+==== t13-no-disponible: ejecutor no disponible
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 0,
+  "actualizado_en": "<FECHA>",
+  "detalle": "el ejecutor codex no está disponible: no se encuentra el binario \"/no/existe/codex\" (agentes.codex.bin)",
+  "ejecutado_por": {
+    "agente": "codex",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"codex","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"codex","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":0,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "bloqueado",
+  "evidencia": "",
+  "commit_inicio": null,
+  "diff_stat": null,
+  "motivo": "el ejecutor codex no está disponible: no se encuentra el binario \"/no/existe/codex\" (agentes.codex.bin)",
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": false,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "codex",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t13-no-disponible",
+  "modo": "mision",
+  "titulo": "misión t13-no-disponible",
+  "worktree": "<TMP>/r13",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "true",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 1
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t13-no-disponible","trabajo":"t13-no-disponible"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t13-no-disponible"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t13-no-disponible"}
+==== t14-equipo: trabajo de equipo con revisor
+-- .estado.lock (vacío)
+-- estado.json
+{
+  "estado": "en_revision",
+  "fase_actual": null,
+  "iteracion": 1,
+  "actualizado_en": "<FECHA>",
+  "detalle": null,
+  "ejecutado_por": {
+    "agente": "codex",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"codex","modelo":"qwen3-coder-30b"},"estado":"ejecutando","evento":"tomar","iteracion":0,"ts":"<FECHA>"}
+{"ejecutado_por":{"agente":"codex","modelo":"qwen3-coder-30b"},"estado":"en_revision","evento":"entregar","iteracion":1,"ts":"<FECHA>"}
+
+-- fin
+-- informe.json
+{
+  "resultado": "terminado",
+  "evidencia": "\n--- resumen del agente ---\nhecho",
+  "commit_inicio": "<COMMIT>",
+  "diff_stat": "nuevos: ok.txt",
+  "motivo": null,
+  "fases_hechas": 0,
+  "duracion_s": <S>,
+  "obra_completa": true,
+  "fases": [],
+  "diff": null,
+  "ejecutado_por": {
+    "agente": "codex",
+    "modelo": "qwen3-coder-30b"
+  }
+}
+-- fin
+-- orden.json
+{
+  "id": "t14-equipo",
+  "modo": "mision",
+  "titulo": "misión t14-equipo",
+  "worktree": "<TMP>/r14",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "test -f ok.txt",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 1
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "equipo": "<ID>",
+  "asignado_a": "codex",
+  "revisor": "antigravity",
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- salida-agente.json
+[{"type":"result","result":"hecho"}]
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t14-equipo","trabajo":"t14-equipo"}
+-- diario orquestador bus_tomar ok {"estado":"ejecutando","trabajo":"t14-equipo"}
+-- diario orquestador bus_entregar ok {"estado":"en_revision","trabajo":"t14-equipo"}
+==== t15-ocupado: worktree ocupado
+-- estado.json
+{
+  "estado": "en_cola",
+  "fase_actual": null,
+  "iteracion": 0,
+  "actualizado_en": "<FECHA>",
+  "detalle": null
+}
+-- fin
+-- historial.jsonl
+{"estado":"en_cola","evento":"crear","iteracion":0,"ts":"<FECHA>"}
+
+-- fin
+-- orden.json
+{
+  "id": "t15-ocupado",
+  "modo": "mision",
+  "titulo": "misión t15-ocupado",
+  "worktree": "<TMP>/r15",
+  "objetivo": "crea ok.txt",
+  "criterio_exito": "true",
+  "fases": [],
+  "revisar_cada": null,
+  "topes": {
+    "turnos": 30,
+    "tiempo_s": 900,
+    "llamadas_herramienta": 60,
+    "iteraciones": 1
+  },
+  "rutina": null,
+  "notas_revision": [
+    "usa minúsculas"
+  ],
+  "creada_en": "<FECHA>",
+  "creada_por": "claude-code"
+}
+-- fin
+-- diario orquestador bus_crear ok {"modo":"mision","titulo":"misión t15-ocupado","trabajo":"t15-ocupado"}
+==== semáforos mientras otro lo tiene
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.ocupante
+{"agente":"claude-code","trabajo":"x","pid":<PID>,"desde":"","rol":"claude-code"}
+-- fin
+==== bus
+-- colas/
+-- colas/agentes/
+-- colas/agentes/codex/
+-- colas/agentes/codex/.tomar.lock (vacío)
+-- colas/claude-code/
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t01-feliz",
+  "motivo": "terminado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t02-reintento",
+  "motivo": "terminado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t03-falla",
+  "motivo": "bloqueado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t04-topes",
+  "motivo": "bloqueado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t06-parada",
+  "motivo": "bloqueado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t07-tiempo",
+  "motivo": "bloqueado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t08-obra",
+  "motivo": "terminado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t09-obra-bloqueada",
+  "motivo": "bloqueado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t10-rutina-falla",
+  "motivo": "corrección de rutina",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t12-sin-git",
+  "motivo": "bloqueado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t13-no-disponible",
+  "motivo": "bloqueado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/claude-code/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t14-equipo",
+  "motivo": "terminado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/modelo-local/
+-- colas/modelo-local/.tomar.lock (vacío)
+-- colas/modelo-local/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t15-ocupado",
+  "motivo": "worktree ocupado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- colas/revision/
+-- colas/revision/antigravity/
+-- colas/revision/antigravity/<ID>.json
+{
+  "id": "<ID>",
+  "trabajo": "t14-equipo",
+  "motivo": "terminado",
+  "encolado_en": "<FECHA>"
+}
+-- fin
+-- equipos/
+-- equipos/.equipos.lock (vacío)
+-- equipos/<ID>/
+-- equipos/<ID>/equipo.json
+{
+  "id": "<ID>",
+  "titulo": "equipo",
+  "objetivo": "o",
+  "worktree_base": "<TMP>/r14",
+  "miembros": [
+    {
+      "agente": "claude-code",
+      "rol": "planificador"
+    },
+    {
+      "agente": "codex",
+      "rol": "ejecutor"
+    },
+    {
+      "agente": "antigravity",
+      "rol": "revisor"
+    }
+  ],
+  "estado": "despierto",
+  "creado_en": "<FECHA>",
+  "creado_por": "usuario",
+  "trabajos": [
+    "t14-equipo"
+  ]
+}
+-- fin
+-- semaforos/
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)
+-- semaforos/worktree-<H>.lock (vacío)

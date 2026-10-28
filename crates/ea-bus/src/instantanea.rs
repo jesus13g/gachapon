@@ -3,22 +3,24 @@
 //! diff` que sale de ellas. Lógica pura, común a `ea trabajo diff --fase N`
 //! y a `GET /api/trabajos/<id>/diff?fase=N`.
 
-use std::path::Path;
-
 use ea_ajustes::TipoAgente;
 use ea_store::FilaFase;
 
 use crate::error::{ErrorBus, Resultado};
-use crate::tipos::EjecutadoPor;
+use crate::tipos::{EjecutadoPor, InformeFase};
 
 /// Lo que se excluye de todos los diffs de un trabajo.
 pub const EXCLUIR_DIFF: &str = ":(exclude,glob)**/__pycache__/**";
 
+/// El informe guardado al cerrar una fase, si se puede leer.
+fn informe_de(f: &FilaFase) -> Option<InformeFase> {
+    serde_json::from_str(f.informe.as_deref()?).ok()
+}
+
 /// El árbol guardado al cerrar la fase `numero`, si lo hay.
 pub fn arbol_de_fase(fases: &[FilaFase], numero: u32) -> Option<String> {
     let f = fases.iter().find(|f| f.numero == i64::from(numero))?;
-    let v: serde_json::Value = serde_json::from_str(f.informe.as_deref()?).ok()?;
-    v.get("arbol")?.as_str().filter(|a| es_objeto(a)).map(String::from)
+    informe_de(f)?.arbol.filter(|a| es_objeto(a))
 }
 
 /// Un id de objeto de git (hexadecimal): lo que va a `git diff` como
@@ -29,8 +31,7 @@ fn es_objeto(s: &str) -> bool {
 
 /// El `diff_stat` guardado al cerrar la fase, si lo hay.
 pub fn diff_stat_de_fase(f: &FilaFase) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(f.informe.as_deref()?).ok()?;
-    v.get("diff_stat")?.as_str().map(String::from)
+    informe_de(f)?.diff_stat
 }
 
 /// `(base, fin)` para `git diff base fin` de la fase `n`: de la instantánea
@@ -55,19 +56,6 @@ pub fn rango_diff_fase(commit_inicio: Option<&str>, fases: &[FilaFase], n: u32) 
             .ok_or_else(|| ErrorBus::SinInstantanea(format!("no hay instantánea de árbol de la fase {}", n - 1)))?
     };
     Ok((base, fin))
-}
-
-/// La salida en bruto del agente en el directorio del trabajo (spec 017,
-/// RF-010): `salida-agente.json`, o `salida-qwen.json` en los trabajos de
-/// antes.
-pub const SALIDA_AGENTE: &str = "salida-agente.json";
-pub const SALIDA_ANTIGUA: &str = "salida-qwen.json";
-/// Las skills que se le pasaron (`skills-qwen.md` en los trabajos de antes).
-pub const SKILLS_AGENTE: &str = "skills-agente.md";
-
-/// Lee la salida en bruto de un trabajo, con el nombre nuevo o el antiguo.
-pub fn leer_salida_agente(dir_trabajo: &Path) -> Option<String> {
-    [SALIDA_AGENTE, SALIDA_ANTIGUA].iter().find_map(|n| std::fs::read_to_string(dir_trabajo.join(n)).ok())
 }
 
 /// El texto final del agente en su salida en bruto; vacío si no se puede
@@ -159,13 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn la_salida_se_lee_con_el_nombre_nuevo_o_el_antiguo() {
-        let d = tempfile::tempdir().unwrap();
-        assert_eq!(leer_salida_agente(d.path()), None);
-        std::fs::write(d.path().join(SALIDA_ANTIGUA), "vieja").unwrap();
-        assert_eq!(leer_salida_agente(d.path()).as_deref(), Some("vieja"));
-        std::fs::write(d.path().join(SALIDA_AGENTE), "nueva").unwrap();
-        assert_eq!(leer_salida_agente(d.path()).as_deref(), Some("nueva"));
+    fn un_trabajo_de_antes_es_de_qwen() {
         assert_eq!(tipo_ejecutor(None), TipoAgente::QwenCode, "un trabajo de antes es de Qwen");
         let por = EjecutadoPor { agente: "codex".into(), modelo: "m".into() };
         assert_eq!(tipo_ejecutor(Some(&por)), TipoAgente::Codex);

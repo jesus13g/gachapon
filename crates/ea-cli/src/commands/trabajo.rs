@@ -165,7 +165,7 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     }
     for f in &i.fases {
         let por = f.ejecutado_por.as_ref().map(|e| format!("  · {} ({})", e.agente, e.modelo)).unwrap_or_default();
-        println!("{}", limpio(&format!("fase {} [{}] {}{por}", f.numero, f.resultado, f.titulo)));
+        println!("{}", limpio(&format!("fase {} [{}] {}{por}", f.numero, f.resultado.as_str(), f.titulo)));
     }
     println!("evidencia:\n{}", limpio(i.evidencia.trim_end()));
     if let Some(d) = &i.diff_stat {

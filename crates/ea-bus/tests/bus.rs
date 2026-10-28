@@ -18,7 +18,7 @@ macro_rules! tmp {
 }
 
 use ea_bus::{
-    transicion, Bus, CandadoWorktree, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoTrabajo, Evento, Fase,
+    transicion, Bus, CandadoWorktree, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoFase, EstadoTrabajo, Evento, Fase,
     Informe, Modo, Ocupante, Orden, ResultadoInforme, Rol, TipoAgente, Topes,
 };
 use ea_store::Store;
@@ -275,11 +275,12 @@ fn obra_completa_en_revision(d: &Path) -> (Bus, String) {
     bus.tomar(Rol::Ejecutor).unwrap();
     bus.aplicar(&id, Evento::Tomar).unwrap();
     let fases: Vec<ea_bus::FaseInforme> = (1..=3)
-        .map(|n| ea_bus::FaseInforme { numero: n, titulo: format!("f{n}"), resultado: "hecha".into(), diff_stat: String::new(), ejecutado_por: None })
+        .map(|n| ea_bus::FaseInforme { numero: n, titulo: format!("f{n}"), resultado: EstadoFase::Hecha, diff_stat: String::new(), ejecutado_por: None })
         .collect();
     std::fs::write(bus.raiz().join("trabajos").join(&id).join("fases-informe.json"), serde_json::to_vec(&fases).unwrap()).unwrap();
     for n in 1..=3 {
-        bus.registrar_fase(&id, n, "hecha", &serde_json::json!({ "arbol": format!("arbol{n}") })).unwrap();
+        let informe = ea_bus::InformeFase { arbol: Some(format!("arbol{n}")), ..Default::default() };
+        bus.registrar_fase(&id, n, EstadoFase::Hecha, &informe).unwrap();
     }
     let inf = Informe { fases_hechas: 3, obra_completa: true, fases, ..informe() };
     let e = bus.aplicar(&id, Evento::Entregar(inf)).unwrap();

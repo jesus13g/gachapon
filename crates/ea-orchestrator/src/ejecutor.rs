@@ -51,7 +51,7 @@ use std::time::{Duration, Instant};
 use ea_plataforma::proceso::Corrida;
 use ea_bus::git::{self, instantanea};
 use ea_bus::{
-    Bus, Rol, CandadoWorktree, Entrega, FaseInforme, Informe, Modo, Ocupante,
+    Artefactos, Bus, Rol, CandadoWorktree, Entrega, EstadoFase, FaseInforme, Informe, InformeFase, Modo, Ocupante,
     Orden, ResultadoInforme,
 };
 
@@ -292,7 +292,7 @@ pub fn ejecutar_intento(
             return Intento::Nada;
         }
     };
-    let mut orden = match bus.leer_orden(&id) {
+    let (mut orden, artefactos) = match bus.leer_orden(&id).and_then(|o| Ok((o, bus.artefactos(&id)?))) {
         Ok(o) => o,
         Err(e) => {
             tracing::warn!(%id, error = %e, "orden ilegible; se descarta la entrada");
@@ -382,7 +382,7 @@ pub fn ejecutar_intento(
 
     // El candado se mantiene durante todo el bucle de iteraciones y fases.
     let cortar = || bus.esta_cancelado(&id) || apagando();
-    match trabajar(bus, config, agente, &id, &orden, fase_actual, wt, inicio, &cortar) {
+    match trabajar(bus, config, agente, &id, &artefactos, &orden, fase_actual, wt, inicio, &cortar) {
         Ok(informe) => entregar(bus, config, &id, &orden, informe),
         // Cortado por la parada y no cancelado: ni informe ni cancelación;
         // sigue `ejecutando` y `recuperar` lo entrega como «interrumpido».
@@ -488,6 +488,7 @@ fn bucle(
     config: &ConfigOrquestador,
     agente: &dyn Ejecutor,
     id: &str,
+    artefactos: &Artefactos,
     orden: &Orden,
     wt: &Path,
     titulo: &str,
@@ -499,13 +500,12 @@ fn bucle(
     if criterio.trim().is_empty() {
         return Some(Bucle { pasa: false, evidencia: "la orden no trae criterio de éxito".into(), motivo: Some("sin criterio de éxito".into()) });
     }
-    let dir = bus.raiz().join("trabajos").join(id);
     let sistema = match config.skills.resolver(&orden.creada_por, skills) {
         Ok(s) => ea_bus::bloque_prompt(&s),
         Err(e) => return Some(Bucle { pasa: false, evidencia: e.to_string(), motivo: Some(e.to_string()) }),
     };
     if !sistema.is_empty() {
-        let _ = std::fs::write(dir.join(ea_bus::SKILLS_AGENTE), &sistema);
+        let _ = artefactos.guardar_skills_agente(&sistema);
     }
     let base = construir_prompt(orden, titulo, cuerpo, criterio, agente.regla_herramientas());
     let max = orden.topes.iteraciones.max(1);
@@ -526,7 +526,7 @@ fn bucle(
             ),
         };
         let salida = agente.ejecutar(&prompt, &sistema, wt, &orden.topes, config, cortar);
-        let _ = std::fs::write(dir.join(ea_bus::SALIDA_AGENTE), &salida.bruta);
+        let _ = artefactos.guardar_salida_agente(&salida.bruta);
         if salida.cancelado || cortar() {
             return None;
         }
@@ -558,6 +558,7 @@ fn trabajar(
     config: &ConfigOrquestador,
     agente: &dyn Ejecutor,
     id: &str,
+    artefactos: &Artefactos,
     orden: &Orden,
     fase_actual: Option<u32>,
     wt: &Path,
@@ -575,11 +576,11 @@ fn trabajar(
         return fin(bloqueado("el worktree no es un repo git", String::new()));
     };
     if orden.modo == Modo::Obra && !orden.fases.is_empty() {
-        return fin(trabajar_obra(bus, config, agente, id, orden, fase_actual, wt, commit_inicio, cortar)?);
+        return fin(trabajar_obra(bus, config, agente, id, artefactos, orden, fase_actual, wt, commit_inicio, cortar)?);
     }
 
     let criterio = orden.criterio_exito.clone().unwrap_or_default();
-    let r = bucle(bus, config, agente, id, orden, wt, &orden.titulo, &orden.objetivo, &criterio, &orden.skills, cortar)
+    let r = bucle(bus, config, agente, id, artefactos, orden, wt, &orden.titulo, &orden.objetivo, &criterio, &orden.skills, cortar)
         .ok_or(Cancelado { fase: None })?;
 
     let diff_stat = git::diff_stat_desde(wt, &commit_inicio);
@@ -593,10 +594,6 @@ fn trabajar(
     })
 }
 
-fn leer_texto(p: &Path) -> Option<String> {
-    std::fs::read_to_string(p).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
-}
-
 /// Obra por fases desde `fase_actual`, con parada de revisión cada
 /// `revisar_cada` fases hechas (o al terminar todas). Antes de cada fase se
 /// mira `cortar`: si se ha cancelado (o el orquestador se para), se corta sin
@@ -607,13 +604,14 @@ fn trabajar_obra(
     config: &ConfigOrquestador,
     agente: &dyn Ejecutor,
     id: &str,
+    artefactos: &Artefactos,
     orden: &Orden,
     fase_actual: Option<u32>,
     wt: &Path,
     commit_inicio: String,
     cortar: &dyn Fn() -> bool,
 ) -> Result<Informe, Cancelado> {
-    let dir = bus.raiz().join("trabajos").join(id);
+    let dir = artefactos.dir();
     let mut fases = orden.fases.clone();
     fases.sort_by_key(|f| f.numero);
     let total = fases.len();
@@ -621,23 +619,22 @@ fn trabajar_obra(
     // la pendiente; en una obra completa, la última). Sin ella, la última.
     let inicio_idx = fase_actual.and_then(|n| fases.iter().position(|f| f.numero == n)).unwrap_or(total - 1);
 
-    let f_ultimo = dir.join("arbol-ultimo.txt");
-    let f_revision = dir.join("arbol-revision.txt");
-    let Some(mut previo) = leer_texto(&f_ultimo).or_else(|| instantanea(wt, &dir)) else {
-        return Ok(bloqueado("no se pudo guardar la instantánea del árbol", String::new()));
+    let mut previo = match artefactos.arbol_ultimo() {
+        Some(arbol) => arbol,
+        None => {
+            let Some(arbol) = instantanea(wt, dir) else {
+                return Ok(bloqueado("no se pudo guardar la instantánea del árbol", String::new()));
+            };
+            let _ = artefactos.guardar_arbol_ultimo(&arbol);
+            arbol
+        }
     };
-    if !f_ultimo.exists() {
-        let _ = std::fs::write(&f_ultimo, &previo);
-    }
-    let base_revision = leer_texto(&f_revision).unwrap_or_else(|| {
-        let _ = std::fs::write(&f_revision, &previo);
+    let base_revision = artefactos.arbol_revision().unwrap_or_else(|| {
+        let _ = artefactos.guardar_arbol_revision(&previo);
         previo.clone()
     });
     // Fases ya informadas de ejecuciones anteriores (las que sigan vigentes).
-    let mut informadas: Vec<FaseInforme> = std::fs::read(dir.join("fases-informe.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default();
+    let mut informadas = artefactos.fases_informe().unwrap_or_default();
     informadas.retain(|f| f.numero < fases[inicio_idx].numero);
 
     let mut fallo: Option<(String, String)> = None;
@@ -655,25 +652,27 @@ fn trabajar_obra(
             orden.objetivo, f.titulo, f.instrucciones, f.entregable
         );
         let skills = if f.skills.is_empty() { &orden.skills } else { &f.skills };
-        let r = bucle(bus, config, agente, id, orden, wt, &titulo, &cuerpo, &f.criterio, skills, cortar)
+        let r = bucle(bus, config, agente, id, artefactos, orden, wt, &titulo, &cuerpo, &f.criterio, skills, cortar)
             .ok_or(Cancelado { fase: Some(f.numero) })?;
         evidencia = r.evidencia.clone();
         if !r.pasa {
-            let stat = instantanea(wt, &dir).map(|t| diff_entre(wt, &previo, &t, true)).unwrap_or_default();
-            let _ = bus.registrar_fase(id, f.numero, "bloqueada", &serde_json::json!({ "motivo": r.motivo, "diff_stat": stat }));
-            informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: "bloqueada".into(), diff_stat: stat, ejecutado_por: Some(config.ejecutor.ejecutado_por()) });
+            let stat = instantanea(wt, dir).map(|t| diff_entre(wt, &previo, &t, true)).unwrap_or_default();
+            let informe = InformeFase { motivo: r.motivo.clone(), diff_stat: Some(stat.clone()), arbol: None };
+            let _ = bus.registrar_fase(id, f.numero, EstadoFase::Bloqueada, &informe);
+            informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: EstadoFase::Bloqueada, diff_stat: stat, ejecutado_por: Some(config.ejecutor.ejecutado_por()) });
             fallo = Some((format!("fase {}: {}", f.numero, r.motivo.unwrap_or_default()), r.evidencia));
             break;
         }
-        let Some(arbol) = instantanea(wt, &dir) else {
+        let Some(arbol) = instantanea(wt, dir) else {
             fallo = Some((format!("fase {}: no se pudo guardar la instantánea", f.numero), r.evidencia));
             break;
         };
         let stat = diff_entre(wt, &previo, &arbol, true);
-        let _ = bus.registrar_fase(id, f.numero, "hecha", &serde_json::json!({ "diff_stat": stat, "arbol": arbol }));
-        informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: "hecha".into(), diff_stat: stat, ejecutado_por: Some(config.ejecutor.ejecutado_por()) });
+        let informe = InformeFase { diff_stat: Some(stat.clone()), arbol: Some(arbol.clone()), motivo: None };
+        let _ = bus.registrar_fase(id, f.numero, EstadoFase::Hecha, &informe);
+        informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: EstadoFase::Hecha, diff_stat: stat, ejecutado_por: Some(config.ejecutor.ejecutado_por()) });
         previo = arbol;
-        let _ = std::fs::write(&f_ultimo, &previo);
+        let _ = artefactos.guardar_arbol_ultimo(&previo);
         idx += 1;
         let hechas = idx as u32;
         if idx == total {
@@ -684,16 +683,16 @@ fn trabajar_obra(
             break;
         }
     }
-    let _ = std::fs::write(dir.join("fases-informe.json"), serde_json::to_vec_pretty(&informadas).unwrap_or_default());
+    let _ = artefactos.guardar_fases_informe(&informadas);
 
-    let actual = instantanea(wt, &dir).unwrap_or_else(|| previo.clone());
+    let actual = instantanea(wt, dir).unwrap_or_else(|| previo.clone());
     let stat = diff_entre(wt, &base_revision, &actual, true);
     let parche = diff_entre(wt, &base_revision, &actual, false);
     let parche = if parche.len() > MAX_DIFF { format!("{}\n…(recortado)", &parche[..corte(&parche, MAX_DIFF)]) } else { parche };
-    let hechas = informadas.iter().filter(|f| f.resultado == "hecha").count() as u32;
+    let hechas = informadas.iter().filter(|f| f.resultado == EstadoFase::Hecha).count() as u32;
     if fallo.is_none() {
         // Parada de revisión (o fin): la próxima revisión parte de aquí.
-        let _ = std::fs::write(&f_revision, &actual);
+        let _ = artefactos.guardar_arbol_revision(&actual);
     }
     let (resultado, motivo) = match &fallo {
         Some((m, _)) => (ResultadoInforme::Bloqueado, Some(m.clone())),
@@ -1366,7 +1365,7 @@ mod tests {
         assert_eq!(inf.resultado, ResultadoInforme::Bloqueado);
         assert!(inf.motivo.unwrap().starts_with("fase 2: iteraciones agotadas"));
         assert_eq!((inf.fases_hechas, inf.obra_completa), (1, false));
-        assert_eq!(inf.fases.iter().map(|f| f.resultado.as_str()).collect::<Vec<_>>(), ["hecha", "bloqueada"]);
+        assert_eq!(inf.fases.iter().map(|f| f.resultado).collect::<Vec<_>>(), [EstadoFase::Hecha, EstadoFase::Bloqueada]);
         assert_eq!(bus.leer_estado(&id).unwrap().fase_actual, Some(2));
     }
 

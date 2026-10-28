@@ -3,6 +3,7 @@
 //! exclusivo de escritura a todo el worktree. Los ficheros son la fuente de
 //! verdad; SQLite (`ea-store`) guarda el historial y el diario.
 
+mod artefactos;
 mod bus;
 mod candado;
 mod equipo;
@@ -39,15 +40,14 @@ pub use papelera::{
 /// Escritura atómica (temporal, `fsync` y renombrado), también para quien
 /// escribe fuera del bus (el timer de una rutina, en `ea-acciones`).
 pub use fs_atomico::escribir_atomico;
-pub use instantanea::{
-    arbol_de_fase, diff_stat_de_fase, leer_salida_agente, rango_diff_fase, resumen_salida_agente, tipo_ejecutor, EXCLUIR_DIFF,
-    SALIDA_AGENTE, SALIDA_ANTIGUA, SKILLS_AGENTE,
-};
+pub use instantanea::{arbol_de_fase, diff_stat_de_fase, rango_diff_fase, resumen_salida_agente, tipo_ejecutor, EXCLUIR_DIFF};
+/// Los ficheros de cada trabajo además de orden, estado e informe.
+pub use artefactos::{Artefactos, SALIDA_AGENTE, SKILLS_AGENTE};
 /// El adaptador de cada agente ejecutor, con el que se lee su salida; es parte
 /// de la ficha del catálogo (`ea-ajustes`).
 pub use ea_ajustes::TipoAgente;
 pub use tipos::{
-    EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Modo, Orden,
-    ResultadoInforme, Rol, RutinaRef, Topes,
+    EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoFase, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, InformeFase, Modo,
+    Orden, ResultadoInforme, Rol, RutinaRef, Topes,
     transicion,
 };
