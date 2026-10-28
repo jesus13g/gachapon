@@ -671,7 +671,7 @@
       "dot": "rose",
       "title": "Nobody approves itself",
       "items": [
-        "The system runs the criterion with sh -c; an empty criterion is refused at creation and never counts as success",
+        "The system runs the criterion with sh -c in the same sandbox as the agent; an empty criterion is refused at creation and never counts as success",
         "Mutating MCP tools only simulate or propose; the user accepts",
         "A failed routine reaches the planner only after ea trabajo confirmar"
       ]

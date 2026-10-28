@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/jesus13g/gachapon",
-      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+      "revision": "0397bcdb4447c22ee5e962e7f67c8cb7c4c965aa"
     }
   },
   "layout": {
@@ -33,13 +33,13 @@
       "id": "cargo",
       "label": "Cargo.toml",
       "parent": "repo",
-      "sublabel": "Workspace root: 11 members, excludes escritorio and instalador"
+      "sublabel": "Workspace root: 12 members, excludes escritorio and instalador"
     },
     {
       "id": "crates",
       "label": "crates/",
       "parent": "repo",
-      "sublabel": "The 11 workspace crates",
+      "sublabel": "The 12 workspace crates",
       "sources": [
         {
           "path": "Cargo.toml",
@@ -97,9 +97,9 @@
     },
     {
       "id": "m_aj3",
-      "label": "agentes.rs · equipo.rs · ejecucion.rs",
+      "label": "agentes.rs · ejecucion.rs",
       "parent": "c_aj",
-      "sublabel": "Agent catalog, team and executor settings"
+      "sublabel": "Agent catalog and executor settings"
     },
     {
       "id": "c_bib",
@@ -175,7 +175,7 @@
     },
     {
       "id": "m_bus1",
-      "label": "bus.rs · tipos.rs · fs_atomico.rs",
+      "label": "bus/ · tipos.rs · fs_atomico.rs",
       "parent": "c_bus",
       "sublabel": "Queues, job types, atomic writes"
     },
@@ -187,9 +187,9 @@
     },
     {
       "id": "m_bus3",
-      "label": "rutina.rs · equipo.rs · config.rs",
+      "label": "rutina.rs · equipo.rs · orquestador.rs",
       "parent": "c_bus",
-      "sublabel": "TOML routines, teams, ConfigOrquestador"
+      "sublabel": "TOML routines, teams and the orchestrator heartbeat (orquestador.json)"
     },
     {
       "id": "c_bov",
@@ -223,7 +223,7 @@
     },
     {
       "id": "m_acc1",
-      "label": "catalogo.rs · flujo.rs · herramientas.rs",
+      "label": "catalogo.rs · flujo.rs · herramientas/",
       "parent": "c_acc",
       "sublabel": "Catalog and proposal flow"
     },
@@ -235,15 +235,15 @@
     },
     {
       "id": "m_acc3",
-      "label": "instalacion/ (recursos.rs, agentes.rs, wsl.rs…)",
+      "label": "salud.rs · ajustes.rs · temporizador.rs",
       "parent": "c_acc",
-      "sublabel": "One-step installer logic and embedded resources"
+      "sublabel": "Service and agent health, settings changes, timers"
     },
     {
       "id": "c_orq",
       "label": "ea-orchestrator",
       "parent": "crates",
-      "sublabel": "Executor: takes jobs, sandboxed agent, runs the criterion [bin ea-orchestrator]",
+      "sublabel": "Executor: takes jobs; the agent and the criterion run in the sandbox [bin ea-orchestrator]",
       "sources": [
         {
           "path": "crates/ea-orchestrator/Cargo.toml",
@@ -253,9 +253,9 @@
     },
     {
       "id": "m_orq1",
-      "label": "ejecutor.rs · trabajadores.rs",
+      "label": "ejecutor/ · trabajadores.rs",
       "parent": "c_orq",
-      "sublabel": "Job execution loop and workers"
+      "sublabel": "Each attempt as a pipeline of steps, workers"
     },
     {
       "id": "m_orq2",
@@ -277,9 +277,9 @@
     },
     {
       "id": "m_mcp",
-      "label": "tools.rs · args.rs",
+      "label": "tools/ · args.rs · credencial.rs",
       "parent": "c_mcp",
-      "sublabel": "MCP tool definitions and arguments"
+      "sublabel": "MCP tools per area, arguments and the planner credential"
     },
     {
       "id": "c_web",
@@ -336,6 +336,24 @@
       "sublabel": "One view per monitor tab"
     },
     {
+      "id": "m_cli3",
+      "label": "instalacion/ (recursos.rs, adaptadores.rs, wsl.rs…)",
+      "parent": "c_cli",
+      "sublabel": "ea instalar: embedded resources and generated adapters"
+    },
+    {
+      "id": "c_pru",
+      "label": "ea-pruebas",
+      "parent": "crates",
+      "sublabel": "Integration-test helpers (dev-dependencies only)",
+      "sources": [
+        {
+          "path": "crates/ea-pruebas/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
       "id": "esc",
       "label": "escritorio/",
       "parent": "repo",
@@ -381,10 +399,10 @@
       "id": "claude",
       "label": "claude/",
       "parent": "repo",
-      "sublabel": "Claude Code adapter",
+      "sublabel": "Claude Code skills: the source of every adapter",
       "sources": [
         {
-          "path": "claude/hooks/ea-subagentes.sh",
+          "path": "claude/skills/mision/SKILL.md",
           "line": 1
         }
       ]
@@ -402,22 +420,10 @@
       ]
     },
     {
-      "id": "hk",
-      "label": "hooks/",
-      "parent": "claude",
-      "sublabel": "ea-subagentes.sh: wrapper of ea hook subagentes",
-      "sources": [
-        {
-          "path": "claude/hooks/ea-subagentes.sh",
-          "line": 1
-        }
-      ]
-    },
-    {
       "id": "ag",
       "label": "agentes/",
       "parent": "repo",
-      "sublabel": "Neutral planner procedure and adapters",
+      "sublabel": "Neutral planner procedure and rules",
       "sources": [
         {
           "path": "agentes/flujo/mision.md",
@@ -439,12 +445,12 @@
     },
     {
       "id": "ag2",
-      "label": "codex/ · opencode/ · antigravity/",
+      "label": "planificador.md",
       "parent": "ag",
-      "sublabel": "Adapters for the other planner agents",
+      "sublabel": "Planner rules; with them and claude/skills, ea instalar generates the Codex, OpenCode and Antigravity adapters",
       "sources": [
         {
-          "path": "agentes/codex/AGENTS.md",
+          "path": "agentes/planificador.md",
           "line": 1
         }
       ]

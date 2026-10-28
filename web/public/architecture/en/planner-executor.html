@@ -5963,7 +5963,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <ul>
           <li>ea-mcp only reads the bus: jobs are created and decided with the ea CLI</li>
           <li>Mutating MCP tools simulate or propose; only the user accepts, with ea propuestas decidir</li>
-          <li>The actor comes from clientInfo.name and the current role, never from an argument</li>
+          <li>The actor comes from the X-EA-Credencial credential, which ea instalar gives the planner, and the current role, never from an argument; without it, the actor is desconocido and read-only</li>
         </ul>
       </div>
 

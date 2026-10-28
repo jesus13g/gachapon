@@ -671,7 +671,7 @@
       "dot": "rose",
       "title": "Nadie se aprueba a sí mismo",
       "items": [
-        "El sistema ejecuta el criterio con sh -c; un criterio vacío se rechaza al crear y nunca cuenta como éxito",
+        "El sistema ejecuta el criterio con sh -c en el mismo sandbox que el agente; un criterio vacío se rechaza al crear y nunca cuenta como éxito",
         "Las herramientas MCP mutantes solo simulan o proponen; el usuario acepta",
         "Una rutina que falla llega al planificador solo tras ea trabajo confirmar"
       ]

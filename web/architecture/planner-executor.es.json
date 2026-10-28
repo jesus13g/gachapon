@@ -668,7 +668,7 @@
       "items": [
         "ea-mcp solo lee el bus: los trabajos se crean y deciden con la CLI ea",
         "Las herramientas MCP mutantes simulan o proponen; solo el usuario acepta, con ea propuestas decidir",
-        "El actor sale de clientInfo.name y del rol vigente, nunca de un argumento"
+        "El actor sale de la credencial X-EA-Credencial, que ea instalar da al planificador, y del rol vigente, nunca de un argumento; sin ella es desconocido y solo lee"
       ]
     },
     {

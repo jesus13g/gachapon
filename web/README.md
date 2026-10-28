@@ -33,7 +33,13 @@ Opcional: `PUBLIC_GOOGLE_SITE_VERIFICATION` y `PUBLIC_BING_SITE_VERIFICATION` a�
 - Fuentes (especificaciones de archify): `web/architecture/<slug>.<lang>.json`, una por sección e idioma.
 - Resultado: `web/public/architecture/<lang>/<slug>.html`, HTML interactivo autónomo que Pages sirve tal cual.
 - La página incrusta `${BASE_URL}/architecture/<lang>/<slug>.html?theme=dark&embed=1` y enlaza el mismo fichero sin `embed=1` para la pantalla completa. Una sección nueva necesita su slug en los dos ficheros de textos y los dos HTML.
-- El HTML se regenera desde las fuentes JSON con la skill del proyecto `.claude/skills/archify`.
+- Los HTML se versionan: Pages los sirve tal cual y **no** se generan al publicar. Cada ficha cita su evidencia en el código (`sources`, con ruta y líneas) fijada a un commit (`meta.repository.revision`), y archify se niega a generar si alguna cita no existe en ese commit. Hoy solo `workspace` (citas de la línea 1, fijada a `0397bcd`) y `database` (fijada a `628fe36`) se regeneran byte a byte; las demás tienen las rutas actualizadas a mano y las líneas del commit en que se generaron, así que regenerarlas exige revisar sus citas a mano. Por eso se corrigen a mano los textos que se quedan viejos, en el JSON y en su HTML a la vez.
+- La skill archify no se versiona (`.claude/skills/archify` está en `.gitignore`): su origen y su huella quedan fijados en `skills-lock.json` (`tt-a1i/archify`; los HTML son de la 3.2.0). Para regenerar, instálala como skill del proyecto desde ese origen, por ejemplo con `npx skills add tt-a1i/archify`, y desde la raíz del repo:
+
+  ```bash
+  node .claude/skills/archify/bin/archify.mjs render <diagram_type> web/architecture/<slug>.<lang>.json \
+      web/public/architecture/<lang>/<slug>.html --quality <meta.quality_profile> --repo-root .
+  ```
 
 ## Blog
 
