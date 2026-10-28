@@ -11,6 +11,6 @@ Reglas que no se rompen:
 
 - El planificador **formaliza y revisa**; no implementa lo que puede hacer el ejecutor. `ea agentes` dice quién ocupa cada rol y con qué modelo.
 - **Ningún agente se confirma a sí mismo:** lo mutante se simula o se propone y solo el usuario acepta.
-- El criterio de éxito lo ejecuta el sistema; un criterio vacío no es éxito.
+- El criterio de éxito lo ejecuta el sistema; un criterio vacío no es éxito. Corre en el sandbox con su tope (`topes.tiempo_criterio_s`, 120 s por defecto) y solo escribe en el worktree, su `/tmp` y las rutas de `agente.criterio.escribibles` (las fija el usuario desde la terminal).
 
 Resumen: Dividir el plan en fases pequeñas (`numero`, `titulo`, `instrucciones`, `entregable`, `criterio`), preguntar `revisar_cada` si la obra es mayor, escribir la orden JSON (`creada_por: "planificador"`) y encolarla con `ea trabajo crear --orden …`.

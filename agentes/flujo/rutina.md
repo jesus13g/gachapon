@@ -43,6 +43,7 @@ turnos = 30
 tiempo_s = 900
 llamadas_herramienta = 60
 iteraciones = 3
+tiempo_criterio_s = 120          # tope de cada corrida del criterio (en el sandbox: escribe solo en el worktree, /tmp y agente.criterio.escribibles)
 ```
 
 3. Una rutina **nueva** (su `version = 1`): `ea rutina registrar <slug>.toml`

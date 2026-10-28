@@ -11,6 +11,6 @@ Reglas que no se rompen:
 
 - El planificador **formaliza y revisa**; no implementa lo que puede hacer el ejecutor. `ea agentes` dice quién ocupa cada rol y con qué modelo.
 - **Ningún agente se confirma a sí mismo:** lo mutante se simula o se propone y solo el usuario acepta.
-- El criterio de éxito lo ejecuta el sistema; un criterio vacío no es éxito.
+- El criterio de éxito lo ejecuta el sistema; un criterio vacío no es éxito. Corre en el sandbox con su tope (`topes.tiempo_criterio_s`, 120 s por defecto) y solo escribe en el worktree, su `/tmp` y las rutas de `agente.criterio.escribibles` (las fija el usuario desde la terminal).
 
 Resumen: Formalizar un objetivo con un criterio de shell comprobable, escribir la orden JSON y encolarla con `ea trabajo crear --orden …` (o la forma rápida con `--por planificador`), elegir las skills mínimas del ejecutor (`ea qwen-skills listar`) e informar del id. No implementes ni esperes en bucle.

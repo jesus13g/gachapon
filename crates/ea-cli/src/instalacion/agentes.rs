@@ -16,29 +16,41 @@ use ea_acciones::servicios::Paso;
 use ea_ajustes::AgenteId;
 use serde_json::{json, Map, Value};
 
-use super::recursos::{self, reescribir_ruta_flujo, Recurso, MARCA_FLUJO};
+use super::adaptadores::{self, Formato, Generado};
+use super::recursos::{self, reescribir_ruta_flujo, MARCA_FLUJO};
 use super::{Contexto, Origen, Sonda};
 
 const MARCA_INICIO: &str = "<!-- gachapon:inicio -->";
+const MARCA_FIN: &str = "<!-- gachapon:fin -->";
 /// La ruta de las guías que nombraban los adaptadores antes del marcador: un
 /// fragmento añadido a mano con `cat >>` la lleva y se reconoce por ella.
 const RUTA_FLUJO_HEREDADA: &str = "~/Proyectos/ecosistema-asistente/agentes/flujo/";
-const MARCA_FIN: &str = "<!-- gachapon:fin -->";
 
 /// Nombre del servidor MCP en Claude Code.
 const NOMBRE_MCP: &str = "ea-ecosistema";
 
-/// Una carpeta del repo que se instala bajo la carpeta de configuración del
-/// agente. La unidad que se enlaza es el primer componente bajo `prefijo` (la
-/// carpeta de la skill o el fichero suelto).
+/// Qué se genera en un montaje ([`adaptadores`]).
+#[derive(Clone, Copy)]
+enum Que {
+    Skills(Formato),
+    ReglaAntigravity,
+}
+
+/// Lo que se instala en una carpeta de configuración del agente. La unidad
+/// es el primer componente de cada fichero generado (la carpeta de la skill
+/// o el fichero suelto).
 struct Montaje {
-    prefijo: &'static str,
+    que: Que,
     destino: &'static str,
+    /// La carpeta del repo que enlazaban las instalaciones anteriores desde
+    /// un clon: un enlace a ella es nuestro.
+    heredado: &'static str,
 }
 
 /// Un fragmento que se añade a un `AGENTS.md` de la carpeta del agente.
 struct Fragmento {
-    recurso: &'static str,
+    /// El agente como lo nombra el comentario del fragmento.
+    agente: &'static str,
     destino: &'static str,
 }
 
@@ -66,24 +78,24 @@ impl Adaptador {
 const ADAPTADORES: &[Adaptador] = &[
     Adaptador {
         id: AgenteId::ClaudeCode,
-        montajes: &[Montaje { prefijo: "claude/skills/", destino: "skills" }],
+        montajes: &[Montaje { que: Que::Skills(Formato::Claude), destino: "skills", heredado: "claude/skills/" }],
         fragmentos: &[],
     },
     Adaptador {
         id: AgenteId::Codex,
-        montajes: &[Montaje { prefijo: "agentes/codex/skills/", destino: "skills" }],
-        fragmentos: &[Fragmento { recurso: "agentes/codex/AGENTS.md", destino: "AGENTS.md" }],
+        montajes: &[Montaje { que: Que::Skills(Formato::Prefijada), destino: "skills", heredado: "agentes/codex/skills/" }],
+        fragmentos: &[Fragmento { agente: "Codex", destino: "AGENTS.md" }],
     },
     Adaptador {
         id: AgenteId::OpenCode,
-        montajes: &[Montaje { prefijo: "agentes/opencode/commands/", destino: "commands" }],
-        fragmentos: &[Fragmento { recurso: "agentes/opencode/AGENTS.md", destino: "AGENTS.md" }],
+        montajes: &[Montaje { que: Que::Skills(Formato::Comando), destino: "commands", heredado: "agentes/opencode/commands/" }],
+        fragmentos: &[Fragmento { agente: "OpenCode", destino: "AGENTS.md" }],
     },
     Adaptador {
         id: AgenteId::Antigravity,
         montajes: &[
-            Montaje { prefijo: "agentes/antigravity/skills/", destino: "config/skills" },
-            Montaje { prefijo: "agentes/antigravity/rules/", destino: "config/rules" },
+            Montaje { que: Que::Skills(Formato::Prefijada), destino: "config/skills", heredado: "agentes/antigravity/skills/" },
+            Montaje { que: Que::ReglaAntigravity, destino: "config/rules", heredado: "agentes/antigravity/rules/" },
         ],
         fragmentos: &[],
     },
@@ -131,20 +143,22 @@ fn orden_hook(ea: &Path, accion: &str) -> String {
     orden(ea, &format!("hook subagentes {accion}"))
 }
 
-/// ¿Es `contenido` nuestro recurso (tal cual o con la ruta reescrita)?
-fn es_nuestro(contenido: &str, r: &Recurso, ctx: &Contexto) -> bool {
-    contenido == r.contenido || contenido == reescribir_ruta_flujo(r.contenido, &ctx.destinos.flujo)
+/// ¿Es `contenido` el fichero generado (tal cual o con la ruta reescrita)?
+fn es_nuestro(contenido: &str, g: &Generado, ctx: &Contexto) -> bool {
+    contenido == g.contenido || contenido == reescribir_ruta_flujo(&g.contenido, &ctx.destinos.flujo)
 }
 
-/// Las unidades de un montaje: (nombre de la unidad, recursos que la forman).
-fn unidades(m: &Montaje) -> Vec<(&'static str, Vec<&'static Recurso>)> {
-    let mut v: Vec<(&'static str, Vec<&'static Recurso>)> = Vec::new();
-    for r in recursos::bajo(m.prefijo) {
-        let resto = &r.ruta[m.prefijo.len()..];
-        let unidad = resto.split('/').next().unwrap_or(resto);
-        match v.iter_mut().find(|(u, _)| *u == unidad) {
-            Some((_, rs)) => rs.push(r),
-            None => v.push((unidad, vec![r])),
+/// Las unidades de un montaje: (nombre de la unidad, ficheros que la forman).
+fn unidades(m: &Montaje) -> Vec<(String, Vec<Generado>)> {
+    let generados = match m.que {
+        Que::Skills(f) => adaptadores::skills(f),
+        Que::ReglaAntigravity => vec![adaptadores::regla_antigravity()],
+    };
+    let mut v: Vec<(String, Vec<Generado>)> = Vec::new();
+    for g in generados {
+        match v.iter_mut().find(|(u, _)| u == g.unidad()) {
+            Some((_, gs)) => gs.push(g),
+            None => v.push((g.unidad().to_string(), vec![g])),
         }
     }
     v
@@ -339,17 +353,17 @@ fn enlace_hook_heredado(ctx: &Contexto) -> Option<PathBuf> {
 /// no se toca: se escribe dentro solo nuestro fichero.
 fn plan_montaje(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, m: &Montaje, p: &mut Vec<Paso>) {
     let base = unir(dir, m.destino);
-    for (unidad, rs) in unidades(m) {
-        let destino = base.join(unidad);
+    for (unidad, gs) in unidades(m) {
+        let destino = base.join(&unidad);
         // Un enlace (el de una instalación anterior desde un clon, o a otro
         // sitio) se quita antes de escribir: si no, se escribiría a través
         // de él, dentro del repo enlazado.
         if es_enlace(&destino) {
             p.push(Paso::Borrar(destino.clone()));
         }
-        for r in rs {
-            let ruta = unir(&base, &r.ruta[m.prefijo.len()..]);
-            let contenido = reescribir_ruta_flujo(r.contenido, &ctx.destinos.flujo);
+        for g in gs {
+            let ruta = unir(&base, &g.ruta);
+            let contenido = reescribir_ruta_flujo(&g.contenido, &ctx.destinos.flujo);
             if sonda.leer(&ruta).as_deref() != Some(contenido.as_str()) {
                 p.push(Paso::Escribir { ruta, contenido });
             }
@@ -358,12 +372,12 @@ fn plan_montaje(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, m: &Montaje, p: &
 }
 
 fn plan_fragmento(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, f: &Fragmento, p: &mut Vec<Paso>) {
-    let Some(r) = recursos::recurso(f.recurso) else { return };
+    let generado = adaptadores::fragmento(f.agente);
     let ruta = unir(dir, f.destino);
     let Ok(actual) = super::leer_para_reescribir(sonda, &ruta) else { return };
-    let fragmento = reescribir_ruta_flujo(r.contenido, &ctx.destinos.flujo);
-    let heredado = r.contenido.replace(MARCA_FLUJO, RUTA_FLUJO_HEREDADA);
-    let nuevo = poner_fragmento_con(actual.as_deref(), &fragmento, &[r.contenido, &heredado]);
+    let fragmento = reescribir_ruta_flujo(&generado, &ctx.destinos.flujo);
+    let heredado = generado.replace(MARCA_FLUJO, RUTA_FLUJO_HEREDADA);
+    let nuevo = poner_fragmento_con(actual.as_deref(), &fragmento, &[&generado, &heredado]);
     if actual.as_deref() != Some(nuevo.as_str()) {
         p.push(Paso::EditarPersonal { ruta, contenido: nuevo });
     }
@@ -484,18 +498,18 @@ pub fn avisos_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Vec<String> {
 
 fn quitar_montaje(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, m: &Montaje, p: &mut Vec<Paso>) {
     let base = unir(dir, m.destino);
-    for (unidad, rs) in unidades(m) {
-        let destino = base.join(unidad);
-        let sufijo = Path::new(m.prefijo.trim_end_matches('/')).join(unidad);
+    for (unidad, gs) in unidades(m) {
+        let destino = base.join(&unidad);
+        let sufijo = unir(Path::new(""), m.heredado).join(&unidad);
         if destino_enlace(&destino).is_some_and(|d| d.ends_with(&sufijo)) {
             p.push(Paso::Borrar(destino));
             continue;
         }
         let mut es_carpeta = false;
-        for r in rs {
-            let ruta = unir(&base, &r.ruta[m.prefijo.len()..]);
+        for g in &gs {
+            let ruta = unir(&base, &g.ruta);
             es_carpeta |= ruta != destino;
-            if sonda.leer(&ruta).is_some_and(|c| es_nuestro(&c, r, ctx)) {
+            if sonda.leer(&ruta).is_some_and(|c| es_nuestro(&c, g, ctx)) {
                 p.push(Paso::Borrar(ruta));
             }
         }
@@ -770,11 +784,11 @@ mod pruebas {
     #[test]
     fn fragmento_a_mano_con_la_ruta_fija_se_sustituye_por_el_reescrito() {
         let c = ctx(Origen::Paquete);
-        let r = recursos::recurso("agentes/codex/AGENTS.md").unwrap();
+        let fragmento = adaptadores::fragmento("Codex");
         let ruta = c.home.join(".codex/AGENTS.md");
         // Añadido a mano con `cat >>`: tal cual (con el marcador) o como lo
         // daban las versiones anteriores (con la ruta fija de entonces).
-        for a_mano in [r.contenido.to_string(), r.contenido.replace(MARCA_FLUJO, RUTA_FLUJO_HEREDADA)] {
+        for a_mano in [fragmento.clone(), fragmento.replace(MARCA_FLUJO, RUTA_FLUJO_HEREDADA)] {
             let mut s = Falsa { binarios: vec!["codex"], ..Default::default() };
             s.ficheros.insert(ruta.clone(), format!("# Reglas mías\n{a_mano}"));
             let p = plan_agentes(&c, &s).unwrap();

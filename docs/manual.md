@@ -430,8 +430,10 @@ volver a arrancar los servicios.
 - `instalador/`: el instalador de Windows `gachapon-instalar.exe` (spec 023), que lleva
   dentro los binarios y lanza `ea instalar`; también fuera del workspace.
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
-  rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
-- `claude/skills/`: las skills de Claude Code (adaptador del flujo; `ea instalar` las copia con la ruta real de las guías).
+  rutina, revisar, equipo); `agentes/planificador.md`: las reglas comunes del
+  planificador (de ellas salen el `AGENTS.md` de Codex y OpenCode y la regla de Antigravity).
+- `claude/skills/`: las skills de Claude Code y la fuente única de cada adaptador
+  (`ea instalar` genera de ellas los de los otros agentes y los copia con la ruta real de las guías).
 - `qwen/skills/`: las skills propias del agente local.
 
 Los crates forman capas y cada uno solo depende de los de debajo:
@@ -526,12 +528,19 @@ Las instrucciones del planificador son una **guía neutral común** más un
 [Instalación en un paso](#instalación-en-un-paso)). Un agente solo necesita
 el suyo, y solo si va a ser planificador.
 
-| Agente | Adaptador | Formato | Destino |
+Cada skill tiene **una sola fuente**, `claude/skills/<x>/SKILL.md` (la skill de
+Claude Code, válida tal cual), y las reglas del planificador otra,
+`agentes/planificador.md`. `ea instalar` genera de ellas el formato de cada
+agente (`crates/ea-cli/src/instalacion/adaptadores.rs`): solo cambian el
+`name`, el título y la cabecera. Codex, OpenCode y Antigravity ya no tienen
+ficheros propios en el repo.
+
+| Agente | Se genera | Formato | Destino |
 |---|---|---|---|
-| Claude Code | `claude/skills/<x>/` | skills (`/mision`, `/obra`, `/rutina`, `/revisar`, `/equipo`) | `~/.claude/skills/` |
-| Codex | `agentes/codex/skills/ea-<x>/` y `agentes/codex/AGENTS.md` | skills (`$ea-mision`…) y un fragmento de `AGENTS.md` | `~/.codex/skills/`, `~/.codex/AGENTS.md` |
-| OpenCode | `agentes/opencode/commands/ea-<x>.md` y `agentes/opencode/AGENTS.md` | comandos (`/ea-mision`…, con `$ARGUMENTS`) y un fragmento de `AGENTS.md` | `~/.config/opencode/commands/`, `~/.config/opencode/AGENTS.md` |
-| Antigravity | `agentes/antigravity/skills/ea-<x>/` y `agentes/antigravity/rules/ea-planificador.md` | skills (los workflows están obsoletos en favor de ellas) y una regla `model_decision` | `~/.gemini/config/skills/`, `~/.gemini/config/rules/` |
+| Claude Code | `<x>/SKILL.md`: la fuente tal cual | skills (`/mision`, `/obra`, `/rutina`, `/revisar`, `/equipo`) | `~/.claude/skills/` |
+| Codex | `ea-<x>/SKILL.md` (`name: ea-<x>`, título `# ea-<x>`) y el fragmento de `AGENTS.md` (las reglas con un comentario delante) | skills (`$ea-mision`…) y un fragmento de `AGENTS.md` | `~/.codex/skills/`, `~/.codex/AGENTS.md` |
+| OpenCode | `ea-<x>.md` (sin `name` ni título, con `Petición del usuario: $ARGUMENTS` al final) y el fragmento de `AGENTS.md` | comandos (`/ea-mision`…) y un fragmento de `AGENTS.md` | `~/.config/opencode/commands/`, `~/.config/opencode/AGENTS.md` |
+| Antigravity | `ea-<x>/SKILL.md` como Codex y `ea-planificador.md` (las reglas con el frontmatter `trigger: model_decision`) | skills (los workflows están obsoletos en favor de ellas) y una regla `model_decision` | `~/.gemini/config/skills/`, `~/.gemini/config/rules/` |
 
 Los adaptadores nombran la carpeta de las guías con el marcador `{{flujo}}/`,
 sin ninguna ruta personal. `ea instalar` los **copia** (también desde un clon) y
@@ -542,8 +551,11 @@ pero un cambio en el propio adaptador se instala volviendo a ejecutar
 `ea instalar`. Los enlaces de las instalaciones anteriores (`~/.claude/skills/<x>`
 apuntando al repo) los sustituye `ea instalar` por la copia; hasta entonces
 siguen siendo skills válidas, con el marcador sin sustituir (la frase dice
-también dónde está la guía dentro del repo). A mano, copia el adaptador y
-sustituye el marcador (desde la raíz del repo):
+también dónde está la guía dentro del repo); los de Codex, OpenCode y
+Antigravity, en cambio, quedan rotos (sus ficheros ya no están en el repo)
+hasta volver a ejecutar `ea instalar`. Para los otros agentes, la única vía es
+`ea instalar`; a mano, solo Claude Code: copia la fuente y sustituye el
+marcador (desde la raíz del repo):
 
 ```bash
 for s in mision obra rutina revisar equipo; do
@@ -555,7 +567,7 @@ done
 Los formatos salen de lo
 instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
-Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
+Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado (con los mismos ficheros que hoy se generan, entonces enlazados): `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
 
 ## App de escritorio
 

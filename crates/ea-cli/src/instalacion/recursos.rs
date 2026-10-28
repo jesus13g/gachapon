@@ -1,7 +1,8 @@
 //! Lo que `ea instalar` lleva dentro (spec 023, decisión 3): las skills de
-//! Claude Code, los adaptadores de los otros planificadores, las guías
-//! `agentes/flujo/*.md`, las skills del ejecutor y el icono de la app. Así
-//! un paquete descargado no necesita el repo.
+//! Claude Code y las reglas del planificador (de ellas se generan los
+//! adaptadores de los otros planificadores, ver [`super::adaptadores`]), las
+//! guías `agentes/flujo/*.md`, las skills del ejecutor y el icono de la app.
+//! Así un paquete descargado no necesita el repo.
 
 use std::path::Path;
 
@@ -16,29 +17,12 @@ pub struct Recurso {
 /// Todos los ficheros de `claude/skills/**`, `agentes/**` y
 /// `qwen/skills/*.md`. Una prueba comprueba que coinciden con el repo.
 pub const RECURSOS: &[Recurso] = &[
-    Recurso { ruta: "agentes/antigravity/rules/ea-planificador.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/antigravity/rules/ea-planificador.md")) },
-    Recurso { ruta: "agentes/antigravity/skills/ea-equipo/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/antigravity/skills/ea-equipo/SKILL.md")) },
-    Recurso { ruta: "agentes/antigravity/skills/ea-mision/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/antigravity/skills/ea-mision/SKILL.md")) },
-    Recurso { ruta: "agentes/antigravity/skills/ea-obra/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/antigravity/skills/ea-obra/SKILL.md")) },
-    Recurso { ruta: "agentes/antigravity/skills/ea-revisar/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/antigravity/skills/ea-revisar/SKILL.md")) },
-    Recurso { ruta: "agentes/antigravity/skills/ea-rutina/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/antigravity/skills/ea-rutina/SKILL.md")) },
-    Recurso { ruta: "agentes/codex/AGENTS.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/codex/AGENTS.md")) },
-    Recurso { ruta: "agentes/codex/skills/ea-equipo/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/codex/skills/ea-equipo/SKILL.md")) },
-    Recurso { ruta: "agentes/codex/skills/ea-mision/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/codex/skills/ea-mision/SKILL.md")) },
-    Recurso { ruta: "agentes/codex/skills/ea-obra/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/codex/skills/ea-obra/SKILL.md")) },
-    Recurso { ruta: "agentes/codex/skills/ea-revisar/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/codex/skills/ea-revisar/SKILL.md")) },
-    Recurso { ruta: "agentes/codex/skills/ea-rutina/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/codex/skills/ea-rutina/SKILL.md")) },
     Recurso { ruta: "agentes/flujo/equipo.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/flujo/equipo.md")) },
     Recurso { ruta: "agentes/flujo/mision.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/flujo/mision.md")) },
     Recurso { ruta: "agentes/flujo/obra.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/flujo/obra.md")) },
     Recurso { ruta: "agentes/flujo/revisar.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/flujo/revisar.md")) },
     Recurso { ruta: "agentes/flujo/rutina.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/flujo/rutina.md")) },
-    Recurso { ruta: "agentes/opencode/AGENTS.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/opencode/AGENTS.md")) },
-    Recurso { ruta: "agentes/opencode/commands/ea-equipo.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/opencode/commands/ea-equipo.md")) },
-    Recurso { ruta: "agentes/opencode/commands/ea-mision.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/opencode/commands/ea-mision.md")) },
-    Recurso { ruta: "agentes/opencode/commands/ea-obra.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/opencode/commands/ea-obra.md")) },
-    Recurso { ruta: "agentes/opencode/commands/ea-revisar.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/opencode/commands/ea-revisar.md")) },
-    Recurso { ruta: "agentes/opencode/commands/ea-rutina.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/opencode/commands/ea-rutina.md")) },
+    Recurso { ruta: "agentes/planificador.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../agentes/planificador.md")) },
     Recurso { ruta: "claude/skills/equipo/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../claude/skills/equipo/SKILL.md")) },
     Recurso { ruta: "claude/skills/mision/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../claude/skills/mision/SKILL.md")) },
     Recurso { ruta: "claude/skills/obra/SKILL.md", contenido: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../claude/skills/obra/SKILL.md")) },

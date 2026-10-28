@@ -1,6 +1,8 @@
-//! Los adaptadores de los planificadores (skills de Claude, Codex,
-//! OpenCode y Antigravity) son finos: cada uno tiene que apuntar a un
-//! fichero real de `agentes/flujo/` y llevar un frontmatter válido.
+//! Los adaptadores de los planificadores son finos: cada fuente
+//! (`claude/skills/<x>/SKILL.md`, de la que `ea instalar` genera las de
+//! Codex, OpenCode y Antigravity) tiene que apuntar a un fichero real de
+//! `agentes/flujo/` y llevar un frontmatter válido. Lo generado lo vigilan
+//! las pruebas de `instalacion::adaptadores`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,9 +18,6 @@ fn adaptadores() -> Vec<(PathBuf, &'static str)> {
     let mut v = Vec::new();
     for f in FLUJOS {
         v.push((r.join(format!("claude/skills/{f}/SKILL.md")), f));
-        v.push((r.join(format!("agentes/codex/skills/ea-{f}/SKILL.md")), f));
-        v.push((r.join(format!("agentes/antigravity/skills/ea-{f}/SKILL.md")), f));
-        v.push((r.join(format!("agentes/opencode/commands/ea-{f}.md")), f));
     }
     v
 }

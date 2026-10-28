@@ -12,6 +12,7 @@ use ea_acciones::servicios::{self, Backend, Entorno, Paso};
 use ea_acciones::SERVICIOS_INSTALABLES;
 use ea_plataforma::Sistema;
 
+pub mod adaptadores;
 pub mod agentes;
 pub mod dependencias;
 pub mod menu;

@@ -27,7 +27,11 @@ comando, que el ejecutor implementa fase a fase con revisión cada N fases.
      `src/parser.py`»).
    - `criterio`: comando de shell que pasa solo si la fase está hecha
      (`python -m pytest tests/test_parser.py`, `test -f …`, `grep -q …`). Las
-     fases posteriores pueden reutilizar tests de las anteriores.
+     fases posteriores pueden reutilizar tests de las anteriores. Corre en el
+     sandbox con el tope `topes.tiempo_criterio_s` (120 s por defecto) y solo
+     escribe en el worktree, su `/tmp` y las rutas de
+     `agente.criterio.escribibles` (clave de solo terminal: si hace falta una
+     caché fuera, díselo al usuario).
    - `skills` (opcional): si la fase necesita skills del ejecutor distintas de
      las de la orden; si no, hereda las de la orden.
    - Si una fase necesita decisiones de diseño, resuélvelas tú en las
