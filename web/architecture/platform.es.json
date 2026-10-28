@@ -214,7 +214,7 @@
       ],
       "sources": [
         {
-          "path": "crates/ea-acciones/src/instalacion/mod.rs",
+          "path": "crates/ea-cli/src/instalacion/mod.rs",
           "line": 1,
           "end_line": 8
         },
@@ -649,7 +649,7 @@
       "tag": "recomendada",
       "sources": [
         {
-          "path": "crates/ea-acciones/src/instalacion/wsl.rs",
+          "path": "crates/ea-cli/src/instalacion/wsl.rs",
           "line": 1,
           "end_line": 12
         },

@@ -166,7 +166,7 @@
           "end_line": 30
         },
         {
-          "path": "crates/ea-mcp/src/tools.rs",
+          "path": "crates/ea-mcp/src/tools/mod.rs",
           "line": 72
         },
         {
@@ -329,7 +329,7 @@
       "tag": "corre el criterio",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 1,
           "end_line": 20
         },
@@ -454,7 +454,7 @@
       ],
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/mod.rs",
           "line": 84,
           "end_line": 90
         },

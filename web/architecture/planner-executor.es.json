@@ -86,13 +86,13 @@
           "end_line": 56
         },
         {
-          "path": "crates/ea-mcp/src/tools.rs",
+          "path": "crates/ea-mcp/src/tools/mutantes.rs",
           "line": 285,
           "end_line": 350,
           "label": "mutante"
         },
         {
-          "path": "crates/ea-mcp/src/tools.rs",
+          "path": "crates/ea-mcp/src/tools/trabajos.rs",
           "line": 485,
           "end_line": 515,
           "label": "ea_ver_trabajo"
@@ -112,7 +112,7 @@
           "label": "events"
         },
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/mod.rs",
           "line": 776,
           "end_line": 792,
           "label": "diario"
@@ -126,13 +126,13 @@
       "sublabel": "colas · estado",
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/trabajos.rs",
           "line": 179,
           "end_line": 247,
           "label": "crear_trabajo"
         },
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 360,
           "end_line": 456,
           "label": "aplicar"
@@ -152,19 +152,19 @@
       "sublabel": "sondea, ejecuta",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 400,
           "end_line": 507,
           "label": "ejecutar_intento"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 525,
           "end_line": 562,
           "label": "entregar"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/criterio.rs",
           "line": 599,
           "end_line": 611,
           "label": "correr_criterio"
