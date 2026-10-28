@@ -1,5 +1,7 @@
 //! `ea rutina ver --version N` de extremo a extremo, con el binario real y
-//! todo el estado en directorios temporales.
+//! todo el estado en directorios temporales: también el HOME y los XDG, y un
+//! `systemctl` de mentira delante en el PATH (la próxima ejecución de
+//! `ea rutina listar` y `ver` nunca pregunta al systemd real).
 
 use std::process::{Command, Output, Stdio};
 
@@ -17,9 +19,33 @@ macro_rules! tmp {
     };
 }
 
+/// Un `systemctl` que solo falla (como si no hubiera timer), delante en el PATH.
+#[cfg(unix)]
+fn sin_systemd(dir: &std::path::Path) -> std::ffi::OsString {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("systemctl"), "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(bin.join("systemctl"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()))).unwrap()
+}
+
+/// Fuera de Linux no hay systemd: el PATH de siempre.
+#[cfg(not(unix))]
+fn sin_systemd(_dir: &std::path::Path) -> std::ffi::OsString {
+    std::env::var_os("PATH").unwrap_or_default()
+}
+
 fn ea(dir: &std::path::Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ea"))
         .args(args)
+        .env("PATH", sin_systemd(dir))
+        .env("HOME", dir.join("home"))
+        .env("USERPROFILE", dir.join("home"))
+        .env("XDG_CONFIG_HOME", dir.join("xdg/config"))
+        .env("XDG_DATA_HOME", dir.join("xdg/datos"))
+        .env("XDG_STATE_HOME", dir.join("xdg/estado"))
+        .env("XDG_RUNTIME_DIR", dir.join("xdg/rt"))
         .env("EA_CONFIG_DIR", dir.join("config"))
         .env("EA_DB_PATH", dir.join("ea.db"))
         .env("EA_ESTADO_DIR", dir.join("estado"))

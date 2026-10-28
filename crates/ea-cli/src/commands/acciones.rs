@@ -1,10 +1,9 @@
 use anyhow::{bail, Context, Result};
 use comfy_table::Table;
 use ea_acciones::{Ejecucion, CATALOGO};
-use ea_store::Store;
 use serde_json::Value;
 
-use super::{bloquear, confirmar_en_terminal, sistema};
+use super::{bloquear, confirmar_en_terminal, Contexto};
 
 const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
@@ -34,9 +33,10 @@ pub fn listar() {
     println!("{table}");
 }
 
-pub fn simular(store: &Store, herramienta: &str, args: &str) -> Result<()> {
+pub fn simular(ctx: &mut Contexto, herramienta: &str, args: &str) -> Result<()> {
+    let sis = ctx.sistema();
+    let store = ctx.store()?;
     let args = parsear(args)?;
-    let sis = sistema();
     let hechos = bloquear(ea_acciones::observar(&sis, herramienta, &args))?;
     let sim = ea_acciones::simular_con(store, &sis, &hechos, herramienta, &args)?;
     println!("Simulación de {} ({}); no se ha hecho nada:", sim.herramienta, sim.riesgo.as_str());
@@ -46,9 +46,10 @@ pub fn simular(store: &Store, herramienta: &str, args: &str) -> Result<()> {
 
 /// Ejecución directa por el usuario: simulación, confirmación en terminal
 /// interactiva y, solo entonces, la acción por la capa interna.
-pub fn ejecutar(store: &mut Store, herramienta: &str, args: &str) -> Result<()> {
+pub fn ejecutar(ctx: &mut Contexto, herramienta: &str, args: &str) -> Result<()> {
+    let sis = ctx.sistema();
+    let store = ctx.store()?;
     let args = parsear(args)?;
-    let sis = sistema();
     let canal = ea_acciones::terminal_interactiva()?;
     let hechos = bloquear(ea_acciones::observar(&sis, herramienta, &args))?;
     let sim = ea_acciones::simular_con(store, &sis, &hechos, herramienta, &args)?;

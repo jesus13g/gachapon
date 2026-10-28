@@ -365,9 +365,10 @@ caliente: el ejecutor relee los ajustes en cada ciclo. No hay que tocar código.
 
 El esquema de la base de datos se ha reiniciado (una sola migración,
 `0001_inicial.sql`; sin tareas ni `routine_runs`). Una base antigua **no se
-migra**: `ea` y los servicios se niegan a abrirla con el mensaje «base de datos
-del esquema antiguo» y no tocan nada. Tras actualizar hay que empezar con una
-base nueva: parar los servicios, copiar `~/.local/share/ecosistema-asistente/ecosistema.db*`
+migra**: los servicios y las órdenes de `ea` que usan la base se niegan a
+abrirla con el mensaje «base de datos del esquema antiguo» y no tocan nada (las
+que no la usan, como `ea trabajo listar` o `ea ajustes`, ni la abren). Tras
+actualizar hay que empezar con una base nueva: parar los servicios, copiar `~/.local/share/ecosistema-asistente/ecosistema.db*`
 a un lugar seguro, borrarlos, vaciar `~/.local/state/ecosistema-asistente/` y
 volver a arrancar los servicios.
 

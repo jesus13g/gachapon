@@ -15,8 +15,69 @@ pub mod status;
 pub mod trabajo;
 pub mod worktree;
 
+use anyhow::Result;
+use ea_acciones::{SistemaReal, SoloConsulta, Temporizadores};
+use ea_ajustes::Ajustes;
+use ea_bus::Bus;
+use ea_store::{AccionPropuesta, Propuesta, Store};
 use time::macros::format_description;
 use time::OffsetDateTime;
+
+/// Lo que comparten las órdenes de un `ea`: los ajustes, cargados una vez, y
+/// la base de datos y los timers de las rutinas, que se abren la primera vez
+/// que una orden los pide (una que no los usa no los abre).
+#[derive(Default)]
+pub struct Contexto {
+    ajustes: Option<Ajustes>,
+    store: Option<Store>,
+    temporizadores: Option<Temporizadores>,
+}
+
+impl Contexto {
+    pub fn ajustes(&mut self) -> &Ajustes {
+        self.ajustes.get_or_insert_with(ea_ajustes::cargar)
+    }
+
+    /// La base de datos (`rutas.db`).
+    pub fn store(&mut self) -> Result<&mut Store> {
+        if self.store.is_none() {
+            self.store = Some(Store::open_at(&self.ajustes().rutas.db)?);
+        }
+        Ok(self.store.as_mut().expect("recién abierta"))
+    }
+
+    /// Los timers de las rutinas de este sistema ([`Temporizadores::usuario`]).
+    pub fn temporizadores(&mut self) -> &Temporizadores {
+        self.temporizadores.get_or_insert_with(Temporizadores::usuario)
+    }
+
+    /// El bus del usuario (actor `ea-cli`) con el historial en la base, que
+    /// pasa al bus: para lo que crea o mueve trabajos y rutinas.
+    pub fn bus(&mut self) -> Result<Bus> {
+        let store = match self.store.take() {
+            Some(s) => s,
+            None => Store::open_at(&self.ajustes().rutas.db)?,
+        };
+        Ok(Bus::abrir_en(&self.ajustes().rutas.estado)?.con_actor("ea-cli").con_store(store))
+    }
+
+    /// El sistema real para lo que el usuario confirma desde esta terminal.
+    pub fn sistema(&mut self) -> SistemaReal {
+        let temporizadores = self.temporizadores().clone();
+        let a = self.ajustes();
+        SistemaReal {
+            consulta: SoloConsulta {
+                rutinas_dir: a.orquestador.rutinas_dir.clone(),
+                boveda: ea_boveda::Boveda::en(a.rutas.boveda.clone()),
+                estado_dir: a.rutas.estado.clone(),
+                temporizadores,
+                biblioteca: None,
+            },
+            propio: None,
+            terminal: std::sync::Arc::new(ea_acciones::TerminalSistema),
+        }
+    }
+}
 
 /// Texto de origen externo (lo que escriben los agentes, la salida de un
 /// criterio, un fichero ajeno) listo para la terminal: sin caracteres de
@@ -42,14 +103,8 @@ pub fn bloquear<F: std::future::Future>(f: F) -> F::Output {
         .block_on(f)
 }
 
-/// El sistema real para lo que el usuario confirma desde esta terminal.
-pub fn sistema() -> ea_acciones::SistemaReal {
-    let a = ea_ajustes::cargar();
-    ea_acciones::SistemaReal::usuario(a.orquestador.rutinas_dir, ea_boveda::Boveda::en(a.rutas.boveda), a.rutas.estado, None)
-}
-
 /// Pregunta en la terminal y devuelve la línea escrita.
-pub fn preguntar(texto: &str) -> anyhow::Result<String> {
+pub fn preguntar(texto: &str) -> Result<String> {
     use std::io::Write;
     print!("{texto}");
     std::io::stdout().flush()?;
@@ -61,7 +116,7 @@ pub fn preguntar(texto: &str) -> anyhow::Result<String> {
 /// Con `esperar` (una ventana abierta por ea-web), enseña el error, si lo
 /// hay, y espera a Intro antes de salir: si no, la ventana se cerraría sin
 /// dejar leer el resultado. El error se devuelve igual (código de salida).
-pub fn al_final(esperar: bool, r: anyhow::Result<()>) -> anyhow::Result<()> {
+pub fn al_final(esperar: bool, r: Result<()>) -> Result<()> {
     if esperar {
         if let Err(e) = &r {
             eprintln!("Error: {e:#}");
@@ -83,6 +138,17 @@ pub fn respuesta_confirma(irreversible: bool, referencia: &str, respuesta: &str)
     }
 }
 
+/// Con la acción de la propuesta `id` a la vista, pide su confirmación en
+/// esta terminal (una irreversible exige escribir `confirmo <id>`) y solo
+/// entonces la acepta como el usuario, que la ejecuta. `None`: no se confirmó
+/// y no se ha hecho nada. Quien llama ya ha comprobado la terminal (`canal`).
+pub fn confirmar_y_aceptar(store: &mut Store, sis: &SistemaReal, id: i64, a: &AccionPropuesta, canal: ea_acciones::Canal) -> Result<Option<Propuesta>> {
+    if !confirmar_en_terminal(&a.herramienta, &a.riesgo, &a.argumentos, &a.simulacion, &id.to_string())? {
+        return Ok(None);
+    }
+    Ok(Some(bloquear(ea_acciones::aceptar_propuesta(store, sis, id, ea_ajustes::ACTOR_USUARIO, canal))?))
+}
+
 /// Muestra la simulación y exige confirmación en una terminal interactiva.
 /// Devuelve `Ok(true)` solo si el usuario confirmó.
 pub fn confirmar_en_terminal(
@@ -91,7 +157,7 @@ pub fn confirmar_en_terminal(
     argumentos: &serde_json::Value,
     simulacion: &str,
     referencia: &str,
-) -> anyhow::Result<bool> {
+) -> Result<bool> {
     let irreversible = riesgo == "irreversible";
     println!("  Herramienta: {herramienta}   Riesgo: {}", riesgo.to_uppercase());
     println!("  Argumentos:  {argumentos}");

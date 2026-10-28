@@ -110,12 +110,12 @@ pub fn reindexar(store: &mut Store) -> Result<()> {
 
 /// Promoción directa del usuario: la misma herramienta y el mismo flujo de
 /// confirmación que `ea acciones ejecutar ea_promover_nota`.
-pub fn promover(store: &mut Store, ruta: &str, destino: Option<String>) -> Result<()> {
+pub fn promover(ctx: &mut super::Contexto, ruta: &str, destino: Option<String>) -> Result<()> {
     let mut args = json!({ "ruta": ruta });
     if let Some(d) = destino {
         args["destino"] = json!(d);
     }
-    super::acciones::ejecutar(store, "ea_promover_nota", &args.to_string()).context("no se pudo promover")
+    super::acciones::ejecutar(ctx, "ea_promover_nota", &args.to_string()).context("no se pudo promover")
 }
 
 /// Vacía la papelera de la bóveda: borra para siempre lo que hay en ella.

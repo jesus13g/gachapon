@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use anyhow::{anyhow, bail, Result};
 use ea_bus::{Bus, Rol, Evento, Modo, Orden};
 
-use super::limpio;
+use super::{limpio, Contexto};
 
+/// El bus con historial si la base abre (sin ella, sigue): el de `ea equipo`.
 pub(super) fn bus() -> Result<Bus> {
     let rutas = ea_ajustes::cargar().rutas;
     let b = Bus::abrir_en(&rutas.estado)?.con_actor("ea-cli");
@@ -27,6 +28,7 @@ pub struct DeEquipo {
 
 #[allow(clippy::too_many_arguments)]
 pub fn crear(
+    ctx: &mut Contexto,
     fichero: Option<PathBuf>,
     modo: &str,
     titulo: Option<String>,
@@ -67,7 +69,7 @@ pub fn crear(
     // lleva la forma canónica (la del semáforo y el ejecutor). La estructura
     // (fases 1..N) y los criterios los valida el bus al crear.
     orden.worktree = ea_bus::validar_worktree(&orden.worktree, ea_bus::git::TOPE_LECTURA)?;
-    println!("{}", bus()?.crear_trabajo(orden)?);
+    println!("{}", ctx.bus()?.crear_trabajo(orden)?);
     Ok(())
 }
 
@@ -198,15 +200,15 @@ pub fn diff(id: &str, fase: Option<u32>) -> Result<()> {
     Ok(())
 }
 
-pub fn evento(id: &str, ev: Evento) -> Result<()> {
+pub fn evento(ctx: &mut Contexto, id: &str, ev: Evento) -> Result<()> {
     let nombre = ev.nombre();
-    let e = bus()?.aplicar(id, ev)?;
+    let e = ctx.bus()?.aplicar(id, ev)?;
     println!("{id}: {nombre} -> {}", e.estado.as_str());
     Ok(())
 }
 
-pub fn reformular(id: &str, nota: &str, fase: Option<u32>) -> Result<()> {
-    let e = bus()?.reformular(id, nota, fase)?;
+pub fn reformular(ctx: &mut Contexto, id: &str, nota: &str, fase: Option<u32>) -> Result<()> {
+    let e = ctx.bus()?.reformular(id, nota, fase)?;
     match e.fase_actual.filter(|_| fase.is_some()) {
         Some(n) => println!("{id}: reformular desde la fase {n} -> {}", e.estado.as_str()),
         None => println!("{id}: reformular -> {}", e.estado.as_str()),
@@ -214,8 +216,8 @@ pub fn reformular(id: &str, nota: &str, fase: Option<u32>) -> Result<()> {
     Ok(())
 }
 
-pub fn confirmar(id: &str, contexto: &str) -> Result<()> {
-    let e = bus()?.confirmar(id, contexto)?;
+pub fn confirmar(ctx: &mut Contexto, id: &str, contexto: &str) -> Result<()> {
+    let e = ctx.bus()?.confirmar(id, contexto)?;
     println!("{id}: confirmar -> {} (encolado en claude-code)", e.estado.as_str());
     Ok(())
 }

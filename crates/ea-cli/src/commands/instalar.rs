@@ -269,27 +269,20 @@ pub fn instalar(op: Opciones) -> Result<()> {
     let ajustes_toml = Fuentes::sistema().fichero();
     let pasos = instalacion::plan_instalar_todo(&ctx, &entorno, &ajustes_toml, &sonda).map_err(anyhow::Error::msg)?;
     println!("ea instalar hará esto:");
-    mostrar_pasos(&pasos);
-    let avisos: Vec<String> = instalacion::ruta_usuario::avisos_ruta(&ctx, &sonda)
+    let mut extra: Vec<String> = instalacion::ruta_usuario::avisos_ruta(&ctx, &sonda)
         .into_iter()
         .chain(instalacion::agentes::avisos_agentes(&ctx, &sonda))
+        .map(|a| format!("! {a}"))
         .collect();
-    for a in &avisos {
-        println!("  ! {a}");
-    }
     if ctx.con_escritorio {
-        println!("  - poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)");
+        extra.push("- poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)".into());
     }
     if sin_sandbox {
-        println!("  - poner agente.sandbox = false");
+        extra.push("- poner agente.sandbox = false".into());
     }
-    let r = preguntar("\n  ¿Hacerlo ahora? [s/N]: ")?;
-    if !respuesta_confirma(false, "instalar", &r) {
-        println!("Cancelado: no se ha hecho nada.");
+    if !confirmar_y_aplicar(&pasos, &extra, correr_orden)? {
         return Ok(());
     }
-    let hecho = aplicar(&pasos, &mut |argv| correr_orden(argv)).map_err(anyhow::Error::msg)?;
-    println!("Hecho ({} pasos).", hecho.len());
 
     let escritorio = ctx.destinos.bin.join(nombre_binario(ctx.sistema, BINARIO_ESCRITORIO));
     let mut cambios: Vec<(&str, Value)> = Vec::new();
@@ -319,20 +312,22 @@ pub fn instalar(op: Opciones) -> Result<()> {
     Ok(())
 }
 
-/// Enseña los pasos, pide la confirmación y los aplica con la consola
-/// heredada (UAC, `sudo` y la confirmación de `ea instalar` dentro de WSL
-/// necesitan la terminal). `false`: el usuario canceló.
-fn confirmar_y_aplicar(pasos: &[Paso], extra: &[String]) -> Result<bool> {
+/// Enseña los pasos y las líneas de `extra` (con su viñeta), pide la
+/// confirmación y los aplica con `correr`: `correr_orden` o, en la vía WSL,
+/// `correr_interactiva` con la consola heredada (UAC, `sudo` y la confirmación
+/// de `ea instalar` dentro de WSL necesitan la terminal). `false`: el usuario
+/// canceló.
+fn confirmar_y_aplicar(pasos: &[Paso], extra: &[String], correr: fn(&[String]) -> Result<(), String>) -> Result<bool> {
     mostrar_pasos(pasos);
     for e in extra {
-        println!("  - {e}");
+        println!("  {e}");
     }
     let r = preguntar("\n  ¿Hacerlo ahora? [s/N]: ")?;
     if !respuesta_confirma(false, "instalar", &r) {
         println!("Cancelado: no se ha hecho nada.");
         return Ok(false);
     }
-    let hecho = aplicar(pasos, &mut |argv| correr_interactiva(argv)).map_err(anyhow::Error::msg)?;
+    let hecho = aplicar(pasos, &mut |argv| correr(argv)).map_err(anyhow::Error::msg)?;
     println!("Hecho ({} pasos).", hecho.len());
     Ok(true)
 }
@@ -368,7 +363,7 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
         let mut pasos = instalacion::plan_parar_escritorio(&ctx);
         pasos.extend(wsl::plan_escritorio_windows(&ctx, &distro));
         pasos.extend(wsl::plan_instalar_wsl(&distro, &continuar));
-        if confirmar_y_aplicar(&pasos, &[])? {
+        if confirmar_y_aplicar(&pasos, &[], correr_interactiva)? {
             println!("\nReinicia Windows para terminar de instalar WSL. Al volver a entrar, se abrirá el instalador para seguir.");
         }
         return Ok(());
@@ -401,10 +396,10 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
     pasos.extend(wsl::plan_escritorio_windows(&ctx, &distro));
     pasos.extend(instalacion::menu::plan_menu(&ctx));
     let extra = [
-        format!("poner escritorio.wsl = {distro} (la app lee la clave del panel de WSL y mantiene viva la distribución)"),
-        "poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)".to_string(),
+        format!("- poner escritorio.wsl = {distro} (la app lee la clave del panel de WSL y mantiene viva la distribución)"),
+        "- poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)".to_string(),
     ];
-    if !confirmar_y_aplicar(&pasos, &extra)? {
+    if !confirmar_y_aplicar(&pasos, &extra, correr_interactiva)? {
         return Ok(());
     }
     fijar_ajustes(&[("escritorio.wsl", Value::String(distro.clone())), (ea_acciones::ajustes::CLAVE_AL_INICIAR, Value::Bool(true))])?;

@@ -3,7 +3,7 @@ use comfy_table::Table;
 use ea_acciones::Canal;
 use ea_store::{EstadoPropuesta, Propuesta, PropuestaFilter, Store};
 
-use super::{bloquear, confirmar_en_terminal, fmt_ts, limpio, sistema};
+use super::{bloquear, confirmar_y_aceptar, fmt_ts, limpio, Contexto};
 
 const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
@@ -74,8 +74,9 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
 /// interactiva real (un agente que lance `ea` sin TTY no puede confirmar),
 /// simulación a la vista y confirmación explícita; las irreversibles piden
 /// escribir `confirmo <id>`. Solo desde aquí se confirma una irreversible.
-pub fn decidir(store: &mut Store, id: i64, aceptar: bool, rechazar: bool) -> Result<()> {
-    let sis = sistema();
+pub fn decidir(ctx: &mut Contexto, id: i64, aceptar: bool, rechazar: bool) -> Result<()> {
+    let sis = ctx.sistema();
+    let store = ctx.store()?;
     match (aceptar, rechazar) {
         (false, true) => {
             let p = ea_acciones::rechazar_propuesta(store, id, ACTOR, Canal::Terminal)?;
@@ -84,19 +85,22 @@ pub fn decidir(store: &mut Store, id: i64, aceptar: bool, rechazar: bool) -> Res
         }
         (true, false) => {
             let previa = store.get_propuesta(id)?;
-            let mut canal = Canal::Terminal;
-            if let Some(a) = &previa.accion {
-                if previa.estado != EstadoPropuesta::Pendiente {
-                    bail!("propuesta #{id} ya decidida");
+            let p = match &previa.accion {
+                // Solo texto: aceptarla deja constancia y no ejecuta nada.
+                None => bloquear(ea_acciones::aceptar_propuesta(store, &sis, id, ACTOR, Canal::Terminal))?,
+                Some(a) => {
+                    if previa.estado != EstadoPropuesta::Pendiente {
+                        bail!("propuesta #{id} ya decidida");
+                    }
+                    let canal = ea_acciones::terminal_interactiva()?;
+                    println!("Propuesta #{id}: {}", limpio(&previa.descripcion));
+                    let Some(p) = confirmar_y_aceptar(store, &sis, id, a, canal)? else {
+                        println!("Cancelado: la propuesta sigue pendiente y no se ha hecho nada.");
+                        return Ok(());
+                    };
+                    p
                 }
-                canal = ea_acciones::terminal_interactiva()?;
-                println!("Propuesta #{id}: {}", limpio(&previa.descripcion));
-                if !confirmar_en_terminal(&a.herramienta, &a.riesgo, &a.argumentos, &a.simulacion, &id.to_string())? {
-                    println!("Cancelado: la propuesta sigue pendiente y no se ha hecho nada.");
-                    return Ok(());
-                }
-            }
-            let p = bloquear(ea_acciones::aceptar_propuesta(store, &sis, id, ACTOR, canal))?;
+            };
             println!("Propuesta #{} marcada como '{}'", p.id, p.estado.as_str());
             if let Some(e) = &p.ejecucion {
                 println!("  Ejecución: {} — {}", e.estado.as_str(), limpio(&e.detalle.clone().unwrap_or_default()));

@@ -3,11 +3,13 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use comfy_table::Table;
+use ea_acciones::Temporizadores;
 use ea_store::Store;
 
+use super::Contexto;
 
-fn rutinas_dir() -> PathBuf {
-    ea_ajustes::cargar().orquestador.rutinas_dir
+fn rutinas_dir(ctx: &mut Contexto) -> PathBuf {
+    ctx.ajustes().orquestador.rutinas_dir.clone()
 }
 
 /// Cómo se llama el programador de este sistema, para las cabeceras.
@@ -25,12 +27,13 @@ fn programador() -> &'static str {
 /// (§12.2), pero preguntarle al gestor de servicios del sistema por su propio
 /// estado no lo es — y si no está disponible o el timer no está instalado,
 /// se omite sin error (§12.4: degradación limpia).
-fn proxima_ejecucion(slug: &str) -> Option<String> {
-    super::bloquear(ea_acciones::Temporizadores::usuario().proxima_legible(slug))
+fn proxima_ejecucion(t: &Temporizadores, slug: &str) -> Option<String> {
+    super::bloquear(t.proxima_legible(slug))
 }
 
-pub fn listar(store: &Store, retiradas: bool) -> Result<()> {
-    let rutinas = ea_bus::rutinas_por_ubicacion(store.listar_rutinas()?, &rutinas_dir(), retiradas);
+pub fn listar(ctx: &mut Contexto, retiradas: bool) -> Result<()> {
+    let (dir, t) = (rutinas_dir(ctx), ctx.temporizadores().clone());
+    let rutinas = ea_bus::rutinas_por_ubicacion(ctx.store()?.listar_rutinas()?, &dir, retiradas);
     if rutinas.is_empty() {
         if retiradas {
             println!("No hay rutinas retiradas.");
@@ -64,7 +67,7 @@ pub fn listar(store: &Store, retiradas: bool) -> Result<()> {
             .remove(&r.slug)
             .map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str()))
             .unwrap_or_else(|| "nunca".to_string());
-        let proxima = proxima_ejecucion(&r.slug).unwrap_or_else(|| "—".to_string());
+        let proxima = proxima_ejecucion(&t, &r.slug).unwrap_or_else(|| "—".to_string());
         table.add_row(vec![r.slug, r.version.to_string(), ultima, proxima]);
     }
     println!("{table}");
@@ -90,16 +93,18 @@ pub fn ver_version(store: &Store, slug: &str, n: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn ver(store: &Store, slug: &str) -> Result<()> {
-    let fila = store
+pub fn ver(ctx: &mut Contexto, slug: &str) -> Result<()> {
+    let t = ctx.temporizadores().clone();
+    let fila = ctx
+        .store()?
         .ultima_rutina(slug)?
         .ok_or_else(|| anyhow::anyhow!("la rutina '{slug}' no está registrada (ea rutina registrar <fichero>)"))?;
     println!("Rutina '{slug}', versión {} (registrada {} por {}):\n{}", fila.version, fila.creada_en, fila.creada_por, fila.definicion);
-    if let Some(proxima) = proxima_ejecucion(slug) {
+    if let Some(proxima) = proxima_ejecucion(&t, slug) {
         println!("  {:<24}{proxima}", format!("Próxima ({}):", programador()));
     }
 
-    let historial = super::trabajo::bus()?.trabajos_de_rutina(slug).unwrap_or_default();
+    let historial = ea_bus::Bus::abrir()?.trabajos_de_rutina(slug).unwrap_or_default();
     if historial.is_empty() {
         println!("\nSin ejecuciones todavía.");
         return Ok(());
@@ -119,21 +124,21 @@ pub fn ver(store: &Store, slug: &str) -> Result<()> {
 /// que sea su estado), en una sola pasada; sin bus, ninguno.
 pub fn ultimas_ejecuciones(rutinas: &[(ea_store::FilaRutina, ea_bus::Ubicacion)]) -> HashMap<String, (String, ea_bus::Estado)> {
     let slugs = rutinas.iter().map(|(r, _)| r.slug.clone()).collect();
-    super::trabajo::bus().ok().and_then(|b| b.ultimas_ejecuciones(&slugs).ok()).unwrap_or_default()
+    ea_bus::Bus::abrir().ok().and_then(|b| b.ultimas_ejecuciones(&slugs).ok()).unwrap_or_default()
 }
 
-pub fn registrar(fichero: &std::path::Path) -> Result<()> {
+pub fn registrar(ctx: &mut Contexto, fichero: &std::path::Path) -> Result<()> {
     let texto = std::fs::read_to_string(fichero)
         .map_err(|e| anyhow::anyhow!("no se pudo leer {}: {e}", fichero.display()))?;
-    let bus = super::trabajo::bus()?;
-    let r = bus.registrar_rutina(&texto, &rutinas_dir())?;
+    let dir = rutinas_dir(ctx);
+    let r = ctx.bus()?.registrar_rutina(&texto, &dir)?;
     println!("rutina '{}' registrada en la versión {}", r.rutina.slug, r.rutina.version);
     Ok(())
 }
 
 /// Lo que invoca el `.service` plantilla de un disparador temporal: crea el
 /// trabajo en el bus y vuelve; el orquestador lo ejecuta cuando puede.
-pub fn lanzar(slug: &str, entradas: &[String]) -> Result<()> {
+pub fn lanzar(ctx: &mut Contexto, slug: &str, entradas: &[String]) -> Result<()> {
     let pares = entradas
         .iter()
         .map(|e| {
@@ -143,18 +148,19 @@ pub fn lanzar(slug: &str, entradas: &[String]) -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
     // Una rutina retirada o sin fichero no se lanza, tampoco desde su timer.
-    let id = super::trabajo::bus()?.lanzar_rutina_en(&rutinas_dir(), slug, &pares)?;
+    let dir = rutinas_dir(ctx);
+    let id = ctx.bus()?.lanzar_rutina_en(&dir, slug, &pares)?;
     println!("{id}");
     Ok(())
 }
 
 /// `ea rutina retirar <slug>`: `ea_retirar_rutina` con su simulación y
 /// confirmación en una terminal interactiva, como `ea acciones ejecutar`.
-pub fn retirar(store: &mut Store, slug: &str) -> Result<()> {
-    super::acciones::ejecutar(store, "ea_retirar_rutina", &serde_json::json!({ "slug": slug }).to_string())
+pub fn retirar(ctx: &mut Contexto, slug: &str) -> Result<()> {
+    super::acciones::ejecutar(ctx, "ea_retirar_rutina", &serde_json::json!({ "slug": slug }).to_string())
 }
 
 /// `ea rutina restaurar <slug>`: `ea_restaurar_rutina`, igual.
-pub fn restaurar(store: &mut Store, slug: &str) -> Result<()> {
-    super::acciones::ejecutar(store, "ea_restaurar_rutina", &serde_json::json!({ "slug": slug }).to_string())
+pub fn restaurar(ctx: &mut Contexto, slug: &str) -> Result<()> {
+    super::acciones::ejecutar(ctx, "ea_restaurar_rutina", &serde_json::json!({ "slug": slug }).to_string())
 }
