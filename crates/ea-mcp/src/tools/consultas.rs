@@ -7,10 +7,10 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, tool, tool_router};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::diario::event_to_json;
 use super::EaTools;
+use super::diario::event_to_json;
 use crate::args::VerEquipoArgs;
 
 /// Trabajos por estado, colas y semáforos del bus. Si el bus no se puede
@@ -48,9 +48,7 @@ fn resumen_equipos(estado: &std::path::Path) -> (Value, Value) {
     let presencias: Vec<_> = bus
         .presencias()
         .into_iter()
-        .map(|(p, viva)| {
-            json!({ "agente": p.agente, "rol": p.rol.as_str(), "equipo": p.equipo, "trabajo": p.trabajo, "viva": viva, "latido": p.latido })
-        })
+        .map(|(p, viva)| json!({ "agente": p.agente, "rol": p.rol.as_str(), "equipo": p.equipo, "trabajo": p.trabajo, "viva": viva, "latido": p.latido }))
         .collect();
     (json!(equipos), json!(presencias))
 }
@@ -128,11 +126,7 @@ impl EaTools {
             una línea. Solo lectura.",
         annotations(title = "Ver equipo", read_only_hint = true)
     )]
-    async fn ea_ver_equipo(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<VerEquipoArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_ver_equipo(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<VerEquipoArgs>) -> Result<CallToolResult, McpError> {
         let args_json = json!({ "id": args.id, "trabajos": args.trabajos });
         self.registrada(&context, "mcp_ver_equipo", None, args_json, |_| {
             self.bloqueante(move |t| {

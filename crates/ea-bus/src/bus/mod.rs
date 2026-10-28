@@ -46,16 +46,7 @@ pub(crate) fn nuevo_id() -> String {
     let n = CONTADOR_ID.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
     let h = ea_plataforma::fs::fnv64(format!("{}-{n}-{nanos}", std::process::id()).as_bytes()) & 0xffff;
-    format!(
-        "{:04}{:02}{:02}T{:02}{:02}{:02}-{:04x}{h:04x}",
-        t.year(),
-        u8::from(t.month()),
-        t.day(),
-        t.hour(),
-        t.minute(),
-        t.second(),
-        n & 0xffff
-    )
+    format!("{:04}{:02}{:02}T{:02}{:02}{:02}-{:04x}{h:04x}", t.year(), u8::from(t.month()), t.day(), t.hour(), t.minute(), t.second(), n & 0xffff)
 }
 
 /// Los ids de trabajo (y de equipo) acaban en una ruta del bus: nada que no

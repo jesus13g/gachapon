@@ -187,13 +187,7 @@ impl Orden {
         revisar_cada: Option<u32>,
         creada_por: impl Into<String>,
     ) -> Orden {
-        Orden {
-            modo: Modo::Obra,
-            criterio_exito: None,
-            fases,
-            revisar_cada,
-            ..Orden::mision(titulo, worktree, objetivo, String::new(), creada_por)
-        }
+        Orden { modo: Modo::Obra, criterio_exito: None, fases, revisar_cada, ..Orden::mision(titulo, worktree, objetivo, String::new(), creada_por) }
     }
 }
 
@@ -437,10 +431,7 @@ pub fn transicion(estado: EstadoTrabajo, evento: &Evento) -> Resultado<EstadoTra
         (EnEspera, Evento::Confirmar) => EnRevision,
         (EnCola | Ejecutando | EnRevision | EnEspera, Evento::Cancelar) => Cancelado,
         _ => {
-            return Err(ErrorBus::TransicionInvalida {
-                desde: estado.as_str().into(),
-                evento: evento.nombre().into(),
-            });
+            return Err(ErrorBus::TransicionInvalida { desde: estado.as_str().into(), evento: evento.nombre().into() });
         }
     };
     Ok(nuevo)

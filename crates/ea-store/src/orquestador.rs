@@ -38,12 +38,7 @@ impl Store {
             .iter()
             .map(|&nombre| {
                 let ultimo_evento = self
-                    .list_events(&EventFilter {
-                        actor: Some(nombre.into()),
-                        exclude_action: Some("heartbeat".into()),
-                        limit: Some(1),
-                        ..Default::default()
-                    })?
+                    .list_events(&EventFilter { actor: Some(nombre.into()), exclude_action: Some("heartbeat".into()), limit: Some(1), ..Default::default() })?
                     .into_iter()
                     .next();
                 let agente = ultimo_evento.as_ref().and_then(agente_de);

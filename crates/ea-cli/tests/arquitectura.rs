@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 
 /// Lo que puede usar cualquier presentación: las capas de abajo, nunca otra
 /// presentación.
-const BAJO_LAS_PRESENTACIONES: &[&str] =
-    &["ea-plataforma", "ea-ajustes", "ea-store", "ea-boveda", "ea-biblioteca", "ea-bus", "ea-acciones"];
+const BAJO_LAS_PRESENTACIONES: &[&str] = &["ea-plataforma", "ea-ajustes", "ea-store", "ea-boveda", "ea-biblioteca", "ea-bus", "ea-acciones"];
 
 /// Las aristas `ea-*` permitidas en `[dependencies]` (también las de
 /// `[target.*.dependencies]`) de cada crate del workspace. Un crate nuevo tiene
@@ -186,9 +185,7 @@ fn solo_ea_plataforma_tiene_codigo_de_cada_sistema() {
 /// Las comprobaciones no dejan pasar lo que vigilan.
 #[test]
 fn las_comprobaciones_detectan_lo_prohibido() {
-    let m: toml::Table = "[dependencies]\nea-web = { path = \"../ea-web\" }\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n"
-        .parse()
-        .unwrap();
+    let m: toml::Table = "[dependencies]\nea-web = { path = \"../ea-web\" }\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n".parse().unwrap();
     assert_eq!(dependencias(&m, "dependencies"), ["ea-web", "libc"]);
     let m: toml::Table = "[features]\ndefault = [\"x/dobles\"]\n[dependencies]\nea-pruebas = { path = \"../ea-pruebas\" }\n\
         [target.'cfg(unix)'.dependencies]\nea-acciones = { path = \"../ea-acciones\", features = [\"dobles\"] }\n\
@@ -196,7 +193,9 @@ fn las_comprobaciones_detectan_lo_prohibido() {
         .parse()
         .unwrap();
     assert_eq!(de_prueba_fuera_de_las_pruebas("x", &m).len(), 3, "{:?}", de_prueba_fuera_de_las_pruebas("x", &m));
-    for linea in ["#[cfg(unix)]", "#[cfg(not(windows))]", "#![cfg(target_os = \"macos\")]", "use std::os::unix::fs::PermissionsExt;", "unsafe { libc::kill(1, 0) };"] {
+    for linea in
+        ["#[cfg(unix)]", "#[cfg(not(windows))]", "#![cfg(target_os = \"macos\")]", "use std::os::unix::fs::PermissionsExt;", "unsafe { libc::kill(1, 0) };"]
+    {
         assert!(es_de_sistema(linea), "{linea}");
     }
     assert!(!es_de_sistema("#[cfg(test)]"));

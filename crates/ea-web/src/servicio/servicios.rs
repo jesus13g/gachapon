@@ -3,13 +3,13 @@
 //! una terminal real (art. IV.2) y la web solo la abre
 //! ([`super::terminal`]).
 
-use ea_acciones::servicios::{plan_instalar, Backend, Entorno};
+use ea_acciones::servicios::{Backend, Entorno, plan_instalar};
 use ea_acciones::{Canal, GestorServicios, SERVICIOS_INSTALABLES};
 use serde_json::json;
 
-use super::{sistema, ErrorWeb, Resultado, ACTOR};
-use crate::vistas::{Hecho, PlanServicios, ServicioPlan};
+use super::{ACTOR, ErrorWeb, Resultado, sistema};
 use crate::AppState;
+use crate::vistas::{Hecho, PlanServicios, ServicioPlan};
 
 /// Solo lectura: no cambia nada. Si el gestor no responde (o no se consulta,
 /// en las pruebas), cada servicio sale `desconocido`.
@@ -56,9 +56,6 @@ pub async fn reiniciar(s: &AppState, nombre: &str) -> Resultado<Hecho> {
 
     let sis = sistema(s);
     let mut store = s.acciones.lock().await;
-    ea_acciones::ejecutar_directo(
-        &mut store, &sis, ACTOR, Canal::Web, "ea_reiniciar_servicio", &json!({ "servicio": nombre }),
-    )
-    .await?;
+    ea_acciones::ejecutar_directo(&mut store, &sis, ACTOR, Canal::Web, "ea_reiniciar_servicio", &json!({ "servicio": nombre })).await?;
     Ok(Hecho { ok: true })
 }

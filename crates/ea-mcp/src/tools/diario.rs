@@ -5,9 +5,9 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, tool, tool_router};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{cotas_listado, limite, EaTools};
+use super::{EaTools, cotas_listado, limite};
 use crate::args::ListarDiarioArgs;
 
 pub(super) fn event_to_json(e: &Event) -> Value {
@@ -31,11 +31,7 @@ impl EaTools {
             defecto y como mucho 50 (10 y 20 para el agente local).",
         annotations(title = "Listar diario", read_only_hint = true)
     )]
-    async fn ea_listar_diario(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<ListarDiarioArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_listar_diario(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<ListarDiarioArgs>) -> Result<CallToolResult, McpError> {
         let args_json = json!({
             "trabajo": args.trabajo, "actor": args.actor,
             "desde": args.desde, "hasta": args.hasta, "limite": args.limite,

@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use ea_acciones::{Canal, SistemaReal};
 use serde_json::Value;
 
-use super::{sistema, ts, ErrorWeb, Resultado, ACTOR};
-use crate::vistas::{AccionCatalogo, CampoVista, EventoHerramienta, ResultadoAccion, Simulacion};
+use super::{ACTOR, ErrorWeb, Resultado, sistema, ts};
 use crate::AppState;
+use crate::vistas::{AccionCatalogo, CampoVista, EventoHerramienta, ResultadoAccion, Simulacion};
 
 /// El catálogo completo, para verlo; ejecutables desde aquí solo las
 /// supervisadas (las directas son de los agentes o ya tienen su sección).
@@ -26,11 +26,7 @@ pub async fn catalogo(s: &AppState) -> Resultado<Vec<AccionCatalogo>> {
                     largo: c.largo,
                     obligatorio: c.obligatorio,
                     // Las rutinas no son un dominio fijo: las que hay ahora.
-                    opciones: if c.nombre == "slug" {
-                        slugs.clone()
-                    } else {
-                        c.opciones.iter().map(|o| o.to_string()).collect()
-                    },
+                    opciones: if c.nombre == "slug" { slugs.clone() } else { c.opciones.iter().map(|o| o.to_string()).collect() },
                     sugerencias: guia.sugerencias(c.nombre),
                     estados: guia.estados(c.nombre),
                     ayuda: c.ayuda,
@@ -92,11 +88,8 @@ async fn guia(s: &AppState) -> Guia {
         }
     }
     // Sin `systemctl`, «desconocido»: el formulario lo dice igual.
-    let mut servicios: BTreeMap<String, String> = ea_acciones::salud::servicios(s.config.systemctl)
-        .await
-        .into_iter()
-        .map(|srv| (srv.nombre.to_string(), srv.activo))
-        .collect();
+    let mut servicios: BTreeMap<String, String> =
+        ea_acciones::salud::servicios(s.config.systemctl).await.into_iter().map(|srv| (srv.nombre.to_string(), srv.activo)).collect();
     // ea-web no se vigila a sí mismo, pero si responde es que está en marcha.
     servicios.entry("ea-web".into()).or_insert_with(|| "active".into());
     Guia { notas, servicios }
@@ -119,12 +112,7 @@ pub async fn simular(s: &AppState, herramienta: &str, argumentos: &Value) -> Res
 /// Ejecuta lo que se acaba de simular. Si el mundo ha cambiado desde la
 /// simulación, la revalidación falla y no se hace nada; las irreversibles no
 /// se confirman desde la web. Todo queda en el diario.
-pub async fn ejecutar(
-    s: &AppState,
-    herramienta: &str,
-    argumentos: &Value,
-    precondicion: &Value,
-) -> Resultado<ResultadoAccion> {
+pub async fn ejecutar(s: &AppState, herramienta: &str, argumentos: &Value, precondicion: &Value) -> Resultado<ResultadoAccion> {
     comprobar(s, herramienta)?;
     ejecutar_en(s, &sistema(s), herramienta, argumentos, precondicion).await
 }
@@ -138,13 +126,7 @@ pub(super) async fn simular_en(s: &AppState, sis: &SistemaReal, herramienta: &st
 }
 
 /// Ejecutar con `sis` lo simulado, como el usuario y desde la web.
-pub(super) async fn ejecutar_en(
-    s: &AppState,
-    sis: &SistemaReal,
-    herramienta: &str,
-    argumentos: &Value,
-    precondicion: &Value,
-) -> Resultado<ResultadoAccion> {
+pub(super) async fn ejecutar_en(s: &AppState, sis: &SistemaReal, herramienta: &str, argumentos: &Value, precondicion: &Value) -> Resultado<ResultadoAccion> {
     let mut store = s.acciones.lock().await;
     let r = ea_acciones::ejecutar(&mut store, sis, ACTOR, Canal::Web, herramienta, argumentos, precondicion, None).await?;
     Ok(r.into())

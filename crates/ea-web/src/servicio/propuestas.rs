@@ -3,9 +3,9 @@
 use ea_acciones::Canal;
 use ea_store::{EstadoPropuesta, Propuesta, PropuestaFilter};
 
-use super::{sistema, ts, ErrorWeb, Resultado, ACTOR};
-use crate::vistas::{AccionPropuesta, Ejecucion, PropuestaVista, ResultadoAccion};
+use super::{ACTOR, ErrorWeb, Resultado, sistema, ts};
 use crate::AppState;
+use crate::vistas::{AccionPropuesta, Ejecucion, PropuestaVista, ResultadoAccion};
 
 pub(super) fn vista(p: &Propuesta) -> PropuestaVista {
     PropuestaVista {
@@ -21,21 +21,14 @@ pub(super) fn vista(p: &Propuesta) -> PropuestaVista {
             riesgo: a.riesgo.clone(),
             simulacion: a.simulacion.clone(),
         }),
-        ejecutada: p.ejecucion.as_ref().map(|e| Ejecucion {
-            estado: e.estado.as_str(),
-            detalle: e.detalle.clone(),
-            cuando: e.ejecutada_en.map(ts),
-        }),
+        ejecutada: p.ejecucion.as_ref().map(|e| Ejecucion { estado: e.estado.as_str(), detalle: e.detalle.clone(), cuando: e.ejecutada_en.map(ts) }),
         resultado: None,
     }
 }
 
 /// `estado`: `pendiente`, `aceptada`… o todas si es `None`.
 pub async fn listar(s: &AppState, estado: Option<&str>) -> Resultado<Vec<PropuestaVista>> {
-    let filter = PropuestaFilter {
-        estado: estado.map(str::parse::<EstadoPropuesta>).transpose()?,
-        limit: Some(100),
-    };
+    let filter = PropuestaFilter { estado: estado.map(str::parse::<EstadoPropuesta>).transpose()?, limit: Some(100) };
     let store = s.store.lock().await;
     Ok(store.list_propuestas(&filter)?.iter().map(vista).collect())
 }

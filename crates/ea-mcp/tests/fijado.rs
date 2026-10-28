@@ -18,11 +18,11 @@ use ea_biblioteca::Raices;
 use ea_boveda::Boveda;
 use ea_bus::{Bus, Evento, Fase, Orden};
 use ea_mcp::EaTools;
-use ea_store::{EventFilter, Store};
 use ea_pruebas::escribe;
-use ea_pruebas::mcp::{conectar, Cliente};
+use ea_pruebas::mcp::{Cliente, conectar};
+use ea_store::{EventFilter, Store};
 use rmcp::model::CallToolRequestParams;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 const RUTINA: &str = "[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n";
@@ -30,7 +30,8 @@ const RUTINA: &str = "[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"/
 /// Dos trabajos con ids fijos: una misión cerrada y una obra en cola.
 fn sembrar(bus: &Bus, wt: &str) -> [String; 2] {
     let ids = ["20260101T000001-00000001", "20260101T000002-00000002"].map(String::from);
-    let fase = |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
+    let fase =
+        |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
     let ordenes = [Orden::mision("una misión", wt, "o", "true", "prueba"), Orden::obra("una obra", wt, "o", vec![fase(1), fase(2)], None, "prueba")];
     for (id, base) in ids.iter().zip(ordenes) {
         bus.crear_trabajo(Orden { id: id.clone(), creada_en: "2026-01-01T00:00:00Z".into(), ..base }).unwrap();
@@ -105,9 +106,7 @@ struct Registro {
 
 impl Registro {
     async fn llamar(&mut self, c: &Cliente, cliente: &str, herramienta: &str, args: Value) {
-        let r = c
-            .call_tool(CallToolRequestParams::new(herramienta.to_string()).with_arguments(args.as_object().cloned().unwrap_or_default()))
-            .await;
+        let r = c.call_tool(CallToolRequestParams::new(herramienta.to_string()).with_arguments(args.as_object().cloned().unwrap_or_default())).await;
         let mut t = format!(">> {cliente} {herramienta} {args}\n");
         match r {
             Ok(r) => {
@@ -146,7 +145,12 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let (r, e) = (rutinas.clone(), estado.clone());
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), e.clone()).con_ajustes(ajustes.clone()).con_credencial(credencial()).con_raices(raices.clone()),
+        move || {
+            EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), e.clone())
+                .con_ajustes(ajustes.clone())
+                .con_credencial(credencial())
+                .con_raices(raices.clone())
+        },
         Default::default(),
     );
     let url = ea_pruebas::mcp::servidor(router).await;
@@ -184,7 +188,8 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     reg.llamar(o, oc, "ea_biblioteca", json!({ "agente": "codex", "activado": false })).await;
     // Bóveda.
     reg.llamar(p, pc, "ea_escribir_nota", json!({ "titulo": "Puerto del MCP", "contenido": "El puerto es 8765.", "simular": true })).await;
-    reg.llamar(p, pc, "ea_escribir_nota", json!({ "titulo": "Puerto del MCP", "contenido": "El puerto es 8765.", "etiquetas": ["mcp"], "trabajo": ids[0] })).await;
+    reg.llamar(p, pc, "ea_escribir_nota", json!({ "titulo": "Puerto del MCP", "contenido": "El puerto es 8765.", "etiquetas": ["mcp"], "trabajo": ids[0] }))
+        .await;
     reg.llamar(p, pc, "ea_escribir_nota", json!({ "titulo": "Puerto del MCP", "contenido": "otra vez" })).await;
     reg.llamar(x, xc, "ea_escribir_nota", json!({ "titulo": "Local", "contenido": "del ejecutor", "ruta": "notas/local.md" })).await;
     reg.llamar(o, oc, "ea_escribir_nota", json!({ "titulo": "No", "contenido": "no" })).await;
@@ -234,15 +239,7 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     eventos.reverse();
     writeln!(reg.texto, "== diario").unwrap();
     for e in eventos {
-        let linea = format!(
-            "{} {} {} trabajo={:?} {:?} {}\n",
-            e.id,
-            e.actor,
-            e.action,
-            e.trabajo,
-            e.outcome,
-            e.detail.as_deref().unwrap_or_default()
-        );
+        let linea = format!("{} {} {} trabajo={:?} {:?} {}\n", e.id, e.actor, e.action, e.trabajo, e.outcome, e.detail.as_deref().unwrap_or_default());
         reg.texto.push_str(&normalizar(&linea, &reg.tmp));
     }
     for c in [planificador, ejecutor, orquestador, desconocido] {

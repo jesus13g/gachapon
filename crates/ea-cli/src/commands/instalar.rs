@@ -7,15 +7,15 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
-use ea_acciones::servicios::{aplicar, correr_orden, Entorno, Paso};
+use anyhow::{Context, Result, bail};
+use ea_acciones::servicios::{Entorno, Paso, aplicar, correr_orden};
 use ea_ajustes::Fuentes;
 use ea_plataforma::Sistema;
 use serde_json::Value;
 
 use super::{preguntar, respuesta_confirma};
 use crate::instalacion::dependencias::{self, Dependencia, Estado};
-use crate::instalacion::origen::{self, nombre_binario, BINARIO_ESCRITORIO};
+use crate::instalacion::origen::{self, BINARIO_ESCRITORIO, nombre_binario};
 use crate::instalacion::wsl::{self, EstadoWsl};
 use crate::instalacion::{self, Contexto, Origen, Sonda, SondaReal};
 
@@ -130,8 +130,7 @@ fn describir_origen(ctx: &Contexto) -> String {
 /// Las dependencias externas: se enseñan y se ofrece cada una con su
 /// propia pregunta. Devuelve las notas que quedan para el final.
 fn ofrecer_dependencias(ctx: &Contexto, sonda: &dyn Sonda, solo: Option<&[&str]>) -> Result<Vec<String>> {
-    let deps: Vec<Dependencia> =
-        dependencias::detectar(ctx, sonda).into_iter().filter(|d| solo.is_none_or(|ids| ids.contains(&d.id))).collect();
+    let deps: Vec<Dependencia> = dependencias::detectar(ctx, sonda).into_iter().filter(|d| solo.is_none_or(|ids| ids.contains(&d.id))).collect();
     if deps.is_empty() {
         return Ok(vec![]);
     }
@@ -189,11 +188,7 @@ fn fijar_ajustes(cambios: &[(&str, Value)]) -> Result<()> {
 fn esperar(url: &str, cualquier_codigo: bool, tope: Duration) -> bool {
     let inicio = Instant::now();
     loop {
-        let ok = if cualquier_codigo {
-            instalacion::http_responde(url, Duration::from_secs(2))
-        } else {
-            instalacion::http_ok(url, Duration::from_secs(2))
-        };
+        let ok = if cualquier_codigo { instalacion::http_responde(url, Duration::from_secs(2)) } else { instalacion::http_ok(url, Duration::from_secs(2)) };
         if ok {
             return true;
         }
@@ -252,11 +247,7 @@ pub fn instalar(op: Opciones) -> Result<()> {
     let ctx = contexto(op.sin_escritorio)?;
     let sonda = SondaReal;
     let entorno = Entorno::usuario().map_err(anyhow::Error::msg)?;
-    let faltan: Vec<PathBuf> = origen::BINARIOS
-        .iter()
-        .map(|b| ctx.exes_origen.join(nombre_binario(ctx.sistema, b)))
-        .filter(|p| !p.is_file())
-        .collect();
+    let faltan: Vec<PathBuf> = origen::BINARIOS.iter().map(|b| ctx.exes_origen.join(nombre_binario(ctx.sistema, b))).filter(|p| !p.is_file()).collect();
     if !faltan.is_empty() {
         let lista = faltan.iter().map(|f| f.display().to_string()).collect::<Vec<_>>().join(", ");
         bail!("faltan binarios junto a este `ea` ({lista}); compílalos con `cargo build --release` o usa un paquete completo");
@@ -355,9 +346,14 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
     let continuar = ctx.destinos.bin.join(nombre_binario(ctx.sistema, "ea"));
     if matches!(estado, EstadoWsl::SinWsl | EstadoWsl::SinDistro) {
         if op.continuar {
-            bail!("tras el reinicio sigue sin estar la distribución {distro} (`wsl.exe -l -q`); instálala con `wsl --install -d {distro}` y vuelve a ejecutar el instalador");
+            bail!(
+                "tras el reinicio sigue sin estar la distribución {distro} (`wsl.exe -l -q`); instálala con `wsl --install -d {distro}` y vuelve a ejecutar el instalador"
+            );
         }
-        println!("Falta {}: se instala con permiso de administrador (UAC) y Windows pedirá reiniciar.", if estado == EstadoWsl::SinWsl { "WSL2" } else { "la distribución" });
+        println!(
+            "Falta {}: se instala con permiso de administrador (UAC) y Windows pedirá reiniciar.",
+            if estado == EstadoWsl::SinWsl { "WSL2" } else { "la distribución" }
+        );
         println!("Tras el reinicio, al iniciar sesión, el instalador sigue solo.\n");
         println!("ea instalar hará esto:");
         let mut pasos = instalacion::plan_parar_escritorio(&ctx);
@@ -439,7 +435,10 @@ fn verificar(ctx: &Contexto, notas: Vec<String>, con_agentes: bool) -> Result<()
         }
     }
     if ctx.sistema != Sistema::Windows && matches!(ctx.origen, Origen::Paquete) {
-        println!("\n`ea` queda en {}; si aún no lo encuentra, abre una terminal nueva (si se añadió al perfil del shell, vuelve a iniciar sesión).", ctx.home.join(".local/bin/ea").display());
+        println!(
+            "\n`ea` queda en {}; si aún no lo encuentra, abre una terminal nueva (si se añadió al perfil del shell, vuelve a iniciar sesión).",
+            ctx.home.join(".local/bin/ea").display()
+        );
     }
     Ok(())
 }

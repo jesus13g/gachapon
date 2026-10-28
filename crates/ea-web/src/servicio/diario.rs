@@ -2,9 +2,9 @@
 
 use ea_store::{Event, EventFilter, FiltroDiario, NuevaNota};
 
-use super::{ts, Resultado};
-use crate::vistas::EventoVista;
+use super::{Resultado, ts};
 use crate::AppState;
+use crate::vistas::EventoVista;
 
 #[derive(Default)]
 pub struct Filtro {
@@ -44,10 +44,7 @@ pub async fn listar(s: &AppState, f: Filtro) -> Resultado<Vec<EventoVista>> {
     let eventos = store.list_events(&filter)?;
     let ids: Vec<i64> = eventos.iter().map(|e| e.id).collect();
     let mut correcciones = store.correcciones_diario(&ids)?;
-    Ok(eventos
-        .iter()
-        .map(|e| EventoVista { corregido_por: correcciones.remove(&e.id).unwrap_or_default(), ..vista(e) })
-        .collect())
+    Ok(eventos.iter().map(|e| EventoVista { corregido_por: correcciones.remove(&e.id).unwrap_or_default(), ..vista(e) }).collect())
 }
 
 /// Añade una nota del usuario (`usuario_nota`) al diario, que puede corregir

@@ -12,13 +12,13 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
-use crate::bus::{ahora_rfc3339, Bus};
+use crate::bus::{Bus, ahora_rfc3339};
+use crate::equipo::RolEquipo;
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::escribir_json;
-use crate::equipo::RolEquipo;
 
 /// Una presencia sin latido en estos segundos está caducada.
 pub const CADUCIDAD_LATIDO_S: i64 = 90;
@@ -52,8 +52,7 @@ impl Presencia {
     /// Viva a las `ahora`: el pid existe y el latido tiene menos de
     /// [`CADUCIDAD_LATIDO_S`] segundos. Un latido ilegible cuenta como caducado.
     pub fn viva_en(&self, ahora: OffsetDateTime) -> bool {
-        let reciente = OffsetDateTime::parse(&self.latido, &Rfc3339)
-            .is_ok_and(|l| (ahora - l).whole_seconds() < CADUCIDAD_LATIDO_S);
+        let reciente = OffsetDateTime::parse(&self.latido, &Rfc3339).is_ok_and(|l| (ahora - l).whole_seconds() < CADUCIDAD_LATIDO_S);
         reciente && pid_vivo(self.pid)
     }
 }
@@ -110,13 +109,15 @@ impl Bus {
     /// Como [`Bus::presencias`] a una hora dada (para probar sin dormir).
     pub fn presencias_en(&self, ahora: OffsetDateTime) -> Vec<(Presencia, bool)> {
         let Ok(rd) = fs::read_dir(self.raiz.join("agentes")) else { return vec![] };
-        let mut v: Vec<Presencia> = rd
-            .flatten()
-            .filter_map(|e| e.file_name().into_string().ok())
-            .filter_map(|a| self.presencia_de(&a).ok().flatten())
-            .collect();
+        let mut v: Vec<Presencia> =
+            rd.flatten().filter_map(|e| e.file_name().into_string().ok()).filter_map(|a| self.presencia_de(&a).ok().flatten()).collect();
         v.sort_by(|a, b| a.agente.cmp(&b.agente));
-        v.into_iter().map(|p| { let viva = p.viva_en(ahora); (p, viva) }).collect()
+        v.into_iter()
+            .map(|p| {
+                let viva = p.viva_en(ahora);
+                (p, viva)
+            })
+            .collect()
     }
 }
 

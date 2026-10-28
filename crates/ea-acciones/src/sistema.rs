@@ -33,10 +33,7 @@ pub struct EstadoServicio {
 }
 
 pub trait Consulta: Send + Sync {
-    fn servicio_estado(
-        &self,
-        nombre: &str,
-    ) -> impl Future<Output = Result<EstadoServicio, String>> + Send;
+    fn servicio_estado(&self, nombre: &str) -> impl Future<Output = Result<EstadoServicio, String>> + Send;
 
     /// Contenido del fichero de la rutina, o `None` si no existe.
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String>;
@@ -60,10 +57,7 @@ pub trait Consulta: Send + Sync {
 
     /// Valida un `OnCalendar` con `systemd-analyze calendar` (que no cambia
     /// nada). `Ok(Err)`: systemd no lo acepta.
-    fn calendario_validar(
-        &self,
-        calendario: &str,
-    ) -> impl Future<Output = Result<Result<Calendario, String>, String>> + Send;
+    fn calendario_validar(&self, calendario: &str) -> impl Future<Output = Result<Result<Calendario, String>, String>> + Send;
 
     /// Lo que haría activar o desactivar un elemento de la biblioteca (spec
     /// 018): el [`Cambio`] con su mecanismo, objetivo y valor antes y
@@ -110,22 +104,13 @@ pub trait Sistema: Consulta {
     /// devuelve su id. Igual para todo sistema: el de pruebas lanza en su raíz
     /// temporal.
     fn rutina_lanzar(&self, store: &Store, slug: &str, entradas: &[(String, String)], actor: &str) -> Result<String, ErrorAccion> {
-        crate::herramientas::bus_de(&self.estado_dir(), store, actor)?
-            .lanzar_rutina(slug, entradas)
-            .map_err(|e| ErrorAccion::Sistema(e.to_string()))
+        crate::herramientas::bus_de(&self.estado_dir(), store, actor)?.lanzar_rutina(slug, entradas).map_err(|e| ErrorAccion::Sistema(e.to_string()))
     }
 
     /// Copia una nota a la región compartida (la promoción que acepta el
     /// usuario). `huella` es la del contenido que se simuló.
-    fn nota_promover(
-        &self,
-        store: &mut Store,
-        ruta: &str,
-        destino: Option<&str>,
-        huella: &str,
-        actor: &str,
-        canal: &str,
-    ) -> Result<PlanPromocion, ErrorBoveda>;
+    fn nota_promover(&self, store: &mut Store, ruta: &str, destino: Option<&str>, huella: &str, actor: &str, canal: &str)
+    -> Result<PlanPromocion, ErrorBoveda>;
 
     /// Escribe `ea-rutina@<slug>.timer` con ese `OnCalendar`, `daemon-reload`
     /// y lo activa ([`Temporizadores::programar`]).
@@ -417,10 +402,7 @@ pub struct SistemaSimulado {
 #[cfg(feature = "dobles")]
 impl SistemaSimulado {
     pub fn con_servicio(self, nombre: &str, activo: &str) -> Self {
-        self.servicios.lock().unwrap().insert(
-            nombre.to_string(),
-            EstadoServicio { cargado: true, activo: activo.to_string() },
-        );
+        self.servicios.lock().unwrap().insert(nombre.to_string(), EstadoServicio { cargado: true, activo: activo.to_string() });
         self
     }
 
@@ -481,13 +463,7 @@ impl SistemaSimulado {
 #[cfg(feature = "dobles")]
 impl Consulta for SistemaSimulado {
     async fn servicio_estado(&self, nombre: &str) -> Result<EstadoServicio, String> {
-        Ok(self
-            .servicios
-            .lock()
-            .unwrap()
-            .get(nombre)
-            .cloned()
-            .unwrap_or(EstadoServicio { cargado: false, activo: "inactive".into() }))
+        Ok(self.servicios.lock().unwrap().get(nombre).cloned().unwrap_or(EstadoServicio { cargado: false, activo: "inactive".into() }))
     }
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
         if !ea_bus::slug_valido(slug) {
@@ -534,11 +510,7 @@ impl Consulta for SistemaSimulado {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
         let cal = self.timers.lock().unwrap().get(slug).cloned();
-        Ok(EstadoTimer {
-            fichero: cal.is_some(),
-            activo: Some(if cal.is_some() { "active" } else { "inactive" }.into()),
-            calendario: cal,
-        })
+        Ok(EstadoTimer { fichero: cal.is_some(), activo: Some(if cal.is_some() { "active" } else { "inactive" }.into()), calendario: cal })
     }
     /// Una imitación de `systemd-analyze calendar`: acepta palabras de
     /// calendario conocidas y expresiones con cifras o `*`; el resto, no.
@@ -547,15 +519,13 @@ impl Consulta for SistemaSimulado {
             Ok(c) => c,
             Err(e) => return Ok(Err(e)),
         };
-        const PALABRAS: [&str; 12] =
-            ["daily", "weekly", "monthly", "hourly", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon..Fri"];
+        const PALABRAS: [&str; 12] = ["daily", "weekly", "monthly", "hourly", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon..Fri"];
         let vale = c.split_whitespace().all(|w| PALABRAS.contains(&w) || w.bytes().any(|b| b.is_ascii_digit() || b == b'*'));
         if !vale {
             return Ok(Err(format!("Failed to parse calendar specification '{c}': Invalid argument")));
         }
         Ok(Ok(Calendario {
-            normalizado: c.to_string(),
-            proximas: (1..=crate::temporizador::ITERACIONES).map(|i| format!("ejecución {i} de «{c}»")).collect(),
+            normalizado: c.to_string(), proximas: (1..=crate::temporizador::ITERACIONES).map(|i| format!("ejecución {i} de «{c}»")).collect()
         }))
     }
     fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {

@@ -5,13 +5,13 @@
 //! y un agente en un solo equipo despierto, todo dentro de `Bus::crear_equipo`.
 
 use ea_ajustes::ficha;
-use ea_bus::{comprobar_disponibles, parse_miembro, repartir_todos, Miembro, NuevoEquipo, ResumenEquipo, RolEquipo, VistaEquipo};
+use ea_bus::{Miembro, NuevoEquipo, ResumenEquipo, RolEquipo, VistaEquipo, comprobar_disponibles, parse_miembro, repartir_todos};
 use ea_store::{EventOutcome, NewEvent};
 
 use super::terminal::lanzar_argv;
-use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado, ACTOR};
-use crate::vistas::{Despierto, DespertarEquipo, SesionEquipo};
+use super::{ACTOR, ErrorWeb, Resultado, bus_con_store, bus_lectura, texto_no_vacio};
 use crate::AppState;
+use crate::vistas::{DespertarEquipo, Despierto, SesionEquipo};
 
 /// Cuántos trabajos del equipo enseña la ficha (como `ea equipo ver`).
 const TRABAJOS_VISTOS: usize = 20;
@@ -39,17 +39,12 @@ pub async fn despertar(s: &AppState, p: DespertarEquipo) -> Resultado<Despierto>
     let (lista, omitidos): (Vec<Miembro>, Vec<String>) = if p.todos {
         repartir_todos(&ajustes, path.as_deref())?
     } else {
-        let lista = p
-            .miembros
-            .iter()
-            .map(|m| parse_miembro(&format!("{}:{}", m.agente, m.rol)))
-            .collect::<Result<Vec<_>, _>>()?;
+        let lista = p.miembros.iter().map(|m| parse_miembro(&format!("{}:{}", m.agente, m.rol))).collect::<Result<Vec<_>, _>>()?;
         (lista, vec![])
     };
     comprobar_disponibles(&lista, &ajustes, path.as_deref())?;
-    let equipo = bus_con_store(s)
-        .await?
-        .crear_equipo(NuevoEquipo { titulo, objetivo, worktree_base: worktree, miembros: lista, creado_por: ACTOR.into() }, &ajustes)?;
+    let equipo =
+        bus_con_store(s).await?.crear_equipo(NuevoEquipo { titulo, objetivo, worktree_base: worktree, miembros: lista, creado_por: ACTOR.into() }, &ajustes)?;
 
     let mut sesiones = Vec::new();
     for m in equipo.miembros.iter().filter(|m| m.rol != RolEquipo::Ejecutor) {

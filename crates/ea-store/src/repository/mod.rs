@@ -4,8 +4,8 @@ pub mod notas;
 pub mod propuestas;
 pub mod trabajos;
 
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use crate::error::StoreResult;
 

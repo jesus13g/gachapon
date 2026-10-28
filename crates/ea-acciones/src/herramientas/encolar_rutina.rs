@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{bus_de, comprobar_slug, exigir_lanzable, Aplicada, Descripcion, ParaAplicar, ParaSimular};
+use super::{Aplicada, Descripcion, ParaAplicar, ParaSimular, bus_de, comprobar_slug, exigir_lanzable};
 use crate::error::ErrorAccion;
 use crate::sistema::{Consulta, Sistema};
 
@@ -45,10 +45,7 @@ pub(super) fn simular<C: Consulta>(p: &ParaSimular<'_, C>, a: Args) -> Result<De
     // La orden que saldría, con las mismas comprobaciones que al
     // lanzar (entrada no declarada, límites): así el usuario ve el
     // criterio que ejecutará el sistema antes de aceptar.
-    let orden = bus
-        .rutina(&a.slug)
-        .and_then(|r| r.a_orden(&a.pares()))
-        .map_err(|e| ErrorAccion::Argumentos(e.to_string()))?;
+    let orden = bus.rutina(&a.slug).and_then(|r| r.a_orden(&a.pares())).map_err(|e| ErrorAccion::Argumentos(e.to_string()))?;
     // Un worktree que ya no vale (U-05) no se lanzaría: se dice ahora.
     ea_bus::validar_worktree(&orden.worktree, ea_bus::git::TOPE_LECTURA).map_err(|e| ErrorAccion::NoAplica(e.to_string()))?;
     let activos = bus.trabajos_activos_de_rutina(&a.slug).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
@@ -62,8 +59,7 @@ pub(super) fn simular<C: Consulta>(p: &ParaSimular<'_, C>, a: Args) -> Result<De
         format!("con las entradas {}", lista.join(", "))
     };
     // Sin entradas, los argumentos quedan como antes ({slug}).
-    let argumentos =
-        if a.entradas.is_empty() { json!({ "slug": a.slug }) } else { json!({ "slug": a.slug, "entradas": a.entradas }) };
+    let argumentos = if a.entradas.is_empty() { json!({ "slug": a.slug }) } else { json!({ "slug": a.slug, "entradas": a.entradas }) };
     Ok((
         argumentos,
         format!(

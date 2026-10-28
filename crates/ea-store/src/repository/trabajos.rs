@@ -1,7 +1,7 @@
 //! Historial de trabajos del orquestador (migración 0005). Los ficheros del
 //! bus son la fuente de verdad; esto es el registro consultable.
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::StoreResult;
 
@@ -51,10 +51,7 @@ pub fn insertar_trabajo(conn: &Connection, t: &FilaTrabajo) -> StoreResult<()> {
 }
 
 pub fn actualizar_estado_trabajo(conn: &Connection, id: &str, estado: &str, actualizado_en: &str) -> StoreResult<()> {
-    conn.execute(
-        "UPDATE trabajos SET estado = ?2, actualizado_en = ?3 WHERE id = ?1",
-        params![id, estado, actualizado_en],
-    )?;
+    conn.execute("UPDATE trabajos SET estado = ?2, actualizado_en = ?3 WHERE id = ?1", params![id, estado, actualizado_en])?;
     Ok(())
 }
 
@@ -92,19 +89,10 @@ pub fn guardar_fase(conn: &Connection, f: &FilaFase) -> StoreResult<()> {
 }
 
 pub fn listar_fases(conn: &Connection, trabajo_id: &str) -> StoreResult<Vec<FilaFase>> {
-    let mut st = conn.prepare(
-        "SELECT trabajo_id, numero, titulo, estado, informe, cerrado_en FROM trabajo_fases WHERE trabajo_id = ?1 ORDER BY numero",
-    )?;
+    let mut st = conn.prepare("SELECT trabajo_id, numero, titulo, estado, informe, cerrado_en FROM trabajo_fases WHERE trabajo_id = ?1 ORDER BY numero")?;
     let filas = st
         .query_map(params![trabajo_id], |r| {
-            Ok(FilaFase {
-                trabajo_id: r.get(0)?,
-                numero: r.get(1)?,
-                titulo: r.get(2)?,
-                estado: r.get(3)?,
-                informe: r.get(4)?,
-                cerrado_en: r.get(5)?,
-            })
+            Ok(FilaFase { trabajo_id: r.get(0)?, numero: r.get(1)?, titulo: r.get(2)?, estado: r.get(3)?, informe: r.get(4)?, cerrado_en: r.get(5)? })
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(filas)
@@ -120,34 +108,24 @@ pub fn guardar_rutina(conn: &Connection, r: &FilaRutina) -> StoreResult<()> {
 
 pub fn obtener_rutina(conn: &Connection, slug: &str, version: i64) -> StoreResult<Option<FilaRutina>> {
     Ok(conn
-        .query_row(
-            "SELECT slug, version, definicion, creada_en, creada_por FROM rutinas WHERE slug = ?1 AND version = ?2",
-            params![slug, version],
-            |r| {
-                Ok(FilaRutina { slug: r.get(0)?, version: r.get(1)?, definicion: r.get(2)?, creada_en: r.get(3)?, creada_por: r.get(4)? })
-            },
-        )
+        .query_row("SELECT slug, version, definicion, creada_en, creada_por FROM rutinas WHERE slug = ?1 AND version = ?2", params![slug, version], |r| {
+            Ok(FilaRutina { slug: r.get(0)?, version: r.get(1)?, definicion: r.get(2)?, creada_en: r.get(3)?, creada_por: r.get(4)? })
+        })
         .optional()?)
 }
 
 /// Última versión registrada de una rutina.
 pub fn ultima_rutina(conn: &Connection, slug: &str) -> StoreResult<Option<FilaRutina>> {
     Ok(conn
-        .query_row(
-            "SELECT slug, version, definicion, creada_en, creada_por FROM rutinas WHERE slug = ?1 ORDER BY version DESC LIMIT 1",
-            params![slug],
-            |r| {
-                Ok(FilaRutina { slug: r.get(0)?, version: r.get(1)?, definicion: r.get(2)?, creada_en: r.get(3)?, creada_por: r.get(4)? })
-            },
-        )
+        .query_row("SELECT slug, version, definicion, creada_en, creada_por FROM rutinas WHERE slug = ?1 ORDER BY version DESC LIMIT 1", params![slug], |r| {
+            Ok(FilaRutina { slug: r.get(0)?, version: r.get(1)?, definicion: r.get(2)?, creada_en: r.get(3)?, creada_por: r.get(4)? })
+        })
         .optional()?)
 }
 
 /// Todas las versiones de una rutina, la más reciente primero (vacío si no existe).
 pub fn listar_versiones_rutina(conn: &Connection, slug: &str) -> StoreResult<Vec<FilaRutina>> {
-    let mut st = conn.prepare(
-        "SELECT slug, version, definicion, creada_en, creada_por FROM rutinas WHERE slug = ?1 ORDER BY version DESC",
-    )?;
+    let mut st = conn.prepare("SELECT slug, version, definicion, creada_en, creada_por FROM rutinas WHERE slug = ?1 ORDER BY version DESC")?;
     let filas = st
         .query_map(params![slug], |r| {
             Ok(FilaRutina { slug: r.get(0)?, version: r.get(1)?, definicion: r.get(2)?, creada_en: r.get(3)?, creada_por: r.get(4)? })
@@ -163,9 +141,7 @@ pub fn listar_rutinas(conn: &Connection) -> StoreResult<Vec<FilaRutina>> {
          WHERE version = (SELECT MAX(version) FROM rutinas WHERE slug = r.slug) ORDER BY slug",
     )?;
     let filas = st
-        .query_map([], |r| {
-            Ok(FilaRutina { slug: r.get(0)?, version: r.get(1)?, definicion: r.get(2)?, creada_en: r.get(3)?, creada_por: r.get(4)? })
-        })?
+        .query_map([], |r| Ok(FilaRutina { slug: r.get(0)?, version: r.get(1)?, definicion: r.get(2)?, creada_en: r.get(3)?, creada_por: r.get(4)? }))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(filas)
 }

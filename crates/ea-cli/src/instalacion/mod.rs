@@ -8,8 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
-use ea_acciones::servicios::{self, Backend, Entorno, Paso};
 use ea_acciones::SERVICIOS_INSTALABLES;
+use ea_acciones::servicios::{self, Backend, Entorno, Paso};
 use ea_plataforma::Sistema;
 
 pub mod adaptadores;
@@ -436,9 +436,10 @@ mod pruebas {
         let copia = posicion(&p, |x| matches!(x, Paso::Copiar { destino, .. } if destino.ends_with("bin/ea-web")));
         let enlace = posicion(&p, |x| matches!(x, Paso::Enlazar { destino, .. } if n(destino) == "/home/ana/.local/bin/ea"));
         let toml = posicion(&p, |x| matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } if ruta == &ajustes()));
-        let unidad = posicion(&p, |x| {
-            matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("ea-web.service") && n(contenido).contains("/home/ana/.local/share/ecosistema-asistente/bin/ea-web"))
-        });
+        let unidad = posicion(
+            &p,
+            |x| matches!(x, Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } if ruta.ends_with("ea-web.service") && n(contenido).contains("/home/ana/.local/share/ecosistema-asistente/bin/ea-web")),
+        );
         let desktop = posicion(&p, |x| escribe(x, "ea-escritorio.desktop"));
         assert!(parar < copia && copia < enlace && enlace < toml && toml < unidad && unidad < desktop);
         // Solo se para lo instalado.

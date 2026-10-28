@@ -11,11 +11,11 @@
 
 use ea_acciones::{Canal, Riesgo};
 use ea_store::{EstadoPropuesta, EventOutcome, NewEvent};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
-use super::{ErrorWeb, Resultado, ACTOR};
-use crate::vistas::{AbrirTerminal, TerminalAbierta};
+use super::{ACTOR, ErrorWeb, Resultado};
 use crate::AppState;
+use crate::vistas::{AbrirTerminal, TerminalAbierta};
 
 /// Uno de los comandos permitidos, ya validado contra su forma y, una
 /// herramienta, contra el catálogo (una propuesta se mira además contra el
@@ -26,7 +26,10 @@ enum Orden {
     /// `ea servicios instalar|desinstalar` (spec 020, H4): el gestor del
     /// sistema se cambia en la TTY, con su confirmación escrita.
     Servicios(&'static str),
-    Herramienta { nombre: &'static str, argumentos: Value },
+    Herramienta {
+        nombre: &'static str,
+        argumentos: Value,
+    },
     /// `ea boveda vaciar-papelera`: borrar para siempre la papelera de la
     /// bóveda (spec 015, RF-012). No es una herramienta del catálogo.
     VaciarPapeleraBoveda,
@@ -42,14 +45,9 @@ impl Orden {
             }
             Orden::Servicios(accion) => vec!["servicios".into(), (*accion).into(), "--esperar".into()],
             Orden::VaciarPapeleraBoveda => vec!["boveda".into(), "vaciar-papelera".into(), "--esperar".into()],
-            Orden::Herramienta { nombre, argumentos } => vec![
-                "acciones".into(),
-                "ejecutar".into(),
-                (*nombre).into(),
-                "--args".into(),
-                argumentos.to_string(),
-                "--esperar".into(),
-            ],
+            Orden::Herramienta { nombre, argumentos } => {
+                vec!["acciones".into(), "ejecutar".into(), (*nombre).into(), "--args".into(), argumentos.to_string(), "--esperar".into()]
+            }
         }
     }
 
@@ -85,14 +83,10 @@ fn invalido(m: impl Into<String>) -> ErrorWeb {
 fn leer_cuerpo(c: &AbrirTerminal) -> Resultado<Orden> {
     match (&c.propuesta, &c.servicios, &c.herramienta, &c.argumentos, &c.boveda) {
         (None, None, None, None, Some(b)) if b == "vaciar-papelera" => Ok(Orden::VaciarPapeleraBoveda),
-        (None, None, None, None, Some(_)) => {
-            Err(invalido("de la bóveda solo se abre en la terminal {\"boveda\": \"vaciar-papelera\"}"))
+        (None, None, None, None, Some(_)) => Err(invalido("de la bóveda solo se abre en la terminal {\"boveda\": \"vaciar-papelera\"}")),
+        (Some(p), None, None, None, None) => {
+            p.as_i64().filter(|&id| id > 0).map(Orden::Propuesta).ok_or_else(|| invalido("'propuesta' debe ser el número de una propuesta"))
         }
-        (Some(p), None, None, None, None) => p
-            .as_i64()
-            .filter(|&id| id > 0)
-            .map(Orden::Propuesta)
-            .ok_or_else(|| invalido("'propuesta' debe ser el número de una propuesta")),
         (None, Some(sv), None, None, None) => match sv.as_str() {
             Some("instalar") => Ok(Orden::Servicios("instalar")),
             Some("desinstalar") => Ok(Orden::Servicios("desinstalar")),
@@ -115,8 +109,7 @@ fn validar_herramienta(nombre: &str, argumentos: Value) -> Resultado<Orden> {
     if ea_acciones::puede_confirmar(Canal::Web, h.riesgo).is_ok() {
         return Err(invalido(format!("'{nombre}' se confirma desde la web; la terminal es para lo irreversible")));
     }
-    let args: &Map<String, Value> =
-        argumentos.as_object().ok_or_else(|| invalido("'argumentos' debe ser un objeto"))?;
+    let args: &Map<String, Value> = argumentos.as_object().ok_or_else(|| invalido("'argumentos' debe ser un objeto"))?;
     let campos = ea_acciones::campos(nombre);
     if let Some(k) = args.keys().find(|k| !campos.iter().any(|c| c.nombre == k.as_str())) {
         return Err(invalido(format!("'{k}' no es un argumento de {nombre}")));
@@ -207,7 +200,9 @@ mod tests {
         assert!(leer_cuerpo(json!({ "propuesta": 1, "confirmo": "1" })).is_err());
         assert_eq!(leer_cuerpo(json!({ "propuesta": 3 })).unwrap(), Orden::Propuesta(3));
         assert_eq!(leer_cuerpo(json!({ "servicios": "instalar" })).unwrap(), Orden::Servicios("instalar"));
-        for malo in [json!({ "servicios": "reiniciar" }), json!({ "servicios": 1 }), json!({ "servicios": "instalar", "x": 1 }), json!({ "servicios": "instalar; rm" })] {
+        for malo in
+            [json!({ "servicios": "reiniciar" }), json!({ "servicios": 1 }), json!({ "servicios": "instalar", "x": 1 }), json!({ "servicios": "instalar; rm" })]
+        {
             assert!(leer_cuerpo(malo.clone()).is_err(), "{malo}");
         }
         assert_eq!(leer_cuerpo(json!({ "boveda": "vaciar-papelera" })).unwrap(), Orden::VaciarPapeleraBoveda);

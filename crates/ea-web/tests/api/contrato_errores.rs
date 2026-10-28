@@ -44,11 +44,7 @@ const CON_CUERPO: [&str; 31] = [
 /// Un POST con la clave, el cuerpo tal cual y el tipo de contenido que se
 /// diga (`None`: sin cabecera). Devuelve el código, el tipo y el cuerpo.
 async fn crudo(f: &Fixture, ruta: &str, tipo: Option<&str>, cuerpo: &str) -> (StatusCode, String, String) {
-    let mut req = Request::builder()
-        .method(Method::POST)
-        .uri(ruta)
-        .header("host", "localhost:8092")
-        .header("x-ea-clave", f.state.clave.texto());
+    let mut req = Request::builder().method(Method::POST).uri(ruta).header("host", "localhost:8092").header("x-ea-clave", f.state.clave.texto());
     if let Some(t) = tipo {
         req = req.header("content-type", t);
     }

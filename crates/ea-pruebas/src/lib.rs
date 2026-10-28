@@ -38,12 +38,7 @@ pub fn sin_secretos(texto: &str, secretos: &[&str]) {
 /// `git -C dir args` con un autor de prueba y sin firmar; falla si git
 /// falla. Devuelve la salida sin los blancos de los extremos.
 pub fn git(dir: &Path, args: &[&str]) -> String {
-    let s = Command::new("git")
-        .args(["-c", "user.email=a@b", "-c", "user.name=x", "-c", "commit.gpgsign=false", "-C"])
-        .arg(dir)
-        .args(args)
-        .output()
-        .unwrap();
+    let s = Command::new("git").args(["-c", "user.email=a@b", "-c", "user.name=x", "-c", "commit.gpgsign=false", "-C"]).arg(dir).args(args).output().unwrap();
     assert!(s.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&s.stderr));
     String::from_utf8_lossy(&s.stdout).trim().to_string()
 }
@@ -114,9 +109,9 @@ pub fn orden(wt: &Path) -> Orden {
 /// misión cerrada, otra en cola, una obra en curso y una misión bloqueada en
 /// revisión. Ids y fecha de creación fijos; devuelve los ids.
 pub fn sembrar_trabajos(bus: &Bus, wt: &str) -> [String; 4] {
-    let ids = ["20260101T000001-00000001", "20260101T000002-00000002", "20260101T000003-00000003", "20260101T000004-00000004"]
-        .map(String::from);
-    let fase = |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
+    let ids = ["20260101T000001-00000001", "20260101T000002-00000002", "20260101T000003-00000003", "20260101T000004-00000004"].map(String::from);
+    let fase =
+        |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
     for (i, id) in ids.iter().enumerate() {
         let base = if i == 2 {
             Orden::obra("una obra", wt, "o", vec![fase(1), fase(2)], None, "prueba")

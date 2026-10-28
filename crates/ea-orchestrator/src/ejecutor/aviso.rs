@@ -225,10 +225,7 @@ mod tests {
         for (respuesta, esperado) in [("abrir", "#trabajos/x"), ("", "")] {
             let _ = std::fs::remove_file(&abierto);
             escribe("notify-send", format!("echo '{respuesta}'"));
-            let st = orden_aviso("t", "r", "x", &abrir)
-                .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-                .status()
-                .unwrap();
+            let st = orden_aviso("t", "r", "x", &abrir).env("PATH", format!("{}:/usr/bin:/bin", bin.display())).status().unwrap();
             assert!(st.success());
             assert_eq!(std::fs::read_to_string(&abierto).unwrap_or_default(), esperado, "respuesta {respuesta:?}");
         }

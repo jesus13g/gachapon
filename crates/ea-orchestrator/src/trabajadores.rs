@@ -25,16 +25,16 @@
 use std::collections::HashMap;
 use std::fs::{OpenOptions, TryLockError};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use ea_ajustes::Ajustes;
-use ea_bus::{Bus, Equipo, EstadoEquipo, Latido, Presencia, RolEquipo, INTERVALO_LATIDO_S};
+use ea_bus::{Bus, Equipo, EstadoEquipo, INTERVALO_LATIDO_S, Latido, Presencia, RolEquipo};
 
 use crate::config::{ConfigOrquestador, PerfilEjecutor};
-use crate::ejecutor::{ejecutar_intento, fabricar, Ejecutor, Intento};
+use crate::ejecutor::{Ejecutor, Intento, ejecutar_intento, fabricar};
 
 /// Un agente ejecutor que debe tener trabajador, y el equipo que lo despertó.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,12 +210,7 @@ impl Instancia {
     /// Toma el candado; `Err` si lo tiene otro proceso (o no se puede abrir).
     pub fn tomar(raiz: &Path) -> Result<Self, String> {
         let ruta = raiz.join(FICHERO_INSTANCIA);
-        let f = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&ruta)
-            .map_err(|e| format!("no se pudo abrir {}: {e}", ruta.display()))?;
+        let f = OpenOptions::new().create(true).truncate(false).write(true).open(&ruta).map_err(|e| format!("no se pudo abrir {}: {e}", ruta.display()))?;
         match f.try_lock() {
             Ok(()) => Ok(Self { _candado: f }),
             Err(TryLockError::WouldBlock) => Err(format!("ya hay un ea-orchestrator en marcha (tiene {})", ruta.display())),

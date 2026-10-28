@@ -9,10 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -31,9 +28,7 @@ async fn main() -> anyhow::Result<()> {
     // La señal de parada, antes de escuchar: un SIGTERM que llega en cuanto
     // el puerto acepta ya encuentra el manejador.
     let parada = ea_plataforma::parada::esperar_parada();
-    let listener = tokio::net::TcpListener::bind(&bind_addr)
-        .await
-        .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await.with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
 
     // La credencial del planificador, después de escuchar (como la clave del
     // panel en ea-web). Sin directorio de ejecución no hay dónde dejarla: solo

@@ -126,11 +126,8 @@ fn meta(transcript: &str, agente: &str) -> (Meta, Option<u64>) {
     let Some(base) = transcript.strip_suffix(".jsonl") else { return (Meta::default(), None) };
     let ruta = Path::new(base).join("subagents").join(format!("agent-{agente}.meta.json"));
     let meta = std::fs::read(&ruta).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    let cuando = std::fs::metadata(&ruta)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64);
+    let cuando =
+        std::fs::metadata(&ruta).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
     (meta, cuando)
 }
 

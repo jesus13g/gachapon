@@ -81,10 +81,7 @@ fn mundo() -> Mundo {
             proyecto.display().to_string().replace('\\', "/")
         ),
     );
-    escribe(
-        proyecto.join(".mcp.json"),
-        r#"{"mcpServers":{"off":{"command":"a"},"pendiente":{"command":"b"},"aprobado":{"command":"c"}}}"#,
-    );
+    escribe(proyecto.join(".mcp.json"), r#"{"mcpServers":{"off":{"command":"a"},"pendiente":{"command":"b"},"aprobado":{"command":"c"}}}"#);
     escribe(proyecto.join(".claude/settings.local.json"), r#"{"enabledMcpjsonServers":["aprobado"]}"#);
 
     // Codex
@@ -116,10 +113,7 @@ X-Auth = "SECRETO_HEADER_CODEX"
                "remoto-oc":{"type":"remote","url":"https://oc.ejemplo.com/SECRETO_RUTA_URL","headers":{"Authorization":"SECRETO_HEADER_OPENCODE"}},
                "local-oc":{"type":"local","command":["bun","run","x"],"environment":{"K":"SECRETO_ENV_OPENCODE"},"enabled":false}}}}"#,
     );
-    escribe(
-        home.join(".config/opencode/opencode.jsonc"),
-        "{\n // un comentario\n \"mcp\": { \"plano\": { \"type\": \"local\", \"command\": [\"x\"], }, },\n}",
-    );
+    escribe(home.join(".config/opencode/opencode.jsonc"), "{\n // un comentario\n \"mcp\": { \"plano\": { \"type\": \"local\", \"command\": [\"x\"], }, },\n}");
     escribe(home.join(".config/opencode/agent/oa.md"), "---\ndescription: Agente de fichero\n---\n");
     escribe(home.join(".config/opencode/commands/ea-mision.md"), "---\ndescription: Comando\n---\n");
     escribe(home.join(".config/opencode/skills/os/SKILL.md"), "---\ndescription: Skill\n---\n");
@@ -133,7 +127,11 @@ X-Auth = "SECRETO_HEADER_CODEX"
     escribe(home.join(".qwen/extensions/ext2/qwen-extension.json"), r#"{"name":"ext2"}"#);
     escribe(
         home.join(".qwen/extensions/extension-enablement.json"),
-        &format!(r#"{{"ext2":{{"overrides":["{0}/*","!{1}/*"]}}}}"#, home.display().to_string().replace('\\', "/"), proyecto.display().to_string().replace('\\', "/")),
+        &format!(
+            r#"{{"ext2":{{"overrides":["{0}/*","!{1}/*"]}}}}"#,
+            home.display().to_string().replace('\\', "/"),
+            proyecto.display().to_string().replace('\\', "/")
+        ),
     );
 
     // Antigravity
@@ -219,7 +217,10 @@ fn claude_code() {
     assert_eq!(def.env, ["API_KEY"]);
     assert_eq!(def.args, ["-y", "@scope/server", "--token", "***"]);
     let r = get(&inv, "claude-code/mcp/usuario/remoto-claude").def_mcp.as_ref().unwrap();
-    assert_eq!((r.transporte.as_str(), r.url.as_deref(), r.headers.as_slice()), ("http", Some("https://mcp.ejemplo.com:8443"), ["Authorization".to_string()].as_slice()));
+    assert_eq!(
+        (r.transporte.as_str(), r.url.as_deref(), r.headers.as_slice()),
+        ("http", Some("https://mcp.ejemplo.com:8443"), ["Authorization".to_string()].as_slice())
+    );
     assert_eq!(get(&inv, "claude-code/mcp/proyecto/del-proyecto").activado, Activado::No);
     assert_eq!(get(&inv, "claude-code/mcp/proyecto/off").activado, Activado::No);
     assert_eq!(get(&inv, "claude-code/mcp/proyecto/pendiente").activado, Activado::Desconocido);
@@ -407,7 +408,10 @@ fn lo_que_viene_de_ficheros_ajenos_no_lleva_secuencias_de_escape() {
     if cfg!(unix) {
         escribe(m.home.join(".claude/skills/mal\x1bnombre/SKILL.md"), "---\ndescription: x\n---\n");
     }
-    escribe(m.home.join(".config/opencode/opencode.jsonc"), "{\n // comentario\n \"mcp\": { \"j\": { \"type\": \"local\", \"command\": [\"x\x1b[31m\", \"a\x07b\"] } }\n}\n");
+    escribe(
+        m.home.join(".config/opencode/opencode.jsonc"),
+        "{\n // comentario\n \"mcp\": { \"j\": { \"type\": \"local\", \"command\": [\"x\x1b[31m\", \"a\x07b\"] } }\n}\n",
+    );
     let inv = Biblioteca::cargar(&raices(&m), &m.ajustes);
     let rara = get(&inv, "claude-code/skill/usuario/rara");
     assert_eq!(rara.descripcion, "hola]0;pwn [2Jmundo");

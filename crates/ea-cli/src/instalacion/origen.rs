@@ -25,18 +25,13 @@ pub fn nombre_binario(sistema: Sistema, base: &str) -> String {
 /// `Clon` si `exes` es `target/release` (o `target/debug`) de un clon del
 /// repo: su `Cargo.toml` declara el workspace y existe `crates/ea-cli`.
 pub fn origen_de(exes: &Path) -> Origen {
-    let es_target = exes.file_name().is_some_and(|n| n == "release" || n == "debug")
-        && exes.parent().and_then(Path::file_name).is_some_and(|n| n == "target");
+    let es_target = exes.file_name().is_some_and(|n| n == "release" || n == "debug") && exes.parent().and_then(Path::file_name).is_some_and(|n| n == "target");
     if !es_target {
         return Origen::Paquete;
     }
     let Some(repo) = exes.parent().and_then(Path::parent) else { return Origen::Paquete };
     let workspace = std::fs::read_to_string(repo.join("Cargo.toml")).is_ok_and(|c| c.contains("[workspace]"));
-    if workspace && repo.join("crates/ea-cli").is_dir() {
-        Origen::Clon { repo: repo.to_path_buf() }
-    } else {
-        Origen::Paquete
-    }
+    if workspace && repo.join("crates/ea-cli").is_dir() { Origen::Clon { repo: repo.to_path_buf() } } else { Origen::Paquete }
 }
 
 /// La carpeta base de lo instalado desde un paquete: Linux
@@ -47,9 +42,7 @@ fn base(sistema: Sistema, home: &Path, var: &dyn Fn(&str) -> Option<String>) -> 
     let absoluta = |n: &str| var(n).filter(|v| !v.is_empty()).map(PathBuf::from).filter(|p| p.is_absolute() || sistema == Sistema::Windows);
     match sistema {
         Sistema::MacOs => home.join("Library/Application Support/ecosistema-asistente"),
-        Sistema::Windows => {
-            absoluta("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData").join("Local")).join("Programs").join("gachapon")
-        }
+        Sistema::Windows => absoluta("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData").join("Local")).join("Programs").join("gachapon"),
         _ => absoluta("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share")).join("ecosistema-asistente"),
     }
 }
@@ -62,11 +55,7 @@ pub fn destinos(sistema: Sistema, origen: &Origen, home: &Path, var: impl Fn(&st
     let bin_paquete = if sistema == Sistema::Windows { base.clone() } else { base.join("bin") };
     match origen {
         Origen::Paquete => Destinos { bin: bin_paquete, flujo: base.join("flujo"), datos: base },
-        Origen::Clon { repo } => Destinos {
-            bin: repo.join("target").join("release"),
-            flujo: repo.join("agentes").join("flujo"),
-            datos: base,
-        },
+        Origen::Clon { repo } => Destinos { bin: repo.join("target").join("release"), flujo: repo.join("agentes").join("flujo"), datos: base },
     }
 }
 

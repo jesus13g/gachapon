@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use rusqlite_migration::{Migrations, M};
+use rusqlite_migration::{M, Migrations};
 
 use crate::error::{StoreError, StoreResult};
 
@@ -15,11 +15,7 @@ fn migrations() -> Migrations<'static> {
 /// borrarla es del usuario.
 pub(crate) fn comprobar_esquema(conn: &Connection) -> StoreResult<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    let con_tasks: bool = conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks')",
-        [],
-        |r| r.get(0),
-    )?;
+    let con_tasks: bool = conn.query_row("SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks')", [], |r| r.get(0))?;
     if version > VERSION_CONOCIDA || con_tasks {
         return Err(StoreError::EsquemaAntiguo);
     }

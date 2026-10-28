@@ -3,7 +3,7 @@
 
 use ea_acciones::*;
 use ea_store::{EstadoEjecucion, EstadoPropuesta, EventFilter, NuevaPropuesta, Store, StoreError};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
 #[cfg(windows)]
@@ -38,7 +38,16 @@ fn store() -> (Store, tempfile::TempDir) {
         ("revision-diaria", 1, &revision),
         ("vieja", 1, &vieja),
         ("nocturna", 1, &nocturna),
-        ("con-entradas", 1, &concat!("[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n").replace(tmp!(), ea_pruebas::repo_comun())),
+        (
+            "con-entradas",
+            1,
+            &concat!(
+                "[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"",
+                tmp!(),
+                "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n"
+            )
+            .replace(tmp!(), ea_pruebas::repo_comun()),
+        ),
     ])
 }
 
@@ -54,12 +63,7 @@ fn sistema() -> SistemaSimulado {
 }
 
 fn acciones(s: &Store) -> Vec<String> {
-    let mut v: Vec<_> = s
-        .list_events(&EventFilter { limit: Some(500), ..Default::default() })
-        .unwrap()
-        .into_iter()
-        .map(|e| e.action)
-        .collect();
+    let mut v: Vec<_> = s.list_events(&EventFilter { limit: Some(500), ..Default::default() }).unwrap().into_iter().map(|e| e.action).collect();
     v.reverse();
     v
 }
@@ -123,8 +127,7 @@ async fn proponer_encola_pero_no_ejecuta_y_no_duplica() {
     let sis = sistema();
     let args = json!({ "servicio": "ea-mcp" });
 
-    let (p, nueva) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &args).await
-        .unwrap();
+    let (p, nueva) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &args).await.unwrap();
     assert!(nueva);
     assert_eq!(p.estado, EstadoPropuesta::Pendiente);
     assert_eq!(p.proponente.as_deref(), Some("claude-code"));
@@ -134,8 +137,7 @@ async fn proponer_encola_pero_no_ejecuta_y_no_duplica() {
     assert!(p.ejecucion.is_none());
     assert!(sis.mutaciones().is_empty(), "proponer no ejecuta");
 
-    let (p2, nueva2) = proponer_(&s, &sis, "modelo-local", "ea_reiniciar_servicio", &args).await
-        .unwrap();
+    let (p2, nueva2) = proponer_(&s, &sis, "modelo-local", "ea_reiniciar_servicio", &args).await.unwrap();
     assert!(!nueva2);
     assert_eq!(p2.id, p.id);
     assert!(acciones(&s).contains(&"propuesta_encolada".to_string()));
@@ -149,11 +151,9 @@ async fn la_cola_de_propuestas_con_accion_tiene_tope_por_proponente() {
         sis = sis.con_retirada(&format!("r{i}"), "x");
     }
     for i in 0..MAX_PEND {
-        proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": format!("r{i}") })).await
-            .unwrap();
+        proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": format!("r{i}") })).await.unwrap();
     }
-    let e = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": format!("r{MAX_PEND}") })).await
-        .unwrap_err();
+    let e = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": format!("r{MAX_PEND}") })).await.unwrap_err();
     assert!(e.to_string().contains("pendientes") && e.to_string().contains("claude-code"), "{e}");
     // El tope es por proponente (U-08): uno lleno no bloquea a otro, y una
     // igual a una pendiente ajena se sigue devolviendo sin duplicar.
@@ -168,8 +168,7 @@ const MAX_PEND: usize = ea_acciones::flujo::MAX_PENDIENTES_CON_ACCION;
 async fn aceptar_ejecuta_y_registra_en_propuesta_y_diario() {
     let (mut s, _d) = store();
     let sis = sistema();
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await
-        .unwrap();
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await.unwrap();
 
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
     assert_eq!(p.estado, EstadoPropuesta::Aceptada);
@@ -197,8 +196,7 @@ async fn aceptar_ejecuta_y_registra_en_propuesta_y_diario() {
 async fn aceptar_dos_veces_no_ejecuta_dos_veces() {
     let (mut s, _d) = store();
     let sis = sistema();
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await
-        .unwrap();
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await.unwrap();
     aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
     let e = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap_err();
     assert!(matches!(e, ErrorAccion::Store(StoreError::PropuestaYaDecidida(_))));
@@ -211,8 +209,7 @@ async fn aceptar_dos_veces_no_ejecuta_dos_veces() {
 async fn el_almacen_impide_aceptar_sin_ejecutar_una_propuesta_con_accion() {
     let (s, _d) = store();
     let sis = sistema();
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await
-        .unwrap();
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await.unwrap();
     let e = s.decidir_propuesta(p.id, EstadoPropuesta::Aceptada).unwrap_err();
     assert!(matches!(e, StoreError::PropuestaConAccion(_)));
     assert_eq!(s.get_propuesta(p.id).unwrap().estado, EstadoPropuesta::Pendiente);
@@ -224,8 +221,7 @@ async fn revalida_antes_de_ejecutar_si_el_estado_cambio() {
     let sis = sistema();
 
     // Rutina que cambia de contenido entre la simulación y la ejecución.
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": "vieja" })).await
-        .unwrap();
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": "vieja" })).await.unwrap();
     sis.retiradas.lock().unwrap().insert("vieja".into(), "otro contenido".into());
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
     assert_eq!(p.ejecucion.unwrap().estado, EstadoEjecucion::Fallida);
@@ -233,8 +229,7 @@ async fn revalida_antes_de_ejecutar_si_el_estado_cambio() {
     assert!(sis.mutaciones().is_empty());
 
     // Servicio desinstalado.
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await
-        .unwrap();
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await.unwrap();
     sis.servicios.lock().unwrap().clear();
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Terminal).await.unwrap();
     assert_eq!(p.ejecucion.unwrap().estado, EstadoEjecucion::Fallida);
@@ -245,8 +240,7 @@ async fn un_fallo_del_sistema_queda_como_ejecucion_fallida() {
     let (mut s, _d) = store();
     let sis = sistema();
     *sis.fallo_reinicio.lock().unwrap() = Some("Unit not found".into());
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await
-        .unwrap();
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await.unwrap();
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
     let ej = p.ejecucion.unwrap();
     assert_eq!(ej.estado, EstadoEjecucion::Fallida);
@@ -257,8 +251,7 @@ async fn un_fallo_del_sistema_queda_como_ejecucion_fallida() {
 async fn un_irreversible_no_se_confirma_desde_la_web_y_la_propuesta_sigue_pendiente() {
     let (mut s, _d) = store();
     let sis = sistema();
-    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": "vieja" })).await
-        .unwrap();
+    let (p, _) = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": "vieja" })).await.unwrap();
     assert_eq!(p.accion.as_ref().unwrap().riesgo, "irreversible");
 
     let e = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap_err();
@@ -267,9 +260,7 @@ async fn un_irreversible_no_se_confirma_desde_la_web_y_la_propuesta_sigue_pendie
     assert!(sis.rutina_retirada("vieja").unwrap().is_some());
     assert!(acciones(&s).contains(&"accion_fallida".to_string()), "el intento por la web queda en el diario");
 
-    let e = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_eliminar_rutina", &json!({ "slug": "vieja" }))
-        .await
-        .unwrap_err();
+    let e = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_eliminar_rutina", &json!({ "slug": "vieja" })).await.unwrap_err();
     assert!(matches!(e, ErrorAccion::Prohibida(_)));
     assert!(acciones(&s).contains(&"accion_fallida".to_string()), "el intento queda en el diario");
     assert!(sis.mutaciones().is_empty());
@@ -285,13 +276,7 @@ async fn un_irreversible_no_se_confirma_desde_la_web_y_la_propuesta_sigue_pendie
 async fn las_propuestas_de_texto_libre_siguen_siendo_constancia() {
     let (mut s, _d) = store();
     let sis = sistema();
-    let p = s
-        .crear_propuesta(NuevaPropuesta {
-            proponente: "claude-code".into(),
-            descripcion: "Revisar a mano".into(),
-            accion: None,
-        })
-        .unwrap();
+    let p = s.crear_propuesta(NuevaPropuesta { proponente: "claude-code".into(), descripcion: "Revisar a mano".into(), accion: None }).unwrap();
     assert!(p.accion.is_none());
     let p = aceptar_propuesta(&mut s, &sis, p.id, "usuario", Canal::Web).await.unwrap();
     assert_eq!(p.estado, EstadoPropuesta::Aceptada);
@@ -389,35 +374,25 @@ async fn registrar_rutina_revalida_la_version_al_aceptar() {
 async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
     let (mut s, _d) = store();
     let sis = sistema();
-    ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" }))
-        .await
-        .unwrap();
+    ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_reiniciar_servicio", &json!({ "servicio": "ea-mcp" })).await.unwrap();
     assert_eq!(sis.mutaciones(), vec!["reiniciar:ea-mcp"]);
     assert!(acciones(&s).contains(&"accion_ejecutada".to_string()));
 
-    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" }))
-        .await
-        .unwrap();
+    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" })).await.unwrap();
     assert_eq!(r.trabajo.as_deref(), r.datos["trabajo"].as_str());
     let trabajo = r.datos["trabajo"].as_str().unwrap().to_string();
     let bus = ea_bus::Bus::abrir_en(estado()).unwrap();
     assert_eq!(bus.leer_orden(&trabajo).unwrap().rutina.unwrap().slug, "nocturna");
     assert_eq!(bus.listar_cola(ea_bus::Rol::Ejecutor).unwrap().iter().filter(|e| e.trabajo == trabajo).count(), 1);
     // No se lanza dos veces la misma rutina mientras la anterior no termina.
-    assert!(ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" }))
-        .await
-        .is_err());
+    assert!(ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &json!({ "slug": "nocturna" })).await.is_err());
 }
 
 #[test]
 fn invariantes_del_catalogo() {
     // Solo ea_escribir_nota (la región propia de cada agente) es mutante de
     // ejecución directa (excepción razonada).
-    let directas_mutantes: Vec<_> = CATALOGO
-        .iter()
-        .filter(|h| h.riesgo.es_mutante() && h.ejecucion == Ejecucion::Directa)
-        .map(|h| h.nombre)
-        .collect();
+    let directas_mutantes: Vec<_> = CATALOGO.iter().filter(|h| h.riesgo.es_mutante() && h.ejecucion == Ejecucion::Directa).map(|h| h.nombre).collect();
     assert_eq!(directas_mutantes, ["ea_escribir_nota"]);
     // Los irreversibles son siempre supervisados y nunca van al modelo local.
     for h in CATALOGO.iter().filter(|h| h.riesgo == Riesgo::Irreversible) {
@@ -451,12 +426,7 @@ fn autorizacion_por_actor() {
     let h = |n| buscar(n).unwrap();
     // Lo desatendido es de solo lectura, sin excepciones.
     for herr in CATALOGO {
-        assert_eq!(
-            autorizar_mcp("orquestador", herr).is_ok(),
-            herr.riesgo == Riesgo::Lectura,
-            "{}",
-            herr.nombre
-        );
+        assert_eq!(autorizar_mcp("orquestador", herr).is_ok(), herr.riesgo == Riesgo::Lectura, "{}", herr.nombre);
     }
     // El modelo local: lecturas y como mucho proponer promover notas.
     assert!(autorizar_mcp("modelo-local", h("ea_status")).is_ok());
@@ -494,20 +464,16 @@ fn los_campos_declarados_casan_con_los_argumentos_que_se_validan() {
             (_, _, "elemento") => json!("codex/mcp/usuario/docs"),
             (_, _, "ruta") => json!("claude-code/tema/nota.md"),
             (_, _, "destino") => json!("tema/nota.md"),
-            (_, _, "toml") => json!(
-                concat!("[rutina]\nslug = \"x\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n")
-            ),
+            (_, _, "toml") => {
+                json!(concat!("[rutina]\nslug = \"x\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"))
+            }
             _ => json!("revision-diaria"),
         };
         // Solo los obligatorios, y luego todos: ambas formas deben validar.
         for solo_obligatorios in [true, false] {
-            let args: serde_json::Map<String, Value> = campos
-                .iter()
-                .filter(|c| c.obligatorio || !solo_obligatorios)
-                .map(|c| (c.nombre.to_string(), valor(c)))
-                .collect();
-            validar_argumentos(h.nombre, &Value::Object(args))
-                .unwrap_or_else(|e| panic!("{}: {e}", h.nombre));
+            let args: serde_json::Map<String, Value> =
+                campos.iter().filter(|c| c.obligatorio || !solo_obligatorios).map(|c| (c.nombre.to_string(), valor(c))).collect();
+            validar_argumentos(h.nombre, &Value::Object(args)).unwrap_or_else(|e| panic!("{}: {e}", h.nombre));
         }
     }
 }

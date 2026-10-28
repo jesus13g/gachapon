@@ -4,14 +4,14 @@
 
 pub use std::sync::Arc;
 
+pub use axum::Router;
 pub use axum::body::Body;
 pub use axum::http::{Method, Request, StatusCode};
-pub use axum::Router;
 pub use ea_pruebas::{escribe, sin_secretos};
 pub use ea_store::{EventOutcome, NewEvent, Store};
 pub use ea_web::{AppState, WebConfig};
 pub use http_body_util::BodyExt;
-pub use serde_json::{json, Value};
+pub use serde_json::{Value, json};
 pub use tempfile::TempDir;
 pub use tower::ServiceExt;
 
@@ -33,8 +33,12 @@ pub fn texto(descripcion: &str) -> ea_store::NuevaPropuesta {
 /// Con el repo común de las pruebas de worktree (U-05: el de una rutina es la
 /// raíz de un repo con commits).
 pub static RUTINA_BUS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    concat!("[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"revisa y escribe {salida}\"\n")
-        .replace(tmp!(), ea_pruebas::repo_comun())
+    concat!(
+        "[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"",
+        tmp!(),
+        "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"revisa y escribe {salida}\"\n"
+    )
+    .replace(tmp!(), ea_pruebas::repo_comun())
 });
 
 /// El bus de la prueba: el mismo directorio temporal que lee el panel
@@ -105,14 +109,7 @@ pub fn raices_biblioteca(dir: &std::path::Path) -> ea_biblioteca::Raices {
 
 /// Como el panel abierto con `ea-web-open`: con la clave de sesión del
 /// estado de prueba (que nunca se escribe en el `$XDG_RUNTIME_DIR` real).
-pub async fn enviar(
-    f: &Fixture,
-    metodo: Method,
-    ruta: &str,
-    host: &str,
-    cuerpo: Option<Value>,
-    json_ct: bool,
-) -> (StatusCode, String) {
+pub async fn enviar(f: &Fixture, metodo: Method, ruta: &str, host: &str, cuerpo: Option<Value>, json_ct: bool) -> (StatusCode, String) {
     let clave = f.state.clave.texto().to_string();
     enviar_con_clave(f, metodo, ruta, host, cuerpo, json_ct, Some(&clave)).await
 }
@@ -193,10 +190,7 @@ pub async fn proponer_accion(f: &Fixture, herramienta: &str, args: Value) -> i64
     let sis = ea_acciones::SoloConsulta::usuario(f.state.config.rutinas_dir.clone(), f.state.boveda.clone(), f.state.config.estado_dir.clone());
     let hechos = ea_acciones::observar(&sis, herramienta, &args).await.unwrap();
     let store = f.state.store.lock().await;
-    ea_acciones::proponer(&store, &sis, &hechos, "claude-code", None, herramienta, &args)
-        .unwrap()
-        .0
-        .id
+    ea_acciones::proponer(&store, &sis, &hechos, "claude-code", None, herramienta, &args).unwrap().0.id
 }
 
 pub fn acciones_del_diario(d: &Value) -> Vec<String> {

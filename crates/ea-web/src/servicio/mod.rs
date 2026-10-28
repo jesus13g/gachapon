@@ -54,9 +54,7 @@ impl From<StoreError> for ErrorWeb {
         let msg = e.to_string();
         match e {
             StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_) => Self::NoEncontrado(msg),
-            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) | StoreError::NotaInvalida(_) => {
-                Self::Invalido(msg)
-            }
+            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) | StoreError::NotaInvalida(_) => Self::Invalido(msg),
             _ => Self::Interno(msg),
         }
     }
@@ -79,9 +77,7 @@ impl From<ErrorAccion> for ErrorWeb {
             ErrorAccion::Prohibida(_) => Self::Prohibido(msg),
             ErrorAccion::Sistema(_) => Self::Interno(msg),
             ErrorAccion::Store(StoreError::PropuestaYaDecidida(_)) => Self::Conflicto(msg),
-            ErrorAccion::Store(StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_)) => {
-                Self::NoEncontrado(msg)
-            }
+            ErrorAccion::Store(StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_)) => Self::NoEncontrado(msg),
             ErrorAccion::Store(_) => Self::Interno(msg),
         }
     }
@@ -92,9 +88,7 @@ impl From<ErrorBus> for ErrorWeb {
         let msg = e.to_string();
         match &e {
             ErrorBus::NoExiste(_) | ErrorBus::SinInstantanea(_) => Self::NoEncontrado(msg),
-            ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado | ErrorBus::NoLanzable(_) | ErrorBus::EnCurso(_) => {
-                Self::Conflicto(msg)
-            }
+            ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado | ErrorBus::NoLanzable(_) | ErrorBus::EnCurso(_) => Self::Conflicto(msg),
             ErrorBus::Argumentos(_) | ErrorBus::Skills(_) => Self::Invalido(msg),
             _ => Self::Interno(msg),
         }

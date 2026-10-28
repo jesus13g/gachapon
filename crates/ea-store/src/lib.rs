@@ -15,13 +15,14 @@ mod repository;
 mod store;
 
 pub use error::{StoreError, StoreResult};
-pub use filtro::{ahora_rfc3339, fecha_flexible, prefijo_accion_valido, rfc3339, ErrorFiltro, FiltroDiario};
+pub use filtro::{ErrorFiltro, FiltroDiario, ahora_rfc3339, fecha_flexible, prefijo_accion_valido, rfc3339};
 pub use models::{
-    AccionPropuesta, EjecucionPropuesta, EntradaIndice, ResultadoBusqueda, RutaIndexada, EstadoEjecucion, EstadoPropuesta, Event, EventOutcome, NewEvent, NuevaPropuesta, Propuesta,
+    AccionPropuesta, EjecucionPropuesta, EntradaIndice, EstadoEjecucion, EstadoPropuesta, Event, EventOutcome, NewEvent, NuevaPropuesta, Propuesta,
+    ResultadoBusqueda, RutaIndexada,
 };
-pub use orquestador::{ResumenAgente, AGENTES};
+pub use orquestador::{AGENTES, ResumenAgente};
 pub use repository::events::EventFilter;
-pub use repository::notas::{NuevaNota, ACCION_NOTA, ACTOR_NOTA, MAX_TEXTO_NOTA};
+pub use repository::notas::{ACCION_NOTA, ACTOR_NOTA, MAX_TEXTO_NOTA, NuevaNota};
 pub use repository::propuestas::PropuestaFilter;
 pub use repository::trabajos::{FilaFase, FilaRutina, FilaTrabajo};
 pub use store::Store;

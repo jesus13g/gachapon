@@ -94,14 +94,8 @@ command = "raro"
             "remoto-oc":{"type":"remote","url":"https://oc.ejemplo.com/SECRETO_RUTA_URL","headers":{"Authorization":"SECRETO_HEADER_OPENCODE"}},
             "local-oc":{"type":"local","command":["bun","run","x"],"environment":{"K":"SECRETO_ENV_OPENCODE"}}}}}"#,
     );
-    escribe(
-        home.join(".config/opencode/opencode.jsonc"),
-        "{\n // un comentario\n \"mcp\": { \"plano\": { \"type\": \"local\", \"command\": [\"x\"], }, },\n}",
-    );
-    escribe(
-        home.join(".qwen/settings.json"),
-        r#"{"mcpServers":{"qmcp":{"httpUrl":"https://q.ejemplo.com/SECRETO_RUTA_URL","headers":{"X":"SECRETO_QWEN"}}}}"#,
-    );
+    escribe(home.join(".config/opencode/opencode.jsonc"), "{\n // un comentario\n \"mcp\": { \"plano\": { \"type\": \"local\", \"command\": [\"x\"], }, },\n}");
+    escribe(home.join(".qwen/settings.json"), r#"{"mcpServers":{"qmcp":{"httpUrl":"https://q.ejemplo.com/SECRETO_RUTA_URL","headers":{"X":"SECRETO_QWEN"}}}}"#);
     escribe(home.join(".qwen/extensions/ext1/qwen-extension.json"), r#"{"name":"ext1"}"#);
     escribe(home.join(".gemini/config/skills/ag/SKILL.md"), "---\ndescription: Skill de agy\n---\n");
 
@@ -163,7 +157,10 @@ fn plan_de_claude_code_con_mcp_plugins_skills_y_subagentes() {
         ["claude", "--strict-mcp-config", "--mcp-config", &d("mcp.json"), "--settings", &d("ajustes.json"), "--plugin-dir", &d("complemento")]
     );
     assert!(plan.entorno.is_empty());
-    assert_eq!(plan.argv_terminal(), ["env", "-C", &m.proyecto.display().to_string()].into_iter().map(String::from).chain(plan.argv.clone()).collect::<Vec<_>>());
+    assert_eq!(
+        plan.argv_terminal(),
+        ["env", "-C", &m.proyecto.display().to_string()].into_iter().map(String::from).chain(plan.argv.clone()).collect::<Vec<_>>()
+    );
     assert!(plan.ficheros.iter().all(|f| f.modo == 0o600));
     sin_secretos(&plan);
 
@@ -179,7 +176,15 @@ fn plan_de_claude_code_con_mcp_plugins_skills_y_subagentes() {
 #[test]
 fn materializar_claude_escribe_los_secretos_solo_en_ficheros_0600() {
     let m = mundo();
-    let sel = ids(&m, &["claude-code/mcp/usuario/stdio-claude", "claude-code/mcp/usuario/remoto-claude", "claude-code/mcp/proyecto/del-proyecto", "claude-code/skill/usuario/propia"]);
+    let sel = ids(
+        &m,
+        &[
+            "claude-code/mcp/usuario/stdio-claude",
+            "claude-code/mcp/usuario/remoto-claude",
+            "claude-code/mcp/proyecto/del-proyecto",
+            "claude-code/skill/usuario/propia",
+        ],
+    );
     let plan = plan_sesion("claude-code", &sel, &m.inv, &m.r).unwrap();
     sin_secretos(&plan);
     let real = materializar(&plan, &m.r).unwrap();
@@ -230,11 +235,16 @@ fn plan_de_codex_apaga_los_demas_mcp_propios_y_define_el_del_ecosistema() {
         plan.argv,
         [
             "codex",
-            "-c", "mcp_servers.apagado.enabled=false",
-            "-c", "mcp_servers.raro.enabled=false",
-            "-c", "mcp_servers.docs.enabled=true",
-            "-c", "mcp_servers.ea-ecosistema.url=\"http://127.0.0.1:8765/mcp\"",
-            "-c", "mcp_servers.ea-ecosistema.enabled=true",
+            "-c",
+            "mcp_servers.apagado.enabled=false",
+            "-c",
+            "mcp_servers.raro.enabled=false",
+            "-c",
+            "mcp_servers.docs.enabled=true",
+            "-c",
+            "mcp_servers.ea-ecosistema.url=\"http://127.0.0.1:8765/mcp\"",
+            "-c",
+            "mcp_servers.ea-ecosistema.enabled=true",
         ]
     );
     assert!(plan.ficheros.is_empty() && plan.entorno.is_empty());
@@ -358,7 +368,13 @@ fn rechaza_lo_que_no_tiene_sentido() {
     // Dos MCP con el mismo nombre.
     escribe(m.proyecto.join(".mcp.json"), r#"{"mcpServers":{"stdio-claude":{"command":"c"}}}"#);
     let inv = Biblioteca::cargar(&m.r, &Ajustes::por_defecto(&Fuentes::aislada(&m.home)));
-    let e = plan_sesion("claude-code", &["claude-code/mcp/usuario/stdio-claude".parse().unwrap(), "claude-code/mcp/proyecto/stdio-claude".parse().unwrap()], &inv, &m.r).unwrap_err();
+    let e = plan_sesion(
+        "claude-code",
+        &["claude-code/mcp/usuario/stdio-claude".parse().unwrap(), "claude-code/mcp/proyecto/stdio-claude".parse().unwrap()],
+        &inv,
+        &m.r,
+    )
+    .unwrap_err();
     assert!(e.to_string().contains("se llaman"), "{e}");
 }
 

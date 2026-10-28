@@ -5,7 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::cargar::{Efectivos, Origen};
-use crate::claves::{titulo, Clave, Tipo, SECCIONES};
+use crate::claves::{Clave, SECCIONES, Tipo, titulo};
 use crate::fuentes::Fuentes;
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,11 +79,7 @@ impl Efectivos {
             fichero: self.fichero.display().to_string(),
             existe: self.existe,
             version: self.version.clone(),
-            heredados: f
-                .heredados()
-                .into_iter()
-                .map(|(fichero, ruta)| Heredado { fichero, existe: ruta.exists(), ruta: ruta.display().to_string() })
-                .collect(),
+            heredados: f.heredados().into_iter().map(|(fichero, ruta)| Heredado { fichero, existe: ruta.exists(), ruta: ruta.display().to_string() }).collect(),
             avisos: self.avisos.clone(),
             cliente: Cliente { sondeo_ms: self.ajustes.web.sondeo_ms, diario_limite: self.ajustes.web.diario_limite },
             secciones,

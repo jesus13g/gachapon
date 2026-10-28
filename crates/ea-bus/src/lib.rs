@@ -23,33 +23,32 @@ mod tipos;
 mod vista;
 mod worktree;
 
-pub use worktree::InfoWorktree;
-pub use git::validar_worktree;
-pub use bus::{comprobar_registro, id_valido, Bus, Cola, Entrega, EntradaCola, raiz_estado};
-pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo, Miembro, NuevoEquipo, RolEquipo};
-pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, ResumenTrabajo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
-pub use orquestador::{estado_orquestador, latido_orquestador, EstadoOrquestador, LatidoOrquestador, SandboxInfo, FICHERO_LATIDO};
-pub use presencia::{Latido, Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};
-pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
-pub use skills::{bloque_prompt, ConfigSkills, Skill};
-pub use rutina::{slug_valido, validar_entradas, CabeceraRutina, Paso, Rutina, MAX_DEFINICION, MAX_ENTRADAS, MAX_VALOR_ENTRADA};
-pub use error::{ErrorBus, Resultado};
-/// La papelera de las rutinas: retirar y restaurar sin tocar SQLite (spec 004, RF-011).
-pub use papelera::{
-    comprobar_lanzable, quitar_de_papelera, restaurar_rutina, retirar_rutina, ruta_activa, ruta_retirada, rutinas_por_ubicacion,
-    ubicacion_rutina, Ubicacion, DIR_PAPELERA,
-};
-/// Escritura atómica (temporal, `fsync` y renombrado), también para quien
-/// escribe fuera del bus (el timer de una rutina, en `ea-acciones`).
-pub use fs_atomico::escribir_atomico;
-pub use instantanea::{arbol_de_fase, diff_stat_de_fase, rango_diff_fase, resumen_salida_agente, tipo_ejecutor, EXCLUIR_DIFF};
 /// Los ficheros de cada trabajo además de orden, estado e informe.
 pub use artefactos::{Artefactos, SALIDA_AGENTE, SKILLS_AGENTE};
+pub use bus::{Bus, Cola, EntradaCola, Entrega, comprobar_registro, id_valido, raiz_estado};
+pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
 /// El adaptador de cada agente ejecutor, con el que se lee su salida; es parte
 /// de la ficha del catálogo (`ea-ajustes`).
 pub use ea_ajustes::TipoAgente;
-pub use tipos::{
-    EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoFase, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, InformeFase, Modo,
-    Orden, ResultadoInforme, Rol, RutinaRef, Topes,
-    transicion,
+pub use equipo::{Miembro, NuevoEquipo, RolEquipo, comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo};
+pub use error::{ErrorBus, Resultado};
+/// Escritura atómica (temporal, `fsync` y renombrado), también para quien
+/// escribe fuera del bus (el timer de una rutina, en `ea-acciones`).
+pub use fs_atomico::escribir_atomico;
+pub use git::validar_worktree;
+pub use instantanea::{EXCLUIR_DIFF, arbol_de_fase, diff_stat_de_fase, rango_diff_fase, resumen_salida_agente, tipo_ejecutor};
+pub use orquestador::{EstadoOrquestador, FICHERO_LATIDO, LatidoOrquestador, SandboxInfo, estado_orquestador, latido_orquestador};
+/// La papelera de las rutinas: retirar y restaurar sin tocar SQLite (spec 004, RF-011).
+pub use papelera::{
+    DIR_PAPELERA, Ubicacion, comprobar_lanzable, quitar_de_papelera, restaurar_rutina, retirar_rutina, ruta_activa, ruta_retirada, rutinas_por_ubicacion,
+    ubicacion_rutina,
 };
+pub use presencia::{CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S, Latido, Presencia};
+pub use rutina::{CabeceraRutina, MAX_DEFINICION, MAX_ENTRADAS, MAX_VALOR_ENTRADA, Paso, Rutina, slug_valido, validar_entradas};
+pub use skills::{ConfigSkills, Skill, bloque_prompt};
+pub use tipos::{
+    EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoFase, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, InformeFase, Modo, Orden, ResultadoInforme, Rol,
+    RutinaRef, Topes, transicion,
+};
+pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, ResumenTrabajo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
+pub use worktree::InfoWorktree;

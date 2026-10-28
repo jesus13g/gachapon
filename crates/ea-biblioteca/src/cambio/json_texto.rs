@@ -10,7 +10,6 @@
 //! - [`quitar`]: borra exactamente lo que `poner` añadió, así que
 //!   `poner` + `quitar` sobre un objeto sin el campo devuelve el texto original.
 
-
 #[cfg(test)]
 use serde_json::Value;
 
@@ -153,12 +152,8 @@ fn analizar(texto: &str) -> Result<Nodo, ErrorBiblioteca> {
 fn objeto<'a>(raiz: &'a Nodo, ruta: &[&str]) -> Result<&'a Nodo, ErrorBiblioteca> {
     let mut actual = raiz;
     for paso in ruta {
-        actual = actual
-            .miembros
-            .as_ref()
-            .and_then(|m| m.iter().find(|m| m.clave == *paso))
-            .map(|m| &m.valor)
-            .ok_or_else(|| mal(format!("no existe «{paso}»")))?;
+        actual =
+            actual.miembros.as_ref().and_then(|m| m.iter().find(|m| m.clave == *paso)).map(|m| &m.valor).ok_or_else(|| mal(format!("no existe «{paso}»")))?;
         if actual.miembros.is_none() {
             return Err(mal(format!("«{paso}» no es un objeto")));
         }

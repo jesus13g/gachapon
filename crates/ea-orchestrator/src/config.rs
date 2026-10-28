@@ -49,9 +49,7 @@ fn ejecutor(a: &Ajustes) -> PerfilEjecutor {
     // `validar_roles` garantiza que el ejecutor es de uno de estos tipos y
     // que tiene un perfil local; si no, el de fábrica.
     match (TipoAgente::desde(id), a.modelo_de(id)) {
-        (Some(tipo), Some(modelo)) => {
-            PerfilEjecutor { id: id.to_string(), tipo, bin: config.bin.clone(), modelo: modelo.clone() }
-        }
+        (Some(tipo), Some(modelo)) => PerfilEjecutor { id: id.to_string(), tipo, bin: config.bin.clone(), modelo: modelo.clone() },
         _ => ejecutor(&Ajustes::por_defecto(&Fuentes::sistema())),
     }
 }

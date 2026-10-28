@@ -144,14 +144,9 @@ fn campos_csv(linea: &str) -> Vec<String> {
 /// estado de la tarea (`Running`/`Ready`/`Disabled`…, en el idioma del
 /// sistema; se reconocen inglés y español, lo demás cuenta como parada).
 pub fn parsear_schtasks_csv(texto: &str) -> EstadoServicio {
-    let estado = texto
-        .lines()
-        .map(campos_csv)
-        .find(|c| c.len() >= 4)
-        .map(|c| c[3].trim().to_lowercase())
-        .unwrap_or_default();
-    let corriendo = ["running", "en ejecución", "en ejecucion", "em execução", "en cours d'exécution", "wird ausgeführt", "in esecuzione"]
-        .contains(&estado.as_str());
+    let estado = texto.lines().map(campos_csv).find(|c| c.len() >= 4).map(|c| c[3].trim().to_lowercase()).unwrap_or_default();
+    let corriendo =
+        ["running", "en ejecución", "en ejecucion", "em execução", "en cours d'exécution", "wird ausgeführt", "in esecuzione"].contains(&estado.as_str());
     EstadoServicio { cargado: true, activo: if corriendo { "active" } else { "inactive" }.into() }
 }
 
@@ -170,12 +165,7 @@ pub struct InfoServicio {
 pub(crate) fn bloques_show(texto: &str) -> Vec<HashMap<String, String>> {
     texto
         .split("\n\n")
-        .map(|b| {
-            b.lines()
-                .filter_map(|l| l.split_once('='))
-                .map(|(k, v)| (k.to_string(), v.trim().to_string()))
-                .collect::<HashMap<_, _>>()
-        })
+        .map(|b| b.lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.to_string(), v.trim().to_string())).collect::<HashMap<_, _>>())
         .filter(|m| !m.is_empty())
         .collect()
 }
@@ -218,10 +208,7 @@ impl GestorServicios {
         let (prog, previos) = self.orden.split_first().ok_or("orden vacía")?;
         let mut cmd = Command::new(prog);
         cmd.args(previos).args(args).kill_on_drop(true);
-        timeout(limite, cmd.output())
-            .await
-            .map_err(|_| format!("{prog} tardó demasiado"))?
-            .map_err(|e| format!("no se pudo ejecutar {prog}: {e}"))
+        timeout(limite, cmd.output()).await.map_err(|_| format!("{prog} tardó demasiado"))?.map_err(|e| format!("no se pudo ejecutar {prog}: {e}"))
     }
 
     fn uid(&self) -> Result<u32, String> {
@@ -233,23 +220,14 @@ impl GestorServicios {
     pub async fn estado(&self, nombre: &str) -> Result<EstadoServicio, String> {
         match self.backend {
             Backend::Systemd => {
-                let args = cadenas(&["--user", "show", "-p", "LoadState", "-p", "ActiveState"])
-                    .into_iter()
-                    .chain([format!("{nombre}.service")])
-                    .collect::<Vec<_>>();
+                let args =
+                    cadenas(&["--user", "show", "-p", "LoadState", "-p", "ActiveState"]).into_iter().chain([format!("{nombre}.service")]).collect::<Vec<_>>();
                 let salida = self.correr(&args, LIMITE_CONSULTA).await?;
                 if !salida.status.success() {
                     return Err(String::from_utf8_lossy(&salida.stderr).trim().to_string());
                 }
                 let texto = String::from_utf8_lossy(&salida.stdout);
-                let valor = |clave: &str| {
-                    texto
-                        .lines()
-                        .find_map(|l| l.strip_prefix(clave).and_then(|r| r.strip_prefix('=')))
-                        .unwrap_or("")
-                        .trim()
-                        .to_string()
-                };
+                let valor = |clave: &str| texto.lines().find_map(|l| l.strip_prefix(clave).and_then(|r| r.strip_prefix('='))).unwrap_or("").trim().to_string();
                 Ok(EstadoServicio { cargado: valor("LoadState") == "loaded", activo: valor("ActiveState") })
             }
             Backend::Launchd => {
@@ -359,12 +337,7 @@ const DEFS: [Def; 3] = [
         despues: "network.target ea-mcp.service",
         quiere: Some("ea-mcp.service"),
     },
-    Def {
-        nombre: "ea-web",
-        descripcion: "Interfaz web del ecosistema de asistente",
-        despues: "network.target ea-mcp.service",
-        quiere: Some("ea-mcp.service"),
-    },
+    Def { nombre: "ea-web", descripcion: "Interfaz web del ecosistema de asistente", despues: "network.target ea-mcp.service", quiere: Some("ea-mcp.service") },
 ];
 
 /// Un argumento de `ExecStart=` de systemd entre comillas: `\` y `"` se
@@ -486,39 +459,64 @@ pub fn pista_acceso_denegado(error: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Paso {
     CrearDir(PathBuf),
-    Escribir { ruta: PathBuf, contenido: String },
+    Escribir {
+        ruta: PathBuf,
+        contenido: String,
+    },
     /// Como `Escribir`, pero si `ruta` es un enlace simbólico escribe en el
     /// fichero apuntado en vez de sustituir el enlace: para los ficheros
     /// personales que se editan (perfil del shell, `AGENTS.md`,
     /// `settings.json`), que pueden ser dotfiles de stow o chezmoi. Las
     /// unidades y demás ficheros propios usan `Escribir`, que sustituye el
     /// enlace (p. ej. el de una unidad a la plantilla del repo).
-    EditarPersonal { ruta: PathBuf, contenido: String },
+    EditarPersonal {
+        ruta: PathBuf,
+        contenido: String,
+    },
     /// Como `Escribir`, pero en UTF-16 LE con BOM (el XML de las tareas de
     /// Windows).
-    EscribirUtf16 { ruta: PathBuf, contenido: String },
+    EscribirUtf16 {
+        ruta: PathBuf,
+        contenido: String,
+    },
     /// Como `Escribir`, con bytes (el icono PNG de la app).
-    EscribirBytes { ruta: PathBuf, contenido: Vec<u8> },
+    EscribirBytes {
+        ruta: PathBuf,
+        contenido: Vec<u8>,
+    },
     Borrar(PathBuf),
     /// Quita una carpeta solo si está vacía; si no lo está, no existe o no es
     /// una carpeta, se sigue sin error (desinstalar no borra lo ajeno).
     QuitarDirVacio(PathBuf),
     /// Copia un fichero (sustituye el destino; conserva los permisos). Crea
     /// la carpeta del destino si falta.
-    Copiar { origen: PathBuf, destino: PathBuf },
+    Copiar {
+        origen: PathBuf,
+        destino: PathBuf,
+    },
     /// Hace que `destino` apunte a `origen` (`ea_plataforma::fs::enlazar`:
     /// enlace simbólico; en Windows sin privilegio, una copia). Si ya hay un
     /// enlace o un fichero en `destino`, lo sustituye; una carpeta real no
     /// se toca y es un error.
-    Enlazar { origen: PathBuf, destino: PathBuf },
+    Enlazar {
+        origen: PathBuf,
+        destino: PathBuf,
+    },
     /// Renombra (mueve dentro del mismo sistema de ficheros); sustituye el
     /// destino. Para dejar en su sitio una descarga ya completa.
-    Renombrar { origen: PathBuf, destino: PathBuf },
+    Renombrar {
+        origen: PathBuf,
+        destino: PathBuf,
+    },
     /// Una orden externa; con `tolerar`, si falla se sigue (p. ej. parar lo
     /// que ya estaba parado). Con `reintentos`, si falla se vuelve a probar
     /// (hasta ese número de veces más) con una espera corta entre intentos
     /// (`bootstrap` justo después de `bootout`).
-    Ejecutar { argv: Vec<String>, tolerar: bool, reintentos: u32 },
+    Ejecutar {
+        argv: Vec<String>,
+        tolerar: bool,
+        reintentos: u32,
+    },
 }
 
 impl Paso {
@@ -733,11 +731,7 @@ pub fn aplicar(pasos: &[Paso], correr: &mut dyn FnMut(&[String]) -> Result<(), S
 
 /// Como [`aplicar`], con la espera entre reintentos a elegir (las pruebas la
 /// ponen a cero).
-pub fn aplicar_con_espera(
-    pasos: &[Paso],
-    correr: &mut dyn FnMut(&[String]) -> Result<(), String>,
-    espera: Duration,
-) -> Result<Vec<String>, String> {
+pub fn aplicar_con_espera(pasos: &[Paso], correr: &mut dyn FnMut(&[String]) -> Result<(), String>, espera: Duration) -> Result<Vec<String>, String> {
     let mut hecho = Vec::new();
     for paso in pasos {
         match paso {
@@ -773,8 +767,9 @@ pub fn aplicar_con_espera(
             }
             Paso::Copiar { origen, destino } => copiar(origen, destino)?,
             Paso::Enlazar { origen, destino } => enlazar(origen, destino)?,
-            Paso::Renombrar { origen, destino } => std::fs::rename(origen, destino)
-                .map_err(|e| format!("no se pudo renombrar {} a {}: {e}", origen.display(), destino.display()))?,
+            Paso::Renombrar { origen, destino } => {
+                std::fs::rename(origen, destino).map_err(|e| format!("no se pudo renombrar {} a {}: {e}", origen.display(), destino.display()))?
+            }
             Paso::Ejecutar { argv, tolerar, reintentos } => {
                 let mut resultado = correr(argv);
                 for _ in 0..*reintentos {
@@ -784,7 +779,9 @@ pub fn aplicar_con_espera(
                     std::thread::sleep(espera);
                     resultado = correr(argv);
                 }
-                if let Err(e) = resultado && !tolerar {
+                if let Err(e) = resultado
+                    && !tolerar
+                {
                     return Err(format!("{}: {e}", argv.join(" ")));
                 }
             }
@@ -799,7 +796,8 @@ pub fn aplicar_con_espera(
 /// en el fichero apuntado. Un enlace roto se sustituye.
 fn a_traves_de_enlace(ruta: &Path) -> PathBuf {
     if std::fs::symlink_metadata(ruta).is_ok_and(|m| m.file_type().is_symlink())
-        && let Ok(real) = std::fs::canonicalize(ruta) {
+        && let Ok(real) = std::fs::canonicalize(ruta)
+    {
         return real;
     }
     ruta.to_path_buf()
@@ -849,11 +847,8 @@ fn enlazar(origen: &Path, destino: &Path) -> Result<(), String> {
 /// Lanza una orden externa de verdad (sin shell) y devuelve su error.
 pub fn correr_orden(argv: &[String]) -> Result<(), String> {
     let (prog, args) = argv.split_first().ok_or("orden vacía")?;
-    let salida = std::process::Command::new(prog)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| format!("no se pudo ejecutar {prog}: {e}"))?;
+    let salida =
+        std::process::Command::new(prog).args(args).stdin(std::process::Stdio::null()).output().map_err(|e| format!("no se pudo ejecutar {prog}: {e}"))?;
     if salida.status.success() {
         Ok(())
     } else {
@@ -893,10 +888,7 @@ mod pruebas {
     fn argumentos_de_launchd_y_schtasks() {
         assert_eq!(launchd_print_args(501, "ea-web"), ["print", "gui/501/es.gachapon.ea-web"]);
         assert_eq!(launchd_reiniciar_args(501, "ea-web"), ["kickstart", "-k", "gui/501/es.gachapon.ea-web"]);
-        assert_eq!(
-            schtasks_query_args("ea-web"),
-            ["/Query", "/TN", "ecosistema-asistente\\ea-web", "/FO", "CSV", "/NH", "/V"]
-        );
+        assert_eq!(schtasks_query_args("ea-web"), ["/Query", "/TN", "ecosistema-asistente\\ea-web", "/FO", "CSV", "/NH", "/V"]);
         assert_eq!(schtasks_con_tarea("/Run", "ea-mcp"), ["/Run", "/TN", "ecosistema-asistente\\ea-mcp"]);
     }
 
@@ -911,9 +903,8 @@ mod pruebas {
 
     #[test]
     fn lee_el_estado_de_schtasks() {
-        let linea = |estado: &str| {
-            format!("\"PC\",\"\\ecosistema-asistente\\ea-web\",\"N/A\",\"{estado}\",\"Interactive only\",\"22/10/2026 8:00:00\",\"0\"\r\n")
-        };
+        let linea =
+            |estado: &str| format!("\"PC\",\"\\ecosistema-asistente\\ea-web\",\"N/A\",\"{estado}\",\"Interactive only\",\"22/10/2026 8:00:00\",\"0\"\r\n");
         assert_eq!(parsear_schtasks_csv(&linea("Running")).activo, "active");
         assert_eq!(parsear_schtasks_csv(&linea("En ejecución")).activo, "active");
         assert_eq!(parsear_schtasks_csv(&linea("Ready")).activo, "inactive");
@@ -955,7 +946,10 @@ mod pruebas {
             )
         };
         let con_mcp = "After=network.target ea-mcp.service\nWants=ea-mcp.service\n";
-        assert_eq!(unidad_systemd("ea-mcp", Path::new("/x/ea-mcp")).unwrap(), cuerpo("Servidor de herramientas MCP del ecosistema de asistente", "After=network.target\n", "/x/ea-mcp"));
+        assert_eq!(
+            unidad_systemd("ea-mcp", Path::new("/x/ea-mcp")).unwrap(),
+            cuerpo("Servidor de herramientas MCP del ecosistema de asistente", "After=network.target\n", "/x/ea-mcp")
+        );
         assert_eq!(unidad_systemd("ea-web", Path::new("/x/ea-web")).unwrap(), cuerpo("Interfaz web del ecosistema de asistente", con_mcp, "/x/ea-web"));
         assert_eq!(
             unidad_systemd("ea-orchestrator", Path::new("/x/ea-orchestrator")).unwrap(),
@@ -1007,7 +1001,10 @@ mod pruebas {
         assert!(p.contains("<key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>"));
         let log = Path::new("/Users/a b/logs").join("ea-web.log");
         assert!(p.contains(&format!("<key>StandardOutPath</key>\n  <string>{}</string>", log.display())));
-        assert!(p.contains("<key>EnvironmentVariables</key>\n  <dict>\n    <key>PATH</key>\n    <string>/opt/homebrew/bin:/usr/bin</string>\n  </dict>"), "{p}");
+        assert!(
+            p.contains("<key>EnvironmentVariables</key>\n  <dict>\n    <key>PATH</key>\n    <string>/opt/homebrew/bin:/usr/bin</string>\n  </dict>"),
+            "{p}"
+        );
         let sin = plist_servicio("ea-web", Path::new("/x"), Path::new("/l"), None);
         assert!(!sin.contains("EnvironmentVariables"));
         assert!(p.trim_end().ends_with("</plist>"));
@@ -1045,7 +1042,9 @@ mod pruebas {
         let d = tempfile::tempdir().unwrap();
         let env = entorno(Backend::Systemd, d.path());
         let p = plan_instalar(&env).unwrap();
-        assert!(matches!(&p[0], Paso::Escribir { ruta, contenido } if ruta.ends_with("unidades/ea-mcp.service") && contenido.contains("/opt/ea con espacio/ea-mcp")));
+        assert!(
+            matches!(&p[0], Paso::Escribir { ruta, contenido } if ruta.ends_with("unidades/ea-mcp.service") && contenido.contains("/opt/ea con espacio/ea-mcp"))
+        );
         let rutina = p.iter().find_map(|x| match x {
             Paso::Escribir { ruta, contenido } if ruta.ends_with("ea-rutina@.service") => Some(contenido.clone()),
             _ => None,
@@ -1133,16 +1132,24 @@ mod pruebas {
     fn bootstrap_se_reintenta_si_bootout_aun_no_termino() {
         let paso = Paso::Ejecutar { argv: vec!["launchctl".into(), "bootstrap".into()], tolerar: false, reintentos: 5 };
         let mut intentos = 0;
-        let r = aplicar_con_espera(std::slice::from_ref(&paso), &mut |_| {
-            intentos += 1;
-            if intentos < 4 { Err("Input/output error".into()) } else { Ok(()) }
-        }, Duration::ZERO);
+        let r = aplicar_con_espera(
+            std::slice::from_ref(&paso),
+            &mut |_| {
+                intentos += 1;
+                if intentos < 4 { Err("Input/output error".into()) } else { Ok(()) }
+            },
+            Duration::ZERO,
+        );
         assert!(r.is_ok() && intentos == 4);
         let mut total = 0;
-        let r = aplicar_con_espera(&[paso], &mut |_| {
-            total += 1;
-            Err("Input/output error".into())
-        }, Duration::ZERO);
+        let r = aplicar_con_espera(
+            &[paso],
+            &mut |_| {
+                total += 1;
+                Err("Input/output error".into())
+            },
+            Duration::ZERO,
+        );
         assert!(r.is_err() && total == 6, "el intento inicial y 5 reintentos");
     }
 

@@ -4,7 +4,7 @@
 use ea_acciones::*;
 use ea_bus::InfoWorktree;
 use ea_store::Store;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn store() -> (Store, tempfile::TempDir) {
     ea_pruebas::store(&[])
@@ -36,9 +36,7 @@ async fn simular_no_cambia_nada_y_ejecutar_quita_el_worktree() {
     assert_eq!(sim.riesgo, Riesgo::Reversible);
     assert!(sim.texto.contains("sin --force") && sim.texto.contains("ea/t-1"), "{}", sim.texto);
     assert!(sis.mutaciones().is_empty() && sis.worktree_info("t-1").unwrap().is_some());
-    let r = ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_limpiar_worktree", &sim.argumentos, &sim.precondicion, None)
-        .await
-        .unwrap();
+    let r = ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_limpiar_worktree", &sim.argumentos, &sim.precondicion, None).await.unwrap();
     assert!(r.texto.contains("ea/t-1"), "{}", r.texto);
     assert_eq!(sis.mutaciones(), vec!["limpiar_worktree:t-1"]);
     assert!(sis.worktree_info("t-1").unwrap().is_none());
@@ -72,9 +70,7 @@ async fn al_ejecutar_se_revalida_con_el_estado_de_ahora() {
     let sim = simular(&s, &sis, &json!({ "trabajo": "t-1" })).await.unwrap();
     // mientras el usuario decidía, alguien ensució el worktree
     sis.worktrees.lock().unwrap().get_mut("t-1").unwrap().limpio = Some(false);
-    let e = ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_limpiar_worktree", &sim.argumentos, &sim.precondicion, None)
-        .await
-        .unwrap_err();
+    let e = ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_limpiar_worktree", &sim.argumentos, &sim.precondicion, None).await.unwrap_err();
     assert!(e.to_string().contains("el estado cambió"), "{e}");
     assert!(sis.mutaciones().is_empty());
 }

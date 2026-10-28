@@ -241,16 +241,7 @@ async fn anotar_el_diario_rechaza_lo_invalido_sin_escribir() {
 async fn anotar_el_diario_sin_clave_da_403() {
     let f = montar();
     for clave in [None, Some("mala")] {
-        let (s, _) = enviar_con_clave(
-            &f,
-            Method::POST,
-            "/api/diario/anotar",
-            "localhost:8092",
-            Some(json!({"texto": "suplantación"})),
-            true,
-            clave,
-        )
-        .await;
+        let (s, _) = enviar_con_clave(&f, Method::POST, "/api/diario/anotar", "localhost:8092", Some(json!({"texto": "suplantación"})), true, clave).await;
         assert_eq!(s, StatusCode::FORBIDDEN, "{clave:?}");
     }
     assert!(filas_del_diario(&f).await.is_empty());

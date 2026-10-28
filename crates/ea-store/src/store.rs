@@ -2,10 +2,7 @@ use std::path::Path;
 
 use crate::connection;
 use crate::error::StoreResult;
-use crate::models::{
-    EntradaIndice, ResultadoBusqueda, RutaIndexada,
-    EstadoEjecucion, EstadoPropuesta, Event, NewEvent, NuevaPropuesta, Propuesta,
-};
+use crate::models::{EntradaIndice, EstadoEjecucion, EstadoPropuesta, Event, NewEvent, NuevaPropuesta, Propuesta, ResultadoBusqueda, RutaIndexada};
 use crate::repository::boveda;
 use crate::repository::events::{self, EventFilter};
 use crate::repository::notas::{self, NuevaNota};
@@ -24,18 +21,14 @@ impl Store {
     /// para tests), creando su directorio si falta, y aplica las migraciones
     /// pendientes.
     pub fn open_at(path: &Path) -> StoreResult<Self> {
-        Ok(Self {
-            conn: connection::open_at(path)?,
-        })
+        Ok(Self { conn: connection::open_at(path)? })
     }
 
     /// Solo lectura, sin migraciones y sin crear nada: para mirar el diario
     /// sin poder escribir en él (la biblioteca). Una base de un esquema ajeno
     /// se rechaza sin tocarla.
     pub fn abrir_lectura(path: &Path) -> StoreResult<Self> {
-        Ok(Self {
-            conn: connection::abrir_lectura(path)?,
-        })
+        Ok(Self { conn: connection::abrir_lectura(path)? })
     }
 
     /// Otra conexión a la misma base. Sirve para que un trabajo largo no
@@ -138,12 +131,7 @@ impl Store {
         propuestas::reclamar_para_ejecucion(&self.conn, id)
     }
 
-    pub fn registrar_ejecucion_propuesta(
-        &self,
-        id: i64,
-        estado: EstadoEjecucion,
-        detalle: &str,
-    ) -> StoreResult<Propuesta> {
+    pub fn registrar_ejecucion_propuesta(&self, id: i64, estado: EstadoEjecucion, detalle: &str) -> StoreResult<Propuesta> {
         propuestas::registrar_ejecucion(&self.conn, id, estado, detalle)
     }
 
@@ -174,13 +162,7 @@ impl Store {
     }
 
     /// `consulta_fts` debe venir saneada (ver `ea_boveda::consulta_fts`).
-    pub fn boveda_buscar(
-        &self,
-        consulta_fts: &str,
-        region: Option<&str>,
-        limite: i64,
-        max_fragmento: i64,
-    ) -> StoreResult<Vec<ResultadoBusqueda>> {
+    pub fn boveda_buscar(&self, consulta_fts: &str, region: Option<&str>, limite: i64, max_fragmento: i64) -> StoreResult<Vec<ResultadoBusqueda>> {
         boveda::buscar(&self.conn, consulta_fts, region, limite, max_fragmento)
     }
 

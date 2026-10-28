@@ -1,7 +1,7 @@
 //! `ea qwen-skills`: catálogo de skills del agente local y prueba de una
 //! selección. La validación al crear un trabajo la hace `Bus::crear_trabajo`.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ea_bus::ConfigSkills;
 
 pub fn listar(json: bool) -> Result<()> {

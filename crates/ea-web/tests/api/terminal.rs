@@ -33,8 +33,7 @@ async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
     assert_eq!(s, StatusCode::NOT_FOUND);
     // Sin la clave de sesión no se abre nada.
     let cuerpo = json!({ "propuesta": id });
-    let (s, _) =
-        enviar_con_clave(&f, Method::POST, "/api/terminal/abrir", "localhost:8092", Some(cuerpo), true, None).await;
+    let (s, _) = enviar_con_clave(&f, Method::POST, "/api/terminal/abrir", "localhost:8092", Some(cuerpo), true, None).await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     assert!(lanzadas(&f).is_empty(), "nada de lo anterior abre una ventana");
 
@@ -109,10 +108,7 @@ async fn abrir_en_terminal_instalar_y_desinstalar_servicios() {
         let (s, _) = post(&f, "/api/terminal/abrir", cuerpo.clone()).await;
         assert_eq!(s, StatusCode::BAD_REQUEST, "{cuerpo}");
     }
-    let (s, _) = enviar_con_clave(
-        &f, Method::POST, "/api/terminal/abrir", "localhost:8092", Some(json!({ "servicios": "instalar" })), true, None,
-    )
-    .await;
+    let (s, _) = enviar_con_clave(&f, Method::POST, "/api/terminal/abrir", "localhost:8092", Some(json!({ "servicios": "instalar" })), true, None).await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     assert!(lanzadas(&f).is_empty(), "nada de lo anterior abre una ventana");
 
@@ -122,13 +118,10 @@ async fn abrir_en_terminal_instalar_y_desinstalar_servicios() {
         assert_eq!(r["comando"], comando);
     }
     let ea = f.state.config.ea.as_ref().unwrap().display().to_string();
-    let esperado: Vec<Vec<String>> = [
-        vec![&ea, "servicios", "instalar", "--esperar"],
-        vec![&ea, "servicios", "desinstalar", "--esperar"],
-    ]
-    .into_iter()
-    .map(|v| v.into_iter().map(String::from).collect())
-    .collect();
+    let esperado: Vec<Vec<String>> = [vec![&ea, "servicios", "instalar", "--esperar"], vec![&ea, "servicios", "desinstalar", "--esperar"]]
+        .into_iter()
+        .map(|v| v.into_iter().map(String::from).collect())
+        .collect();
     assert_eq!(lanzadas(&f), esperado);
     let (_, d) = get(&f, "/api/diario?accion=accion_terminal").await;
     assert_eq!(d.as_array().unwrap().len(), 2);

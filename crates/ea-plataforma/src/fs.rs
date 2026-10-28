@@ -211,9 +211,9 @@ pub fn renombrar_sin_pisar(origen: &Path, destino: &Path) -> Result<(), ErrorRen
         Err(match e.raw_os_error() {
             Some(libc::EXDEV) => ErrorRenombrar::OtroDispositivo,
             Some(libc::EEXIST | libc::ENOTEMPTY) => ErrorRenombrar::Existe,
-            Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => ErrorRenombrar::NoSoportado(format!(
-                "el sistema de ficheros no admite mover sin riesgo de pisar algo (RENAME_NOREPLACE/RENAME_EXCL): {e}"
-            )),
+            Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => {
+                ErrorRenombrar::NoSoportado(format!("el sistema de ficheros no admite mover sin riesgo de pisar algo (RENAME_NOREPLACE/RENAME_EXCL): {e}"))
+            }
             _ => ErrorRenombrar::Io(e),
         })
     }

@@ -9,8 +9,8 @@ use ea_plataforma::fs::Permisos;
 use serde_json::Value;
 use toml_edit::{DocumentMut, Item, Table, TableLike};
 
-use crate::cargar::{cargar_de, resolver, Origen};
-use crate::claves::{clave, heredadas, sin_alias, Aplica, Canal, Clave, Edicion, Tipo, AJ_VIEJO};
+use crate::cargar::{Origen, cargar_de, resolver};
+use crate::claves::{AJ_VIEJO, Aplica, Canal, Clave, Edicion, Tipo, clave, heredadas, sin_alias};
 use crate::error::ErrorAjustes;
 use crate::fuentes::Fuentes;
 use crate::validar::validar_valor;
@@ -36,9 +36,7 @@ pub fn huella(bytes: &[u8]) -> String {
 /// La escritura atómica de `ea-plataforma` creando antes el directorio
 /// (como `fs_atomico` de ea-bus).
 pub fn escribir_atomico(destino: &Path, contenido: &[u8]) -> std::io::Result<()> {
-    let dir = destino
-        .parent()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "ruta sin directorio"))?;
+    let dir = destino.parent().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "ruta sin directorio"))?;
     fs::create_dir_all(dir)?;
     ea_plataforma::fs::escribir_atomico(destino, contenido, Permisos::Heredados)
 }
@@ -57,12 +55,8 @@ pub fn interpretar(c: &Clave, texto: &str) -> Result<Value, ErrorAjustes> {
         },
         Tipo::Entero { .. } => Value::from(t.parse::<i64>().map_err(|_| invalido(format!("{t:?} no es un entero")))?),
         Tipo::Mapa => serde_json::from_str::<Value>(t).map_err(|e| invalido(format!("se espera JSON de texto a texto: {e}")))?,
-        Tipo::Lista { .. } | Tipo::Rutas => {
-            Value::from(t.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>())
-        }
-        Tipo::Texto { .. } | Tipo::Url | Tipo::Ruta | Tipo::Eleccion { .. } | Tipo::UrlPerfil | Tipo::Perfil | Tipo::Distro => {
-            Value::String(t.to_string())
-        }
+        Tipo::Lista { .. } | Tipo::Rutas => Value::from(t.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>()),
+        Tipo::Texto { .. } | Tipo::Url | Tipo::Ruta | Tipo::Eleccion { .. } | Tipo::UrlPerfil | Tipo::Perfil | Tipo::Distro => Value::String(t.to_string()),
     };
     validar_valor(c, &v).map_err(invalido)
 }
@@ -102,10 +96,8 @@ fn tabla<'a>(raiz: &'a mut dyn TableLike, partes: &[&str], crear: bool) -> Resul
         t.set_implicit(true);
         raiz.insert(primera, Item::Table(t));
     }
-    let sub = raiz
-        .get_mut(primera)
-        .and_then(|i| i.as_table_like_mut())
-        .ok_or_else(|| ErrorAjustes::FicheroInvalido(format!("{primera:?} debería ser una tabla")))?;
+    let sub =
+        raiz.get_mut(primera).and_then(|i| i.as_table_like_mut()).ok_or_else(|| ErrorAjustes::FicheroInvalido(format!("{primera:?} debería ser una tabla")))?;
     tabla(sub, resto, crear)
 }
 
@@ -173,12 +165,7 @@ fn no_afloja(nuevo: &Value, actual: &Value) -> bool {
 /// existe, que no la fija el entorno, que el canal puede editarla, el tipo y
 /// el rango, que desde la web lo endurecible no se afloja, la validación
 /// cruzada y la versión. Si algo falla no se escribe nada.
-pub fn establecer(
-    f: &Fuentes,
-    canal: Canal,
-    version: Option<&str>,
-    cambios: &[(String, Option<Value>)],
-) -> Result<Vec<Aplicado>, ErrorAjustes> {
+pub fn establecer(f: &Fuentes, canal: Canal, version: Option<&str>, cambios: &[(String, Option<Value>)]) -> Result<Vec<Aplicado>, ErrorAjustes> {
     if cambios.is_empty() {
         return Err(ErrorAjustes::SinCambios);
     }
@@ -201,9 +188,10 @@ pub fn establecer(
         let nombre = sin_alias(nombre.trim()).to_string();
         let c = clave(&nombre).ok_or_else(|| ErrorAjustes::ClaveDesconocida(nombre.clone()))?;
         if let Some(var) = c.entorno
-            && f.entorno.var(var).is_some() {
-                return Err(ErrorAjustes::FijadaPorEntorno { clave: nombre, variable: var.into() });
-            }
+            && f.entorno.var(var).is_some()
+        {
+            return Err(ErrorAjustes::FijadaPorEntorno { clave: nombre, variable: var.into() });
+        }
         if canal == Canal::Web && c.edicion == Edicion::Terminal {
             return Err(ErrorAjustes::NoEditable { clave: nombre, canal: "la web".into() });
         }
@@ -232,13 +220,7 @@ pub fn establecer(
     // Un conflicto nuevo de la validación cruzada (puertos, perfiles, roles)
     // impide escribir: lo pedido no es lo que quedaría.
     if let Some(motivo) = despues.conflictos.iter().find(|c| !antes.conflictos.contains(c)) {
-        let clave = claves
-            .iter()
-            .map(|(n, _)| n)
-            .find(|n| motivo.contains(n.as_str()))
-            .or_else(|| claves.first().map(|(n, _)| n))
-            .cloned()
-            .unwrap_or_default();
+        let clave = claves.iter().map(|(n, _)| n).find(|n| motivo.contains(n.as_str())).or_else(|| claves.first().map(|(n, _)| n)).cloned().unwrap_or_default();
         return Err(ErrorAjustes::ValorInvalido { clave, motivo: motivo.clone() });
     }
     let nulo = Value::Null;
@@ -250,19 +232,15 @@ pub fn establecer(
         }
         // Lo pedido debe ser lo que queda (salvo al quitar la clave).
         if despues.origenes.get(nombre) != Some(&Origen::Ajustes) && pedidas.iter().any(|(k, puesta)| k == nombre && *puesta) {
-            let motivo = despues
-                .avisos
-                .iter()
-                .find(|a| a.contains(nombre.as_str()))
-                .cloned()
-                .unwrap_or_else(|| "el valor no se puede aplicar".into());
+            let motivo = despues.avisos.iter().find(|a| a.contains(nombre.as_str())).cloned().unwrap_or_else(|| "el valor no se puede aplicar".into());
             return Err(ErrorAjustes::ValorInvalido { clave: nombre.clone(), motivo });
         }
     }
     if let Some(v) = version
-        && v != actual_version {
-            return Err(ErrorAjustes::Version);
-        }
+        && v != actual_version
+    {
+        return Err(ErrorAjustes::Version);
+    }
 
     escribir_atomico(&fichero, nuevo_texto.as_bytes())?;
     let mut aplicados = Vec::new();

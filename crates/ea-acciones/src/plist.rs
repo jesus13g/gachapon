@@ -119,7 +119,15 @@ mod pruebas {
     }
 
     fn servicio<'a>(usuario: Option<&'a str>, disp: &'a str) -> TareaXml<'a> {
-        TareaXml { descripcion: "ea <web>", usuario, disparadores: disp, comando: "C:\\ea & co\\ea-web.exe", argumentos: None, directorio: Some("C:\\ea & co"), servicio: true }
+        TareaXml {
+            descripcion: "ea <web>",
+            usuario,
+            disparadores: disp,
+            comando: "C:\\ea & co\\ea-web.exe",
+            argumentos: None,
+            directorio: Some("C:\\ea & co"),
+            servicio: true,
+        }
     }
 
     #[test]

@@ -6,12 +6,11 @@ use ea_store::{EventOutcome, NewEvent};
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{campo, Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular};
+use super::{Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular, campo};
 use crate::error::ErrorAccion;
 use crate::sistema::{Consulta, Sistema};
 
-pub(super) const CAMPOS: &[Campo] =
-    &[campo("elemento", "id del elemento de la biblioteca (agente/tipo/ámbito/nombre, p. ej. codex/mcp/usuario/docs)")];
+pub(super) const CAMPOS: &[Campo] = &[campo("elemento", "id del elemento de la biblioteca (agente/tipo/ámbito/nombre, p. ej. codex/mcp/usuario/docs)")];
 
 /// El id de un elemento de la biblioteca (`agente/tipo/ámbito/nombre`).
 #[derive(Deserialize)]
@@ -38,8 +37,8 @@ pub(super) fn simular<C: Consulta>(p: &ParaSimular<'_, C>, a: Args, activar: boo
 pub(super) async fn aplicar<S: Sistema>(p: ParaAplicar<'_, S>, a: Args, activar: bool) -> Result<Aplicada, ErrorAccion> {
     // Lo que aceptó el usuario es el cambio simulado; la biblioteca lo revalida
     // contra el estado de ahora y rechaza el que no coincida con lo que habría hecho.
-    let cambio: Cambio = serde_json::from_value(p.precondicion["cambio"].clone())
-        .map_err(|_| ErrorAccion::NoAplica("la propuesta no lleva el cambio simulado".into()))?;
+    let cambio: Cambio =
+        serde_json::from_value(p.precondicion["cambio"].clone()).map_err(|_| ErrorAccion::NoAplica("la propuesta no lleva el cambio simulado".into()))?;
     if cambio.id != a.elemento || cambio.activar != activar {
         return Err(ErrorAccion::NoAplica("el cambio simulado no es el de esta herramienta y este elemento".into()));
     }
@@ -56,9 +55,5 @@ pub(super) async fn aplicar<S: Sistema>(p: ParaAplicar<'_, S>, a: Args, activar:
         detail: Some(datos.to_string()),
         ..Default::default()
     });
-    Ok(Aplicada {
-        texto: format!("{} {}: {}.", if activar { "Activado" } else { "Desactivado" }, h.id, h.texto),
-        trabajo: None,
-        datos,
-    })
+    Ok(Aplicada { texto: format!("{} {}: {}.", if activar { "Activado" } else { "Desactivado" }, h.id, h.texto), trabajo: None, datos })
 }

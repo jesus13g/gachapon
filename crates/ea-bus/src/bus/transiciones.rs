@@ -7,12 +7,10 @@ use std::fs;
 
 use ea_store::Store;
 
-use super::{ahora_rfc3339, espejo, Bus, Cola};
+use super::{Bus, Cola, ahora_rfc3339, espejo};
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::escribir_json;
-use crate::tipos::{
-    transicion, EjecutadoPor, Estado, EstadoFase, EstadoTrabajo, Evento, Informe, InformeFase, Modo, Orden, ResultadoInforme, Rol,
-};
+use crate::tipos::{EjecutadoPor, Estado, EstadoFase, EstadoTrabajo, Evento, Informe, InformeFase, Modo, Orden, ResultadoInforme, Rol, transicion};
 
 /// Lo que hizo [`Bus::entregar`] con el trabajo, según su modo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,10 +365,7 @@ fn fase_a_rehacer(orden: &Orden, estado: &Estado, pedida: Option<u32>) -> Result
     let (primera, ultima) = match (orden.modo, extremos) {
         (Modo::Obra, Some((&p, &u))) => (p, u),
         _ if pedida.is_some() => {
-            return Err(ErrorBus::Argumentos(format!(
-                "solo una obra con fases se reformula desde una fase; este trabajo es una {}",
-                orden.modo.as_str()
-            )));
+            return Err(ErrorBus::Argumentos(format!("solo una obra con fases se reformula desde una fase; este trabajo es una {}", orden.modo.as_str())));
         }
         _ => return Ok(None),
     };

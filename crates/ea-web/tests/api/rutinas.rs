@@ -160,7 +160,10 @@ async fn registrar_desde_la_web_exige_version_mayor_y_toml_valido() {
     for (toml, motivo) in [
         (RUTINA_BUS.to_string(), "la nueva debe ser mayor"),
         (RUTINA_BUS.replace("version = 1", "version = 0"), "la versión empieza en 1"),
-        (RUTINA_BUS.replace("version = 1", "version = 2").replace(&format!("\"{}\"", ea_pruebas::repo_comun()), "\"tmp\""), "worktree debe ser una ruta absoluta"),
+        (
+            RUTINA_BUS.replace("version = 1", "version = 2").replace(&format!("\"{}\"", ea_pruebas::repo_comun()), "\"tmp\""),
+            "worktree debe ser una ruta absoluta",
+        ),
         (RUTINA_BUS.replace("version = 1", "version = 2").replace("test -f {salida}", " "), "falta criterio_exito"),
         ("[rutina]\nslug = ".into(), "rutina inválida"),
         (format!("{}#{}", RUTINA_BUS.replace("version = 1", "version = 2"), "x".repeat(ea_bus::MAX_DEFINICION)), "demasiado larga"),
@@ -230,8 +233,12 @@ async fn validar_no_registra_nada() {
 #[tokio::test]
 async fn crear_una_rutina_nueva_desde_la_web() {
     let f = montar();
-    let toml = &concat!("# Una rutina nueva\n[rutina]\nslug = \"nueva\"\nversion = 1\ndescripcion = \"De prueba\"\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n\n[[pasos]]\ntexto = \"nada\"\n")
-        .replace(tmp!(), ea_pruebas::repo_comun());
+    let toml = &concat!(
+        "# Una rutina nueva\n[rutina]\nslug = \"nueva\"\nversion = 1\ndescripcion = \"De prueba\"\nworktree = \"",
+        tmp!(),
+        "\"\ncriterio_exito = \"true\"\n\n[[pasos]]\ntexto = \"nada\"\n"
+    )
+    .replace(tmp!(), ea_pruebas::repo_comun());
     let (s, v) = post(&f, "/api/rutinas/registrar", json!({ "toml": toml })).await;
     assert_eq!(s, StatusCode::CREATED, "{v}");
     assert_eq!(v, json!({ "rutina": "nueva", "version": 1, "anterior": null }));
@@ -252,8 +259,7 @@ async fn validar_y_registrar_sin_clave_dan_403() {
     let v2 = RUTINA_BUS.replace("version = 1", "version = 2");
     for ruta in ["/api/rutinas/validar", "/api/rutinas/registrar"] {
         for clave in [None, Some("mala")] {
-            let (s, t) =
-                enviar_con_clave(&f, Method::POST, ruta, "localhost:8092", Some(json!({ "toml": v2 })), true, clave).await;
+            let (s, t) = enviar_con_clave(&f, Method::POST, ruta, "localhost:8092", Some(json!({ "toml": v2 })), true, clave).await;
             assert_eq!(s, StatusCode::FORBIDDEN, "{ruta} con {clave:?}: {t}");
         }
         // Con la clave pero sin JSON, tampoco.
@@ -278,8 +284,7 @@ async fn las_versiones_de_una_rutina_se_listan_y_se_leen() {
     let (s, l) = get(&f, "/api/rutinas/revision-diaria/versiones").await;
     assert_eq!(s, StatusCode::OK, "{l}");
     let l = l.as_array().unwrap();
-    let resumen: Vec<_> =
-        l.iter().map(|v| (v["version"].as_i64().unwrap(), v["creada_por"].as_str().unwrap())).collect();
+    let resumen: Vec<_> = l.iter().map(|v| (v["version"].as_i64().unwrap(), v["creada_por"].as_str().unwrap())).collect();
     assert_eq!(resumen, vec![(2, "usuario"), (1, "test")]);
     assert!(l.iter().all(|v| v.get("contenido").is_none() && v.get("definicion").is_none()), "{l:?}");
     assert_eq!(l[1]["creada_en"], "2026-01-01T00:00:00Z");
@@ -323,9 +328,7 @@ async fn programar_desde_la_web_pide_simulacion_y_revalida() {
     assert_eq!(h["campos"][0]["opciones"], json!(["revision-diaria"]));
     assert_eq!(h["campos"][1]["nombre"], "calendario");
 
-    let programar = |cal: &str| {
-        json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "revision-diaria", "calendario": cal } })
-    };
+    let programar = |cal: &str| json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "revision-diaria", "calendario": cal } });
     // Simular no escribe nada y enseña las próximas ejecuciones.
     let (s, sim) = post(&f, "/api/acciones/simular", programar("*-*-* 08:00:00")).await;
     assert_eq!(s, StatusCode::OK, "{sim}");
@@ -339,21 +342,15 @@ async fn programar_desde_la_web_pide_simulacion_y_revalida() {
         let (s, _) = post(&f, "/api/acciones/simular", programar(malo)).await;
         assert_eq!(s, StatusCode::BAD_REQUEST, "{malo:?}");
     }
-    let (s, _) = post(
-        &f,
-        "/api/acciones/simular",
-        json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "no-existe", "calendario": "daily" } }),
-    )
-    .await;
+    let (s, _) =
+        post(&f, "/api/acciones/simular", json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "no-existe", "calendario": "daily" } })).await;
     assert_eq!(s, StatusCode::CONFLICT);
     assert!(!timer.exists());
 
     // El mundo cambia entre simular y guardar: la revalidación lo para.
     std::fs::create_dir_all(timer.parent().unwrap()).unwrap();
     std::fs::write(&timer, "[Timer]\nOnCalendar=daily\n").unwrap();
-    let ejecutar = |sim: &Value| {
-        json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] })
-    };
+    let ejecutar = |sim: &Value| json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] });
     let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar(&sim)).await;
     assert_eq!(s, StatusCode::CONFLICT, "{r}");
     assert_eq!(std::fs::read_to_string(&timer).unwrap(), "[Timer]\nOnCalendar=daily\n");
@@ -396,14 +393,11 @@ async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     let f = montar();
     let dir = f.state.config.rutinas_dir.clone();
     let timer = f._dir.path().join("unidades/ea-rutina@revision-diaria.timer");
-    let ejecutar = |sim: &Value| {
-        json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] })
-    };
+    let ejecutar = |sim: &Value| json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] });
     let accion = |h: &str| json!({ "herramienta": h, "argumentos": { "slug": "revision-diaria" } });
 
     // Con horario, para ver que retirar lo quita.
-    let programar =
-        json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "revision-diaria", "calendario": "daily" } });
+    let programar = json!({ "herramienta": "ea_programar_rutina", "argumentos": { "slug": "revision-diaria", "calendario": "daily" } });
     let (_, sim) = post(&f, "/api/acciones/simular", programar).await;
     let (s, r) = post(&f, "/api/acciones/ejecutar", ejecutar(&sim)).await;
     assert_eq!(s, StatusCode::OK, "{r}");
@@ -439,8 +433,7 @@ async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     let mcp = ea_acciones::SoloConsulta::usuario(dir.clone(), f.state.boveda.clone(), f.state.config.estado_dir.clone());
     let args = json!({ "slug": "revision-diaria" });
     let h = ea_acciones::observar(&mcp, "ea_encolar_rutina", &args).await.unwrap();
-    let e_mcp =
-        ea_acciones::simular_con(&*f.state.store.lock().await, &mcp, &h, "ea_encolar_rutina", &args).unwrap_err();
+    let e_mcp = ea_acciones::simular_con(&*f.state.store.lock().await, &mcp, &h, "ea_encolar_rutina", &args).unwrap_err();
     assert_eq!(e_web["error"].as_str().unwrap(), e_mcp.to_string());
     assert!(e_mcp.to_string().contains(&motivo));
     let (_, ts) = get(&f, "/api/trabajos").await;
@@ -461,8 +454,6 @@ async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     assert_eq!(s, StatusCode::CREATED);
 
     let ev = f.state.store.lock().await.list_events(&ea_store::EventFilter { limit: Some(50), ..Default::default() }).unwrap();
-    let hechas = |h: &str| {
-        ev.iter().filter(|e| e.action == "accion_ejecutada" && e.detail.as_deref().unwrap_or("").contains(h)).count()
-    };
+    let hechas = |h: &str| ev.iter().filter(|e| e.action == "accion_ejecutada" && e.detail.as_deref().unwrap_or("").contains(h)).count();
     assert_eq!((hechas("ea_retirar_rutina"), hechas("ea_restaurar_rutina")), (1, 1));
 }

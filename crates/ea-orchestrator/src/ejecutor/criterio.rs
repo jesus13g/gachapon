@@ -96,8 +96,8 @@ pub fn correr_criterio(
 mod tests {
     use std::time::{Duration, Instant};
 
-    use crate::ejecutor::pruebas::*;
     use crate::ejecutor::ejecutar_uno;
+    use crate::ejecutor::pruebas::*;
     use ea_bus::{Bus, Evento};
 
     #[test]

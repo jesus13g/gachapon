@@ -2,17 +2,14 @@
 //! (spec 004, H5). Se deshace con `ea_desprogramar_rutina`.
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{campo, comprobar_slug, exigir_lanzable, Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular};
+use super::{Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular, campo, comprobar_slug, exigir_lanzable};
 use crate::error::ErrorAccion;
 use crate::sistema::{Consulta, Sistema};
-use crate::temporizador::{comprobar_calendario, unidad_timer, Calendario};
+use crate::temporizador::{Calendario, comprobar_calendario, unidad_timer};
 
-pub(super) const CAMPOS: &[Campo] = &[
-    campo("slug", "rutina"),
-    campo("calendario", "OnCalendar de systemd (p. ej. *-*-* 08:00:00 o Mon *-*-* 09:00)"),
-];
+pub(super) const CAMPOS: &[Campo] = &[campo("slug", "rutina"), campo("calendario", "OnCalendar de systemd (p. ej. *-*-* 08:00:00 o Mon *-*-* 09:00)")];
 
 /// La rutina y su `OnCalendar`.
 #[derive(Deserialize)]
@@ -34,10 +31,7 @@ pub(super) fn validar(a: &Args) -> Result<(), ErrorAccion> {
 }
 
 /// Lo que dice `systemd-analyze calendar` del calendario, si su texto vale.
-pub(super) async fn observar<C: Consulta>(
-    consulta: &C,
-    args: &Value,
-) -> Result<Option<Result<Calendario, String>>, ErrorAccion> {
+pub(super) async fn observar<C: Consulta>(consulta: &C, args: &Value) -> Result<Option<Result<Calendario, String>>, ErrorAccion> {
     match args["calendario"].as_str().filter(|c| comprobar_calendario(c).is_ok()) {
         Some(c) => Ok(Some(consulta.calendario_validar(c).await.map_err(ErrorAccion::Sistema)?)),
         None => Ok(None),
@@ -98,11 +92,7 @@ pub(super) async fn aplicar<S: Sistema>(p: ParaAplicar<'_, S>, a: Args) -> Resul
     p.sistema.timer_programar(&a.slug, &c).await.map_err(ErrorAccion::Sistema)?;
     let ahora = p.sistema.timer_estado(&a.slug).await.map_err(ErrorAccion::Sistema)?;
     Ok(Aplicada {
-        texto: format!(
-            "Rutina '{}' programada con OnCalendar={c} ({}).",
-            a.slug,
-            ahora.activo.as_deref().unwrap_or("estado desconocido")
-        ),
+        texto: format!("Rutina '{}' programada con OnCalendar={c} ({}).", a.slug, ahora.activo.as_deref().unwrap_or("estado desconocido")),
         trabajo: None,
         datos: json!({ "rutina": a.slug, "calendario": c, "activo": ahora.activo }),
     })

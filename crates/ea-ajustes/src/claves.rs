@@ -4,25 +4,34 @@
 
 use serde_json::Value;
 
-use crate::agentes::{ficha, id_perfil_valido, IDS_AGENTES};
+use crate::agentes::{IDS_AGENTES, ficha, id_perfil_valido};
 use crate::fuentes::{Ajustes, ConfigAgente, PerfilModelo};
 use crate::validar::expandir_tilde;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tipo {
     Booleano,
-    Entero { min: i64, max: i64 },
-    Texto { max: usize },
+    Entero {
+        min: i64,
+        max: i64,
+    },
+    Texto {
+        max: usize,
+    },
     /// URL del modelo: solo loopback.
     Url,
     /// Ruta de fichero o directorio; admite `~`.
     Ruta,
     /// Lista de nombres; con `permitidos`, solo esos.
-    Lista { permitidos: Option<&'static [&'static str]> },
+    Lista {
+        permitidos: Option<&'static [&'static str]>,
+    },
     /// Lista de rutas absolutas (o con `~`).
     Rutas,
     /// Uno de una lista cerrada.
-    Eleccion { permitidos: &'static [&'static str] },
+    Eleccion {
+        permitidos: &'static [&'static str],
+    },
     /// URL de un perfil de modelo: vacía o `http(s)://` sin credenciales. Que
     /// sea de loopback se exige al perfil no remoto (validación cruzada).
     UrlPerfil,
@@ -213,11 +222,8 @@ const ORQ: &str = "orquestador.toml";
 /// como fuente heredada del perfil `local` y de `agentes.qwen-code.bin`.
 pub(crate) const AJ_VIEJO: &str = "ajustes.toml [modelo]";
 /// Claves antiguas de `ajustes.toml` y su nombre de ahora.
-pub static ALIAS: &[(&str, &str)] = &[
-    ("modelo.nombre", "modelos.local.nombre"),
-    ("modelo.base_url", "modelos.local.base_url"),
-    ("modelo.qwen_bin", "agentes.qwen-code.bin"),
-];
+pub static ALIAS: &[(&str, &str)] =
+    &[("modelo.nombre", "modelos.local.nombre"), ("modelo.base_url", "modelos.local.base_url"), ("modelo.qwen_bin", "agentes.qwen-code.bin")];
 
 /// Fuentes heredadas de instancias concretas de un patrón.
 static HEREDADAS_INSTANCIA: &[(&str, &[(&str, &str)])] = &[
@@ -692,8 +698,7 @@ pub fn concretas(perfiles: &[String]) -> Vec<(String, &'static Clave)> {
             "agentes" => IDS_AGENTES.to_vec(),
             _ => perfiles.iter().map(String::as_str).collect(),
         };
-        let patrones: Vec<&'static Clave> =
-            CLAVES.iter().filter(|p| p.nombre.split_once(".*.").is_some_and(|(g, _)| g == grupo)).collect();
+        let patrones: Vec<&'static Clave> = CLAVES.iter().filter(|p| p.nombre.split_once(".*.").is_some_and(|(g, _)| g == grupo)).collect();
         for id in ids {
             for p in &patrones {
                 let campo = p.nombre.rsplit('.').next().unwrap_or_default();
@@ -788,11 +793,7 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
     if let Some((grupo, id, campo)) = trocear(nombre) {
         match grupo {
             "modelos" => {
-                let p = a.modelos.entry(id.to_string()).or_insert_with(|| PerfilModelo {
-                    nombre: String::new(),
-                    base_url: String::new(),
-                    remoto: false,
-                });
+                let p = a.modelos.entry(id.to_string()).or_insert_with(|| PerfilModelo { nombre: String::new(), base_url: String::new(), remoto: false });
                 match campo {
                     "nombre" => p.nombre = t(),
                     "base_url" => p.base_url = t(),
@@ -843,10 +844,8 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
         "escritorio.al_iniciar" => a.escritorio.al_iniciar = b(),
         "escritorio.wsl" => a.escritorio.wsl = v.as_str().unwrap_or_default().to_string(),
         "biblioteca.categorias" => {
-            a.biblioteca.categorias = v
-                .as_object()
-                .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
-                .unwrap_or_default();
+            a.biblioteca.categorias =
+                v.as_object().map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()).unwrap_or_default();
         }
         _ => {}
     }

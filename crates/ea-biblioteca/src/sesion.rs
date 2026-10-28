@@ -49,22 +49,22 @@
 //! con las rutas de ese directorio. Las sesiones se limpian a los 7 días de
 //! creadas (marca `.creada`).
 
+use ea_plataforma::fs::{crear_dir_nuevo_privado, crear_dir_privado, enlazar, huella, opciones_privadas, poner_permisos_unix, poner_privado};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
-use ea_plataforma::fs::{crear_dir_nuevo_privado, crear_dir_privado, enlazar, huella, opciones_privadas, poner_permisos_unix, poner_privado};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use ea_ajustes::AgenteId;
-use ea_plataforma::escritorio::{argv_lanzador, OrdenTerminal};
+use ea_plataforma::escritorio::{OrdenTerminal, argv_lanzador};
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
+use crate::Inventario;
 use crate::agentes::comun::{leer_texto, quitar_comentarios};
 use crate::error::ErrorBiblioteca;
-use crate::modelo::{Ambito, DefMcp, Elemento, Id, Tipo, AGENTE_ECOSISTEMA};
+use crate::modelo::{AGENTE_ECOSISTEMA, Ambito, DefMcp, Elemento, Id, Tipo};
 use crate::raices::Raices;
-use crate::Inventario;
 
 /// Los agentes que admiten sesión en la v1 (Antigravity no): los de ficha con
 /// `admite_sesion`, en el orden del catálogo.
@@ -230,9 +230,7 @@ fn texto_de<'a>(v: &'a Value, claves: &[&str]) -> Option<&'a str> {
 }
 
 fn mapa_de(v: Option<&Value>) -> BTreeMap<String, String> {
-    v.and_then(Value::as_object)
-        .map(|o| o.iter().filter_map(|(k, x)| Some((k.clone(), x.as_str()?.to_string()))).collect())
-        .unwrap_or_default()
+    v.and_then(Value::as_object).map(|o| o.iter().filter_map(|(k, x)| Some((k.clone(), x.as_str()?.to_string()))).collect()).unwrap_or_default()
 }
 
 /// La definición COMPLETA, a partir del JSON original de cualquier agente.
@@ -310,7 +308,12 @@ fn leer_completo(f: &FuenteMcp, r: &Raices, entorno: &dyn Fn(&str) -> Option<Str
             let j = json(&texto)?;
             if f.ambito == "proyecto" {
                 let p = r.proyecto.as_ref().ok_or_else(no_esta)?;
-                j.get("projects").and_then(|x| crate::agentes::comun::proyecto_en(x, p)).and_then(|x| x.get("mcpServers")).and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
+                j.get("projects")
+                    .and_then(|x| crate::agentes::comun::proyecto_en(x, p))
+                    .and_then(|x| x.get("mcpServers"))
+                    .and_then(|x| x.get(&f.nombre))
+                    .cloned()
+                    .ok_or_else(no_esta)?
             } else {
                 j.get("mcpServers").and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
             }
@@ -522,12 +525,8 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
         &huella(format!("{agente}\0{}\0{}", herramientas.join("\0"), cwd.as_ref().map(|c| c.display().to_string()).unwrap_or_default()).as_bytes())[..12]
     );
     let directorio = runtime.join("ea-biblioteca").join("sesiones").join(&id);
-    let fichero = |nombre: &str, contenido: String, con_secretos: bool| FicheroEfimero {
-        ruta: directorio.join(nombre),
-        contenido,
-        modo: MODO_FICHERO,
-        con_secretos,
-    };
+    let fichero =
+        |nombre: &str, contenido: String, con_secretos: bool| FicheroEfimero { ruta: directorio.join(nombre), contenido, modo: MODO_FICHERO, con_secretos };
     let mut plan = PlanSesion {
         id,
         agente: agente.to_string(),

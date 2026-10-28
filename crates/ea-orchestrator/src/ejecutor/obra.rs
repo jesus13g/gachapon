@@ -9,7 +9,7 @@ use ea_bus::{EstadoFase, FaseInforme, Informe, InformeFase, ResultadoInforme};
 
 use super::criterio::corte;
 use super::mision::bucle;
-use super::{bloqueado, Cancelado, Contexto};
+use super::{Cancelado, Contexto, bloqueado};
 
 const MAX_DIFF: usize = 100_000;
 
@@ -61,10 +61,8 @@ pub(super) fn trabajar(ctx: &Contexto, fase_actual: Option<u32>, commit_inicio: 
             return Err(Cancelado { fase: Some(f.numero) });
         }
         let titulo = format!("{} · fase {} de {}: {}", orden.titulo, idx + 1, total, f.titulo);
-        let cuerpo = format!(
-            "## Objetivo general (contexto)\n{}\n\n## Esta fase: {}\n{}\n\nEntregable: {}",
-            orden.objetivo, f.titulo, f.instrucciones, f.entregable
-        );
+        let cuerpo =
+            format!("## Objetivo general (contexto)\n{}\n\n## Esta fase: {}\n{}\n\nEntregable: {}", orden.objetivo, f.titulo, f.instrucciones, f.entregable);
         let skills = if f.skills.is_empty() { &orden.skills } else { &f.skills };
         let r = bucle(ctx, &titulo, &cuerpo, &f.criterio, skills).ok_or(Cancelado { fase: Some(f.numero) })?;
         evidencia = r.evidencia.clone();
@@ -72,7 +70,13 @@ pub(super) fn trabajar(ctx: &Contexto, fase_actual: Option<u32>, commit_inicio: 
             let stat = instantanea(wt, dir).map(|t| diff_entre(wt, &previo, &t, true)).unwrap_or_default();
             let informe = InformeFase { motivo: r.motivo.clone(), diff_stat: Some(stat.clone()), arbol: None };
             let _ = bus.registrar_fase(id, f.numero, EstadoFase::Bloqueada, &informe);
-            informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: EstadoFase::Bloqueada, diff_stat: stat, ejecutado_por: Some(config.ejecutor.ejecutado_por()) });
+            informadas.push(FaseInforme {
+                numero: f.numero,
+                titulo: f.titulo.clone(),
+                resultado: EstadoFase::Bloqueada,
+                diff_stat: stat,
+                ejecutado_por: Some(config.ejecutor.ejecutado_por()),
+            });
             fallo = Some((format!("fase {}: {}", f.numero, r.motivo.unwrap_or_default()), r.evidencia));
             break;
         }
@@ -83,7 +87,13 @@ pub(super) fn trabajar(ctx: &Contexto, fase_actual: Option<u32>, commit_inicio: 
         let stat = diff_entre(wt, &previo, &arbol, true);
         let informe = InformeFase { diff_stat: Some(stat.clone()), arbol: Some(arbol.clone()), motivo: None };
         let _ = bus.registrar_fase(id, f.numero, EstadoFase::Hecha, &informe);
-        informadas.push(FaseInforme { numero: f.numero, titulo: f.titulo.clone(), resultado: EstadoFase::Hecha, diff_stat: stat, ejecutado_por: Some(config.ejecutor.ejecutado_por()) });
+        informadas.push(FaseInforme {
+            numero: f.numero,
+            titulo: f.titulo.clone(),
+            resultado: EstadoFase::Hecha,
+            diff_stat: stat,
+            ejecutado_por: Some(config.ejecutor.ejecutado_por()),
+        });
         previo = arbol;
         let _ = artefactos.guardar_arbol_ultimo(&previo);
         idx += 1;
@@ -130,8 +140,8 @@ pub(super) fn trabajar(ctx: &Contexto, fase_actual: Option<u32>, commit_inicio: 
 
 #[cfg(test)]
 mod tests {
-    use crate::ejecutor::pruebas::*;
     use crate::ejecutor::ejecutar_uno;
+    use crate::ejecutor::pruebas::*;
     use ea_bus::git;
     use ea_bus::{Bus, EstadoFase, EstadoTrabajo, Orden, ResultadoInforme};
 

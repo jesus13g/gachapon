@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use ea_acciones::servicios::Paso;
 use ea_plataforma::Sistema;
 
-use super::origen::{nombre_binario, BINARIO_ESCRITORIO};
+use super::origen::{BINARIO_ESCRITORIO, nombre_binario};
 use super::recursos::ICONO_PNG;
 use super::ruta_usuario::literal_ps;
 use super::{Contexto, Origen};

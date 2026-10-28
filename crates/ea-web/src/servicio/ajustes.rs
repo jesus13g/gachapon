@@ -6,24 +6,20 @@
 
 use std::collections::BTreeMap;
 
-use ea_ajustes::{cargar_de, Canal, ErrorAjustes};
+use ea_ajustes::{Canal, ErrorAjustes, cargar_de};
 use serde_json::Value;
 
 use super::{ErrorWeb, Resultado};
-use crate::vistas::{AjusteAplicado, AjustesCambiados, AjustesVista};
 use crate::AppState;
+use crate::vistas::{AjusteAplicado, AjustesCambiados, AjustesVista};
 
 impl From<ErrorAjustes> for ErrorWeb {
     fn from(e: ErrorAjustes) -> Self {
         let m = e.to_string();
         match e {
-            ErrorAjustes::ClaveDesconocida(_) | ErrorAjustes::ValorInvalido { .. } | ErrorAjustes::SinCambios => {
-                Self::Invalido(m)
-            }
+            ErrorAjustes::ClaveDesconocida(_) | ErrorAjustes::ValorInvalido { .. } | ErrorAjustes::SinCambios => Self::Invalido(m),
             ErrorAjustes::NoEditable { .. } | ErrorAjustes::SoloEndurecer { .. } => Self::Prohibido(m),
-            ErrorAjustes::FijadaPorEntorno { .. } | ErrorAjustes::Version | ErrorAjustes::FicheroInvalido(_) => {
-                Self::Conflicto(m)
-            }
+            ErrorAjustes::FijadaPorEntorno { .. } | ErrorAjustes::Version | ErrorAjustes::FicheroInvalido(_) => Self::Conflicto(m),
             ErrorAjustes::Io(_) => Self::Interno(m),
         }
     }
@@ -54,15 +50,10 @@ pub async fn cambiar(s: &AppState, version: &str, cambios: BTreeMap<String, Opti
     }
 
     Ok(AjustesCambiados {
-        aplicados: c.aplicados
+        aplicados: c
+            .aplicados
             .into_iter()
-            .map(|a| AjusteAplicado {
-                clave: a.clave,
-                antes: a.antes,
-                despues: a.despues,
-                aplica: a.aplica.nombre(),
-                reinicio: a.aplica.servicios(),
-            })
+            .map(|a| AjusteAplicado { clave: a.clave, antes: a.antes, despues: a.despues, aplica: a.aplica.nombre(), reinicio: a.aplica.servicios() })
             .collect(),
         ajustes: ver(s),
         avisos: c.avisos,

@@ -85,9 +85,9 @@ impl ConfigSkills {
     /// el id del agente que lo ocupa al crear el trabajo.
     pub fn tiene_llave(&self, creada_por: &str) -> bool {
         let rol = |v: &str| Rol::desde(v) == Some(Rol::Planificador);
-        self.pueden_elegir.iter().any(|p| {
-            p == creada_por || (rol(p) && (rol(creada_por) || (!self.planificador.is_empty() && creada_por == self.planificador)))
-        })
+        self.pueden_elegir
+            .iter()
+            .any(|p| p == creada_por || (rol(p) && (rol(creada_por) || (!self.planificador.is_empty() && creada_por == self.planificador))))
     }
 
     /// Comprueba que `creada_por` tiene la llave y que las skills existen,
@@ -98,10 +98,7 @@ impl ConfigSkills {
         }
         let err = |m: String| Err(ErrorBus::Skills(m));
         if !self.tiene_llave(creada_por) {
-            return err(format!(
-                "{creada_por:?} no tiene la llave para elegir skills (pueden_elegir = {:?})",
-                self.pueden_elegir
-            ));
+            return err(format!("{creada_por:?} no tiene la llave para elegir skills (pueden_elegir = {:?})", self.pueden_elegir));
         }
         if nombres.len() > self.max_por_trabajo {
             return err(format!("{} skills; el máximo es {}", nombres.len(), self.max_por_trabajo));
@@ -187,11 +184,7 @@ fn partir(texto: &str) -> (String, String) {
     let Some((cabecera, cuerpo)) = resto.split_once("\n---\n") else {
         return (String::new(), texto.trim().to_string());
     };
-    let descripcion = cabecera
-        .lines()
-        .find_map(|l| l.strip_prefix("descripcion:"))
-        .map(|d| d.trim().to_string())
-        .unwrap_or_default();
+    let descripcion = cabecera.lines().find_map(|l| l.strip_prefix("descripcion:")).map(|d| d.trim().to_string()).unwrap_or_default();
     (descripcion, cuerpo.trim().to_string())
 }
 

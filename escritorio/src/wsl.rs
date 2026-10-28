@@ -23,11 +23,7 @@ pub fn distro_activa(ajuste: &str, es_windows: bool) -> Option<String> {
 /// que `ea_ajustes::fichero_clave_web` dentro del directorio de ejecución
 /// de Linux (`$XDG_RUNTIME_DIR` o `/run/user/<uid>`).
 pub fn guion_clave() -> String {
-    format!(
-        "d=\"${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}\"; cat \"$d/{}/{}\"",
-        ea_ajustes::DIR_WEB,
-        ea_ajustes::FICHERO_CLAVE
-    )
+    format!("d=\"${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}\"; cat \"$d/{}/{}\"", ea_ajustes::DIR_WEB, ea_ajustes::FICHERO_CLAVE)
 }
 
 /// `wsl.exe` para leer la clave.

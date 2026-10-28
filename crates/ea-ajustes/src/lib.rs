@@ -19,8 +19,8 @@
 
 mod agentes;
 mod cargar;
-pub mod descargas;
 pub mod claves;
+pub mod descargas;
 mod ejecucion;
 mod error;
 mod escribir;
@@ -28,20 +28,21 @@ mod fuentes;
 mod validar;
 mod vista;
 
-pub use agentes::{buscar_binario, ficha, id_perfil_valido, por_cliente_mcp, AgenteId, FichaAgente, Rol, TipoAgente, VistaAgente};
-pub use agentes::{CATALOGO, IDS_AGENTES, IDS_CON_SESION};
 pub use agentes::{ACTOR_DESCONOCIDO, ACTOR_ORQUESTADOR, ACTOR_SIN_ROL, ACTOR_USUARIO};
-pub use cargar::{cargar, cargar_de, Efectivos, Origen};
-pub use claves::{clave, concretas, sin_alias, titulo, Aplica, Canal, Clave, Edicion, Tipo, ALIAS, CLAVES, SECCIONES};
-pub use claves::{Servicio, SERVICIOS, SERVICIOS_INSTALABLES, SERVICIOS_MONITORIZADOS, SERVICIOS_REINICIABLES};
+pub use agentes::{AgenteId, FichaAgente, Rol, TipoAgente, VistaAgente, buscar_binario, ficha, id_perfil_valido, por_cliente_mcp};
+pub use agentes::{CATALOGO, IDS_AGENTES, IDS_CON_SESION};
+pub use cargar::{Efectivos, Origen, cargar, cargar_de};
+pub use claves::{ALIAS, Aplica, CLAVES, Canal, Clave, Edicion, SECCIONES, Tipo, clave, concretas, sin_alias, titulo};
+pub use claves::{SERVICIOS, SERVICIOS_INSTALABLES, SERVICIOS_MONITORIZADOS, SERVICIOS_REINICIABLES, Servicio};
 pub use ejecucion::{
-    clave_web_valida, credencial_mcp_valida, dir_ejecucion, fichero_clave_web, fichero_credencial_mcp, fichero_presencia_escritorio,
-    CABECERA_CREDENCIAL_MCP, DIR_ESCRITORIO, DIR_MCP, DIR_WEB, FICHERO_CLAVE, FICHERO_CREDENCIAL, FICHERO_PRESENCIA,
+    CABECERA_CREDENCIAL_MCP, DIR_ESCRITORIO, DIR_MCP, DIR_WEB, FICHERO_CLAVE, FICHERO_CREDENCIAL, FICHERO_PRESENCIA, clave_web_valida, credencial_mcp_valida,
+    dir_ejecucion, fichero_clave_web, fichero_credencial_mcp, fichero_presencia_escritorio,
 };
 pub use error::ErrorAjustes;
-pub use escribir::{escribir_atomico, establecer, huella, interpretar, Aplicado};
+pub use escribir::{Aplicado, escribir_atomico, establecer, huella, interpretar};
 pub use fuentes::{
-    Agente, Ajustes, AjustesBiblioteca, ConfigAgente, Criterio, Entorno, Escritorio, Fuentes, Orquestador, PerfilModelo, Roles, Red, Rutas, Skills, TechoTopes, Web, ENV_CONFIG, TECHO_DURO,
+    Agente, Ajustes, AjustesBiblioteca, ConfigAgente, Criterio, ENV_CONFIG, Entorno, Escritorio, Fuentes, Orquestador, PerfilModelo, Red, Roles, Rutas, Skills,
+    TECHO_DURO, TechoTopes, Web,
 };
 pub use validar::{expandir_tilde, validar_base_url, validar_escribibles, validar_perfil, validar_roles, validar_url_remota};
 pub use vista::{Cliente, FilaAjuste, Heredado, Resumen, SeccionAjustes};

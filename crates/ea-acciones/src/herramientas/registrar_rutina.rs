@@ -4,13 +4,12 @@
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{campo, Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular};
+use super::{Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular, campo};
 use crate::diff::diff_lineas;
 use crate::error::ErrorAccion;
 use crate::sistema::{Consulta, Sistema};
 
-pub(super) const CAMPOS: &[Campo] =
-    &[Campo { largo: true, ..campo("toml", "definición TOML de la rutina ([rutina], [entradas], [[pasos]])") }];
+pub(super) const CAMPOS: &[Campo] = &[Campo { largo: true, ..campo("toml", "definición TOML de la rutina ([rutina], [entradas], [[pasos]])") }];
 
 /// La definición completa, tal como se registraría.
 #[derive(Deserialize)]
@@ -23,11 +22,7 @@ pub(super) struct Args {
 /// spec 004). Que la versión sea mayor se mira al simular.
 pub(super) fn validar(a: &Args) -> Result<(), ErrorAccion> {
     if a.toml.len() > ea_bus::MAX_DEFINICION {
-        return Err(ErrorAccion::Argumentos(format!(
-            "la definición es demasiado larga ({} bytes; como mucho {})",
-            a.toml.len(),
-            ea_bus::MAX_DEFINICION
-        )));
+        return Err(ErrorAccion::Argumentos(format!("la definición es demasiado larga ({} bytes; como mucho {})", a.toml.len(), ea_bus::MAX_DEFINICION)));
     }
     ea_bus::Rutina::parsear(&a.toml).map(|_| ()).map_err(|e| ErrorAccion::Argumentos(e.to_string()))
 }
@@ -51,10 +46,7 @@ pub(super) fn simular<C: Consulta>(p: &ParaSimular<'_, C>, a: Args) -> Result<De
                 },
             )
         }
-        None => (
-            format!("la rutina nueva '{}' en la versión {}", c.slug, c.version),
-            format!("Definición completa:\n{}", a.toml.trim_end()),
-        ),
+        None => (format!("la rutina nueva '{}' en la versión {}", c.slug, c.version), format!("Definición completa:\n{}", a.toml.trim_end())),
     };
     Ok((
         json!({ "toml": a.toml }),
@@ -72,9 +64,5 @@ pub(super) fn simular<C: Consulta>(p: &ParaSimular<'_, C>, a: Args) -> Result<De
 
 pub(super) fn aplicar<S: Sistema>(p: ParaAplicar<'_, S>, a: Args) -> Result<Aplicada, ErrorAccion> {
     let (slug, version) = p.sistema.rutina_registrar(p.store, &a.toml, p.actor).map_err(ErrorAccion::Sistema)?;
-    Ok(Aplicada {
-        texto: format!("Rutina '{slug}' registrada en la versión {version}."),
-        trabajo: None,
-        datos: json!({ "rutina": slug, "version": version }),
-    })
+    Ok(Aplicada { texto: format!("Rutina '{slug}' registrada en la versión {version}."), trabajo: None, datos: json!({ "rutina": slug, "version": version }) })
 }

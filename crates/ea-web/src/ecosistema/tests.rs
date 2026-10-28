@@ -74,12 +74,7 @@ fn cada_estado_tiene_su_lugar_y_los_cerrados_no_salen() {
 
 #[test]
 fn con_varias_sesiones_gana_la_que_reconoce_el_worktree() {
-    let ag = vec![
-        claude("claude:a", "/home/u", "a"),
-        claude("claude:b", "/home/u/proy", "b"),
-        claude("claude:c", "/otra", "sesion-c"),
-        qwen(),
-    ];
+    let ag = vec![claude("claude:a", "/home/u", "a"), claude("claude:b", "/home/u/proy", "b"), claude("claude:c", "/otra", "sesion-c"), qwen()];
     let ts = [
         trabajo("hondo", "en_revision", "/home/u/proy/x"),
         trabajo("arriba", "en_revision", "/home/u/otro"),

@@ -67,13 +67,8 @@ pub fn registrar(dir: &Path, sesion: &str, marca: MarcaSubagente) {
 fn limpiar_antiguos(dir: &Path) {
     let Ok(entradas) = std::fs::read_dir(dir) else { return };
     for e in entradas.flatten() {
-        let vieja = e
-            .metadata()
-            .ok()
-            .filter(|m| m.is_dir())
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.elapsed().ok())
-            .is_some_and(|d| d > ANTIGUEDAD_MAXIMA);
+        let vieja =
+            e.metadata().ok().filter(|m| m.is_dir()).and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).is_some_and(|d| d > ANTIGUEDAD_MAXIMA);
         if vieja {
             let _ = std::fs::remove_dir_all(e.path());
         }

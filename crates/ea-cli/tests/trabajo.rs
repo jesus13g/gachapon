@@ -23,10 +23,8 @@ fn crear_con_orden(d: &Path, worktree: &str, fases: Option<&[u32]>) -> Output {
     if let Some(numeros) = fases {
         o["modo"] = "obra".into();
         o["criterio_exito"] = serde_json::Value::Null;
-        o["fases"] = numeros
-            .iter()
-            .map(|n| serde_json::json!({ "numero": n, "titulo": "f", "instrucciones": "i", "entregable": "e", "criterio": "true" }))
-            .collect();
+        o["fases"] =
+            numeros.iter().map(|n| serde_json::json!({ "numero": n, "titulo": "f", "instrucciones": "i", "entregable": "e", "criterio": "true" })).collect();
     }
     let f = d.join("orden.json");
     std::fs::write(&f, o.to_string()).unwrap();
@@ -187,7 +185,8 @@ fn ver_y_listar_no_pasan_a_la_terminal_las_secuencias_de_los_agentes() {
     .unwrap();
     let id = bus.crear_trabajo(orden).unwrap();
     let evidencia = format!("salida{SECUENCIAS}\nfin\tok");
-    let fase = FaseInforme { numero: 1, titulo: format!("fase{SECUENCIAS}"), resultado: ea_bus::EstadoFase::Hecha, diff_stat: String::new(), ejecutado_por: None };
+    let fase =
+        FaseInforme { numero: 1, titulo: format!("fase{SECUENCIAS}"), resultado: ea_bus::EstadoFase::Hecha, diff_stat: String::new(), ejecutado_por: None };
     bus.escribir_informe(
         &id,
         &Informe {

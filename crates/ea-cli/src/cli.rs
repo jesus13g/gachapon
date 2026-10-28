@@ -604,11 +604,7 @@ pub enum PropuestasAccion {
 /// Un prefijo de acción del diario: letras minúsculas y `_`, como los nombres
 /// de las acciones.
 fn prefijo_de_accion(s: &str) -> Result<String, String> {
-    if ea_store::prefijo_accion_valido(s) {
-        Ok(s.to_string())
-    } else {
-        Err("solo letras minúsculas y `_` (p. ej. `bus_` o `propuesta_`)".into())
-    }
+    if ea_store::prefijo_accion_valido(s) { Ok(s.to_string()) } else { Err("solo letras minúsculas y `_` (p. ej. `bus_` o `propuesta_`)".into()) }
 }
 
 // ------------------------------------------------------ dominios cerrados

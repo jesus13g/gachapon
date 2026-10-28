@@ -72,12 +72,7 @@ impl Sandbox {
             Sandbox::Seatbelt => ("seatbelt", None),
             Sandbox::NoDisponible(m) => ("no disponible", Some(m.clone())),
         };
-        ea_bus::SandboxInfo {
-            sistema: sistema.nombre().into(),
-            sandbox: nombre.into(),
-            disponible: motivo.is_none(),
-            motivo,
-        }
+        ea_bus::SandboxInfo { sistema: sistema.nombre().into(), sandbox: nombre.into(), disponible: motivo.is_none(), motivo }
     }
 
     /// `Err(motivo)` si el ejecutor no puede arrancar con este aislamiento.
@@ -93,14 +88,7 @@ impl Sandbox {
     /// lectura y el directorio de `ejecucion` tapado ([`argumentos_bwrap`],
     /// [`perfil_seatbelt`]). Sin sandbox, la orden tal cual; con
     /// `NoDisponible`, `Err` con el motivo y no se construye nada.
-    pub fn envolver(
-        &self,
-        programa: &str,
-        args: &[String],
-        wt: &Path,
-        estado: &[PathBuf],
-        ejecucion: Option<&Path>,
-    ) -> Result<Envoltorio, String> {
+    pub fn envolver(&self, programa: &str, args: &[String], wt: &Path, estado: &[PathBuf], ejecucion: Option<&Path>) -> Result<Envoltorio, String> {
         self.construir(programa.as_ref(), args.iter().map(OsStr::new), wt, estado, ejecucion, false)
     }
 
@@ -150,10 +138,7 @@ impl Sandbox {
             }
             Sandbox::Seatbelt => {
                 let (prefijo, quien) = if criterio { ("ea-criterio-", "del criterio") } else { ("ea-ejecutor-", "del agente") };
-                let tmp = tempfile::Builder::new()
-                    .prefix(prefijo)
-                    .tempdir()
-                    .map_err(|e| format!("no se pudo crear el temporal propio {quien}: {e}"))?;
+                let tmp = tempfile::Builder::new().prefix(prefijo).tempdir().map_err(|e| format!("no se pudo crear el temporal propio {quien}: {e}"))?;
                 let escribibles: Vec<PathBuf> = escribibles.iter().map(|d| canonica(d)).collect();
                 let (wt_c, tmp_c, ej) = (canonica(wt), canonica(tmp.path()), ejecucion.map(canonica));
                 let perfil = if criterio {
@@ -200,8 +185,7 @@ pub struct Envoltorio {
 /// simbólico protege su destino, no el propio enlace.
 pub fn argumentos_bwrap(worktree: &Path, ejecucion: Option<&Path>, estado: &[PathBuf]) -> Vec<String> {
     let wt = worktree.to_string_lossy().to_string();
-    let mut args: Vec<String> =
-        ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"].map(String::from).into();
+    let mut args: Vec<String> = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"].map(String::from).into();
     if let Some(d) = ejecucion {
         args.push("--tmpfs".into());
         args.push(d.to_string_lossy().into());
@@ -348,7 +332,16 @@ mod tests {
         assert!(!p.contains("(allow network* (local ip"), "{p}");
         assert!(p.contains("(allow network-bind network-inbound (local ip \"localhost:*\"))"));
         // Vías de escape del sandbox cerradas, y antes de los permisos de red.
-        for esperado in ["(deny process-exec*", "\"/usr/bin/open\"", "\"/usr/bin/osascript\"", "\"/bin/launchctl\"", "(deny mach-lookup", "com.apple.coreservices.launchservicesd", "com.apple.coreservices.appleevents", "(global-name-prefix \"com.apple.lsd\")"] {
+        for esperado in [
+            "(deny process-exec*",
+            "\"/usr/bin/open\"",
+            "\"/usr/bin/osascript\"",
+            "\"/bin/launchctl\"",
+            "(deny mach-lookup",
+            "com.apple.coreservices.launchservicesd",
+            "com.apple.coreservices.appleevents",
+            "(global-name-prefix \"com.apple.lsd\")",
+        ] {
             assert!(p.contains(esperado), "falta {esperado}\n{p}");
         }
         assert!(p.find("(deny process-exec*").unwrap() < p.find("(deny network*)").unwrap());
@@ -545,9 +538,7 @@ mod tests {
         let run_c = canonica(run.path());
         std::fs::write(run_c.join("clave"), "secreto").unwrap();
         let perfil = perfil_seatbelt(&wt_c, &tmp_c, &[], Some(&run_c));
-        let sh = |orden: String| {
-            Command::new(SANDBOX_EXEC).args(["-p", &perfil, "sh", "-c"]).arg(orden).current_dir(&wt_c).output().unwrap()
-        };
+        let sh = |orden: String| Command::new(SANDBOX_EXEC).args(["-p", &perfil, "sh", "-c"]).arg(orden).current_dir(&wt_c).output().unwrap();
         let correr = |destino: &Path| sh(format!("touch '{}'", destino.display()));
         let dentro = correr(&wt_c.join("dentro"));
         assert!(dentro.status.success() && wt_c.join("dentro").exists(), "{}", String::from_utf8_lossy(&dentro.stderr));
@@ -571,9 +562,7 @@ mod tests {
         let extra = tempfile::tempdir().unwrap();
         let extra_c = canonica(extra.path());
         let criterio = perfil_seatbelt_criterio(&wt_c, &tmp_c, std::slice::from_ref(&extra_c), Some(&run_c));
-        let c = |orden: String| {
-            Command::new(SANDBOX_EXEC).args(["-p", &criterio, "sh", "-c"]).arg(orden).current_dir(&wt_c).output().unwrap()
-        };
+        let c = |orden: String| Command::new(SANDBOX_EXEC).args(["-p", &criterio, "sh", "-c"]).arg(orden).current_dir(&wt_c).output().unwrap();
         let l = c(format!("cat '{}'", run_c.join("clave").display()));
         assert!(!l.status.success() && l.stdout.is_empty(), "el criterio leyó el directorio de ejecución");
         let f = c(format!("touch '{}'", fuera_c.join("criterio").display()));

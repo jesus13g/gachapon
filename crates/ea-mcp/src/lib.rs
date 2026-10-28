@@ -5,9 +5,7 @@ pub mod tools;
 pub use credencial::Credencial;
 pub use tools::EaTools;
 
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-};
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager};
 use tokio_util::sync::CancellationToken;
 
 /// Los únicos `Host` que se atienden: una página ajena que reenlace su nombre

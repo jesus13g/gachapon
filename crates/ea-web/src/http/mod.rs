@@ -4,14 +4,14 @@
 
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 
-use crate::{clave, tema, AppState};
+use crate::{AppState, clave, tema};
 
 mod cuerpo;
 mod error;
@@ -139,29 +139,23 @@ async fn sesion(State(s): State<Arc<AppState>>, headers: header::HeaderMap) -> R
 /// todo lo que no sea GET/HEAD debe traer además la clave de sesión del
 /// arranque en `X-EA-Clave` (ver `clave`).
 async fn guardia(State(s): State<Arc<AppState>>, req: Request, next: Next) -> Response {
-    let host_ok = req
-        .headers()
-        .get(header::HOST)
-        .and_then(|h| h.to_str().ok())
-        .is_some_and(|h| {
-            let nombre = match h.rsplit_once(':') {
-                Some((n, puerto)) if puerto.bytes().all(|b| b.is_ascii_digit()) => n,
-                _ => h,
-            };
-            nombre.eq_ignore_ascii_case("localhost") || nombre == "127.0.0.1"
-        });
+    let host_ok = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()).is_some_and(|h| {
+        let nombre = match h.rsplit_once(':') {
+            Some((n, puerto)) if puerto.bytes().all(|b| b.is_ascii_digit()) => n,
+            _ => h,
+        };
+        nombre.eq_ignore_ascii_case("localhost") || nombre == "127.0.0.1"
+    });
     if !host_ok {
         return ApiError::new(StatusCode::FORBIDDEN, "host no permitido").into_response();
     }
 
     if !matches!(*req.method(), Method::GET | Method::HEAD) {
         let mensaje = match req.headers().get(clave::CABECERA) {
-            None => Some(
-                "falta la clave de sesión del panel (cabecera X-EA-Clave): ábrelo con ea-escritorio o ea-web-open para poder cambiar nada",
-            ),
-            Some(v) if !s.clave.coincide(v.as_bytes()) => Some(
-                "la clave de sesión del panel no es válida (¿se reinició ea-web?): cierra la ventana y vuelve a abrirla con ea-escritorio o ea-web-open",
-            ),
+            None => Some("falta la clave de sesión del panel (cabecera X-EA-Clave): ábrelo con ea-escritorio o ea-web-open para poder cambiar nada"),
+            Some(v) if !s.clave.coincide(v.as_bytes()) => {
+                Some("la clave de sesión del panel no es válida (¿se reinició ea-web?): cierra la ventana y vuelve a abrirla con ea-escritorio o ea-web-open")
+            }
             Some(_) => None,
         };
         if let Some(m) = mensaje {
@@ -170,11 +164,7 @@ async fn guardia(State(s): State<Arc<AppState>>, req: Request, next: Next) -> Re
             r.headers_mut().insert(clave::CABECERA, header::HeaderValue::from_static("requerida"));
             return r;
         }
-        let es_json = req
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.starts_with("application/json"));
+        let es_json = req.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("application/json"));
         if !es_json {
             return ApiError::new(StatusCode::BAD_REQUEST, "se espera un cuerpo application/json").into_response();
         }
@@ -205,11 +195,7 @@ pub const ESTATICOS: &[(&str, &str, &str)] = &[
 ];
 
 fn estatico(tipo: &'static str, cuerpo: impl IntoResponse) -> Response {
-    (
-        [(header::CONTENT_TYPE, tipo), (header::CACHE_CONTROL, "no-store")],
-        cuerpo,
-    )
-        .into_response()
+    ([(header::CONTENT_TYPE, tipo), (header::CACHE_CONTROL, "no-store")], cuerpo).into_response()
 }
 
 async fn tema_css(State(s): State<Arc<AppState>>) -> Response {

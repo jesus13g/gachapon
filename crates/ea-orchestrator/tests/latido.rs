@@ -42,11 +42,8 @@ fn parar(hijo: &mut Child) {
 fn el_latido_va_al_fichero_del_bus_y_el_diario_solo_guarda_arranque_y_parada() {
     let d = tempfile::tempdir().unwrap();
     let r = d.path();
-    let mut hijo = ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea-orchestrator"), r)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("lanzar ea-orchestrator");
+    let mut hijo =
+        ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea-orchestrator"), r).stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("lanzar ea-orchestrator");
     let pid = hijo.id();
     let estado = r.join("estado");
     let latido = esperar("el latido", || ea_bus::latido_orquestador(&estado));

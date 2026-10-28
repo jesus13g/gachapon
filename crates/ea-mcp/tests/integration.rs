@@ -6,8 +6,8 @@
 use std::sync::Arc;
 
 use ea_mcp::EaTools;
-use ea_store::Store;
 use ea_pruebas::mcp::conectar;
+use ea_store::Store;
 use rmcp::model::CallToolRequestParams;
 use tokio::sync::Mutex;
 
@@ -32,7 +32,11 @@ async fn start_server(db_path: std::path::PathBuf) -> String {
     let ajustes = ea_ajustes::Fuentes::aislada(&db_path.parent().unwrap().join("ajustes"));
 
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), rutinas.clone(), boveda.clone(), estado_temporal().to_path_buf()).con_ajustes(ajustes.clone()).con_credencial(credencial()),
+        move || {
+            EaTools::con_entorno(store.clone(), rutinas.clone(), boveda.clone(), estado_temporal().to_path_buf())
+                .con_ajustes(ajustes.clone())
+                .con_credencial(credencial())
+        },
         Default::default(),
     );
 
@@ -46,10 +50,7 @@ async fn expone_el_catalogo_y_responde_a_una_llamada() {
     let url = start_server(db_path).await;
     let client = conectar(&url, "ea-mcp-test-client").await;
 
-    let tools = client
-        .list_tools(Default::default())
-        .await
-        .expect("tools/list");
+    let tools = client.list_tools(Default::default()).await.expect("tools/list");
     let names: Vec<&str> = tools.tools.iter().map(|t| t.name.as_ref()).collect();
     for ausente in ["ea_listar_tareas", "ea_ver_tarea", "ea_crear_tarea", "ea_cambiar_estado_tarea"] {
         assert!(!names.contains(&ausente), "{ausente} ya no existe");
@@ -71,16 +72,10 @@ async fn expone_el_catalogo_y_responde_a_una_llamada() {
         "ea_retirar_rutina",
         "ea_restaurar_rutina",
     ] {
-        assert!(
-            names.contains(&expected),
-            "falta la herramienta {expected} en el catálogo: {names:?}"
-        );
+        assert!(names.contains(&expected), "falta la herramienta {expected} en el catálogo: {names:?}");
     }
 
-    let status = client
-        .call_tool(CallToolRequestParams::new("ea_status"))
-        .await
-        .expect("llamar a ea_status");
+    let status = client.call_tool(CallToolRequestParams::new("ea_status")).await.expect("llamar a ea_status");
     assert_ne!(status.content.len(), 0, "ea_status no devolvió contenido");
 
     client.cancel().await.ok();
@@ -94,30 +89,13 @@ async fn atribuye_al_modelo_local_cuando_el_cliente_es_qwen_code() {
 
     let client = conectar(&url, "qwen-code-mcp-client").await;
 
-    client
-        .call_tool(CallToolRequestParams::new("ea_status"))
-        .await
-        .expect("llamar a ea_status como qwen-code");
+    client.call_tool(CallToolRequestParams::new("ea_status")).await.expect("llamar a ea_status como qwen-code");
 
-    let diario = client
-        .call_tool(CallToolRequestParams::new("ea_listar_diario"))
-        .await
-        .expect("listar diario");
+    let diario = client.call_tool(CallToolRequestParams::new("ea_listar_diario")).await.expect("listar diario");
     let diario = text_of(&diario);
-    let actores: Vec<&str> = diario["eventos"]
-        .as_array()
-        .expect("eventos")
-        .iter()
-        .map(|e| e["actor"].as_str().unwrap_or_default())
-        .collect();
-    assert!(
-        actores.contains(&"modelo-local"),
-        "las invocaciones de qwen-code deben quedar atribuidas a modelo-local: {actores:?}"
-    );
-    assert!(
-        !actores.contains(&"claude-code"),
-        "no debe atribuirse a claude-code lo que hizo qwen-code: {actores:?}"
-    );
+    let actores: Vec<&str> = diario["eventos"].as_array().expect("eventos").iter().map(|e| e["actor"].as_str().unwrap_or_default()).collect();
+    assert!(actores.contains(&"modelo-local"), "las invocaciones de qwen-code deben quedar atribuidas a modelo-local: {actores:?}");
+    assert!(!actores.contains(&"claude-code"), "no debe atribuirse a claude-code lo que hizo qwen-code: {actores:?}");
 
     client.cancel().await.ok();
 }
@@ -128,7 +106,7 @@ async fn atribuye_al_modelo_local_cuando_el_cliente_es_qwen_code() {
 /// proponer ni escribir. El ejecutor actúa con o sin ella.
 #[tokio::test]
 async fn el_planificador_se_identifica_por_la_credencial_y_no_por_el_nombre() {
-    use ea_pruebas::mcp::{conectar_con, llamar, CREDENCIAL};
+    use ea_pruebas::mcp::{CREDENCIAL, conectar_con, llamar};
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("ecosistema-test.db");
     let url = start_server(db_path.clone()).await;
@@ -170,30 +148,13 @@ async fn atribuye_al_orquestador_cuando_el_cliente_es_ea_orchestrator() {
 
     let client = conectar(&url, "ea-orchestrator").await;
 
-    client
-        .call_tool(CallToolRequestParams::new("ea_status"))
-        .await
-        .expect("llamar a ea_status como ea-orchestrator");
+    client.call_tool(CallToolRequestParams::new("ea_status")).await.expect("llamar a ea_status como ea-orchestrator");
 
-    let diario = client
-        .call_tool(CallToolRequestParams::new("ea_listar_diario"))
-        .await
-        .expect("listar diario");
+    let diario = client.call_tool(CallToolRequestParams::new("ea_listar_diario")).await.expect("listar diario");
     let diario = text_of(&diario);
-    let actores: Vec<&str> = diario["eventos"]
-        .as_array()
-        .expect("eventos")
-        .iter()
-        .map(|e| e["actor"].as_str().unwrap_or_default())
-        .collect();
-    assert!(
-        actores.contains(&"orquestador"),
-        "las invocaciones de ea-orchestrator deben quedar atribuidas a orquestador: {actores:?}"
-    );
-    assert!(
-        !actores.contains(&"claude-code"),
-        "no debe atribuirse a claude-code lo que hizo ea-orchestrator: {actores:?}"
-    );
+    let actores: Vec<&str> = diario["eventos"].as_array().expect("eventos").iter().map(|e| e["actor"].as_str().unwrap_or_default()).collect();
+    assert!(actores.contains(&"orquestador"), "las invocaciones de ea-orchestrator deben quedar atribuidas a orquestador: {actores:?}");
+    assert!(!actores.contains(&"claude-code"), "no debe atribuirse a claude-code lo que hizo ea-orchestrator: {actores:?}");
 
     client.cancel().await.ok();
 }
@@ -231,23 +192,13 @@ async fn los_trabajos_del_bus_se_leen_pero_no_se_crean_desde_mcp() {
         })
         .expect("crear trabajo");
 
-    let listado = text_of(
-        &client
-            .call_tool(CallToolRequestParams::new("ea_listar_trabajos"))
-            .await
-            .expect("listar trabajos"),
-    );
+    let listado = text_of(&client.call_tool(CallToolRequestParams::new("ea_listar_trabajos")).await.expect("listar trabajos"));
     let ids: Vec<_> = listado["trabajos"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap().to_string()).collect();
     assert!(ids.contains(&id), "{ids:?}");
 
     let mut args = serde_json::Map::new();
     args.insert("id".into(), serde_json::json!(id));
-    let detalle = text_of(
-        &client
-            .call_tool(CallToolRequestParams::new("ea_ver_trabajo").with_arguments(args))
-            .await
-            .expect("ver trabajo"),
-    );
+    let detalle = text_of(&client.call_tool(CallToolRequestParams::new("ea_ver_trabajo").with_arguments(args)).await.expect("ver trabajo"));
     assert_eq!(detalle["orden"]["titulo"], "Probar MCP");
     assert!(detalle["informe"].is_null());
 
@@ -302,9 +253,8 @@ async fn ea_listar_diario_recorta_el_limite_al_maximo_del_actor() {
     }
     let planificador = conectar(&url, "claude-code").await;
     let local = conectar(&url, "qwen-code-mcp-client").await;
-    let cuantos = async |c: &ea_pruebas::mcp::Cliente, args: serde_json::Value| {
-        llamar(c, "ea_listar_diario", args).await.unwrap()["eventos"].as_array().unwrap().len()
-    };
+    let cuantos =
+        async |c: &ea_pruebas::mcp::Cliente, args: serde_json::Value| llamar(c, "ea_listar_diario", args).await.unwrap()["eventos"].as_array().unwrap().len();
     assert_eq!(cuantos(&planificador, serde_json::json!({ "limite": 100_000 })).await, 50);
     assert_eq!(cuantos(&planificador, serde_json::json!({})).await, 20);
     assert_eq!(cuantos(&planificador, serde_json::json!({ "limite": 7 })).await, 7);
@@ -319,12 +269,7 @@ async fn ea_status_informa_del_estado_real_del_orquestador() {
     let url = start_server(db_path.clone()).await;
     let client = conectar(&url, "ea-mcp-test-client").await;
 
-    let sin_latido = text_of(
-        &client
-            .call_tool(CallToolRequestParams::new("ea_status"))
-            .await
-            .expect("llamar a ea_status"),
-    );
+    let sin_latido = text_of(&client.call_tool(CallToolRequestParams::new("ea_status")).await.expect("llamar a ea_status"));
     assert_eq!(sin_latido["orquestador"]["vivo"], false);
     assert!(sin_latido["orquestador"]["ultimo_latido"].is_null());
 
@@ -345,12 +290,7 @@ async fn ea_status_informa_del_estado_real_del_orquestador() {
     // El bus hace de orquestador escribiendo su latido en el fichero.
     ea_bus::Bus::abrir_en(estado_temporal()).expect("bus temporal").latir_orquestador(None).expect("latir");
 
-    let con_latido = text_of(
-        &client
-            .call_tool(CallToolRequestParams::new("ea_status"))
-            .await
-            .expect("llamar a ea_status"),
-    );
+    let con_latido = text_of(&client.call_tool(CallToolRequestParams::new("ea_status")).await.expect("llamar a ea_status"));
     assert_eq!(con_latido["orquestador"]["vivo"], true);
     assert_eq!(con_latido["orquestador"]["estado"], "vivo");
     assert!(con_latido["orquestador"]["ultimo_latido"].is_string());
@@ -378,8 +318,7 @@ fn equipo_de_prueba() -> String {
             &ajustes,
         )
         .expect("despertar");
-    bus.anotar_presencia(&ea_bus::Presencia::nueva("claude-code", ea_bus::RolEquipo::Planificador, Some(&e.id), std::process::id()))
-        .unwrap();
+    bus.anotar_presencia(&ea_bus::Presencia::nueva("claude-code", ea_bus::RolEquipo::Planificador, Some(&e.id), std::process::id())).unwrap();
     e.id
 }
 

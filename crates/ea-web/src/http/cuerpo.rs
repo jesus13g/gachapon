@@ -22,8 +22,6 @@ impl<S: Send + Sync, T: DeserializeOwned> FromRequest<S> for Cuerpo<T> {
             .await
             .map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, format!("no se pudo leer el cuerpo: {}", e.body_text())))?;
         let bytes: &[u8] = if bytes.iter().all(u8::is_ascii_whitespace) { b"{}" } else { &bytes };
-        serde_json::from_slice(bytes)
-            .map(Cuerpo)
-            .map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, format!("cuerpo inválido: {e}")))
+        serde_json::from_slice(bytes).map(Cuerpo).map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, format!("cuerpo inválido: {e}")))
     }
 }

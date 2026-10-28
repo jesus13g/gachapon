@@ -212,10 +212,7 @@ fn casa(e: &Elemento, tipo: Tipo, nombre: &str) -> bool {
     }
     match tipo {
         Tipo::Skill | Tipo::Subagente | Tipo::Comando => {
-            e.nombre == nombre
-                || nombre
-                    .split_once(':')
-                    .is_some_and(|(pfx, suf)| plugin_corto(e) == Some(pfx) && e.nombre == suf)
+            e.nombre == nombre || nombre.split_once(':').is_some_and(|(pfx, suf)| plugin_corto(e) == Some(pfx) && e.nombre == suf)
         }
         Tipo::Plugin | Tipo::Extension => e.nombre == nombre,
         Tipo::Mcp => {
@@ -229,9 +226,7 @@ fn resolver<'a>(inv: &'a Inventario, agente: &str, tipo: Tipo, nombre: &str) -> 
     let mut del_agente = inv.elementos.iter().filter(|e| e.agente == agente);
     if agente == AgenteId::OpenCode.as_str() && tipo == Tipo::Mcp {
         // OpenCode llama a las herramientas MCP `<servidor>_<herramienta>`: gana el prefijo más largo.
-        return del_agente
-            .filter(|e| e.tipo == Tipo::Mcp && nombre.starts_with(&format!("{}_", normalizar_mcp(&e.nombre))))
-            .max_by_key(|e| e.nombre.len());
+        return del_agente.filter(|e| e.tipo == Tipo::Mcp && nombre.starts_with(&format!("{}_", normalizar_mcp(&e.nombre)))).max_by_key(|e| e.nombre.len());
     }
     del_agente.find(|e| casa(e, tipo, nombre))
 }

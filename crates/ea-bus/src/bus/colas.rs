@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::{ahora_rfc3339, nuevo_id, Bus};
+use super::{Bus, ahora_rfc3339, nuevo_id};
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::escribir_json;
 use crate::tipos::{Orden, Rol};
@@ -40,9 +40,7 @@ impl Cola<'_> {
         let colas = raiz.join("colas");
         match self {
             Cola::Rol(r) => Ok(colas.join(r.as_str())),
-            Cola::Agente(a) | Cola::Revision(a) if ea_ajustes::ficha(a).is_none() => {
-                Err(ErrorBus::Argumentos(format!("{a:?} no es un agente del catálogo")))
-            }
+            Cola::Agente(a) | Cola::Revision(a) if ea_ajustes::ficha(a).is_none() => Err(ErrorBus::Argumentos(format!("{a:?} no es un agente del catálogo"))),
             Cola::Agente(a) => Ok(colas.join("agentes").join(a)),
             Cola::Revision(a) => Ok(colas.join("revision").join(a)),
         }
@@ -100,11 +98,8 @@ impl Bus {
         let mut v: Vec<Cola<'static>> = Rol::TODOS.iter().map(|&r| Cola::Rol(r)).collect();
         for sub in ["agentes", "revision"] {
             let Ok(rd) = fs::read_dir(self.raiz.join("colas").join(sub)) else { continue };
-            let mut agentes: Vec<&'static str> = rd
-                .flatten()
-                .filter(|e| e.path().is_dir())
-                .filter_map(|e| ea_ajustes::ficha(e.file_name().to_str()?).map(|f| f.id.as_str()))
-                .collect();
+            let mut agentes: Vec<&'static str> =
+                rd.flatten().filter(|e| e.path().is_dir()).filter_map(|e| ea_ajustes::ficha(e.file_name().to_str()?).map(|f| f.id.as_str())).collect();
             agentes.sort();
             v.extend(agentes.into_iter().map(|a| if sub == "agentes" { Cola::Agente(a) } else { Cola::Revision(a) }));
         }
@@ -121,10 +116,7 @@ impl Bus {
                 if nombre.starts_with('.') || !nombre.ends_with(".json") {
                     continue;
                 }
-                let de_este = fs::read(&p)
-                    .ok()
-                    .and_then(|b| serde_json::from_slice::<EntradaCola>(&b).ok())
-                    .is_some_and(|en| en.trabajo == id);
+                let de_este = fs::read(&p).ok().and_then(|b| serde_json::from_slice::<EntradaCola>(&b).ok()).is_some_and(|en| en.trabajo == id);
                 if de_este && fs::remove_file(&p).is_ok() {
                     n += 1;
                 }

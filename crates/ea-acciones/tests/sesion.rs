@@ -10,7 +10,7 @@ use ea_ajustes::{Ajustes, Fuentes};
 use ea_biblioteca::{Biblioteca, Raices};
 use ea_pruebas::{escribe, sin_secretos};
 use ea_store::{EstadoEjecucion, EstadoPropuesta, Store};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const SECRETOS: &[&str] = &["SECRETO_ENV", "SECRETO_HEADER", "SECRETO_RUTA"];
 
@@ -86,10 +86,7 @@ async fn simular_describe_el_plan_sin_secretos_y_no_escribe_nada() {
     assert_eq!(sim.riesgo, Riesgo::Reversible);
     // Normalizados: ordenados y sin repetir, y con la carpeta resuelta (sin
     // proyecto, el HOME).
-    assert_eq!(
-        sim.argumentos,
-        json!({ "agente": "claude-code", "herramientas": [MCP, REMOTO, SKILL], "directorio": e.home.to_str().unwrap() })
-    );
+    assert_eq!(sim.argumentos, json!({ "agente": "claude-code", "herramientas": [MCP, REMOTO, SKILL], "directorio": e.home.to_str().unwrap() }));
     for trozo in ["--strict-mcp-config", "--mcp-config", "mcp.json", "ajustes.json", "--plugin-dir", "0600"] {
         assert!(sim.texto.contains(trozo), "{trozo}: {}", sim.texto);
     }

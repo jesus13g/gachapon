@@ -3,7 +3,8 @@
 
 use crate::comun::*;
 
-const MEMORIA_EJEMPLO: &str = "---\nname: refactor\ndescription: \"Qué se refactorizó\"\nmetadata:\n  node_type: memory\n  type: project\n---\n\nCuerpo con [[otra]].\n";
+const MEMORIA_EJEMPLO: &str =
+    "---\nname: refactor\ndescription: \"Qué se refactorizó\"\nmetadata:\n  node_type: memory\n  type: project\n---\n\nCuerpo con [[otra]].\n";
 
 /// Un proyecto de Claude Code con dos memorias, el índice y una transcripción
 /// que cuenta su cwd. Además, uno sin `memory/` y otro con ella vacía.
@@ -14,11 +15,7 @@ fn montar_memoria(f: &Fixture) -> std::path::PathBuf {
     std::fs::write(mem.join("refactor.md"), MEMORIA_EJEMPLO).unwrap();
     std::fs::write(mem.join("MEMORY.md"), "- [Refactor](refactor.md) — gancho\n").unwrap();
     std::fs::write(mem.join("notas.txt"), "no es markdown").unwrap();
-    std::fs::write(
-        raiz.join("-home-u-proy/sesion.jsonl"),
-        "{\"type\":\"x\"}\nbasura\n{\"cwd\":\"/home/u/proy\",\"type\":\"user\"}\n",
-    )
-    .unwrap();
+    std::fs::write(raiz.join("-home-u-proy/sesion.jsonl"), "{\"type\":\"x\"}\nbasura\n{\"cwd\":\"/home/u/proy\",\"type\":\"user\"}\n").unwrap();
     std::fs::create_dir_all(raiz.join("-sin-memoria")).unwrap();
     std::fs::create_dir_all(raiz.join("-vacia/memory")).unwrap();
     mem
@@ -134,10 +131,7 @@ async fn crear_una_memoria_escribe_cabecera_e_indice_y_deja_rastro() {
     assert_eq!(m["nombre"], "mi-nota.md");
     let en_disco = std::fs::read_to_string(mem.join("mi-nota.md")).unwrap();
     assert_eq!(en_disco, "---\nname: Mi nota\ndescription: Para recordar\nmetadata:\n  type: user\n---\n\nTexto.\n");
-    assert_eq!(
-        std::fs::read_to_string(mem.join("MEMORY.md")).unwrap(),
-        "- [Refactor](refactor.md) — gancho\n- [Mi nota](mi-nota.md) — Para recordar\n"
-    );
+    assert_eq!(std::fs::read_to_string(mem.join("MEMORY.md")).unwrap(), "- [Refactor](refactor.md) — gancho\n- [Mi nota](mi-nota.md) — Para recordar\n");
     // Aparece en el listado con su título y tipo.
     let (_, l) = get(&f, "/api/memoria").await;
     let fichero = l["proyectos"][0]["ficheros"].as_array().unwrap().iter().find(|x| x["nombre"] == "mi-nota.md").unwrap().clone();

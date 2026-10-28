@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::agentes::id_perfil_valido;
-use crate::claves::{aplicar, clave, concretas, heredadas, valor_de, Clave, ALIAS, AJ_VIEJO};
+use crate::claves::{AJ_VIEJO, ALIAS, Clave, aplicar, clave, concretas, heredadas, valor_de};
 use crate::escribir::{huella, interpretar};
 use crate::fuentes::{Ajustes, Fuentes};
 use crate::validar::{validar_escribibles, validar_perfil, validar_roles, validar_valor};
@@ -22,8 +22,12 @@ pub enum Origen {
     Defecto,
     Ajustes,
     /// Un TOML antiguo, o la sección `[modelo]` antigua de `ajustes.toml`.
-    Heredado { fichero: &'static str },
-    Entorno { variable: &'static str },
+    Heredado {
+        fichero: &'static str,
+    },
+    Entorno {
+        variable: &'static str,
+    },
 }
 
 impl Origen {
@@ -145,28 +149,28 @@ pub(crate) fn resolver(f: &Fuentes, ajustes_toml: Option<&str>, version: String,
     for (nombre, c) in &lista {
         let por_defecto = match valor_de(&defecto, nombre) {
             // Un perfil que no está en los valores por defecto.
-            Value::Null => validar_valor(c, &Value::String(String::new()))
-                .or_else(|_| validar_valor(c, &Value::Bool(false)))
-                .unwrap_or(Value::Null),
+            Value::Null => validar_valor(c, &Value::String(String::new())).or_else(|_| validar_valor(c, &Value::Bool(false))).unwrap_or(Value::Null),
             v => v,
         };
         defectos.insert(nombre.clone(), por_defecto.clone());
         let mut elegido: Option<(Value, Origen)> = None;
 
         if let Some(var) = c.entorno
-            && let Some(texto) = f.entorno.var(var) {
-                match interpretar(c, &texto) {
-                    Ok(v) => elegido = Some((v, Origen::Entorno { variable: var })),
-                    Err(e) => avisos.push(format!("{var}: {e}; se ignora")),
-                }
+            && let Some(texto) = f.entorno.var(var)
+        {
+            match interpretar(c, &texto) {
+                Ok(v) => elegido = Some((v, Origen::Entorno { variable: var })),
+                Err(e) => avisos.push(format!("{var}: {e}; se ignora")),
             }
+        }
         if elegido.is_none()
-            && let Some(v) = propia.as_ref().and_then(|t| buscar(t, nombre)) {
-                match serde_json::to_value(v).map_err(|e| e.to_string()).and_then(|j| validar_valor(c, &j)) {
-                    Ok(v) => elegido = Some((v, Origen::Ajustes)),
-                    Err(e) => avisos.push(format!("ajustes.toml: {nombre}: {e}; se ignora")),
-                }
+            && let Some(v) = propia.as_ref().and_then(|t| buscar(t, nombre))
+        {
+            match serde_json::to_value(v).map_err(|e| e.to_string()).and_then(|j| validar_valor(c, &j)) {
+                Ok(v) => elegido = Some((v, Origen::Ajustes)),
+                Err(e) => avisos.push(format!("ajustes.toml: {nombre}: {e}; se ignora")),
             }
+        }
         for (fichero, ruta) in heredadas(nombre, c) {
             if elegido.is_some() {
                 break;
@@ -197,10 +201,7 @@ pub(crate) fn resolver(f: &Fuentes, ajustes_toml: Option<&str>, version: String,
     // Validación cruzada: los dos servicios no pueden compartir puerto.
     for perdedora in ["red.puerto_mcp", "red.puerto_web"] {
         if valores["red.puerto_web"] == valores["red.puerto_mcp"] {
-            conflictos.push(format!(
-                "red.puerto_web y red.puerto_mcp coinciden ({}); {perdedora} vuelve a su valor por defecto",
-                valores["red.puerto_web"]
-            ));
+            conflictos.push(format!("red.puerto_web y red.puerto_mcp coinciden ({}); {perdedora} vuelve a su valor por defecto", valores["red.puerto_web"]));
             revertir(perdedora, &mut valores, &mut origenes);
         }
     }

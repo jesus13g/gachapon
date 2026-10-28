@@ -112,11 +112,7 @@ pub fn listar(raiz: &Path) -> Vec<Proyecto> {
         .filter_map(|e| {
             let dir = e.path();
             let ficheros = ficheros(&dir.join("memory"));
-            (!ficheros.is_empty()).then(|| Proyecto {
-                id: e.file_name().to_string_lossy().into_owned(),
-                cwd: cwd_de(&dir),
-                ficheros,
-            })
+            (!ficheros.is_empty()).then(|| Proyecto { id: e.file_name().to_string_lossy().into_owned(), cwd: cwd_de(&dir), ficheros })
         })
         .collect();
     v.sort_by(|a, b| a.id.cmp(&b.id));
@@ -230,28 +226,19 @@ pub fn leer(raiz: &Path, proyecto: &str, fichero: &str) -> Result<Memoria, Error
 fn comprobar_version(p: &Path, version_base: &str) -> Result<Vec<u8>, ErrorMemoria> {
     let actual = std::fs::read(p).map_err(|e| ErrorMemoria::Interno(format!("no se pudo leer la memoria: {e}")))?;
     if version(&actual) != version_base {
-        return Err(ErrorMemoria::Conflicto(
-            "la memoria cambió en disco desde que la abriste; recárgala".into(),
-        ));
+        return Err(ErrorMemoria::Conflicto("la memoria cambió en disco desde que la abriste; recárgala".into()));
     }
     Ok(actual)
 }
 
 /// La escritura atómica de `ea-plataforma`: nunca queda a medias.
 fn escribir_atomico(p: &Path, contenido: &[u8]) -> Result<(), ErrorMemoria> {
-    ea_plataforma::fs::escribir_atomico(p, contenido, Permisos::Heredados)
-        .map_err(|e| ErrorMemoria::Interno(format!("no se pudo guardar la memoria: {e}")))
+    ea_plataforma::fs::escribir_atomico(p, contenido, Permisos::Heredados).map_err(|e| ErrorMemoria::Interno(format!("no se pudo guardar la memoria: {e}")))
 }
 
 /// Reemplaza una memoria que ya existe. Falla con `Conflicto` si en disco ya
 /// no tiene la versión con la que el usuario empezó a editar.
-pub fn guardar(
-    raiz: &Path,
-    proyecto: &str,
-    fichero: &str,
-    contenido: &str,
-    version_base: &str,
-) -> Result<Memoria, ErrorMemoria> {
+pub fn guardar(raiz: &Path, proyecto: &str, fichero: &str, contenido: &str, version_base: &str) -> Result<Memoria, ErrorMemoria> {
     let p = ruta(raiz, proyecto, fichero)?;
     if contenido.len() > MAX_BYTES {
         return Err(ErrorMemoria::Invalido(format!("la memoria supera {} KiB", MAX_BYTES / 1024)));
@@ -281,13 +268,7 @@ pub fn eliminar(raiz: &Path, proyecto: &str, fichero: &str, version_base: &str) 
 /// Renombra una memoria sin pisar ninguna otra y reescribe los enlaces que
 /// apuntaban a ella en las demás memorias del proyecto. Devuelve la memoria
 /// con su nombre nuevo y los ficheros cuyos enlaces cambiaron.
-pub fn renombrar(
-    raiz: &Path,
-    proyecto: &str,
-    fichero: &str,
-    nuevo: &str,
-    version_base: &str,
-) -> Result<(Memoria, Vec<String>), ErrorMemoria> {
+pub fn renombrar(raiz: &Path, proyecto: &str, fichero: &str, nuevo: &str, version_base: &str) -> Result<(Memoria, Vec<String>), ErrorMemoria> {
     let p = ruta(raiz, proyecto, fichero)?;
     nombre_valido(proyecto, nuevo)?;
     no_es_indice(fichero)?;
@@ -340,12 +321,9 @@ pub struct NuevaMemoria<'a> {
 fn fichero_nuevo(fichero: &str) -> Result<String, ErrorMemoria> {
     let f = fichero.trim();
     let base = f.strip_suffix(".md").unwrap_or(f);
-    let kebab = !base.is_empty()
-        && base.split('-').all(|g| !g.is_empty() && g.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
+    let kebab = !base.is_empty() && base.split('-').all(|g| !g.is_empty() && g.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
     if !kebab || base.len() > 100 {
-        return Err(ErrorMemoria::Invalido(
-            "nombre de memoria inválido: kebab-case (minúsculas, cifras y guiones, p. ej. `mi-memoria`)".into(),
-        ));
+        return Err(ErrorMemoria::Invalido("nombre de memoria inválido: kebab-case (minúsculas, cifras y guiones, p. ej. `mi-memoria`)".into()));
     }
     Ok(format!("{base}.md"))
 }
@@ -367,11 +345,7 @@ fn yaml(v: &str) -> String {
 
 /// El texto completo de una memoria: cabecera, línea en blanco y cuerpo.
 fn texto_memoria(titulo: &str, descripcion: &str, tipo: &str, cuerpo: &str) -> String {
-    let mut t = format!(
-        "---\nname: {}\ndescription: {}\nmetadata:\n  type: {tipo}\n---\n\n",
-        yaml(titulo),
-        yaml(descripcion)
-    );
+    let mut t = format!("---\nname: {}\ndescription: {}\nmetadata:\n  type: {tipo}\n---\n\n", yaml(titulo), yaml(descripcion));
     let cuerpo = cuerpo.trim();
     if !cuerpo.is_empty() {
         t.push_str(cuerpo);
@@ -442,9 +416,7 @@ pub fn crear(raiz: &Path, proyecto: &str, n: &NuevaMemoria) -> Result<Memoria, E
 fn anotar_en_indice(dir: &Path, linea: &str) -> Result<(), ErrorMemoria> {
     let p = dir.join(INDICE);
     let mut texto = match std::fs::symlink_metadata(&p) {
-        Ok(m) if m.is_file() => {
-            std::fs::read_to_string(&p).map_err(|e| ErrorMemoria::Interno(format!("no se pudo leer {INDICE}: {e}")))?
-        }
+        Ok(m) if m.is_file() => std::fs::read_to_string(&p).map_err(|e| ErrorMemoria::Interno(format!("no se pudo leer {INDICE}: {e}")))?,
         Ok(_) => return Err(ErrorMemoria::Invalido(format!("{INDICE} no es un fichero normal"))),
         Err(_) => String::new(),
     };
@@ -479,10 +451,7 @@ mod pruebas_crear {
         std::fs::create_dir_all(d.path().join("p")).unwrap();
         let m = crear(d.path(), "p", &nueva("mi-memoria")).unwrap();
         assert_eq!(m.nombre, "mi-memoria.md");
-        assert_eq!(
-            m.contenido,
-            "---\nname: Mi memoria\ndescription: Qué recuerda\nmetadata:\n  type: feedback\n---\n\nCuerpo.\n"
-        );
+        assert_eq!(m.contenido, "---\nname: Mi memoria\ndescription: Qué recuerda\nmetadata:\n  type: feedback\n---\n\nCuerpo.\n");
         assert_eq!(frontmatter(&m.contenido).tipo.as_deref(), Some("feedback"));
         let indice = std::fs::read_to_string(d.path().join("p/memory/MEMORY.md")).unwrap();
         assert_eq!(indice, "- [Mi memoria](mi-memoria.md) — Qué recuerda\n");
@@ -494,10 +463,7 @@ mod pruebas_crear {
         // Un índice sin salto final se respeta.
         std::fs::write(d.path().join("p/memory/MEMORY.md"), "- viejo").unwrap();
         crear(d.path(), "p", &nueva("otra")).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(d.path().join("p/memory/MEMORY.md")).unwrap(),
-            "- viejo\n- [Mi memoria](otra.md) — Qué recuerda\n"
-        );
+        assert_eq!(std::fs::read_to_string(d.path().join("p/memory/MEMORY.md")).unwrap(), "- viejo\n- [Mi memoria](otra.md) — Qué recuerda\n");
     }
 
     #[test]

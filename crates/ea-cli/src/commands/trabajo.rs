@@ -2,10 +2,10 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Result};
-use ea_bus::{Bus, Rol, Evento, Modo, Orden};
+use anyhow::{Result, anyhow};
+use ea_bus::{Bus, Evento, Modo, Orden, Rol};
 
-use super::{limpio, Contexto};
+use super::{Contexto, limpio};
 
 /// El bus con historial si la base abre (sin ella, sigue): el de `ea equipo`.
 pub(super) fn bus() -> Result<Bus> {

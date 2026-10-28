@@ -10,16 +10,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use ea_ajustes::{Ajustes, Fuentes};
-use ea_bus::{
-    Bus, Cola, EstadoTrabajo, Miembro, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
-};
+use ea_bus::{Bus, Cola, EstadoTrabajo, Miembro, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes};
 use ea_orchestrator::config::ConfigOrquestador;
-use ea_orchestrator::ejecutor::{correr_criterio, ejecutar_uno, Ejecutor, SalidaAgente};
+use ea_orchestrator::ejecutor::{Ejecutor, SalidaAgente, correr_criterio, ejecutar_uno};
 use ea_orchestrator::sandbox::Sandbox;
-use ea_orchestrator::trabajadores::{arrancar, ejecutores_despiertos, Contexto, Trabajadores};
+use ea_orchestrator::trabajadores::{Contexto, Trabajadores, arrancar, ejecutores_despiertos};
 use ea_pruebas::git;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 const LIMITE: Duration = Duration::from_secs(20);
 /// El tope de los criterios que se corren aquí a mano (el de por defecto).
@@ -181,9 +179,8 @@ impl Drop for Entorno {
 #[test]
 fn los_ejecutores_despiertos_salen_de_los_equipos_con_el_tope_y_sin_equipos_es_el_del_rol() {
     let e = Entorno::nuevo(1);
-    let agentes = |a: &Ajustes| -> Vec<String> {
-        ejecutores_despiertos(&e.bus.listar_equipos().unwrap_or_default(), a).into_iter().map(|d| d.agente).collect()
-    };
+    let agentes =
+        |a: &Ajustes| -> Vec<String> { ejecutores_despiertos(&e.bus.listar_equipos().unwrap_or_default(), a).into_iter().map(|d| d.agente).collect() };
     assert_eq!(agentes(&e.ajustes), ["qwen-code"], "sin equipos: roles.ejecutor");
     let id = e.equipo();
     assert_eq!(agentes(&e.ajustes), ["qwen-code"], "paralelo = 1 recorta al primero");
@@ -227,10 +224,7 @@ fn dos_trabajos_en_el_mismo_worktree_no_corren_a_la_vez() {
     t.reconciliar();
     dentro.recv_timeout(LIMITE).unwrap();
     // El otro trabajador se topa con el semáforo y devuelve el trabajo a la cola.
-    esperar_que(
-        || e.bus.listar_cola(Rol::Ejecutor).unwrap().iter().any(|x| x.motivo == "worktree ocupado"),
-        "el trabajo vuelve a la cola de rol",
-    );
+    esperar_que(|| e.bus.listar_cola(Rol::Ejecutor).unwrap().iter().any(|x| x.motivo == "worktree ocupado"), "el trabajo vuelve a la cola de rol");
     assert_eq!(doble.llamadas().len(), 1, "solo uno ha llegado al agente");
     soltar.send(()).unwrap();
     esperar_que(|| e.en_revision(&[&i1, &i2]), "ambos trabajos entregados, uno tras otro");
@@ -584,7 +578,8 @@ fn el_criterio_en_bwrap_solo_escribe_en_el_worktree_su_tmp_y_sus_rutas() {
     let (pasa, evidencia) = criterio("touch corrio", std::slice::from_ref(&ida));
     assert!(!pasa && evidencia.contains("ya no existe o ha cambiado") && !r.join("corrio").exists(), "{evidencia}");
     // Sin sandbox, como antes: escribe donde el usuario.
-    let (pasa, evidencia) = correr_criterio(&Sandbox::Ninguno, &r, &format!("touch '{}/.bashrc'", casa.display()), &[ida], None, TOPE_CRITERIO, &|| false).unwrap();
+    let (pasa, evidencia) =
+        correr_criterio(&Sandbox::Ninguno, &r, &format!("touch '{}/.bashrc'", casa.display()), &[ida], None, TOPE_CRITERIO, &|| false).unwrap();
     assert!(pasa && casa.join(".bashrc").exists(), "{evidencia}");
 }
 

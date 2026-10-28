@@ -20,7 +20,7 @@ use ea_ajustes::buscar_binario;
 use ea_bus::{TipoAgente, Topes};
 
 use crate::config::{ConfigOrquestador, PerfilEjecutor};
-use crate::ejecutor::{avisar_sin_arbol, SalidaAgente};
+use crate::ejecutor::{SalidaAgente, avisar_sin_arbol};
 use crate::sandbox::Sandbox;
 
 /// Lo que el bucle del orquestador necesita de un ejecutor.
@@ -28,15 +28,7 @@ pub trait Ejecutor {
     /// `sistema` son las skills del trabajo; vacío si no hay. `cancelado`
     /// dice si el trabajo se ha cancelado: hay que consultarlo mientras
     /// corre y cortar en cuanto devuelva `true`.
-    fn ejecutar(
-        &self,
-        prompt: &str,
-        sistema: &str,
-        worktree: &Path,
-        topes: &Topes,
-        config: &ConfigOrquestador,
-        cancelado: &dyn Fn() -> bool,
-    ) -> SalidaAgente;
+    fn ejecutar(&self, prompt: &str, sistema: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador, cancelado: &dyn Fn() -> bool) -> SalidaAgente;
 
     /// Regla sobre sus herramientas que va en las «Reglas» del prompt.
     fn regla_herramientas(&self) -> &str {
@@ -84,15 +76,7 @@ pub trait AgenteCli {
 }
 
 impl<A: AgenteCli> Ejecutor for A {
-    fn ejecutar(
-        &self,
-        prompt: &str,
-        sistema: &str,
-        worktree: &Path,
-        topes: &Topes,
-        config: &ConfigOrquestador,
-        cancelado: &dyn Fn() -> bool,
-    ) -> SalidaAgente {
+    fn ejecutar(&self, prompt: &str, sistema: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador, cancelado: &dyn Fn() -> bool) -> SalidaAgente {
         lanzar(self, Sandbox::actual(config.sandbox), prompt, sistema, worktree, topes, config, cancelado)
     }
 
@@ -129,11 +113,7 @@ pub(crate) fn lanzar<A: AgenteCli>(
     let p = &config.ejecutor;
     let ejecucion = crate::sandbox::dir_ejecucion();
     // Los directorios de estado solo se crean si van a montarse.
-    let estado = if matches!(sandbox, Sandbox::Bwrap | Sandbox::Seatbelt) {
-        preparar_dirs_estado(&home_usuario(), a.dirs_estado())
-    } else {
-        vec![]
-    };
+    let estado = if matches!(sandbox, Sandbox::Bwrap | Sandbox::Seatbelt) { preparar_dirs_estado(&home_usuario(), a.dirs_estado()) } else { vec![] };
     let args = a.argumentos(p, prompt, sistema, worktree, topes, config.sandbox);
     let mut envoltorio = match sandbox.envolver(&p.bin, &args, worktree, &estado, ejecucion.as_deref()) {
         Ok(e) => e,
@@ -168,11 +148,7 @@ pub fn fabricar(p: &PerfilEjecutor) -> Box<dyn Ejecutor + Send + Sync> {
 /// Las skills van delante del prompt en las CLI que no tienen dónde
 /// añadirlas al system prompt sin tocar su configuración global.
 fn con_sistema(sistema: &str, prompt: &str) -> String {
-    if sistema.trim().is_empty() {
-        prompt.to_string()
-    } else {
-        format!("{}\n\n{prompt}", sistema.trim())
-    }
+    if sistema.trim().is_empty() { prompt.to_string() } else { format!("{}\n\n{prompt}", sistema.trim()) }
 }
 
 /// Una cadena TOML (para los `-c clave=valor` de Codex).
@@ -195,9 +171,23 @@ impl AgenteCli for QwenCode {
         // que no se trague la orden, que va la última. Las de objetivos y
         // notebooks no le sirven y cada herramienta declarada cuesta tokens.
         let mut a: Vec<String> = [
-            "--exclude-tools", "web_fetch", "web_search", "get_goal", "update_goal", "notebook_edit", "--bare", "--auth-type", "openai",
-            "--openai-base-url", &p.modelo.base_url, "--openai-api-key", "local", "-m", &p.modelo.nombre,
-            "--approval-mode", "yolo",
+            "--exclude-tools",
+            "web_fetch",
+            "web_search",
+            "get_goal",
+            "update_goal",
+            "notebook_edit",
+            "--bare",
+            "--auth-type",
+            "openai",
+            "--openai-base-url",
+            &p.modelo.base_url,
+            "--openai-api-key",
+            "local",
+            "-m",
+            &p.modelo.nombre,
+            "--approval-mode",
+            "yolo",
         ]
         .map(String::from)
         .into();
@@ -270,9 +260,8 @@ impl AgenteCli for Codex {
     }
 
     fn argumentos(&self, p: &PerfilEjecutor, prompt: &str, sistema: &str, wt: &Path, _: &Topes, sandbox: bool) -> Vec<String> {
-        let mut a: Vec<String> = ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-C"]
-            .map(String::from)
-            .into();
+        let mut a: Vec<String> =
+            ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-C"].map(String::from).into();
         a.push(wt.to_string_lossy().into());
         for c in [
             "model_provider=\"ea\"".to_string(),
@@ -320,8 +309,7 @@ impl OpenCode {
     /// La configuración que se le pasa: el proveedor `ea` con el modelo del
     /// perfil y los permisos.
     pub fn configuracion(p: &PerfilEjecutor) -> serde_json::Value {
-        let permisos: serde_json::Map<String, serde_json::Value> =
-            OPENCODE_DENEGADAS.iter().map(|h| ((*h).to_string(), "deny".into())).collect();
+        let permisos: serde_json::Map<String, serde_json::Value> = OPENCODE_DENEGADAS.iter().map(|h| ((*h).to_string(), "deny".into())).collect();
         serde_json::json!({
             "autoupdate": false,
             "share": "disabled",
@@ -379,10 +367,7 @@ fn preparar_dirs_estado(home: &Path, dirs: &[&str]) -> Vec<PathBuf> {
     if home.as_os_str().is_empty() {
         return vec![];
     }
-    dirs.iter()
-        .map(|d| home.join(d))
-        .filter(|d| std::fs::create_dir_all(d).is_ok() && d.is_dir())
-        .collect()
+    dirs.iter().map(|d| home.join(d)).filter(|d| std::fs::create_dir_all(d).is_ok() && d.is_dir()).collect()
 }
 
 #[cfg(test)]

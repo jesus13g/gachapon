@@ -61,10 +61,7 @@ async fn la_biblioteca_lista_y_filtra() {
 async fn la_ficha_trae_el_elemento_y_su_uso() {
     let f = montar();
     // El id lleva «/»: la página lo codifica, pero sin codificar también vale.
-    for ruta in [
-        "/api/biblioteca/claude-code%2Fskill%2Fusuario%2Fpropia".to_string(),
-        format!("/api/biblioteca/{SKILL}"),
-    ] {
+    for ruta in ["/api/biblioteca/claude-code%2Fskill%2Fusuario%2Fpropia".to_string(), format!("/api/biblioteca/{SKILL}")] {
         let (st, v) = get(&f, &ruta).await;
         assert_eq!(st, StatusCode::OK, "{ruta}: {v}");
         assert_eq!(v["id"], SKILL);
@@ -144,12 +141,7 @@ async fn desactivar_y_activar_pasa_por_simulacion_y_se_revalida() {
     let guardada = f._dir.path().join("estado-biblioteca/biblioteca/desactivadas/claude-code/skill/propia");
     assert!(skill.is_dir());
 
-    let (st, sim) = post(
-        &f,
-        "/api/biblioteca/simular",
-        json!({ "herramienta": "ea_desactivar_herramienta", "argumentos": { "elemento": SKILL } }),
-    )
-    .await;
+    let (st, sim) = post(&f, "/api/biblioteca/simular", json!({ "herramienta": "ea_desactivar_herramienta", "argumentos": { "elemento": SKILL } })).await;
     assert_eq!(st, StatusCode::OK, "{sim}");
     assert_eq!(sim["riesgo"], "reversible");
     assert_eq!(sim["confirmable"], true);
@@ -181,12 +173,7 @@ async fn desactivar_y_activar_pasa_por_simulacion_y_se_revalida() {
     assert_eq!(v["activado"], "no", "{v}");
 
     // Activar lo deshace.
-    let (_, sim) = post(
-        &f,
-        "/api/biblioteca/simular",
-        json!({ "herramienta": "ea_activar_herramienta", "argumentos": { "elemento": SKILL } }),
-    )
-    .await;
+    let (_, sim) = post(&f, "/api/biblioteca/simular", json!({ "herramienta": "ea_activar_herramienta", "argumentos": { "elemento": SKILL } })).await;
     let (st, r) = post(
         &f,
         "/api/biblioteca/ejecutar",
@@ -201,12 +188,7 @@ async fn desactivar_y_activar_pasa_por_simulacion_y_se_revalida() {
 async fn lo_que_no_se_puede_cambiar_se_rechaza() {
     let f = montar();
     // Un MCP de Claude Code (~/.claude.json) solo se acota en sesión.
-    let (st, e) = post(
-        &f,
-        "/api/biblioteca/simular",
-        json!({ "herramienta": "ea_desactivar_herramienta", "argumentos": { "elemento": MCP_CLAUDE } }),
-    )
-    .await;
+    let (st, e) = post(&f, "/api/biblioteca/simular", json!({ "herramienta": "ea_desactivar_herramienta", "argumentos": { "elemento": MCP_CLAUDE } })).await;
     assert_eq!(st, StatusCode::CONFLICT, "{e}");
     // Solo las tres herramientas de la sección; ni otras ni un directorio a pedido.
     for cuerpo in [
@@ -222,8 +204,7 @@ async fn lo_que_no_se_puede_cambiar_se_rechaza() {
 async fn proponer_y_aceptar_una_sesion_abre_la_terminal_sin_secretos() {
     let f = montar();
     let args = json!({ "agente": "claude-code", "herramientas": [MCP_CLAUDE, SKILL] });
-    let (st, sim) =
-        post(&f, "/api/biblioteca/simular", json!({ "herramienta": "ea_lanzar_sesion", "argumentos": args })).await;
+    let (st, sim) = post(&f, "/api/biblioteca/simular", json!({ "herramienta": "ea_lanzar_sesion", "argumentos": args })).await;
     assert_eq!(st, StatusCode::OK, "{sim}");
     let texto = sim["texto"].as_str().unwrap();
     assert!(texto.contains("claude") && texto.contains("--strict-mcp-config"), "{sim}");
@@ -272,12 +253,7 @@ async fn la_categoria_propia_va_por_ajustes() {
     let c = clave(&aj);
     assert_eq!(c["tipo"], "mapa", "{c}");
     assert_eq!(c["edicion"], "web");
-    let (st, r) = post(
-        &f,
-        "/api/ajustes",
-        json!({ "version": aj["version"], "cambios": { "biblioteca.categorias": { SKILL: "trabajo" } } }),
-    )
-    .await;
+    let (st, r) = post(&f, "/api/ajustes", json!({ "version": aj["version"], "cambios": { "biblioteca.categorias": { SKILL: "trabajo" } } })).await;
     assert_eq!(st, StatusCode::OK, "{r}");
     let (_, v) = get(&f, "/api/biblioteca?categoria=trabajo").await;
     assert_eq!(ids(&v), vec![SKILL.to_string()], "{v}");

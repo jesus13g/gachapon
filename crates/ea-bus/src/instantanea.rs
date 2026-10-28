@@ -41,19 +41,15 @@ pub fn rango_diff_fase(commit_inicio: Option<&str>, fases: &[FilaFase], n: u32) 
     if n == 0 {
         return Err(ErrorBus::Argumentos("las fases empiezan en 1".into()));
     }
-    let fin = arbol_de_fase(fases, n).ok_or_else(|| {
-        ErrorBus::SinInstantanea(format!(
-            "no hay instantánea de árbol de la fase {n} (la obra no la guardó o el store no la tiene)"
-        ))
-    })?;
+    let fin = arbol_de_fase(fases, n)
+        .ok_or_else(|| ErrorBus::SinInstantanea(format!("no hay instantánea de árbol de la fase {n} (la obra no la guardó o el store no la tiene)")))?;
     let base = if n == 1 {
-        let inicio = commit_inicio.filter(|c| es_objeto(c)).ok_or_else(|| {
-            ErrorBus::SinInstantanea("el trabajo no tiene informe con commit_inicio: no hay base para la fase 1".into())
-        })?;
+        let inicio = commit_inicio
+            .filter(|c| es_objeto(c))
+            .ok_or_else(|| ErrorBus::SinInstantanea("el trabajo no tiene informe con commit_inicio: no hay base para la fase 1".into()))?;
         format!("{inicio}^{{tree}}")
     } else {
-        arbol_de_fase(fases, n - 1)
-            .ok_or_else(|| ErrorBus::SinInstantanea(format!("no hay instantánea de árbol de la fase {}", n - 1)))?
+        arbol_de_fase(fases, n - 1).ok_or_else(|| ErrorBus::SinInstantanea(format!("no hay instantánea de árbol de la fase {}", n - 1)))?
     };
     Ok((base, fin))
 }
@@ -71,15 +67,15 @@ pub fn rango_diff_fase(commit_inicio: Option<&str>, fases: &[FilaFase], n: u32) 
 pub fn resumen_salida_agente(tipo: TipoAgente, bruta: &str) -> String {
     let texto = |v: &serde_json::Value| v.as_str().map(str::to_string);
     match tipo {
-        TipoAgente::QwenCode => serde_json::from_str::<serde_json::Value>(bruta).ok().and_then(|v| {
-            v.as_array()?.iter().rev().find(|m| m["type"] == "result").and_then(|m| texto(&m["result"]))
-        }),
-        TipoAgente::Codex => lineas_json(bruta).rev().find_map(|m| {
-            (m["type"] == "item.completed" && m["item"]["type"] == "agent_message").then(|| texto(&m["item"]["text"])).flatten()
-        }),
-        TipoAgente::OpenCode => lineas_json(bruta).rev().find_map(|m| {
-            (m["type"] == "text").then(|| texto(&m["part"]["text"]).or_else(|| texto(&m["text"]))).flatten()
-        }),
+        TipoAgente::QwenCode => serde_json::from_str::<serde_json::Value>(bruta)
+            .ok()
+            .and_then(|v| v.as_array()?.iter().rev().find(|m| m["type"] == "result").and_then(|m| texto(&m["result"]))),
+        TipoAgente::Codex => lineas_json(bruta)
+            .rev()
+            .find_map(|m| (m["type"] == "item.completed" && m["item"]["type"] == "agent_message").then(|| texto(&m["item"]["text"])).flatten()),
+        TipoAgente::OpenCode => {
+            lineas_json(bruta).rev().find_map(|m| (m["type"] == "text").then(|| texto(&m["part"]["text"]).or_else(|| texto(&m["text"]))).flatten())
+        }
     }
     .unwrap_or_default()
 }
@@ -99,19 +95,17 @@ mod tests {
     use super::*;
 
     fn fase(n: i64, informe: Option<&str>) -> FilaFase {
-        FilaFase {
-            trabajo_id: "t".into(),
-            numero: n,
-            titulo: format!("f{n}"),
-            estado: "hecha".into(),
-            informe: informe.map(String::from),
-            cerrado_en: None,
-        }
+        FilaFase { trabajo_id: "t".into(), numero: n, titulo: format!("f{n}"), estado: "hecha".into(), informe: informe.map(String::from), cerrado_en: None }
     }
 
     #[test]
     fn el_rango_va_de_la_fase_anterior_a_la_pedida() {
-        let fs = vec![fase(1, Some(r#"{"arbol":"a1a1","diff_stat":"x"}"#)), fase(2, Some(r#"{"arbol":"a2a2"}"#)), fase(3, None), fase(4, Some(r#"{"arbol":"--output=/tmp/x"}"#))];
+        let fs = vec![
+            fase(1, Some(r#"{"arbol":"a1a1","diff_stat":"x"}"#)),
+            fase(2, Some(r#"{"arbol":"a2a2"}"#)),
+            fase(3, None),
+            fase(4, Some(r#"{"arbol":"--output=/tmp/x"}"#)),
+        ];
         assert_eq!(rango_diff_fase(Some("c0c0"), &fs, 1).unwrap(), ("c0c0^{tree}".into(), "a1a1".into()));
         assert_eq!(rango_diff_fase(None, &fs, 2).unwrap(), ("a1a1".into(), "a2a2".into()));
         assert!(matches!(rango_diff_fase(Some("c0c0"), &fs, 3), Err(ErrorBus::SinInstantanea(m)) if m.contains("fase 3")));
@@ -127,18 +121,20 @@ mod tests {
         let b = r#"[{"type":"assistant"},{"type":"result","result":"uno"},{"type":"result","result":"dos"}]"#;
         assert_eq!(resumen_salida_agente(TipoAgente::QwenCode, b), "dos");
         let codex = concat!(
-            r#"{"type":"thread.started"}"#, "\n",
-            r#"{"type":"item.completed","item":{"type":"agent_message","text":"uno"}}"#, "\n",
-            r#"{"type":"item.completed","item":{"type":"command_execution","command":"ls"}}"#, "\n",
-            r#"{"type":"item.completed","item":{"type":"agent_message","text":"hecho"}}"#, "\n",
-            r#"{"type":"turn.completed"}"#, "\n",
+            r#"{"type":"thread.started"}"#,
+            "\n",
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"uno"}}"#,
+            "\n",
+            r#"{"type":"item.completed","item":{"type":"command_execution","command":"ls"}}"#,
+            "\n",
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"hecho"}}"#,
+            "\n",
+            r#"{"type":"turn.completed"}"#,
+            "\n",
         );
         assert_eq!(resumen_salida_agente(TipoAgente::Codex, codex), "hecho");
-        let opencode = concat!(
-            r#"{"type":"step_start"}"#, "\n",
-            r#"{"type":"text","part":{"type":"text","text":"listo"}}"#, "\n",
-            r#"{"type":"step_finish"}"#, "\n",
-        );
+        let opencode =
+            concat!(r#"{"type":"step_start"}"#, "\n", r#"{"type":"text","part":{"type":"text","text":"listo"}}"#, "\n", r#"{"type":"step_finish"}"#, "\n",);
         assert_eq!(resumen_salida_agente(TipoAgente::OpenCode, opencode), "listo");
         for t in [TipoAgente::QwenCode, TipoAgente::Codex, TipoAgente::OpenCode] {
             assert_eq!(resumen_salida_agente(t, "no es json"), "", "un formato desconocido da un resumen vacío");

@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use ea_biblioteca::uso::{calcular_uso, FuentesUso};
+use ea_biblioteca::uso::{FuentesUso, calcular_uso};
 use ea_biblioteca::{Ambito, Elemento, Inventario, Raices, Tipo};
 use ea_pruebas::escribe;
 
@@ -47,9 +47,7 @@ fn mundo() -> Mundo {
 }
 
 fn linea(ts: &str, bloques: &str) -> String {
-    format!(
-        r#"{{"type":"assistant","timestamp":"{ts}","message":{{"role":"assistant","content":[{{"type":"text","text":"{SECRETO}"}},{bloques}]}}}}"#
-    ) + "\n"
+    format!(r#"{{"type":"assistant","timestamp":"{ts}","message":{{"role":"assistant","content":[{{"type":"text","text":"{SECRETO}"}},{bloques}]}}}}"#) + "\n"
 }
 
 fn tool(nombre: &str, entrada: &str) -> String {
@@ -250,14 +248,13 @@ fn las_skills_del_ejecutor_se_cuentan_por_trabajo() {
 fn qwen_y_actividad_de_antigravity() {
     let m = mundo();
     let linea_qwen = |n: &str| {
-        format!(r#"{{"type":"assistant","timestamp":"2026-10-12T10:00:00.000Z","message":{{"role":"model","parts":[{{"text":"{SECRETO}"}},{{"functionCall":{{"id":"1","name":"{n}","args":{{"c":"{SECRETO}"}}}}}}]}}}}"#) + "\n"
+        format!(
+            r#"{{"type":"assistant","timestamp":"2026-10-12T10:00:00.000Z","message":{{"role":"model","parts":[{{"text":"{SECRETO}"}},{{"functionCall":{{"id":"1","name":"{n}","args":{{"c":"{SECRETO}"}}}}}}]}}}}"#
+        ) + "\n"
     };
     let mut inv = m.inv.clone();
     inv.elementos.push(elem("qwen-code", Tipo::Mcp, Ambito::Usuario, "srv"));
-    escribe(
-        m.raices.home.join(".qwen/projects/p/chats/s.jsonl"),
-        &(linea_qwen("mcp__srv__cosa") + &linea_qwen("read_file")),
-    );
+    escribe(m.raices.home.join(".qwen/projects/p/chats/s.jsonl"), &(linea_qwen("mcp__srv__cosa") + &linea_qwen("read_file")));
     escribe(m.raices.home.join(".gemini/antigravity-cli/log/cli-1.log"), "x");
     let r = calcular_uso(&m.raices, &inv, &m.fuentes);
     let u = r.buscar("qwen-code/mcp/usuario/srv").unwrap();

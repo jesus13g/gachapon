@@ -76,17 +76,11 @@ ejecutor: Qwen Code (qwen3-coder-30b)
 +-------------------------+-------------+-----------+---------+
 "
     );
-    assert_eq!(
-        status(d.path()),
-        format!("{cabecera}Orquestador: sin señal (ningún heartbeat registrado todavía)\n{roles}{BUS}\nÚltimos eventos:\n{eventos}")
-    );
+    assert_eq!(status(d.path()), format!("{cabecera}Orquestador: sin señal (ningún heartbeat registrado todavía)\n{roles}{BUS}\nÚltimos eventos:\n{eventos}"));
 
     // Con el latido en el fichero del bus: vivo, con su hora y sus trabajadores.
     let l = Bus::abrir_en(&d.path().join("estado")).unwrap().latir_orquestador(None).unwrap();
     let t = time::OffsetDateTime::parse(&l.ts, &time::format_description::well_known::Rfc3339).unwrap();
     let hora = t.format(formato).unwrap();
-    assert_eq!(
-        status(d.path()),
-        format!("{cabecera}Orquestador: vivo (heartbeat {hora}, 0 trabajadores)\n{roles}{BUS}\nÚltimos eventos:\n{eventos}")
-    );
+    assert_eq!(status(d.path()), format!("{cabecera}Orquestador: vivo (heartbeat {hora}, 0 trabajadores)\n{roles}{BUS}\nÚltimos eventos:\n{eventos}"));
 }

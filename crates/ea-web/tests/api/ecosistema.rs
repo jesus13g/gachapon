@@ -31,12 +31,7 @@ async fn el_estado_dice_el_sandbox_del_ultimo_latido() {
     let f = montar();
     let (_, e) = get(&f, "/api/estado").await;
     assert!(e["orquestador"]["sandbox"].is_null());
-    let info = ea_bus::SandboxInfo {
-        sistema: "Windows".into(),
-        sandbox: "no disponible".into(),
-        disponible: false,
-        motivo: Some("sin sandbox nativo".into()),
-    };
+    let info = ea_bus::SandboxInfo { sistema: "Windows".into(), sandbox: "no disponible".into(), disponible: false, motivo: Some("sin sandbox nativo".into()) };
     bus(&f).latir_orquestador(Some(info)).unwrap();
     let (_, e) = get(&f, "/api/estado").await;
     assert_eq!(e["orquestador"]["vivo"], true);
@@ -178,7 +173,10 @@ async fn el_ecosistema_junta_sesiones_subagentes_presencias_y_trabajos() {
     let (_, v) = get(&f, "/api/ecosistema").await;
     let ag = |id: &str| v["agentes"].as_array().unwrap().iter().find(|a| a["id"] == id).cloned().unwrap_or_else(|| panic!("falta {id}: {v}"));
     let claude = ag("claude:s-uno");
-    assert_eq!((claude["familia"].as_str(), claude["modelo"].as_str(), claude["estado"].as_str()), (Some("claude"), Some("claude-opus-5-5"), Some("trabajando")));
+    assert_eq!(
+        (claude["familia"].as_str(), claude["modelo"].as_str(), claude["estado"].as_str()),
+        (Some("claude"), Some("claude-opus-5-5"), Some("trabajando"))
+    );
     assert_eq!(claude["rol"], "planificador");
     assert!(claude.get("pistas").is_none(), "las pistas no salen de la API");
     let a1 = ag("claude:s-uno/a1");

@@ -25,7 +25,7 @@ fn biblioteca_json(
     ajustes: &ea_ajustes::Ajustes,
     (por_defecto, maximo, largo): (usize, usize, usize),
 ) -> ToolBody {
-    use ea_biblioteca::uso::{calcular_uso, FuentesUso};
+    use ea_biblioteca::uso::{FuentesUso, calcular_uso};
     use ea_biblioteca::{Activado, Biblioteca, Filtro, Tipo};
 
     let inv = Biblioteca::cargar(raices, ajustes);
@@ -40,12 +40,7 @@ fn biblioteca_json(
         Some(t) => Some(Tipo::desde(t).ok_or_else(|| format!("tipo desconocido {t:?} (uno de: {})", Tipo::TODOS.map(|t| t.as_str()).join(", ")))?),
         None => None,
     };
-    let filtro = Filtro {
-        agente: args.agente.clone(),
-        tipo,
-        categoria: args.categoria.clone(),
-        activado: args.activado.map(Activado::desde_bool),
-    };
+    let filtro = Filtro { agente: args.agente.clone(), tipo, categoria: args.categoria.clone(), activado: args.activado.map(Activado::desde_bool) };
     let limite = super::limite(args.limite, (por_defecto, maximo));
     let todos = inv.filtrar(&filtro);
     let elementos: Vec<_> = todos
@@ -83,11 +78,7 @@ impl EaTools {
             ea_lanzar_sesion, que solo proponen.",
         annotations(title = "Biblioteca de herramientas", read_only_hint = true)
     )]
-    async fn ea_biblioteca(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<BibliotecaArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_biblioteca(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<BibliotecaArgs>) -> Result<CallToolResult, McpError> {
         let args_json = json!({
             "id": args.id, "agente": args.agente, "tipo": args.tipo, "categoria": args.categoria,
             "activado": args.activado, "limite": args.limite,

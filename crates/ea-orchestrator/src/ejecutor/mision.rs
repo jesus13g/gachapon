@@ -29,9 +29,7 @@ fn construir_prompt(orden: &Orden, titulo: &str, cuerpo: &str, criterio: &str, r
     if !regla.is_empty() {
         p.push_str(&format!("- {regla}\n"));
     }
-    p.push_str(&format!(
-        "- El criterio de éxito es el comando `{criterio}` y debe pasar.\n- Cuando termines, explica en 3 líneas qué hiciste.\n"
-    ));
+    p.push_str(&format!("- El criterio de éxito es el comando `{criterio}` y debe pasar.\n- Cuando termines, explica en 3 líneas qué hiciste.\n"));
     p
 }
 
@@ -69,10 +67,9 @@ pub(super) fn bucle(ctx: &Contexto, titulo: &str, cuerpo: &str, criterio: &str, 
         }
         let prompt = match &previa {
             None => base.clone(),
-            Some(ev) => format!(
-                "{base}\n## Intento anterior (iteración {})\nEl criterio sigue fallando con:\n\n```\n{ev}\n```\n\nCorrige lo que falta.\n",
-                it - 1
-            ),
+            Some(ev) => {
+                format!("{base}\n## Intento anterior (iteración {})\nEl criterio sigue fallando con:\n\n```\n{ev}\n```\n\nCorrige lo que falta.\n", it - 1)
+            }
         };
         let salida = agente.ejecutar(&prompt, &sistema, wt, &orden.topes, config, &cortar);
         let _ = artefactos.guardar_salida_agente(&salida.bruta);
@@ -123,7 +120,7 @@ pub(super) fn trabajar(ctx: &Contexto, commit_inicio: String) -> Result<Informe,
 mod tests {
     use super::*;
     use crate::ejecutor::pruebas::*;
-    use crate::ejecutor::{ejecutar_uno, Ejecutor, QwenCode};
+    use crate::ejecutor::{Ejecutor, QwenCode, ejecutar_uno};
     use ea_bus::{Bus, EstadoTrabajo, Orden, Rol};
     use std::path::Path;
     use std::process::Command;

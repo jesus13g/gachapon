@@ -4,11 +4,11 @@
 
 use std::sync::Arc;
 
-use ea_acciones::{Riesgo, CATALOGO};
-use ea_mcp::EaTools;
+use ea_acciones::{CATALOGO, Riesgo};
 use ea_boveda::Boveda;
-use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
+use ea_mcp::EaTools;
 use ea_pruebas::mcp::{conectar, llamar};
+use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 use serde_json::json;
 use tokio::sync::Mutex;
 
@@ -39,7 +39,9 @@ async fn entorno() -> Entorno {
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let f = ajustes.clone();
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), estado.to_path_buf()).con_ajustes(f.clone()).con_credencial(credencial()),
+        move || {
+            EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), estado.to_path_buf()).con_ajustes(f.clone()).con_credencial(credencial())
+        },
         Default::default(),
     );
     Entorno { url: ea_pruebas::mcp::servidor(router).await, db, rutinas, ajustes, _dir: dir }
@@ -100,13 +102,7 @@ async fn un_agente_que_pide_ejecutar_solo_consigue_una_propuesta_pendiente() {
     let e = entorno().await;
     let c = conectar(&e.url, "claude-code").await;
     // Aunque el agente intente "confirmarse" con argumentos de su cosecha.
-    let r = llamar(
-        &c,
-        "ea_eliminar_rutina",
-        json!({ "slug": "retirada", "confirmar": true, "confirmacion": "si", "token": "x" }),
-    )
-    .await
-    .unwrap();
+    let r = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "retirada", "confirmar": true, "confirmacion": "si", "token": "x" })).await.unwrap();
     assert_eq!(r["ejecutado"], false);
     assert_eq!(r["propuesta"]["estado"], "pendiente");
     assert_eq!(r["riesgo"], "irreversible");
@@ -233,11 +229,7 @@ fn diario(e: &Entorno) -> Vec<ea_store::Event> {
 
 fn roles(e: &Entorno, planificador: &str, ejecutor: &str) {
     std::fs::create_dir_all(&e.ajustes.dir_config).unwrap();
-    std::fs::write(
-        e.ajustes.dir_config.join("ajustes.toml"),
-        format!("[roles]\nplanificador = \"{planificador}\"\nejecutor = \"{ejecutor}\"\n"),
-    )
-    .unwrap();
+    std::fs::write(e.ajustes.dir_config.join("ajustes.toml"), format!("[roles]\nplanificador = \"{planificador}\"\nejecutor = \"{ejecutor}\"\n")).unwrap();
 }
 
 #[tokio::test]

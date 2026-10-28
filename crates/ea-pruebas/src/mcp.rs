@@ -1,8 +1,8 @@
 //! El servidor MCP de prueba, sobre HTTP de verdad, y su cliente.
 
 use rmcp::model::{CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams, ProtocolVersion};
-use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::{ClientLifecycleMode, ClientServiceExt};
 use serde_json::Value;
 
@@ -34,10 +34,7 @@ pub async fn conectar(url: &str, nombre: &str) -> Cliente {
 pub async fn conectar_con(url: &str, nombre: &str, credencial: Option<&str>) -> Cliente {
     let mut cabeceras = std::collections::HashMap::new();
     if let Some(c) = credencial {
-        cabeceras.insert(
-            axum::http::HeaderName::from_static("x-ea-credencial"),
-            axum::http::HeaderValue::from_str(c).unwrap(),
-        );
+        cabeceras.insert(axum::http::HeaderName::from_static("x-ea-credencial"), axum::http::HeaderValue::from_str(c).unwrap());
     }
     let config = StreamableHttpClientTransportConfig::with_uri(url.to_string()).custom_headers(cabeceras);
     InitializeRequestParams::new(ClientCapabilities::default(), Implementation::new(nombre, "0.0.1"))

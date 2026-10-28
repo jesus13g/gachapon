@@ -18,10 +18,8 @@ pub struct Limites {
 }
 
 impl Limites {
-    pub const LOCAL: Limites =
-        Limites { max_resultados: 5, max_fragmento: 200, max_lectura: 3000, max_escritura: 8 * 1024 };
-    pub const AMPLIOS: Limites =
-        Limites { max_resultados: 20, max_fragmento: 400, max_lectura: 20_000, max_escritura: 64 * 1024 };
+    pub const LOCAL: Limites = Limites { max_resultados: 5, max_fragmento: 200, max_lectura: 3000, max_escritura: 8 * 1024 };
+    pub const AMPLIOS: Limites = Limites { max_resultados: 20, max_fragmento: 400, max_lectura: 20_000, max_escritura: 64 * 1024 };
 
     /// Las cotas del actor: el modelo local las estrechas; los demás, las amplias.
     pub fn para_actor(actor: &str) -> Limites {

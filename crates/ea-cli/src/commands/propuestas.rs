@@ -1,9 +1,9 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use comfy_table::Table;
 use ea_acciones::Canal;
 use ea_store::{EstadoPropuesta, Propuesta, PropuestaFilter, Store};
 
-use super::{bloquear, confirmar_y_aceptar, fmt_ts, limpio, Contexto};
+use super::{Contexto, bloquear, confirmar_y_aceptar, fmt_ts, limpio};
 
 const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 

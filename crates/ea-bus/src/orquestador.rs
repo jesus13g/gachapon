@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
-use crate::bus::{ahora_rfc3339, Bus};
+use crate::bus::{Bus, ahora_rfc3339};
 use crate::equipo::RolEquipo;
 use crate::error::Resultado;
 use crate::fs_atomico::escribir_json;
@@ -90,8 +90,7 @@ impl Bus {
     /// cuántos de sus trabajadores siguen vivos y el sandbox.
     pub fn latir_orquestador(&self, sandbox: Option<SandboxInfo>) -> Resultado<LatidoOrquestador> {
         let pid = std::process::id();
-        let trabajadores =
-            self.presencias().iter().filter(|(p, viva)| *viva && p.pid == pid && p.rol == RolEquipo::Ejecutor).count();
+        let trabajadores = self.presencias().iter().filter(|(p, viva)| *viva && p.pid == pid && p.rol == RolEquipo::Ejecutor).count();
         let l = LatidoOrquestador { ts: ahora_rfc3339(), pid, trabajadores, sandbox };
         escribir_json(&self.raiz.join(FICHERO_LATIDO), &l)?;
         Ok(l)

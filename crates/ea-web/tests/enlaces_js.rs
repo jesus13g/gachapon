@@ -22,12 +22,7 @@ fn pasa(fichero: &str) {
     let Some(mut node) = node() else { return };
     let prueba = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/js").join(fichero);
     let salida = node.arg("--test").arg(&prueba).output().expect("lanzar node");
-    assert!(
-        salida.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&salida.stdout),
-        String::from_utf8_lossy(&salida.stderr)
-    );
+    assert!(salida.status.success(), "{}\n{}", String::from_utf8_lossy(&salida.stdout), String::from_utf8_lossy(&salida.stderr));
 }
 
 #[test]

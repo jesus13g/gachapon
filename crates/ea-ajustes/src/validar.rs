@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use ea_plataforma::wsl::nombre_distro_valido;
 use serde_json::Value;
 
-use crate::agentes::{ficha, id_perfil_valido, Rol};
+use crate::agentes::{Rol, ficha, id_perfil_valido};
 use crate::claves::{Clave, Tipo};
 use crate::ejecucion::dir_ejecucion;
 use crate::fuentes::{Ajustes, Fuentes, PerfilModelo};
@@ -17,13 +17,15 @@ use crate::fuentes::{Ajustes, Fuentes, PerfilModelo};
 pub fn expandir_tilde(ruta: &str) -> PathBuf {
     let casa = || ea_plataforma::usuario::home();
     if ruta == "~"
-        && let Some(c) = casa() {
-            return c;
-        }
+        && let Some(c) = casa()
+    {
+        return c;
+    }
     if let Some(resto) = ruta.strip_prefix("~/")
-        && let Some(c) = casa() {
-            return c.join(resto);
-        }
+        && let Some(c) = casa()
+    {
+        return c.join(resto);
+    }
     PathBuf::from(ruta)
 }
 
@@ -47,10 +49,7 @@ pub fn validar_url_remota(url: &str) -> Result<(), String> {
 /// El host (en minúsculas) de una URL `http(s)://` sin credenciales y con un
 /// puerto válido, si lo lleva.
 fn host_de(url: &str) -> Result<String, String> {
-    let resto = url
-        .strip_prefix("http://")
-        .or_else(|| url.strip_prefix("https://"))
-        .ok_or("debe empezar por http:// o https://")?;
+    let resto = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://")).ok_or("debe empezar por http:// o https://")?;
     if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err("no puede llevar espacios ni caracteres de control".into());
     }
@@ -68,9 +67,10 @@ fn host_de(url: &str) -> Result<String, String> {
         }
     };
     if let Some(p) = puerto
-        && (p.is_empty() || p.len() > 5 || !p.bytes().all(|b| b.is_ascii_digit()) || p.parse::<u32>().map_or(true, |n| n > 65535)) {
-            return Err(format!("puerto inválido: {p:?}"));
-        }
+        && (p.is_empty() || p.len() > 5 || !p.bytes().all(|b| b.is_ascii_digit()) || p.parse::<u32>().map_or(true, |n| n > 65535))
+    {
+        return Err(format!("puerto inválido: {p:?}"));
+    }
     Ok(host.to_ascii_lowercase())
 }
 
@@ -181,16 +181,15 @@ pub fn validar_valor(c: &Clave, v: &Value) -> Result<Value, String> {
             let mut salida: Vec<String> = Vec::new();
             for e in lista {
                 let t = e.as_str().ok_or("cada elemento debe ser un texto")?.trim();
-                let ok = !t.is_empty()
-                    && t.len() <= 64
-                    && t.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+                let ok = !t.is_empty() && t.len() <= 64 && t.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
                 if !ok {
                     return Err(format!("elemento inválido: {t:?} (solo letras, dígitos, '-', '_' y '.')"));
                 }
                 if let Some(p) = permitidos
-                    && !p.contains(&t) {
-                        return Err(format!("{t:?} no está permitido (solo {p:?})"));
-                    }
+                    && !p.contains(&t)
+                {
+                    return Err(format!("{t:?} no está permitido (solo {p:?})"));
+                }
                 if !salida.iter().any(|s| s == t) {
                     salida.push(t.to_string());
                 }
@@ -288,9 +287,7 @@ pub fn validar_roles(a: &Ajustes) -> Result<(), (String, String)> {
     match a.agentes.get(ej).map(|g| g.modelo.as_str()).unwrap_or_default() {
         "" => Err((clave, format!("{ej} es el ejecutor y necesita un perfil de modelo local"))),
         m => match a.modelos.get(m) {
-            Some(p) if p.remoto => {
-                Err((clave, format!("el perfil {m:?} es remoto y {ej} es el ejecutor: el ejecutor solo usa modelos locales")))
-            }
+            Some(p) if p.remoto => Err((clave, format!("el perfil {m:?} es remoto y {ej} es el ejecutor: el ejecutor solo usa modelos locales"))),
             _ => Ok(()),
         },
     }

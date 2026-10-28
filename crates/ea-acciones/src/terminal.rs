@@ -97,11 +97,7 @@ mod pruebas {
 
     #[test]
     fn el_argv_de_linux_es_el_de_siempre() {
-        let o = OrdenTerminal {
-            argv: vec!["claude".into(), "--x".into()],
-            cwd: Some(PathBuf::from("/p")),
-            entorno: vec![("A".into(), "1".into())],
-        };
+        let o = OrdenTerminal { argv: vec!["claude".into(), "--x".into()], cwd: Some(PathBuf::from("/p")), entorno: vec![("A".into(), "1".into())] };
         assert_eq!(argv_linux(&o), ["env", "-C", "/p", "A=1", "claude", "--x"]);
         let simple = OrdenTerminal { argv: vec!["ea".into(), "x".into()], ..Default::default() };
         assert_eq!(argv_linux(&simple), ["ea", "x"]);

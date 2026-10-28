@@ -27,17 +27,17 @@ pub mod sistema;
 pub mod temporizador;
 pub mod terminal;
 
-pub use catalogo::{autorizar_mcp, buscar, puede_confirmar, terminal_interactiva, Canal, Ejecucion, Herramienta, Riesgo, CATALOGO};
+pub use catalogo::{CATALOGO, Canal, Ejecucion, Herramienta, Riesgo, autorizar_mcp, buscar, puede_confirmar, terminal_interactiva};
 pub use diff::diff_lineas;
 pub use error::ErrorAccion;
-pub use flujo::{aceptar_propuesta, aceptar_propuesta_con_resultado, ejecutar, ejecutar_directo, proponer, rechazar_propuesta, Resultado};
-pub use herramientas::{campos, observar, simular_con, validar_argumentos, Campo, Hechos, Simulacion, Supervisada};
-pub use sistema::{Consulta, EstadoServicio, Sistema, SistemaReal, SoloConsulta};
+pub use flujo::{Resultado, aceptar_propuesta, aceptar_propuesta_con_resultado, ejecutar, ejecutar_directo, proponer, rechazar_propuesta};
+pub use herramientas::{Campo, Hechos, Simulacion, Supervisada, campos, observar, simular_con, validar_argumentos};
+pub use servicios::{Backend, GestorServicios, InfoServicio, SERVICIOS_INSTALABLES};
+pub use sesion::lanzar_sesion;
 #[cfg(feature = "dobles")]
 pub use sistema::SistemaSimulado;
+pub use sistema::{Consulta, EstadoServicio, Sistema, SistemaReal, SoloConsulta};
 pub use temporizador::{Calendario, EstadoTimer, Temporizadores};
-pub use servicios::{Backend, GestorServicios, InfoServicio, SERVICIOS_INSTALABLES};
-pub use terminal::{lanzar_en_terminal, OrdenTerminal, Terminal, TerminalSistema};
 #[cfg(any(test, feature = "dobles"))]
 pub use terminal::TerminalSimulada;
-pub use sesion::lanzar_sesion;
+pub use terminal::{OrdenTerminal, Terminal, TerminalSistema, lanzar_en_terminal};

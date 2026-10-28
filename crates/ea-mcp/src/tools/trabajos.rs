@@ -6,10 +6,10 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, tool, tool_router};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::diario::event_to_json;
-use super::{cotas_listado, limite, EaTools};
+use super::{EaTools, cotas_listado, limite};
 use crate::args::{ListarTrabajosArgs, VerTrabajoArgs};
 
 /// Resumen de un trabajo del bus, o `None` si sus ficheros no se pueden leer.
@@ -68,11 +68,7 @@ impl EaTools {
             criterio, fases), estado actual e informe si ya lo hay. Solo lectura.",
         annotations(title = "Ver trabajo", read_only_hint = true)
     )]
-    async fn ea_ver_trabajo(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<VerTrabajoArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_ver_trabajo(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<VerTrabajoArgs>) -> Result<CallToolResult, McpError> {
         let id = args.id;
         self.registrada(&context, "mcp_ver_trabajo", Some(&id), json!({ "id": id }), |_| {
             let id = id.clone();

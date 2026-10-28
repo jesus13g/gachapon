@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ea_bus::git::{self, FicheroNuevo, TOPE_LECTURA};
-use ea_bus::{ErrorBus, EXCLUIR_DIFF};
+use ea_bus::{EXCLUIR_DIFF, ErrorBus};
 
 /// `git` sin nada más, como lo lanzaría el usuario a mano. Devuelve stdout tal cual.
 fn git_a_secas(wt: &Path, args: &[&str], indice: Option<&Path>) -> String {

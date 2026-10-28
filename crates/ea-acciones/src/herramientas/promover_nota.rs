@@ -4,7 +4,7 @@
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{campo, Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular};
+use super::{Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular, campo};
 use crate::error::ErrorAccion;
 use crate::sistema::{Consulta, Sistema};
 

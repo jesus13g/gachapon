@@ -68,8 +68,8 @@ impl Ordenes for OrdenesReales {
 
     fn ejecutar(&self, argv: &[String], cwd: Option<&Path>) -> Result<SalidaOrden, ErrorBiblioteca> {
         let (bin, args) = argv.split_first().ok_or_else(|| ErrorBiblioteca::Orden("orden vacía".into()))?;
-        let ruta: PathBuf = ea_ajustes::buscar_binario(bin, std::env::var_os("PATH").as_deref())
-            .ok_or_else(|| ErrorBiblioteca::BinarioNoDisponible(bin.clone()))?;
+        let ruta: PathBuf =
+            ea_ajustes::buscar_binario(bin, std::env::var_os("PATH").as_deref()).ok_or_else(|| ErrorBiblioteca::BinarioNoDisponible(bin.clone()))?;
         let mut cmd = Command::new(ruta);
         cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Some(c) = cwd {

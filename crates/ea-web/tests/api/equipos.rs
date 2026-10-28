@@ -57,10 +57,13 @@ async fn los_equipos_se_listan_vacios_y_con_uno() {
     assert_eq!(v[0]["id"], id.as_str());
     assert_eq!(v[0]["estado"], "despierto");
     assert_eq!(v[0]["trabajos"], 0);
-    assert_eq!(v[0]["miembros"], json!([
-        { "agente": "claude-code", "rol": "planificador", "viva": false },
-        { "agente": "qwen-code", "rol": "ejecutor", "viva": false },
-    ]));
+    assert_eq!(
+        v[0]["miembros"],
+        json!([
+            { "agente": "claude-code", "rol": "planificador", "viva": false },
+            { "agente": "qwen-code", "rol": "ejecutor", "viva": false },
+        ])
+    );
 
     let (s, v) = get(&f, &format!("/api/equipos/{id}")).await;
     assert_eq!(s, StatusCode::OK, "{v}");
@@ -194,8 +197,13 @@ async fn dormir_devuelve_lo_pendiente_a_la_cola_del_ejecutor() {
     let wt = preparar_equipos(&f, 2);
     let (_, r) = post(&f, "/api/equipos", despertar_cuerpo(&wt, &BASICO, false)).await;
     let id = r["equipo"]["id"].as_str().unwrap().to_string();
-    let (s, t) = post(&f, "/api/trabajos", json!({ "titulo": "Asignado", "worktree": wt, "objetivo": "x", "criterio": "true",
-        "equipo": id, "asignado_a": "qwen-code" })).await;
+    let (s, t) = post(
+        &f,
+        "/api/trabajos",
+        json!({ "titulo": "Asignado", "worktree": wt, "objetivo": "x", "criterio": "true",
+        "equipo": id, "asignado_a": "qwen-code" }),
+    )
+    .await;
     assert_eq!(s, StatusCode::CREATED, "{t}");
     let (_, v) = get(&f, &format!("/api/equipos/{id}")).await;
     assert_eq!(v["miembros"][1]["pendientes"], 1, "{v}");

@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use ea_ajustes::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn fuentes() -> (tempfile::TempDir, Fuentes) {
     let d = tempfile::tempdir().unwrap();
@@ -80,10 +80,7 @@ fn las_rutas_del_entorno_ganan_a_los_ficheros() {
     assert_eq!((e.ajustes.rutas.db, e.ajustes.rutas.estado), (PathBuf::from("/a/ea.db"), PathBuf::from("/a/estado")));
     assert_eq!((e.ajustes.rutas.boveda, &e.origenes["rutas.boveda"]), (PathBuf::from("/a/boveda"), &Origen::Heredado { fichero: "boveda.toml" }));
 
-    let f = Fuentes::aislada(d.path())
-        .con_var("EA_DB_PATH", " /e/ea.db ")
-        .con_var("EA_ESTADO_DIR", "/e/estado")
-        .con_var("EA_BOVEDA_DIR", "~/boveda");
+    let f = Fuentes::aislada(d.path()).con_var("EA_DB_PATH", " /e/ea.db ").con_var("EA_ESTADO_DIR", "/e/estado").con_var("EA_BOVEDA_DIR", "~/boveda");
     let e = cargar_de(&f);
     assert_eq!(e.ajustes.rutas.db, PathBuf::from("/e/ea.db"));
     assert_eq!(e.ajustes.rutas.estado, PathBuf::from("/e/estado"));
@@ -190,7 +187,9 @@ fn un_ajustes_toml_roto_se_ignora_sin_panico() {
 #[test]
 fn desde_la_web_no_se_tocan_las_claves_de_terminal() {
     let (_d, f) = fuentes();
-    for (k, v) in [("agente.sandbox", json!(false)), ("modelo.qwen_bin", json!("/tmp/x")), ("agentes.codex.bin", json!("/tmp/x")), ("rutas.db", json!("/tmp/x.db"))] {
+    for (k, v) in
+        [("agente.sandbox", json!(false)), ("modelo.qwen_bin", json!("/tmp/x")), ("agentes.codex.bin", json!("/tmp/x")), ("rutas.db", json!("/tmp/x.db"))]
+    {
         let r = establecer(&f, Canal::Web, Some(""), &cambio(k, v));
         assert!(matches!(r, Err(ErrorAjustes::NoEditable { .. })), "{k}: {r:?}");
     }
@@ -230,10 +229,7 @@ fn version_entorno_y_lotes_todo_o_nada() {
     let r = establecer(&f, Canal::Terminal, None, &cambio("no.existe", json!(1)));
     assert!(matches!(r, Err(ErrorAjustes::ClaveDesconocida(_))), "{r:?}");
     let antes = std::fs::read(f.fichero()).unwrap();
-    let lote = vec![
-        ("web.diario_limite".to_string(), Some(json!(50))),
-        ("web.sondeo_ms".to_string(), Some(json!(1))),
-    ];
+    let lote = vec![("web.diario_limite".to_string(), Some(json!(50))), ("web.sondeo_ms".to_string(), Some(json!(1)))];
     assert!(establecer(&f, Canal::Terminal, None, &lote).is_err());
     assert_eq!(std::fs::read(f.fichero()).unwrap(), antes);
     let r = establecer(&f, Canal::Terminal, None, &cambio("red.puerto_mcp", json!(8092)));
@@ -242,12 +238,7 @@ fn version_entorno_y_lotes_todo_o_nada() {
 }
 
 fn temporales(dir: &Path) -> Vec<String> {
-    std::fs::read_dir(dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".tmp"))
-        .collect()
+    std::fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".tmp")).collect()
 }
 
 #[test]
@@ -433,10 +424,7 @@ fn cada_agente_solo_ocupa_los_roles_que_admite() {
 fn el_modelo_del_ejecutor_es_local() {
     let (_d, f) = fuentes();
     // un perfil remoto: solo para el planificador
-    let lote = vec![
-        ("modelos.gpt.nombre".to_string(), Some(json!("gpt-5-codex"))),
-        ("modelos.gpt.remoto".to_string(), Some(json!(true))),
-    ];
+    let lote = vec![("modelos.gpt.nombre".to_string(), Some(json!("gpt-5-codex"))), ("modelos.gpt.remoto".to_string(), Some(json!(true)))];
     establecer(&f, Canal::Web, Some(""), &lote).unwrap();
     let e = cargar_de(&f);
     assert_eq!(e.ajustes.modelos["gpt"], PerfilModelo { nombre: "gpt-5-codex".into(), base_url: "".into(), remoto: true });

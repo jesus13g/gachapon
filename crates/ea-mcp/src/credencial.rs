@@ -16,7 +16,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ea_plataforma::fs::{crear_dir_privado, es_privado, escribir_atomico, Permisos};
+use ea_plataforma::fs::{Permisos, crear_dir_privado, es_privado, escribir_atomico};
 
 const BYTES: usize = 32;
 

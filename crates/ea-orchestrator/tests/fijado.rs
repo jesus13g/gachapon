@@ -20,13 +20,13 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
 use std::time::Duration;
 
 use ea_bus::{Bus, CandadoWorktree, Evento, Fase, Miembro, NuevoEquipo, Ocupante, Orden, Rol, RolEquipo, Topes};
 use ea_orchestrator::config::ConfigOrquestador;
-use ea_orchestrator::ejecutor::{ejecutar_intento, ejecutar_uno, Ejecutor, SalidaAgente};
+use ea_orchestrator::ejecutor::{Ejecutor, SalidaAgente, ejecutar_intento, ejecutar_uno};
 use ea_pruebas::git;
 use ea_store::Store;
 
@@ -437,9 +437,15 @@ fn cada_trayectoria_deja_en_disco_lo_mismo_que_siempre() {
         Miembro { agente: "codex".into(), rol: RolEquipo::Ejecutor },
         Miembro { agente: "antigravity".into(), rol: RolEquipo::Revisor },
     ];
-    let nuevo = NuevoEquipo { titulo: "equipo".into(), objetivo: "o".into(), worktree_base: wt.to_string_lossy().into(), miembros, creado_por: "usuario".into() };
+    let nuevo =
+        NuevoEquipo { titulo: "equipo".into(), objetivo: "o".into(), worktree_base: wt.to_string_lossy().into(), miembros, creado_por: "usuario".into() };
     let eq = bus.crear_equipo(nuevo, &a).unwrap();
-    let o = Orden { equipo: Some(eq.id.clone()), asignado_a: Some("codex".into()), revisor: Some("antigravity".into()), ..mision("t14-equipo", &wt, "test -f ok.txt", 1) };
+    let o = Orden {
+        equipo: Some(eq.id.clone()),
+        asignado_a: Some("codex".into()),
+        revisor: Some("antigravity".into()),
+        ..mision("t14-equipo", &wt, "test -f ok.txt", 1)
+    };
     let id = bus.crear_trabajo(o).unwrap();
     let mut de_codex = cfg.clone();
     de_codex.ejecutor.id = "codex".into();

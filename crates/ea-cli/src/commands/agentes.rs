@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use comfy_table::Table;
-use ea_acciones::salud::{disponibilidad, AgenteDisponible};
+use ea_acciones::salud::{AgenteDisponible, disponibilidad};
 use ea_ajustes::Rol;
 
 const LIMITE_VERSION: Duration = Duration::from_secs(5);
@@ -82,11 +82,7 @@ fn modelo(a: &AgenteDisponible) -> String {
     let Some(m) = &a.vista.modelo else {
         return "el suyo propio".into();
     };
-    let donde = if m.remoto {
-        if m.base_url.is_empty() { "remoto".to_string() } else { format!("remoto, {}", m.base_url) }
-    } else {
-        m.base_url.clone()
-    };
+    let donde = if m.remoto { if m.base_url.is_empty() { "remoto".to_string() } else { format!("remoto, {}", m.base_url) } } else { m.base_url.clone() };
     let estado = match a.modelo_accesible {
         Some(true) => " · responde",
         Some(false) => " · no responde",
@@ -98,13 +94,7 @@ fn modelo(a: &AgenteDisponible) -> String {
 /// La primera línea de `<bin> --version`, si sale antes del límite. No
 /// arranca ninguna sesión del agente: solo pregunta la versión.
 fn version(bin: &str) -> Option<String> {
-    let mut hijo = Command::new(bin)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+    let mut hijo = Command::new(bin).arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
     let inicio = Instant::now();
     loop {
         match hijo.try_wait().ok()? {

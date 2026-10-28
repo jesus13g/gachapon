@@ -5,10 +5,10 @@
 use ea_store::{EventOutcome, NewEvent};
 use serde_json::json;
 
-use super::{Resultado, ErrorWeb, ACTOR};
+use super::{ACTOR, ErrorWeb, Resultado};
+use crate::AppState;
 use crate::memoria::{self, ErrorMemoria};
 use crate::vistas::{Hecho, ListadoMemoria, Renombrado};
-use crate::AppState;
 
 impl From<ErrorMemoria> for ErrorWeb {
     fn from(e: ErrorMemoria) -> Self {
@@ -23,10 +23,7 @@ impl From<ErrorMemoria> for ErrorWeb {
 }
 
 fn raiz(s: &AppState) -> Resultado<&std::path::Path> {
-    s.config
-        .proyectos_claude_dir
-        .as_deref()
-        .ok_or_else(|| ErrorWeb::NoDisponible("la memoria de Claude Code no está configurada".into()))
+    s.config.proyectos_claude_dir.as_deref().ok_or_else(|| ErrorWeb::NoDisponible("la memoria de Claude Code no está configurada".into()))
 }
 
 pub fn listar(s: &AppState) -> Resultado<ListadoMemoria> {
@@ -41,25 +38,14 @@ pub fn leer(s: &AppState, proyecto: &str, fichero: &str) -> Resultado<memoria::M
 /// La escritura ya está hecha: si el diario falla, se avisa en el log y se da
 /// la operación por buena.
 async fn apunta(s: &AppState, accion: &str, detalle: serde_json::Value) {
-    let evento = NewEvent {
-        actor: ACTOR.into(),
-        action: accion.into(),
-        outcome: Some(EventOutcome::Ok),
-        detail: Some(detalle.to_string()),
-        ..Default::default()
-    };
+    let evento =
+        NewEvent { actor: ACTOR.into(), action: accion.into(), outcome: Some(EventOutcome::Ok), detail: Some(detalle.to_string()), ..Default::default() };
     if let Err(e) = s.store.lock().await.append_event(evento) {
         tracing::warn!(error = %e, accion, "no se pudo apuntar el cambio de memoria en el diario");
     }
 }
 
-pub async fn guardar(
-    s: &AppState,
-    proyecto: &str,
-    fichero: &str,
-    contenido: &str,
-    version: &str,
-) -> Resultado<memoria::Memoria> {
+pub async fn guardar(s: &AppState, proyecto: &str, fichero: &str, contenido: &str, version: &str) -> Resultado<memoria::Memoria> {
     let m = memoria::guardar(raiz(s)?, proyecto, fichero, contenido, version)?;
     apunta(s, "memoria_editada", json!({ "proyecto": proyecto, "fichero": fichero, "bytes": contenido.len() })).await;
     Ok(m)

@@ -37,12 +37,7 @@ pub struct Servicio {
 }
 
 pub async fn servicios(consultar: bool) -> Vec<Servicio> {
-    let desconocido = || {
-        SERVICIOS
-            .iter()
-            .map(|&nombre| Servicio { nombre, activo: "desconocido".into(), activo_s: None })
-            .collect::<Vec<_>>()
-    };
+    let desconocido = || SERVICIOS.iter().map(|&nombre| Servicio { nombre, activo: "desconocido".into(), activo_s: None }).collect::<Vec<_>>();
     if !consultar {
         return desconocido();
     }
@@ -53,11 +48,7 @@ pub async fn servicios(consultar: bool) -> Vec<Servicio> {
         .iter()
         .map(|&nombre| {
             let i = info.iter().find(|i| i.nombre == nombre);
-            Servicio {
-                nombre,
-                activo: i.map_or_else(|| "desconocido".into(), |i| i.activo.clone()),
-                activo_s: i.and_then(|i| i.activo_s),
-            }
+            Servicio { nombre, activo: i.map_or_else(|| "desconocido".into(), |i| i.activo.clone()), activo_s: i.and_then(|i| i.activo_s) }
         })
         .collect()
 }

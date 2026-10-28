@@ -83,9 +83,7 @@ impl WebConfig {
         // Omarchy solo existe en Linux (`state_dir`); sin él, una ruta vacía
         // (que no se puede leer) y la web usa sus colores por defecto, en vez
         // de una ruta relativa al directorio de trabajo.
-        let tema_path = directories::BaseDirs::new()
-            .and_then(|d| d.state_dir().map(|s| s.join("omarchy/current/theme/colors.toml")))
-            .unwrap_or_default();
+        let tema_path = directories::BaseDirs::new().and_then(|d| d.state_dir().map(|s| s.join("omarchy/current/theme/colors.toml"))).unwrap_or_default();
         Self {
             // `red.puerto_web` (`EA_WEB_PORT` le gana); el host, siempre 127.0.0.1.
             puerto: a.red.puerto_web,
@@ -134,8 +132,7 @@ impl AppState {
     /// generador aleatorio para la clave de sesión: sin él no hay forma honesta
     /// de proteger las escrituras.
     pub fn new(store: Store, config: WebConfig) -> servicio::Resultado<Self> {
-        let clave = clave::ClaveSesion::nueva()
-            .map_err(|e| servicio::ErrorWeb::Interno(format!("no se pudo generar la clave de sesión: {e}")))?;
+        let clave = clave::ClaveSesion::nueva().map_err(|e| servicio::ErrorWeb::Interno(format!("no se pudo generar la clave de sesión: {e}")))?;
         Ok(Self {
             acciones: Mutex::new(store.duplicar()?),
             store: Mutex::new(store),

@@ -5,8 +5,8 @@
 
 use ea_ajustes::Ajustes;
 use ea_bus::Presencia;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use super::familia::familia;
 use super::{AgenteVivo, EstadoAgente, SemaforoBus};

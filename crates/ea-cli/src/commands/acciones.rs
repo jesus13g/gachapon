@@ -1,9 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use comfy_table::Table;
-use ea_acciones::{Ejecucion, CATALOGO};
+use ea_acciones::{CATALOGO, Ejecucion};
 use serde_json::Value;
 
-use super::{bloquear, confirmar_en_terminal, Contexto};
+use super::{Contexto, bloquear, confirmar_en_terminal};
 
 const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
@@ -57,9 +57,7 @@ pub fn ejecutar(ctx: &mut Contexto, herramienta: &str, args: &str) -> Result<()>
         println!("Cancelado: no se ha hecho nada.");
         return Ok(());
     }
-    let r = bloquear(ea_acciones::ejecutar(
-        store, &sis, ACTOR, canal, herramienta, &sim.argumentos, &sim.precondicion, None,
-    ))?;
+    let r = bloquear(ea_acciones::ejecutar(store, &sis, ACTOR, canal, herramienta, &sim.argumentos, &sim.precondicion, None))?;
     println!("{}", r.texto);
     Ok(())
 }

@@ -11,14 +11,13 @@ use std::io::{self, Stdout};
 use anyhow::Result;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
-use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResumenAgente, ResultadoBusqueda, Store};
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use ea_store::{EstadoPropuesta, Event as EaEvent, EventFilter, Propuesta, PropuestaFilter, ResultadoBusqueda, ResumenAgente, Store};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Tabs};
 use ratatui::{Frame, Terminal};
-
 
 /// Resumen de una rutina para la pestaña `Rutinas`: solo lo que hace falta
 /// para listar.
@@ -40,15 +39,7 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Tab; 7] = [
-        Tab::Orquestador,
-        Tab::Diario,
-        Tab::Servicios,
-        Tab::Agentes,
-        Tab::Rutinas,
-        Tab::Propuestas,
-        Tab::Boveda,
-    ];
+    const ALL: [Tab; 7] = [Tab::Orquestador, Tab::Diario, Tab::Servicios, Tab::Agentes, Tab::Rutinas, Tab::Propuestas, Tab::Boveda];
 
     fn title(self) -> &'static str {
         match self {
@@ -85,9 +76,7 @@ struct AppData {
 /// clientes bajo demanda) — para ver cambios se vuelve a lanzar `ea tui`.
 pub fn run(store: &mut Store) -> Result<()> {
     let boveda = ea_boveda::Boveda::configurada();
-    let notas = boveda
-        .listar(store, None, Some(50), &ea_boveda::Limites { max_resultados: 50, ..ea_boveda::Limites::AMPLIOS })
-        .unwrap_or_default();
+    let notas = boveda.listar(store, None, Some(50), &ea_boveda::Limites { max_resultados: 50, ..ea_boveda::Limites::AMPLIOS }).unwrap_or_default();
     let store: &Store = store;
     let mut rutinas = Vec::new();
     // Solo las que están en uso: las retiradas, con `ea rutina listar --retiradas`.
@@ -101,28 +90,19 @@ pub fn run(store: &mut Store) -> Result<()> {
 
     // Misma consulta a `systemd --user` que hace `ea-web`; es asíncrona, así
     // que se resuelve con un runtime mínimo antes de entrar en modo raw.
-    let servicios = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(ea_acciones::salud::servicios(true));
+    let servicios = tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(ea_acciones::salud::servicios(true));
 
     let data = AppData {
         servicios,
         orquestador: crate::commands::status::estado_orquestador(),
         agentes: store.resumen_agentes()?,
         ajustes: ea_ajustes::cargar(),
-        events: store.list_events(&EventFilter {
-            limit: Some(200),
-            ..Default::default()
-        })?,
+        events: store.list_events(&EventFilter { limit: Some(200), ..Default::default() })?,
         rutinas,
         orquestador_bus: datos_bus(),
         boveda_raiz: boveda.raiz().display().to_string(),
         boveda: notas,
-        propuestas: store.list_propuestas(&PropuestaFilter {
-            estado: Some(EstadoPropuesta::Pendiente),
-            limit: Some(100),
-        })?,
+        propuestas: store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: Some(100) })?,
     };
 
     enable_raw_mode()?;
@@ -134,11 +114,7 @@ pub fn run(store: &mut Store) -> Result<()> {
     let result = app_loop(&mut terminal, &data);
 
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
 
     result
@@ -153,26 +129,14 @@ fn datos_bus() -> orquestador_view::DatosOrquestador {
 }
 
 fn datos_de(bus: &ea_bus::Bus) -> orquestador_view::DatosOrquestador {
-    use ea_bus::{Rol, EstadoTrabajo};
-    let mut d = orquestador_view::DatosOrquestador {
-        cola_modelo_local: vec![],
-        cola_claude_code: vec![],
-        semaforos: vec![],
-        trabajos: vec![],
-    };
+    use ea_bus::{EstadoTrabajo, Rol};
+    let mut d = orquestador_view::DatosOrquestador { cola_modelo_local: vec![], cola_claude_code: vec![], semaforos: vec![], trabajos: vec![] };
     let titulo = |id: &str| bus.leer_orden(id).map(|o| o.titulo).unwrap_or_else(|_| id.to_string());
     for (agente, destino) in [(Rol::Ejecutor, &mut d.cola_modelo_local), (Rol::Planificador, &mut d.cola_claude_code)] {
-        *destino = bus
-            .listar_cola(agente)
-            .unwrap_or_default()
-            .iter()
-            .map(|e| format!("{}  ({})", titulo(&e.trabajo), e.motivo))
-            .collect();
+        *destino = bus.listar_cola(agente).unwrap_or_default().iter().map(|e| format!("{}  ({})", titulo(&e.trabajo), e.motivo)).collect();
     }
-    d.semaforos = ea_bus::listar_semaforos_en(bus.raiz())
-        .into_iter()
-        .map(|(_, o)| format!("{} · {} · desde {}", o.agente, titulo(&o.trabajo), o.desde))
-        .collect();
+    d.semaforos =
+        ea_bus::listar_semaforos_en(bus.raiz()).into_iter().map(|(_, o)| format!("{} · {} · desde {}", o.agente, titulo(&o.trabajo), o.desde)).collect();
     let mut ids = bus.listar_trabajos().unwrap_or_default();
     ids.reverse();
     for r in ids.iter().filter_map(|id| bus.resumen_trabajo(id)) {
@@ -221,8 +185,7 @@ fn datos_de(bus: &ea_bus::Bus) -> orquestador_view::DatosOrquestador {
 /// cada celda tal cual a la terminal: al final ninguna lleva caracteres de
 /// control, así que tampoco secuencias ANSI u OSC (como `commands::limpio`).
 fn pintar(frame: &mut Frame, data: &AppData, current: Tab, sel: usize, detalle: bool) {
-    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)])
-        .split(frame.area());
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(frame.area());
 
     let titles: Vec<&str> = Tab::ALL.iter().map(|t| t.title()).collect();
     let tabs = Tabs::new(titles)
@@ -259,7 +222,8 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, data: &AppData) -
 
         if event::poll(std::time::Duration::from_millis(250))?
             && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press {
+            && key.kind == KeyEventKind::Press
+        {
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => break,
                 KeyCode::Down if current == Tab::Orquestador => {
@@ -297,7 +261,14 @@ mod pruebas {
         let bus = ea_bus::Bus::abrir_en(&dir.path().join("estado")).unwrap();
         let wt = dir.path().to_string_lossy().into_owned();
         let ids = ["20260101T000001-00000001", "20260101T000002-00000002", "20260101T000003-00000003"];
-        let fase = |n: u32| Fase { numero: n, titulo: format!("fase {n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
+        let fase = |n: u32| Fase {
+            numero: n,
+            titulo: format!("fase {n}"),
+            instrucciones: "i".into(),
+            entregable: "e".into(),
+            criterio: "true".into(),
+            skills: vec![],
+        };
         bus.crear_trabajo(Orden { id: ids[0].into(), ..Orden::mision("misión 1", &wt, "o", "true", "prueba") }).unwrap();
         bus.crear_trabajo(Orden { id: ids[1].into(), ..Orden::obra("una obra", &wt, "o", vec![fase(1), fase(2), fase(3)], None, "prueba") }).unwrap();
         bus.crear_trabajo(Orden { id: ids[2].into(), ..Orden::mision("misión 3", &wt, "o", "true", "prueba") }).unwrap();
@@ -311,14 +282,19 @@ mod pruebas {
         }))
         .unwrap();
         bus.aplicar(ids[1], Evento::Entregar(informe)).unwrap();
-        bus.aplicar(ids[0], Evento::Entregar(serde_json::from_value(serde_json::json!({ "resultado": "terminado", "obra_completa": true, "duracion_s": 5 })).unwrap())).unwrap();
+        bus.aplicar(
+            ids[0],
+            Evento::Entregar(serde_json::from_value(serde_json::json!({ "resultado": "terminado", "obra_completa": true, "duracion_s": 5 })).unwrap()),
+        )
+        .unwrap();
         bus.aplicar(ids[0], Evento::Cerrar).unwrap();
 
         let d = datos_de(&bus);
         assert_eq!(d.cola_modelo_local, ["misión 3  (orden nueva)"]);
         assert_eq!(d.cola_claude_code, ["una obra  (bloqueado)"]);
         assert!(d.semaforos.is_empty());
-        let t: Vec<_> = d.trabajos.iter().map(|t| (t.id.as_str(), t.modo, t.titulo.as_str(), t.estado.as_str(), t.avance.as_str(), t.informe.as_str())).collect();
+        let t: Vec<_> =
+            d.trabajos.iter().map(|t| (t.id.as_str(), t.modo, t.titulo.as_str(), t.estado.as_str(), t.avance.as_str(), t.informe.as_str())).collect();
         assert_eq!(
             t,
             [

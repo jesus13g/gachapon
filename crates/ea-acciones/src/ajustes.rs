@@ -7,9 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
-use ea_ajustes::{establecer, Aplicado, Canal, ErrorAjustes, Fuentes};
+use ea_ajustes::{Aplicado, Canal, ErrorAjustes, Fuentes, establecer};
 use ea_store::{EventOutcome, NewEvent, Store, StoreError};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Clave del ajuste de autoarranque.
 pub const CLAVE_AL_INICIAR: &str = "escritorio.al_iniciar";
@@ -50,8 +50,7 @@ pub fn cambiar(
 /// cada clave con su valor de antes y de después. Para quien escribe el lote
 /// sin [`cambiar`] (el instalador aplica el autoarranque con su binario).
 pub fn apuntar(store: &Store, canal: Canal, f: &Fuentes, aplicados: &[Aplicado]) -> Result<(), StoreError> {
-    let cambios: Vec<Value> =
-        aplicados.iter().map(|a| json!({ "clave": a.clave, "antes": a.antes, "despues": a.despues })).collect();
+    let cambios: Vec<Value> = aplicados.iter().map(|a| json!({ "clave": a.clave, "antes": a.antes, "despues": a.despues })).collect();
     let detalle = json!({ "canal": canal.nombre(), "fichero": f.fichero().display().to_string(), "cambios": cambios });
     store.append_event(NewEvent {
         actor: ACTOR.into(),

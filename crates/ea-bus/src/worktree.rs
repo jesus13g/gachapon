@@ -130,11 +130,7 @@ impl Bus {
                 .zip(ea_plataforma::rutas::canonica(&ruta).ok())
                 .is_some_and(|(a, b)| a == b)
                 && comun(&ruta).ok().zip(comun(repo).ok()).is_some_and(|(a, b)| a == b);
-            return if del_repo {
-                Ok(ruta)
-            } else {
-                Err(falla(format!("{} existe pero no es un worktree de {}", ruta.display(), repo.display())))
-            };
+            return if del_repo { Ok(ruta) } else { Err(falla(format!("{} existe pero no es un worktree de {}", ruta.display(), repo.display()))) };
         }
         std::fs::create_dir_all(ruta.parent().unwrap_or(&self.raiz))?;
         // Registro de un worktree cuyo directorio se borró a mano: fuera, o
@@ -145,8 +141,7 @@ impl Bus {
         let r = if existe {
             git_en(repo, &["worktree".as_ref(), "add".as_ref(), "--".as_ref(), ruta.as_os_str(), rama.as_ref()], TOPE_ESCRITURA)
         } else {
-            let args: [&OsStr; 7] =
-                ["worktree".as_ref(), "add".as_ref(), "-b".as_ref(), rama.as_ref(), "--".as_ref(), ruta.as_os_str(), "HEAD".as_ref()];
+            let args: [&OsStr; 7] = ["worktree".as_ref(), "add".as_ref(), "-b".as_ref(), rama.as_ref(), "--".as_ref(), ruta.as_os_str(), "HEAD".as_ref()];
             git_en(repo, &args, TOPE_ESCRITURA)
         };
         r.map_err(falla)?;

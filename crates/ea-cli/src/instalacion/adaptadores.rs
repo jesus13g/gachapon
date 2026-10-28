@@ -75,10 +75,7 @@ fn planificador() -> &'static str {
 
 /// El fragmento del `AGENTS.md` de `agente` (`Codex`, `OpenCode`).
 pub fn fragmento(agente: &str) -> String {
-    format!(
-        "<!-- Fragmento para el AGENTS.md de {agente}. Instalación: docs/manual.md del repo, «Adaptadores del planificador». -->\n{}",
-        planificador()
-    )
+    format!("<!-- Fragmento para el AGENTS.md de {agente}. Instalación: docs/manual.md del repo, «Adaptadores del planificador». -->\n{}", planificador())
 }
 
 /// La regla `model_decision` de Antigravity (`ea-planificador.md`).

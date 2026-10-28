@@ -8,10 +8,10 @@ use std::sync::Arc;
 use ea_biblioteca::Raices;
 use ea_boveda::Boveda;
 use ea_mcp::EaTools;
-use ea_store::{EventFilter, PropuestaFilter, Store};
 use ea_pruebas::biblioteca::{MCP, SECRETOS, SKILL};
 use ea_pruebas::mcp::{conectar, llamar};
 use ea_pruebas::sin_secretos;
+use ea_store::{EventFilter, PropuestaFilter, Store};
 use serde_json::json;
 use tokio::sync::Mutex;
 
@@ -36,7 +36,8 @@ async fn entorno() -> Entorno {
     let router = ea_mcp::router(
         move || {
             EaTools::con_entorno(store.clone(), rutinas.clone(), Boveda::en(boveda.clone()), estado.clone())
-                .con_ajustes(ajustes.clone()).con_credencial(credencial())
+                .con_ajustes(ajustes.clone())
+                .con_credencial(credencial())
                 .con_raices(raices.clone())
         },
         Default::default(),

@@ -17,10 +17,10 @@ use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::model::{CallToolResult, ContentBlock, Implementation, InitializeResult, ServerCapabilities};
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool_handler};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use ea_acciones::{autorizar_mcp, buscar, SoloConsulta};
+use ea_acciones::{SoloConsulta, autorizar_mcp, buscar};
 use ea_boveda::Boveda;
 
 use crate::credencial::Credencial;
@@ -134,9 +134,7 @@ type ToolBody = Result<Value, String>;
 
 fn respond(body: ToolBody) -> Result<CallToolResult, McpError> {
     match body {
-        Ok(value) => Ok(CallToolResult::success(vec![ContentBlock::text(
-            serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
-        )])),
+        Ok(value) => Ok(CallToolResult::success(vec![ContentBlock::text(serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()))])),
         Err(msg) => Err(McpError::internal_error(msg, None)),
     }
 }
@@ -149,12 +147,7 @@ impl EaTools {
         Self::con_entorno(store, a.orquestador.rutinas_dir, Boveda::en(a.rutas.boveda), a.rutas.estado)
     }
 
-    pub fn con_entorno(
-        store: Arc<Mutex<Store>>,
-        rutinas_dir: std::path::PathBuf,
-        boveda: Boveda,
-        estado_dir: std::path::PathBuf,
-    ) -> Self {
+    pub fn con_entorno(store: Arc<Mutex<Store>>, rutinas_dir: std::path::PathBuf, boveda: Boveda, estado_dir: std::path::PathBuf) -> Self {
         Self {
             store,
             consulta: Arc::new(SoloConsulta::usuario(rutinas_dir, boveda.clone(), estado_dir.clone())),
@@ -193,10 +186,7 @@ impl EaTools {
     /// bus, la bóveda, los ajustes o SQLite bloquea, y no debe hacerlo en el
     /// hilo del runtime. La base de datos se toma ahí (`blocking_lock`) y solo
     /// cuando hace falta.
-    async fn bloqueante<T: Send + 'static>(
-        &self,
-        f: impl FnOnce(&Self) -> Result<T, String> + Send + 'static,
-    ) -> Result<T, String> {
+    async fn bloqueante<T: Send + 'static>(&self, f: impl FnOnce(&Self) -> Result<T, String> + Send + 'static) -> Result<T, String> {
         let t = self.clone();
         tokio::task::spawn_blocking(move || f(&t)).await.map_err(|e| e.to_string())?
     }
@@ -236,15 +226,7 @@ impl EaTools {
     /// Registra en el diario una invocación de herramienta: quién, qué
     /// verbo, con qué argumentos, con qué resultado y cuánto tardó.
     /// Independiente del nivel de riesgo de la herramienta (§11.3).
-    async fn log_invocation(
-        &self,
-        quien: &Llamante,
-        action: &str,
-        trabajo: Option<&str>,
-        started: Instant,
-        args: Value,
-        body: &ToolBody,
-    ) {
+    async fn log_invocation(&self, quien: &Llamante, action: &str, trabajo: Option<&str>, started: Instant, args: Value, body: &ToolBody) {
         let duration_ms = started.elapsed().as_millis() as i64;
         let mut detail = match body {
             Ok(_) => json!({ "args": args }),
@@ -257,11 +239,7 @@ impl EaTools {
             (None, Some(c)) if quien.actor == ACTOR_DESCONOCIDO => detail["cliente"] = json!(c),
             _ => {}
         }
-        let outcome = if body.is_ok() {
-            EventOutcome::Ok
-        } else {
-            EventOutcome::Error
-        };
+        let outcome = if body.is_ok() { EventOutcome::Ok } else { EventOutcome::Error };
         let evento = NewEvent {
             actor: quien.actor.to_string(),
             action: action.to_string(),
@@ -280,14 +258,7 @@ impl EaTools {
 
     /// Autoriza una herramienta del catálogo por el actor y, si falla, deja la
     /// denegación en el diario (§11.3). `Ok(())` si puede seguir.
-    async fn autorizar(
-        &self,
-        quien: &Llamante,
-        nombre: &str,
-        accion: &str,
-        started: Instant,
-        args: &Value,
-    ) -> Result<(), McpError> {
+    async fn autorizar(&self, quien: &Llamante, nombre: &str, accion: &str, started: Instant, args: &Value) -> Result<(), McpError> {
         let h = buscar(nombre).expect("en el catálogo");
         if let Err(msg) = autorizar_mcp(quien.actor, h) {
             let body: ToolBody = Err(msg.clone());
@@ -301,10 +272,8 @@ impl EaTools {
 #[tool_handler]
 impl ServerHandler for EaTools {
     fn get_info(&self) -> InitializeResult {
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::from_build_env())
-            .with_instructions(
-                "Herramientas del ecosistema de asistente personal. ea_status da \
+        InitializeResult::new(ServerCapabilities::builder().enable_tools().build()).with_server_info(Implementation::from_build_env()).with_instructions(
+            "Herramientas del ecosistema de asistente personal. ea_status da \
                  una vista general (orquestador, trabajos, colas y semáforos); \
                  ea_listar_equipos y ea_ver_equipo muestran los equipos de agentes \
                  y su presencia (solo lectura: despertarlos o dormirlos es del usuario); \
@@ -324,8 +293,8 @@ impl ServerHandler for EaTools {
                  notas se consulta con ea_buscar_notas y ea_leer_nota; ea_escribir_nota \
                  escribe en la región propia del agente; la región compartida solo \
                  recibe notas que el usuario promueve."
-                    .to_string(),
-            )
+                .to_string(),
+        )
     }
 }
 
@@ -338,7 +307,10 @@ mod tests {
         let mut a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(std::path::Path::new("/nada")));
         let actor = |c: Option<&str>, a: &ea_ajustes::Ajustes| actor_for(c, true, a);
         assert_eq!(actor(Some("claude-code"), &a).actor, "claude-code");
-        assert_eq!(actor(Some("qwen-code-mcp-client"), &a), Llamante { actor: "modelo-local", agente: Some("qwen-code"), cliente: Some("qwen-code-mcp-client".into()) });
+        assert_eq!(
+            actor(Some("qwen-code-mcp-client"), &a),
+            Llamante { actor: "modelo-local", agente: Some("qwen-code"), cliente: Some("qwen-code-mcp-client".into()) }
+        );
         assert_eq!(actor(Some("ea-orchestrator"), &a).actor, "orquestador");
         assert_eq!(actor(Some("codex-mcp-client"), &a).actor, ACTOR_SIN_ROL);
         assert_eq!(actor(Some("antigravity-client"), &a).actor, ACTOR_SIN_ROL);
@@ -348,7 +320,10 @@ mod tests {
         assert_eq!(actor(Some("opencode"), &a), Llamante { actor: "claude-code", agente: Some("opencode"), cliente: Some("opencode".into()) });
         assert_eq!(actor(Some("claude-code"), &a).actor, ACTOR_SIN_ROL);
         a.roles.planificador = "antigravity".into();
-        assert_eq!(actor(Some("antigravity-client"), &a), Llamante { actor: "claude-code", agente: Some("antigravity"), cliente: Some("antigravity-client".into()) });
+        assert_eq!(
+            actor(Some("antigravity-client"), &a),
+            Llamante { actor: "claude-code", agente: Some("antigravity"), cliente: Some("antigravity-client".into()) }
+        );
     }
 
     /// Sin la credencial, el nombre declarado no da ningún rol salvo el del
@@ -363,7 +338,10 @@ mod tests {
         assert_eq!(actor("codex-mcp-client", &a), desconocido("codex-mcp-client"));
         assert_eq!(actor("lo-que-sea", &a), desconocido("lo-que-sea"));
         assert_eq!(actor_for(None, false, &a).actor, ACTOR_DESCONOCIDO);
-        assert_eq!(actor("qwen-code-mcp-client", &a), Llamante { actor: "modelo-local", agente: Some("qwen-code"), cliente: Some("qwen-code-mcp-client".into()) });
+        assert_eq!(
+            actor("qwen-code-mcp-client", &a),
+            Llamante { actor: "modelo-local", agente: Some("qwen-code"), cliente: Some("qwen-code-mcp-client".into()) }
+        );
         // El ejecutor es el agente que ocupe el rol ahora, no un nombre fijo.
         (a.roles.planificador, a.roles.ejecutor) = ("qwen-code".into(), "codex".into());
         assert_eq!(actor("qwen-code-mcp-client", &a), desconocido("qwen-code-mcp-client"));
@@ -389,8 +367,19 @@ mod tests {
     fn ningun_cliente_mcp_actua_como_usuario() {
         let mut a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(std::path::Path::new("/nada")));
         let clientes = [
-            None, Some("usuario"), Some("ea-cli"), Some("ea-web"), Some("ea-orchestrator"), Some("claude-code"), Some("qwen-code-mcp-client"),
-            Some("codex-mcp-client"), Some("opencode"), Some("antigravity-client"), Some("gemini-cli-mcp-client"), Some("lo-que-sea"), Some(""),
+            None,
+            Some("usuario"),
+            Some("ea-cli"),
+            Some("ea-web"),
+            Some("ea-orchestrator"),
+            Some("claude-code"),
+            Some("qwen-code-mcp-client"),
+            Some("codex-mcp-client"),
+            Some("opencode"),
+            Some("antigravity-client"),
+            Some("gemini-cli-mcp-client"),
+            Some("lo-que-sea"),
+            Some(""),
         ];
         for (planificador, ejecutor) in [("claude-code", "qwen-code"), ("opencode", "codex"), ("antigravity", "opencode")] {
             (a.roles.planificador, a.roles.ejecutor) = (planificador.into(), ejecutor.into());

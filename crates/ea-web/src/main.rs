@@ -2,16 +2,13 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use ea_store::Store;
-use ea_web::{clave, AppState, WebConfig};
+use ea_web::{AppState, WebConfig, clave};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -25,9 +22,7 @@ async fn main() -> anyhow::Result<()> {
     // La señal de parada, antes de escuchar: un SIGTERM temprano también
     // pasa por el cierre limpio (y retira la clave).
     let parada = ea_plataforma::parada::esperar_parada();
-    let listener = tokio::net::TcpListener::bind(&bind_addr)
-        .await
-        .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await.with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
 
     // La clave se escribe después de escuchar: si ya corría otro ea-web, el
     // bind falla antes de pisarle el fichero con una clave que él no conoce.
@@ -48,9 +43,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(%bind_addr, clave = ?fichero_clave, "ea-web arrancado");
 
-    axum::serve(listener, router)
-        .with_graceful_shutdown(parada)
-        .await?;
+    axum::serve(listener, router).with_graceful_shutdown(parada).await?;
 
     if let Some(f) = fichero_clave {
         clave::retirar(&f, &estado.clave);

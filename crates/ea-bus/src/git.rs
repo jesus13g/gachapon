@@ -178,8 +178,7 @@ fn sin_fallos(r: Resultado<bool>) -> Resultado<bool> {
 pub fn instantanea(wt: &Path, dir: &Path) -> Option<String> {
     let idx = dir.join(".indice-tmp");
     let _ = std::fs::remove_file(&idx);
-    let arbol = git_con_indice(wt, ["add", "-A"], &idx, TOPE_ESCRITURA)
-        .and_then(|_| git_con_indice(wt, ["write-tree"], &idx, TOPE_ESCRITURA));
+    let arbol = git_con_indice(wt, ["add", "-A"], &idx, TOPE_ESCRITURA).and_then(|_| git_con_indice(wt, ["write-tree"], &idx, TOPE_ESCRITURA));
     let _ = std::fs::remove_file(&idx);
     arbol.ok().map(|s| s.trim().to_string())
 }
@@ -218,11 +217,8 @@ pub fn diff_desde(wt: &Path, inicio: &str, tope: Duration) -> Resultado<String> 
 pub fn diff_stat_desde(wt: &Path, inicio: &str) -> String {
     let leer = |args: &[&str]| git(wt, args, TOPE_LECTURA).map(|s| s.trim().to_string()).unwrap_or_default();
     let mut stat = leer(&["diff", "--no-ext-diff", "--no-textconv", "--stat", inicio]);
-    let nuevos: Vec<String> = leer(&["ls-files", "--others", "--exclude-standard"])
-        .lines()
-        .filter(|l| !l.contains("__pycache__"))
-        .map(str::to_string)
-        .collect();
+    let nuevos: Vec<String> =
+        leer(&["ls-files", "--others", "--exclude-standard"]).lines().filter(|l| !l.contains("__pycache__")).map(str::to_string).collect();
     if !nuevos.is_empty() {
         stat.push_str(&format!("\nnuevos: {}", nuevos.join(", ")));
     }
@@ -257,10 +253,7 @@ pub fn ficheros_nuevos(wt: &Path, tope: Duration) -> Resultado<Vec<FicheroNuevo>
     Ok(lista
         .split('\0')
         .filter(|f| !f.is_empty() && !f.contains("__pycache__"))
-        .map(|f| FicheroNuevo {
-            ruta: f.to_string(),
-            texto: std::fs::read(wt.join(f)).ok().and_then(|b| String::from_utf8(b).ok()),
-        })
+        .map(|f| FicheroNuevo { ruta: f.to_string(), texto: std::fs::read(wt.join(f)).ok().and_then(|b| String::from_utf8(b).ok()) })
         .collect())
 }
 

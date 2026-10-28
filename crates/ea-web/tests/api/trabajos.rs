@@ -306,18 +306,15 @@ async fn crear_exige_json_host_local_y_clave() {
         assert_eq!(s, StatusCode::FORBIDDEN, "{c:?}: {t}");
     }
     // Con la clave pero sin JSON: 400.
-    let (s, _) =
-        enviar_con_clave(&f, Method::POST, "/api/trabajos", "localhost", Some(cuerpo.clone()), false, Some(&clave)).await;
+    let (s, _) = enviar_con_clave(&f, Method::POST, "/api/trabajos", "localhost", Some(cuerpo.clone()), false, Some(&clave)).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
     // Con la clave desde otro host: 403.
-    let (s, _) =
-        enviar_con_clave(&f, Method::POST, "/api/trabajos", "evil.example", Some(cuerpo.clone()), true, Some(&clave)).await;
+    let (s, _) = enviar_con_clave(&f, Method::POST, "/api/trabajos", "evil.example", Some(cuerpo.clone()), true, Some(&clave)).await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     let (_, t) = get(&f, "/api/trabajos").await;
     assert_eq!(t.as_array().map(Vec::len), Some(0), "{t}");
     // Con todo en regla, se crea.
-    let (s, r) =
-        enviar_con_clave(&f, Method::POST, "/api/trabajos", "127.0.0.1:8092", Some(cuerpo), true, Some(&clave)).await;
+    let (s, r) = enviar_con_clave(&f, Method::POST, "/api/trabajos", "127.0.0.1:8092", Some(cuerpo), true, Some(&clave)).await;
     assert_eq!(s, StatusCode::CREATED, "{r}");
 }
 
@@ -439,10 +436,7 @@ async fn crear_una_obra_valida_cada_fase() {
         assert!(fz.get("skills").is_none(), "{fz}");
     }
     // Lo mismo en el orden.json del bus.
-    let disco: Value = serde_json::from_str(
-        &std::fs::read_to_string(f._dir.path().join("estado/trabajos").join(&id).join("orden.json")).unwrap(),
-    )
-    .unwrap();
+    let disco: Value = serde_json::from_str(&std::fs::read_to_string(f._dir.path().join("estado/trabajos").join(&id).join("orden.json")).unwrap()).unwrap();
     assert_eq!(disco["fases"], o["fases"]);
     // El criterio no se ha ejecutado y el diario apunta al usuario.
     assert!(d["informe"].is_null());
@@ -539,11 +533,7 @@ async fn diff_de_una_fase_usa_las_instantaneas() {
     assert_eq!(s, StatusCode::NOT_FOUND);
     assert!(e["error"].as_str().unwrap().contains("commit_inicio"), "{e}");
 
-    bus.escribir_informe(
-        &id,
-        &serde_json::from_value(json!({ "resultado": "terminado", "commit_inicio": inicio })).unwrap(),
-    )
-    .unwrap();
+    bus.escribir_informe(&id, &serde_json::from_value(json!({ "resultado": "terminado", "commit_inicio": inicio })).unwrap()).unwrap();
 
     let (s, d1) = get(&f, &format!("/api/trabajos/{id}/diff?fase=1")).await;
     assert_eq!(s, StatusCode::OK, "{d1}");
@@ -615,16 +605,10 @@ async fn el_diff_es_el_de_git_mas_los_ficheros_nuevos() {
 
     let bus = bus(&f);
     let id = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "Diff", wt.to_str().unwrap())).unwrap();
-    bus.escribir_informe(&id, &serde_json::from_value(json!({ "resultado": "terminado", "commit_inicio": inicio })).unwrap())
-        .unwrap();
+    bus.escribir_informe(&id, &serde_json::from_value(json!({ "resultado": "terminado", "commit_inicio": inicio })).unwrap()).unwrap();
     let (s, d) = get(&f, &format!("/api/trabajos/{id}/diff")).await;
     assert_eq!((s, d["truncado"].as_bool()), (StatusCode::OK, Some(false)), "{d}");
-    let o = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&wt)
-        .args(["diff", &inicio, "--", ".", ea_bus::EXCLUIR_DIFF])
-        .output()
-        .unwrap();
+    let o = std::process::Command::new("git").arg("-C").arg(&wt).args(["diff", &inicio, "--", ".", ea_bus::EXCLUIR_DIFF]).output().unwrap();
     let esperado = String::from_utf8_lossy(&o.stdout).into_owned()
         + "\n=== fichero nuevo sin seguimiento: canción.txt ===\nñ\n"
         + "\n=== fichero nuevo sin seguimiento: datos.bin (binario o ilegible) ===\n"
@@ -727,22 +711,15 @@ async fn los_worktrees_propios_se_listan_y_se_limpian_con_simulacion() {
     let (s, sim) = post(&f, "/api/acciones/simular", pedir).await;
     assert_eq!(s, StatusCode::OK, "{sim}");
     assert!(ruta.exists(), "simular no cambia nada");
-    let (s, r) = post(
-        &f,
-        "/api/acciones/ejecutar",
-        json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }),
-    )
-    .await;
+    let (s, r) =
+        post(&f, "/api/acciones/ejecutar", json!({ "herramienta": sim["herramienta"], "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }))
+            .await;
     assert_eq!(s, StatusCode::OK, "{r}");
     assert!(!ruta.exists());
     let (_, v) = get(&f, "/api/worktrees").await;
     assert_eq!(v, json!([]));
-    let rama = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&repo)
-        .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/ea/{id}")])
-        .status()
-        .unwrap();
+    let rama =
+        std::process::Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/ea/{id}")]).status().unwrap();
     assert!(rama.success(), "la rama se conserva");
 }
 
@@ -755,10 +732,7 @@ async fn los_resumenes_de_trabajos_dicen_lo_mismo_que_siempre() {
 
     let (s, estado) = enviar(&f, Method::GET, "/api/estado", "localhost:8092", None, false).await;
     assert_eq!(s, StatusCode::OK);
-    assert!(
-        estado.contains(r#""trabajos":{"en_cola":1,"ejecutando":1,"en_revision":1,"en_espera":0,"cerrado":1,"cancelado":0}"#),
-        "{estado}"
-    );
+    assert!(estado.contains(r#""trabajos":{"en_cola":1,"ejecutando":1,"en_revision":1,"en_espera":0,"cerrado":1,"cancelado":0}"#), "{estado}");
 
     let (s, mut lista) = enviar(&f, Method::GET, "/api/trabajos", "localhost:8092", None, false).await;
     assert_eq!(s, StatusCode::OK);

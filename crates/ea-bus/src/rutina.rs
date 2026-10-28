@@ -69,15 +69,10 @@ pub fn validar_entradas(entradas: &[(String, String)]) -> Resultado<()> {
     }
     for (k, v) in entradas {
         if v.len() > MAX_VALOR_ENTRADA {
-            return Err(ErrorBus::Argumentos(format!(
-                "la entrada {k:?} es demasiado larga ({} bytes; como mucho {MAX_VALOR_ENTRADA})",
-                v.len()
-            )));
+            return Err(ErrorBus::Argumentos(format!("la entrada {k:?} es demasiado larga ({} bytes; como mucho {MAX_VALOR_ENTRADA})", v.len())));
         }
         if v.chars().any(char::is_control) {
-            return Err(ErrorBus::Argumentos(format!(
-                "la entrada {k:?} lleva caracteres de control (saltos de línea, tabuladores…), que no se admiten"
-            )));
+            return Err(ErrorBus::Argumentos(format!("la entrada {k:?} lleva caracteres de control (saltos de línea, tabuladores…), que no se admiten")));
         }
     }
     Ok(())

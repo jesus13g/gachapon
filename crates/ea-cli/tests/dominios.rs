@@ -24,11 +24,7 @@ const CASOS: [(&[&str], &[&str], &[&str]); 5] = [
     (&["boveda", "listar", "--region", "privada"], &["boveda", "listar", "--help"], &["modelo-local", "claude-code", "compartida"]),
     (&["boveda", "buscar", "x", "--region", "privada"], &["boveda", "buscar", "--help"], &["modelo-local", "claude-code", "compartida"]),
     (&["cola", "jefe"], &["cola", "--help"], &["planificador", "ejecutor"]),
-    (
-        &["agentes", "rol", "ejecutor", "nadie"],
-        &["agentes", "rol", "--help"],
-        &["claude-code", "qwen-code", "codex", "opencode", "antigravity"],
-    ),
+    (&["agentes", "rol", "ejecutor", "nadie"], &["agentes", "rol", "--help"], &["claude-code", "qwen-code", "codex", "opencode", "antigravity"]),
 ];
 
 #[test]

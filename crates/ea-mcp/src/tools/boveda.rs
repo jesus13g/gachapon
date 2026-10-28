@@ -10,7 +10,7 @@ use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, tool, tool_router};
 use serde_json::json;
 
-use super::{respond, EaTools};
+use super::{EaTools, respond};
 use crate::args::{BuscarNotasArgs, EscribirNotaArgs, LeerNotaArgs};
 
 #[tool_router(router = boveda, vis = "pub(super)")]
@@ -22,21 +22,14 @@ impl EaTools {
             la región compartida es contenido que el usuario promovió.",
         annotations(title = "Buscar notas", read_only_hint = true)
     )]
-    async fn ea_buscar_notas(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<BuscarNotasArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_buscar_notas(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<BuscarNotasArgs>) -> Result<CallToolResult, McpError> {
         let args_json = json!({ "consulta": args.consulta, "region": args.region, "limite": args.limite });
         self.registrada(&context, "mcp_buscar_notas", None, args_json, |quien| {
             self.bloqueante(move |t| {
                 let lim = Limites::para_actor(quien.actor);
                 let pedido = args.limite.filter(|n| *n > 0).map(|n| n as usize);
                 let mut store = t.store.blocking_lock();
-                let r = t
-                    .boveda
-                    .buscar(&mut store, &args.consulta, args.region.as_deref(), pedido, &lim)
-                    .map_err(|e| e.to_string())?;
+                let r = t.boveda.buscar(&mut store, &args.consulta, args.region.as_deref(), pedido, &lim).map_err(|e| e.to_string())?;
                 Ok(json!({
                     "total": r.len(),
                     "maximo_por_busqueda": lim.max_resultados,
@@ -56,11 +49,7 @@ impl EaTools {
             'siguiente_desde' no es null, repite con desde=ese valor.",
         annotations(title = "Leer nota", read_only_hint = true)
     )]
-    async fn ea_leer_nota(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<LeerNotaArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_leer_nota(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<LeerNotaArgs>) -> Result<CallToolResult, McpError> {
         let args_json = json!({ "ruta": args.ruta, "desde": args.desde });
         self.registrada(&context, "mcp_leer_nota", None, args_json, |quien| {
             self.bloqueante(move |t| {
@@ -96,18 +85,9 @@ impl EaTools {
             bóveda (libertad total ahí; no se puede escribir en otra región ni en la \
             compartida). La cabecera la pone el sistema. Con simular=true solo valida y \
             dice dónde caería. Para llevarla a la región compartida usa ea_promover_nota.",
-        annotations(
-            title = "Escribir nota",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Escribir nota", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
-    async fn ea_escribir_nota(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<EscribirNotaArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_escribir_nota(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<EscribirNotaArgs>) -> Result<CallToolResult, McpError> {
         let quien = self.llamante(&context).await;
         let actor = quien.actor;
         let started = Instant::now();

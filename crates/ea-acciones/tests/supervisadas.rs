@@ -21,7 +21,7 @@ use ea_biblioteca::{Biblioteca, Contexto, Raices};
 use ea_bus::InfoWorktree;
 use ea_pruebas::escribe;
 use ea_store::{EventFilter, Store};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const CODEX: &str = "[mcp_servers.docs]\ncommand = \"docs-mcp\"\n\n[mcp_servers.apagado]\ncommand = \"a\"\nenabled = false\n";
 
@@ -29,9 +29,7 @@ const CODEX: &str = "[mcp_servers.docs]\ncommand = \"docs-mcp\"\n\n[mcp_servers.
 /// que en lo fijado sale como `<REPO>`.
 fn rutina(slug: &str, version: u32, criterio: &str, extra: &str) -> String {
     let repo = ea_pruebas::repo_comun();
-    format!(
-        "[rutina]\nslug = \"{slug}\"\nversion = {version}\nworktree = \"{repo}\"\ncriterio_exito = \"{criterio}\"\n{extra}[[pasos]]\ntexto = \"x\"\n"
-    )
+    format!("[rutina]\nslug = \"{slug}\"\nversion = {version}\nworktree = \"{repo}\"\ncriterio_exito = \"{criterio}\"\n{extra}[[pasos]]\ntexto = \"x\"\n")
 }
 
 fn nocturna(version: u32) -> String {
@@ -96,16 +94,7 @@ impl Mundo {
         eventos.reverse();
         eventos
             .iter()
-            .map(|e| {
-                format!(
-                    "  {} {} trabajo={:?} {:?} {}\n",
-                    e.actor,
-                    e.action,
-                    e.trabajo,
-                    e.outcome,
-                    e.detail.as_deref().unwrap_or_default()
-                )
-            })
+            .map(|e| format!("  {} {} trabajo={:?} {:?} {}\n", e.actor, e.action, e.trabajo, e.outcome, e.detail.as_deref().unwrap_or_default()))
             .collect()
     }
 
@@ -153,20 +142,11 @@ async fn fijar(nombre: &str, args: Value, errores: &[Value]) -> String {
         .map(|a| format!("{a}={}", si(autorizar_mcp(a, h).is_ok())))
         .collect();
     writeln!(s, "mcp: {}", actores.join(" ")).unwrap();
-    writeln!(
-        s,
-        "confirma: web={} terminal={}",
-        si(puede_confirmar(Canal::Web, h.riesgo).is_ok()),
-        si(puede_confirmar(Canal::Terminal, h.riesgo).is_ok())
-    )
-    .unwrap();
-    for c in campos(nombre) {
-        writeln!(
-            s,
-            "campo: {} obligatorio={} entero={} largo={} opciones={:?} ayuda={:?}",
-            c.nombre, c.obligatorio, c.entero, c.largo, c.opciones, c.ayuda
-        )
+    writeln!(s, "confirma: web={} terminal={}", si(puede_confirmar(Canal::Web, h.riesgo).is_ok()), si(puede_confirmar(Canal::Terminal, h.riesgo).is_ok()))
         .unwrap();
+    for c in campos(nombre) {
+        writeln!(s, "campo: {} obligatorio={} entero={} largo={} opciones={:?} ayuda={:?}", c.nombre, c.obligatorio, c.entero, c.largo, c.opciones, c.ayuda)
+            .unwrap();
     }
     writeln!(s, "argumentos: {}", args.to_string().replace(ea_pruebas::repo_comun(), "<REPO>")).unwrap();
     writeln!(s, "validar: {}", res(validar_argumentos(nombre, &args))).unwrap();
@@ -204,8 +184,7 @@ async fn fijar(nombre: &str, args: Value, errores: &[Value]) -> String {
     };
     let (p, r) = aceptar_propuesta_con_resultado(&mut m.store, &m.sis, p.id, "usuario", canal).await.unwrap();
     let ej = p.ejecucion.as_ref().unwrap();
-    writeln!(t, "aceptar ({}): {} / {:?}: {}", canal.nombre(), p.estado.as_str(), ej.estado, ej.detalle.as_deref().unwrap_or_default())
-        .unwrap();
+    writeln!(t, "aceptar ({}): {} / {:?}: {}", canal.nombre(), p.estado.as_str(), ej.estado, ej.detalle.as_deref().unwrap_or_default()).unwrap();
     let r = r.unwrap();
     volatiles_de(&r.datos, None, &mut volatiles);
     writeln!(t, "resultado: trabajo={:?} evento={:?}\n  datos: {}\n  texto: {}", r.trabajo, r.evento, r.datos, r.texto).unwrap();
@@ -223,8 +202,7 @@ async fn fijar(nombre: &str, args: Value, errores: &[Value]) -> String {
     }
     let r = ejecutar_directo(&mut m.store, &m.sis, "usuario", canal, nombre, &args).await.unwrap();
     volatiles_de(&r.datos, None, &mut volatiles);
-    writeln!(t, "directa ({}): trabajo={:?} evento={:?}\n  datos: {}\n  texto: {}", canal.nombre(), r.trabajo, r.evento, r.datos, r.texto)
-        .unwrap();
+    writeln!(t, "directa ({}): trabajo={:?} evento={:?}\n  datos: {}\n  texto: {}", canal.nombre(), r.trabajo, r.evento, r.datos, r.texto).unwrap();
     writeln!(t, "mutaciones: {:?}", m.sis.mutaciones()).unwrap();
     writeln!(t, "diario:\n{}", m.diario()).unwrap();
     s.push_str(&m.normalizar(&t, &volatiles));
@@ -254,11 +232,7 @@ async fn cada_herramienta_supervisada_hace_lo_mismo_que_siempre() {
             json!({ "toml": nocturna(2).replace("criterio_exito = \"true\"", "criterio_exito = \"test -d .\"") }),
             vec![json!({ "toml": "[rutina]\nslug = \"x\"\n" }), json!({ "toml": nocturna(1) }), json!({ "toml": 1 })],
         ),
-        (
-            "ea_reiniciar_servicio",
-            json!({ "servicio": "ea-mcp" }),
-            vec![json!({ "servicio": "sshd" }), json!({ "servicio": "ea-web" }), json!({})],
-        ),
+        ("ea_reiniciar_servicio", json!({ "servicio": "ea-mcp" }), vec![json!({ "servicio": "sshd" }), json!({ "servicio": "ea-web" }), json!({})]),
         (
             "ea_programar_rutina",
             json!({ "slug": "nocturna", "calendario": " *-*-* 08:00:00 " }),

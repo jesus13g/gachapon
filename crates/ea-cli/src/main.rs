@@ -6,7 +6,10 @@ mod tui;
 use anyhow::Result;
 use clap::Parser;
 
-use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, HookAccion, McpAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion, WorktreeAccion};
+use cli::{
+    AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, HookAccion, McpAccion,
+    PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion, WorktreeAccion,
+};
 
 fn main() -> Result<()> {
     salir_en_silencio_si_se_cierra_la_tuberia();
@@ -54,32 +57,12 @@ fn main() -> Result<()> {
         },
         Command::Status => commands::status::mostrar(ctx.store()?)?,
         Command::Diario { accion } => match accion {
-            DiarioAccion::Listar {
-                trabajo,
-                actor,
-                desde,
-                hasta,
-                resultado,
-                accion,
-                antes_de,
-                limite,
-            } => commands::diario::listar(
+            DiarioAccion::Listar { trabajo, actor, desde, hasta, resultado, accion, antes_de, limite } => commands::diario::listar(
                 ctx.store()?,
-                ea_store::FiltroDiario {
-                    trabajo,
-                    actor,
-                    desde,
-                    hasta,
-                    resultado,
-                    accion,
-                    antes_de: antes_de.map(|n| n.to_string()),
-                    limite: Some(limite),
-                },
+                ea_store::FiltroDiario { trabajo, actor, desde, hasta, resultado, accion, antes_de: antes_de.map(|n| n.to_string()), limite: Some(limite) },
             )?,
             DiarioAccion::Ver { id } => commands::diario::ver(ctx.store()?, id)?,
-            DiarioAccion::Anotar { texto, corrige, trabajo } => {
-                commands::diario::anotar(ctx.store()?, ea_store::NuevaNota { texto, corrige, trabajo })?
-            }
+            DiarioAccion::Anotar { texto, corrige, trabajo } => commands::diario::anotar(ctx.store()?, ea_store::NuevaNota { texto, corrige, trabajo })?,
         },
         Command::Rutina { accion } => match accion {
             RutinaAccion::Registrar { fichero } => {
@@ -115,9 +98,7 @@ fn main() -> Result<()> {
         Command::Boveda { accion } => match accion {
             BovedaAccion::Estado => commands::boveda::estado(ctx.store()?)?,
             BovedaAccion::Listar { region, limite } => commands::boveda::listar(ctx.store()?, region, limite)?,
-            BovedaAccion::Buscar { consulta, region, limite } => {
-                commands::boveda::buscar(ctx.store()?, &consulta, region, limite)?
-            }
+            BovedaAccion::Buscar { consulta, region, limite } => commands::boveda::buscar(ctx.store()?, &consulta, region, limite)?,
             BovedaAccion::Leer { ruta, desde } => commands::boveda::leer(&ruta, desde)?,
             BovedaAccion::Promover { ruta, destino } => {
                 ctx.store()?;
@@ -137,7 +118,18 @@ fn main() -> Result<()> {
         Command::Trabajo { accion } => match accion {
             TrabajoAccion::Crear { orden, modo, titulo, worktree, objetivo, criterio, skills, por, equipo, asignar, revisor, worktree_propio } => {
                 ctx.store()?;
-                commands::trabajo::crear(&mut ctx, orden, modo.0, titulo, worktree, objetivo, criterio, skills, por, commands::trabajo::DeEquipo { equipo, asignar, revisor, worktree_propio })?
+                commands::trabajo::crear(
+                    &mut ctx,
+                    orden,
+                    modo.0,
+                    titulo,
+                    worktree,
+                    objetivo,
+                    criterio,
+                    skills,
+                    por,
+                    commands::trabajo::DeEquipo { equipo, asignar, revisor, worktree_propio },
+                )?
             }
             TrabajoAccion::Listar => commands::trabajo::listar()?,
             TrabajoAccion::Ver { id, json } => commands::trabajo::ver(&id, json)?,

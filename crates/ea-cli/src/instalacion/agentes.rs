@@ -14,10 +14,10 @@ use std::path::{Path, PathBuf};
 
 use ea_acciones::servicios::Paso;
 use ea_ajustes::AgenteId;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use super::adaptadores::{self, Formato, Generado};
-use super::recursos::{self, reescribir_ruta_flujo, MARCA_FLUJO};
+use super::recursos::{self, MARCA_FLUJO, reescribir_ruta_flujo};
 use super::{Contexto, Origen, Sonda};
 
 const MARCA_INICIO: &str = "<!-- gachapon:inicio -->";
@@ -669,7 +669,8 @@ mod pruebas {
                     s.ficheros.insert(ruta, contenido);
                 }
                 Paso::Ejecutar { argv, .. } if argv[2] == "add-json" => {
-                    s.ficheros.insert(claude_json.clone(), json!({"mcpServers": {"ea-ecosistema": serde_json::from_str::<Value>(&argv[6]).unwrap()}}).to_string());
+                    s.ficheros
+                        .insert(claude_json.clone(), json!({"mcpServers": {"ea-ecosistema": serde_json::from_str::<Value>(&argv[6]).unwrap()}}).to_string());
                 }
                 _ => {}
             }
@@ -698,7 +699,10 @@ mod pruebas {
         let antiguo = r#"{"hooks":{"SubagentStart":[{"matcher":"*","hooks":[{"type":"command","command":"sh \"$HOME/.claude/hooks/ea-subagentes.sh\" start","timeout":5}]}],"SubagentStop":[{"hooks":[{"command":"~/.claude/hooks/ea-subagentes.sh stop"}]}]}}"#;
         let n = fusionar_hook(Some(antiguo), Path::new("/b/ea")).unwrap().unwrap();
         let v: Value = serde_json::from_str(&n).unwrap();
-        assert_eq!(v["hooks"]["SubagentStart"], json!([{"matcher": "*", "hooks": [{"type": "command", "command": "/b/ea hook subagentes start", "timeout": 5}]}]));
+        assert_eq!(
+            v["hooks"]["SubagentStart"],
+            json!([{"matcher": "*", "hooks": [{"type": "command", "command": "/b/ea hook subagentes start", "timeout": 5}]}])
+        );
         assert_eq!(v["hooks"]["SubagentStop"], json!([{"hooks": [{"command": "/b/ea hook subagentes stop"}]}]));
         assert!(!n.contains("ea-subagentes.sh"));
         assert_eq!(fusionar_hook(Some(&n), Path::new("/b/ea")).unwrap(), None, "migrar dos veces es lo mismo que una");
@@ -735,7 +739,9 @@ mod pruebas {
         let settings = c.home.join(".claude/settings.json");
         let s = Falsa { binarios: vec!["claude"], ilegibles: vec![settings.clone()], ..Default::default() };
         let p = plan_agentes(&c, &s).unwrap();
-        assert!(!p.iter().any(|x| matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } | Paso::Copiar { destino: ruta, .. } if ruta.starts_with(&settings))));
+        assert!(!p.iter().any(
+            |x| matches!(x, Paso::Escribir { ruta, .. } | Paso::EditarPersonal { ruta, .. } | Paso::Copiar { destino: ruta, .. } if ruta.starts_with(&settings))
+        ));
         assert!(avisos_agentes(&c, &s).iter().any(|a| a.contains("no se puede leer")));
     }
 
@@ -920,8 +926,7 @@ mod pruebas {
             ("agy", &[".gemini/config/skills", ".gemini/config/rules"]),
         ] {
             let p = plan_agentes(&c, &Falsa { binarios: vec![bin], ..Default::default() }).unwrap();
-            let rutas: Vec<&Path> =
-                escrituras(&p).into_iter().filter(|r| !r.starts_with(&c.skills_dir)).map(|r| r.strip_prefix(&c.home).unwrap()).collect();
+            let rutas: Vec<&Path> = escrituras(&p).into_iter().filter(|r| !r.starts_with(&c.skills_dir)).map(|r| r.strip_prefix(&c.home).unwrap()).collect();
             assert!(rutas.iter().all(|r| carpetas.iter().any(|c| r.starts_with(c))), "{bin}: {rutas:?}");
             assert!(carpetas.iter().all(|c| rutas.iter().any(|r| r.starts_with(c))), "{bin}: {rutas:?}");
         }

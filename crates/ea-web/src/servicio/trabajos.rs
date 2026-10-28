@@ -3,15 +3,15 @@
 
 use std::collections::HashSet;
 
-use ea_bus::{Bus, Rol, Evento, Orden, Topes};
+use ea_bus::{Bus, Evento, Orden, Rol, Topes};
 use serde_json::Value;
 
-use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado, ACTOR};
-use crate::vistas::{
-    CatalogoSkills, ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, NuevoTrabajo, PruebaSkills, Semaforo,
-    SkillVista, TrabajoDetalle, TrabajoResumen,
-};
+use super::{ACTOR, ErrorWeb, Resultado, bus_con_store, bus_lectura, texto_no_vacio};
 use crate::AppState;
+use crate::vistas::{
+    CatalogoSkills, ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, NuevoTrabajo, PruebaSkills, Semaforo, SkillVista, TrabajoDetalle,
+    TrabajoResumen,
+};
 
 fn a_valor<T: serde::Serialize>(v: T) -> Resultado<Value> {
     serde_json::to_value(v).map_err(|e| ErrorWeb::Interno(e.to_string()))
@@ -45,11 +45,7 @@ pub fn listar(s: &AppState) -> Resultado<Vec<TrabajoResumen>> {
     let bus = bus_lectura(s)?;
     // Un trabajo cancelado cuyo semáforo sigue cogido es que el ejecutor aún
     // no se ha enterado (sondea cada 2 s y espera al agente): «cancelando…».
-    let en_curso: HashSet<String> = ea_bus::listar_semaforos_en(bus.raiz())
-        .into_iter()
-        .filter(|(_, o)| o.es_ejecutor())
-        .map(|(_, o)| o.trabajo)
-        .collect();
+    let en_curso: HashSet<String> = ea_bus::listar_semaforos_en(bus.raiz()).into_iter().filter(|(_, o)| o.es_ejecutor()).map(|(_, o)| o.trabajo).collect();
     let mut v: Vec<_> = bus.listar_trabajos()?.iter().filter_map(|id| resumen(&bus, id, &en_curso)).collect();
     v.reverse();
     Ok(v)
@@ -97,17 +93,7 @@ fn ver_bus(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
         .map(|r| r.trim().chars().take(RESUMEN_MAX).collect::<String>())
         .filter(|r| !r.is_empty());
     let worktree = if orden.worktree_propio { bus.info_worktree(id).ok().flatten() } else { None };
-    Ok(TrabajoDetalle {
-        id: id.into(),
-        orden: a_valor(orden)?,
-        estado: a_valor(estado)?,
-        informe,
-        historial,
-        paquete,
-        fases: vec![],
-        resumen_agente,
-        worktree,
-    })
+    Ok(TrabajoDetalle { id: id.into(), orden: a_valor(orden)?, estado: a_valor(estado)?, informe, historial, paquete, fases: vec![], resumen_agente, worktree })
 }
 
 /// Los worktrees propios vivos (`ea worktree listar`). Solo lectura; quitarlos
@@ -133,8 +119,7 @@ pub async fn diff(s: &AppState, id: &str, fase: Option<u32>) -> Resultado<Diff> 
         let (texto, truncado) = crate::git::diff_entre(&orden.worktree, &base, &fin, DIFF_MAX).await?;
         return Ok(Diff { id: id.into(), fase: Some(n), commit_inicio: inicio, diff: texto, truncado });
     }
-    let inicio =
-        inicio.ok_or_else(|| ErrorWeb::Conflicto("el trabajo aún no tiene informe con commit_inicio".into()))?;
+    let inicio = inicio.ok_or_else(|| ErrorWeb::Conflicto("el trabajo aún no tiene informe con commit_inicio".into()))?;
     let (texto, truncado) = crate::git::diff_desde(&orden.worktree, &inicio, DIFF_MAX).await?;
     Ok(Diff { id: id.into(), fase: None, commit_inicio: Some(inicio), diff: texto, truncado })
 }
@@ -191,12 +176,7 @@ pub fn catalogo_skills(s: &AppState) -> Resultado<CatalogoSkills> {
     let skills = c
         .catalogo()?
         .into_iter()
-        .map(|k| SkillVista {
-            caracteres: k.cuerpo.chars().count(),
-            nombre: k.nombre,
-            descripcion: k.descripcion,
-            habilitada: k.habilitada,
-        })
+        .map(|k| SkillVista { caracteres: k.cuerpo.chars().count(), nombre: k.nombre, descripcion: k.descripcion, habilitada: k.habilitada })
         .collect();
     Ok(CatalogoSkills {
         skills,
@@ -244,16 +224,12 @@ fn fases_de_obra(n: &NuevoTrabajo) -> Resultado<(Vec<ea_bus::Fase>, Option<u32>)
     if pedidas.len() > FASES_MAX {
         return Err(ErrorWeb::Invalido(format!("una obra tiene como mucho {FASES_MAX} fases")));
     }
-    let revisar_cada = n.revisar_cada.ok_or_else(|| {
-        ErrorWeb::Invalido("elige 'revisar_cada': cada cuántas fases revisa Claude Code (null: solo al final)".into())
-    })?;
+    let revisar_cada =
+        n.revisar_cada.ok_or_else(|| ErrorWeb::Invalido("elige 'revisar_cada': cada cuántas fases revisa Claude Code (null: solo al final)".into()))?;
     if let Some(k) = revisar_cada
         && (k == 0 || k as usize > pedidas.len())
     {
-        return Err(ErrorWeb::Invalido(format!(
-            "'revisar_cada' debe estar entre 1 y {} (o null: solo al final)",
-            pedidas.len()
-        )));
+        return Err(ErrorWeb::Invalido(format!("'revisar_cada' debe estar entre 1 y {} (o null: solo al final)", pedidas.len())));
     }
     let mut fases = Vec::with_capacity(pedidas.len());
     for (i, f) in pedidas.iter().enumerate() {
@@ -308,12 +284,7 @@ pub async fn crear(s: &AppState, n: NuevoTrabajo) -> Resultado<EstadoTrabajo> {
     }
     let worktree = crate::git::validar_worktree(&n.worktree).await?;
     let d = Topes::default();
-    let topes = Topes {
-        iteraciones: pedidos.iteraciones.unwrap_or(d.iteraciones),
-        tiempo_s: pedidos.tiempo_s.unwrap_or(d.tiempo_s),
-        ..d
-    }
-    .acotar(&techo(s));
+    let topes = Topes { iteraciones: pedidos.iteraciones.unwrap_or(d.iteraciones), tiempo_s: pedidos.tiempo_s.unwrap_or(d.tiempo_s), ..d }.acotar(&techo(s));
     let orden = Orden {
         worktree,
         topes,
@@ -334,9 +305,14 @@ pub enum Decision<'a> {
     /// Aprueba una revisión intermedia: reformular sin nota (como `ea trabajo continuar`).
     Continuar,
     /// `fase`: en una obra, la fase desde la que se rehace (por defecto, la pendiente).
-    Reformular { nota: &'a str, fase: Option<u32> },
+    Reformular {
+        nota: &'a str,
+        fase: Option<u32>,
+    },
     /// Confirma el paquete de corrección de una rutina en espera.
-    Confirmar { contexto: &'a str },
+    Confirmar {
+        contexto: &'a str,
+    },
 }
 
 pub async fn decidir(s: &AppState, id: &str, d: Decision<'_>) -> Resultado<EstadoTrabajo> {

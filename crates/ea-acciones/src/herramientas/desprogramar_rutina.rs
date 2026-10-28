@@ -2,7 +2,7 @@
 
 use serde_json::json;
 
-use super::{comprobar_slug, Aplicada, Descripcion, ParaAplicar, ParaSimular, PorSlug};
+use super::{Aplicada, Descripcion, ParaAplicar, ParaSimular, PorSlug, comprobar_slug};
 use crate::error::ErrorAccion;
 use crate::sistema::{Consulta, Sistema};
 use crate::temporizador::unidad_timer;
@@ -32,11 +32,7 @@ pub(super) fn simular<C: Consulta>(p: &ParaSimular<'_, C>, a: PorSlug) -> Result
 pub(super) async fn aplicar<S: Sistema>(p: ParaAplicar<'_, S>, a: PorSlug) -> Result<Aplicada, ErrorAccion> {
     let habia = p.sistema.timer_desprogramar(&a.slug).await.map_err(ErrorAccion::Sistema)?;
     Ok(Aplicada {
-        texto: if habia {
-            format!("Timer de la rutina '{}' desactivado y borrado.", a.slug)
-        } else {
-            format!("La rutina '{}' no tenía timer.", a.slug)
-        },
+        texto: if habia { format!("Timer de la rutina '{}' desactivado y borrado.", a.slug) } else { format!("La rutina '{}' no tenía timer.", a.slug) },
         trabajo: None,
         datos: json!({ "rutina": a.slug, "desprogramada": habia }),
     })

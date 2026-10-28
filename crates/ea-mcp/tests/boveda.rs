@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use ea_boveda::Boveda;
 use ea_mcp::EaTools;
-use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 use ea_pruebas::mcp::{conectar, llamar};
+use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
 use serde_json::json;
 use tokio::sync::Mutex;
 
@@ -32,20 +32,18 @@ async fn entorno() -> Entorno {
     let (r, b) = (rutinas.clone(), boveda.clone());
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone()), estado.to_path_buf()).con_ajustes(ajustes.clone()).con_credencial(credencial()),
+        move || {
+            EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone()), estado.to_path_buf())
+                .con_ajustes(ajustes.clone())
+                .con_credencial(credencial())
+        },
         Default::default(),
     );
     Entorno { url: ea_pruebas::mcp::servidor(router).await, db, boveda, _dir: dir }
 }
 
 fn acciones(e: &Entorno) -> Vec<String> {
-    Store::open_at(&e.db)
-        .unwrap()
-        .list_events(&EventFilter { limit: Some(500), ..Default::default() })
-        .unwrap()
-        .into_iter()
-        .map(|x| x.action)
-        .collect()
+    Store::open_at(&e.db).unwrap().list_events(&EventFilter { limit: Some(500), ..Default::default() }).unwrap().into_iter().map(|x| x.action).collect()
 }
 
 #[tokio::test]
@@ -54,13 +52,15 @@ async fn cada_agente_escribe_en_su_region_y_el_otro_la_puede_leer() {
     let local = conectar(&e.url, "qwen-code-mcp-client").await;
     let claude = conectar(&e.url, "claude-code").await;
 
-    let r = llamar(&local, "ea_escribir_nota", json!({ "titulo": "Puerto del MCP", "contenido": "ea-mcp escucha en el 8765." }))
-        .await
-        .unwrap();
+    let r = llamar(&local, "ea_escribir_nota", json!({ "titulo": "Puerto del MCP", "contenido": "ea-mcp escucha en el 8765." })).await.unwrap();
     assert_eq!(r["ruta"], "modelo-local/puerto-del-mcp.md");
-    let r = llamar(&claude, "ea_escribir_nota", json!({ "titulo": "Puerto de la web", "contenido": "ea-web escucha en el 8092.", "etiquetas": ["puertos"], "trabajo": "m-1" }))
-        .await
-        .unwrap();
+    let r = llamar(
+        &claude,
+        "ea_escribir_nota",
+        json!({ "titulo": "Puerto de la web", "contenido": "ea-web escucha en el 8092.", "etiquetas": ["puertos"], "trabajo": "m-1" }),
+    )
+    .await
+    .unwrap();
     assert_eq!(r["ruta"], "claude-code/puerto-de-la-web.md");
 
     // Cada uno busca y lee lo del otro.
@@ -89,9 +89,7 @@ async fn un_agente_no_puede_escribir_en_la_region_compartida_ni_fuera_de_la_bove
             assert!(r.is_err(), "{cliente} {ruta}: {r:?}");
         }
         // La herramienta no tiene argumento de región, y uno inventado no cuenta.
-        let r = llamar(&c, "ea_escribir_nota", json!({ "titulo": "T", "contenido": "c", "region": "compartida" }))
-            .await
-            .unwrap();
+        let r = llamar(&c, "ea_escribir_nota", json!({ "titulo": "T", "contenido": "c", "region": "compartida" })).await.unwrap();
         assert!(r["ruta"].as_str().unwrap().starts_with(cliente_region(cliente)), "{r}");
     }
     assert!(!e.boveda.join("compartida").exists());
@@ -154,9 +152,7 @@ async fn lo_que_recibe_el_modelo_local_esta_acotado() {
     let local = conectar(&e.url, "qwen-code-mcp-client").await;
     let largo = "relleno de la nota ".repeat(1500); // ~28 KB
     for i in 0..12 {
-        llamar(&claude, "ea_escribir_nota", json!({ "titulo": format!("Larga {i}"), "contenido": largo }))
-            .await
-            .unwrap();
+        llamar(&claude, "ea_escribir_nota", json!({ "titulo": format!("Larga {i}"), "contenido": largo })).await.unwrap();
     }
     // El modelo local no puede escribir más de su cota.
     let r = llamar(&local, "ea_escribir_nota", json!({ "titulo": "Enorme", "contenido": largo })).await;
@@ -170,9 +166,7 @@ async fn lo_que_recibe_el_modelo_local_esta_acotado() {
     let n = llamar(&local, "ea_leer_nota", json!({ "ruta": "claude-code/larga-0.md" })).await.unwrap();
     assert_eq!(n["contenido"].as_str().unwrap().chars().count(), 3000);
     assert_eq!(n["truncado"], true);
-    let n2 = llamar(&local, "ea_leer_nota", json!({ "ruta": "claude-code/larga-0.md", "desde": n["siguiente_desde"].clone() }))
-        .await
-        .unwrap();
+    let n2 = llamar(&local, "ea_leer_nota", json!({ "ruta": "claude-code/larga-0.md", "desde": n["siguiente_desde"].clone() })).await.unwrap();
     assert_eq!(n2["desde"], 3000);
     // Y el tamaño total de lo que se serializa al modelo cabe de sobra en su contexto.
     assert!(serde_json::to_string(&b).unwrap().len() < 3000);

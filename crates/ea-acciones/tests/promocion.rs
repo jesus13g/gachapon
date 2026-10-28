@@ -5,7 +5,7 @@
 use ea_acciones::*;
 use ea_boveda::{Boveda, Limites, NuevaNota};
 use ea_store::{EstadoEjecucion, EstadoPropuesta, EventFilter, Store};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 struct Entorno {
     store: Store,
@@ -44,13 +44,7 @@ impl Entorno {
         self.boveda.raiz().join("compartida")
     }
     fn acciones(&self) -> Vec<String> {
-        let mut v: Vec<_> = self
-            .store
-            .list_events(&EventFilter { limit: Some(500), ..Default::default() })
-            .unwrap()
-            .into_iter()
-            .map(|e| e.action)
-            .collect();
+        let mut v: Vec<_> = self.store.list_events(&EventFilter { limit: Some(500), ..Default::default() }).unwrap().into_iter().map(|e| e.action).collect();
         v.reverse();
         v
     }

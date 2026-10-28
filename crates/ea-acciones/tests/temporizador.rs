@@ -5,7 +5,7 @@
 
 use ea_acciones::*;
 use ea_store::{EstadoEjecucion, Store};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
 #[cfg(windows)]
@@ -22,7 +22,11 @@ macro_rules! tmp {
 }
 
 fn store() -> (Store, tempfile::TempDir) {
-    ea_pruebas::store(&[("diaria", 2, concat!("[rutina]\nslug = \"diaria\"\nversion = 2\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"))])
+    ea_pruebas::store(&[(
+        "diaria",
+        2,
+        concat!("[rutina]\nslug = \"diaria\"\nversion = 2\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"),
+    )])
 }
 
 async fn simular<C: Consulta>(s: &Store, c: &C, nombre: &str, args: &Value) -> Result<Simulacion, ErrorAccion> {
@@ -35,9 +39,7 @@ async fn programar_rutina_simula_valida_y_rechaza_calendarios_malos() {
     let (s, _d) = store();
     let sis = SistemaSimulado::default().con_rutina("diaria", "x");
 
-    let sim = simular(&s, &sis, "ea_programar_rutina", &json!({ "slug": "diaria", "calendario": " *-*-* 08:00:00 " }))
-        .await
-        .unwrap();
+    let sim = simular(&s, &sis, "ea_programar_rutina", &json!({ "slug": "diaria", "calendario": " *-*-* 08:00:00 " })).await.unwrap();
     assert_eq!(sim.riesgo, Riesgo::Reversible);
     assert_eq!(sim.argumentos, json!({ "slug": "diaria", "calendario": "*-*-* 08:00:00" }));
     assert!(sim.texto.contains("OnCalendar=*-*-* 08:00:00"), "{}", sim.texto);
@@ -66,9 +68,7 @@ async fn programar_rutina_simula_valida_y_rechaza_calendarios_malos() {
 
     // Ya programada con ese horario: no hay nada que hacer.
     let sis = SistemaSimulado::default().con_rutina("diaria", "x").con_timer("diaria", "daily");
-    let e = simular(&s, &sis, "ea_programar_rutina", &json!({ "slug": "diaria", "calendario": "daily" }))
-        .await
-        .unwrap_err();
+    let e = simular(&s, &sis, "ea_programar_rutina", &json!({ "slug": "diaria", "calendario": "daily" })).await.unwrap_err();
     assert!(matches!(e, ErrorAccion::NoAplica(_)), "{e}");
 }
 
@@ -98,9 +98,7 @@ async fn programar_se_propone_se_revalida_y_al_aceptar_se_programa() {
     assert_eq!(sis.mutaciones(), ["programar:diaria=Mon *-*-* 09:00"]);
 
     // Y se desprograma, también de una rutina que ya no esté registrada.
-    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_desprogramar_rutina", &json!({ "slug": "diaria" }))
-        .await
-        .unwrap();
+    let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_desprogramar_rutina", &json!({ "slug": "diaria" })).await.unwrap();
     assert_eq!(r.datos["desprogramada"], true);
     let e = simular(&s, &sis, "ea_desprogramar_rutina", &json!({ "slug": "diaria" })).await.unwrap_err();
     assert!(matches!(e, ErrorAccion::NoAplica(_)), "sin timer no hay nada que quitar: {e}");

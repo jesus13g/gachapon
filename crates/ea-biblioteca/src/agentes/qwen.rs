@@ -21,7 +21,7 @@ use std::path::Path;
 use ea_ajustes::Ajustes;
 use serde_json::Value;
 
-use super::comun::{crear, frontmatter, leer_json, leer_texto, md_en, mcp as crear_mcp, recortar, skills_en};
+use super::comun::{crear, frontmatter, leer_json, leer_texto, mcp as crear_mcp, md_en, recortar, skills_en};
 use crate::modelo::{Activado, Ambito, Elemento, Mecanismo, Tipo};
 use crate::raices::Raices;
 

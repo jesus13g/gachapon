@@ -4,7 +4,7 @@
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{campo, Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular};
+use super::{Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular, campo};
 use crate::error::ErrorAccion;
 use crate::sistema::{Consulta, Sistema};
 
@@ -48,7 +48,7 @@ pub(super) fn simular<C: Consulta>(p: &ParaSimular<'_, C>, a: Args) -> Result<De
                  (git add -A && git commit en el worktree, y fusiona la rama {} si los quieres) o descártalos \
                  tú a mano, y vuelve a simular",
                 w.ruta, w.rama
-            ))
+            ));
         }
         None => return no(format!("git no pudo decir si {} está limpio; revísalo a mano", w.ruta)),
     }

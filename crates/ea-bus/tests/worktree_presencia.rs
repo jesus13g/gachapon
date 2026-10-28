@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ea_bus::{Bus, Orden, Presencia, RolEquipo, CADUCIDAD_LATIDO_S};
+use ea_bus::{Bus, CADUCIDAD_LATIDO_S, Orden, Presencia, RolEquipo};
 use ea_pruebas::git;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
@@ -166,10 +166,7 @@ fn la_presencia_caduca_por_pid_muerto_o_latido_viejo() {
     ilegible.latido = "ayer".into();
     b.anotar_presencia(&ilegible).unwrap();
     let vivas: Vec<(String, bool)> = b.presencias().into_iter().map(|(p, v)| (p.agente, v)).collect();
-    assert_eq!(
-        vivas,
-        vec![("antigravity".into(), false), ("codex".into(), true), ("opencode".into(), false), ("qwen-code".into(), false)]
-    );
+    assert_eq!(vivas, vec![("antigravity".into(), false), ("codex".into(), true), ("opencode".into(), false), ("qwen-code".into(), false)]);
     // sin dormir: con la hora corrida, la viva caduca
     let luego = OffsetDateTime::now_utc() + Duration::seconds(CADUCIDAD_LATIDO_S + 5);
     assert!(b.presencias_en(luego).iter().all(|(_, v)| !v));

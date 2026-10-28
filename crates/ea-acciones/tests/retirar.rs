@@ -3,7 +3,7 @@
 
 use ea_acciones::*;
 use ea_store::Store;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
 #[cfg(windows)]
@@ -47,9 +47,7 @@ async fn retirar_desprograma_el_timer_y_restaurar_no_lo_reprograma() {
     assert_eq!(sim.riesgo, Riesgo::Reversible);
     assert!(sim.texto.contains("desprograma su timer (OnCalendar=daily)"), "{}", sim.texto);
     assert!(sim.texto.contains("ea_restaurar_rutina"), "{}", sim.texto);
-    let r = ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_retirar_rutina", &sim.argumentos, &sim.precondicion, None)
-        .await
-        .unwrap();
+    let r = ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_retirar_rutina", &sim.argumentos, &sim.precondicion, None).await.unwrap();
     assert!(r.texto.contains("timer desprogramado"), "{}", r.texto);
     assert_eq!(sis.mutaciones(), vec!["desprogramar:nocturna", "retirar:nocturna"]);
     assert!(sis.rutina_contenido("nocturna").unwrap().is_none());
@@ -59,17 +57,13 @@ async fn retirar_desprograma_el_timer_y_restaurar_no_lo_reprograma() {
     let motivo = ea_bus::Ubicacion::Retirada.motivo_no_lanzable("nocturna").unwrap();
     let e = simular(&s, &sis, "ea_encolar_rutina", &json!({ "slug": "nocturna" })).await.unwrap_err();
     assert_eq!(e.to_string(), ErrorAccion::NoAplica(motivo.clone()).to_string());
-    let e = simular(&s, &sis, "ea_programar_rutina", &json!({ "slug": "nocturna", "calendario": "daily" }))
-        .await
-        .unwrap_err();
+    let e = simular(&s, &sis, "ea_programar_rutina", &json!({ "slug": "nocturna", "calendario": "daily" })).await.unwrap_err();
     assert!(e.to_string().contains(&motivo), "{e}");
     assert!(simular(&s, &sis, "ea_retirar_rutina", &json!({ "slug": "nocturna" })).await.is_err());
 
     let sim = simular(&s, &sis, "ea_restaurar_rutina", &json!({ "slug": "nocturna" })).await.unwrap();
     assert!(sim.texto.contains("No vuelve a programar su timer"), "{}", sim.texto);
-    ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_restaurar_rutina", &sim.argumentos, &sim.precondicion, None)
-        .await
-        .unwrap();
+    ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_restaurar_rutina", &sim.argumentos, &sim.precondicion, None).await.unwrap();
     assert!(sis.rutina_contenido("nocturna").unwrap().is_some());
     assert!(!sis.timers.lock().unwrap().contains_key("nocturna"), "restaurar no reprograma");
     assert!(simular(&s, &sis, "ea_encolar_rutina", &json!({ "slug": "nocturna" })).await.is_ok());
@@ -92,31 +86,24 @@ async fn la_papelera_real_mueve_el_fichero_y_revalida() {
     let unidades = d.path().join("unidades");
     std::fs::create_dir_all(&unidades).unwrap();
     // `true` como systemctl: no hay timer y nada sale del directorio temporal.
-    let temporizadores =
-        Temporizadores::systemd(unidades, vec!["true".into()], vec!["true".into()]);
+    let temporizadores = Temporizadores::systemd(unidades, vec!["true".into()], vec!["true".into()]);
     let mut sis = SistemaReal::usuario(rutinas.clone(), ea_boveda::Boveda::en(d.path().join("boveda")), d.path().join("estado"), None);
     sis.consulta.temporizadores = temporizadores;
 
     let sim = simular(&s, &sis, "ea_retirar_rutina", &json!({ "slug": "nocturna" })).await.unwrap();
     std::fs::write(rutinas.join("nocturna.toml"), format!("{RUTINA}# cambio\n")).unwrap();
-    let e = ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_retirar_rutina", &sim.argumentos, &sim.precondicion, None)
-        .await
-        .unwrap_err();
+    let e = ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_retirar_rutina", &sim.argumentos, &sim.precondicion, None).await.unwrap_err();
     assert!(e.to_string().contains("cambió"), "{e}");
     assert!(rutinas.join("nocturna.toml").exists());
 
     let sim = simular(&s, &sis, "ea_retirar_rutina", &json!({ "slug": "nocturna" })).await.unwrap();
-    ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_retirar_rutina", &sim.argumentos, &sim.precondicion, None)
-        .await
-        .unwrap();
+    ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_retirar_rutina", &sim.argumentos, &sim.precondicion, None).await.unwrap();
     assert!(!rutinas.join("nocturna.toml").exists());
     assert!(rutinas.join(ea_bus::DIR_PAPELERA).join("nocturna.toml").exists());
     assert_eq!(ea_bus::ubicacion_rutina(&rutinas, "nocturna").unwrap(), ea_bus::Ubicacion::Retirada);
 
     let sim = simular(&s, &sis, "ea_restaurar_rutina", &json!({ "slug": "nocturna" })).await.unwrap();
-    ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_restaurar_rutina", &sim.argumentos, &sim.precondicion, None)
-        .await
-        .unwrap();
+    ejecutar(&mut s, &sis, "usuario", Canal::Web, "ea_restaurar_rutina", &sim.argumentos, &sim.precondicion, None).await.unwrap();
     assert!(rutinas.join("nocturna.toml").exists());
     assert!(!rutinas.join(ea_bus::DIR_PAPELERA).join("nocturna.toml").exists());
 }

@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::error::{StoreError, StoreResult};
 use crate::models::{Event, NewEvent};
@@ -36,25 +36,19 @@ pub fn anotar(conn: &Connection, nota: NuevaNota) -> StoreResult<Event> {
     }
     let n = texto.chars().count();
     if n > MAX_TEXTO_NOTA {
-        return Err(StoreError::NotaInvalida(format!(
-            "el texto de la nota tiene {n} caracteres; el máximo es {MAX_TEXTO_NOTA}"
-        )));
+        return Err(StoreError::NotaInvalida(format!("el texto de la nota tiene {n} caracteres; el máximo es {MAX_TEXTO_NOTA}")));
     }
     let trabajo = nota.trabajo.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
     if let Some(t) = &trabajo
         && (t.len() > 128 || !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
     {
-        return Err(StoreError::NotaInvalida(format!(
-            "id de trabajo inválido: «{t}» (solo letras, cifras y `-`)"
-        )));
+        return Err(StoreError::NotaInvalida(format!("id de trabajo inválido: «{t}» (solo letras, cifras y `-`)")));
     }
     if let Some(id) = nota.corrige {
         match events::get_event(conn, id) {
             Ok(_) => {}
             Err(StoreError::EventNotFound(_)) => {
-                return Err(StoreError::NotaInvalida(format!(
-                    "el evento #{id} que se quiere corregir no existe"
-                )));
+                return Err(StoreError::NotaInvalida(format!("el evento #{id} que se quiere corregir no existe")));
             }
             Err(e) => return Err(e),
         }
@@ -129,9 +123,7 @@ mod tests {
     fn una_correccion_apunta_al_evento_y_no_lo_toca() {
         let s = store();
         let original = evento(&s);
-        let nota = s
-            .anotar_diario(NuevaNota { texto: "  era otro  ".into(), corrige: Some(original.id), trabajo: Some("t-1".into()) })
-            .unwrap();
+        let nota = s.anotar_diario(NuevaNota { texto: "  era otro  ".into(), corrige: Some(original.id), trabajo: Some("t-1".into()) }).unwrap();
         assert_eq!(nota.actor, "usuario");
         assert_eq!(nota.action, ACCION_NOTA);
         assert_eq!(nota.trabajo.as_deref(), Some("t-1"));

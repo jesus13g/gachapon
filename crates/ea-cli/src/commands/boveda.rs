@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use comfy_table::Table;
-use ea_boveda::{ruta::REGIONES, Boveda, Limites};
+use ea_boveda::{Boveda, Limites, ruta::REGIONES};
 use ea_store::{ResultadoBusqueda, Store};
 use serde_json::json;
 
@@ -42,10 +42,7 @@ pub fn estado(store: &mut Store) -> Result<()> {
     println!("  (EA_BOVEDA_DIR o ~/.config/ecosistema-asistente/boveda.toml la cambian)");
     let r = b.sincronizar(store, false)?;
     if r.indexadas + r.actualizadas + r.eliminadas > 0 {
-        println!(
-            "  Índice al día: {} nuevas, {} actualizadas, {} eliminadas",
-            r.indexadas, r.actualizadas, r.eliminadas
-        );
+        println!("  Índice al día: {} nuevas, {} actualizadas, {} eliminadas", r.indexadas, r.actualizadas, r.eliminadas);
     }
     let cuentas = store.boveda_contar_por_region()?;
     for region in REGIONES {
@@ -101,10 +98,7 @@ pub fn leer(ruta: &str, desde: usize) -> Result<()> {
 
 pub fn reindexar(store: &mut Store) -> Result<()> {
     let r = Boveda::configurada().reindexar(store, super::actor())?;
-    println!(
-        "Índice reconstruido: {} nuevas, {} actualizadas, {} eliminadas, {} omitidas por tamaño",
-        r.indexadas, r.actualizadas, r.eliminadas, r.omitidas
-    );
+    println!("Índice reconstruido: {} nuevas, {} actualizadas, {} eliminadas, {} omitidas por tamaño", r.indexadas, r.actualizadas, r.eliminadas, r.omitidas);
     Ok(())
 }
 
@@ -143,9 +137,6 @@ pub fn vaciar_papelera(store: &mut Store) -> Result<()> {
         return Ok(());
     }
     let hecho = b.vaciar_papelera(store, ea_ajustes::ACTOR_USUARIO)?;
-    println!(
-        "Papelera vaciada: {} entradas ({} notas, {} bytes) borradas para siempre.",
-        hecho.entradas, hecho.notas, hecho.bytes
-    );
+    println!("Papelera vaciada: {} entradas ({} notas, {} bytes) borradas para siempre.", hecho.entradas, hecho.notas, hecho.bytes);
     Ok(())
 }

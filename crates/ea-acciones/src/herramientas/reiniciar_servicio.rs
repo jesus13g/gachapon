@@ -1,11 +1,11 @@
 //! `ea_reiniciar_servicio`: reiniciar un servicio de la lista cerrada.
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{campo, Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular};
+use super::{Aplicada, Campo, Descripcion, ParaAplicar, ParaSimular, campo};
 use crate::error::ErrorAccion;
-use crate::sistema::{Consulta, EstadoServicio, Sistema, SERVICIOS_REINICIABLES};
+use crate::sistema::{Consulta, EstadoServicio, SERVICIOS_REINICIABLES, Sistema};
 
 pub(super) const CAMPOS: &[Campo] = &[Campo { opciones: &SERVICIOS_REINICIABLES, ..campo("servicio", "servicio") }];
 
@@ -19,11 +19,7 @@ pub(super) fn validar(a: &Args) -> Result<(), ErrorAccion> {
     if SERVICIOS_REINICIABLES.contains(&a.servicio.as_str()) {
         Ok(())
     } else {
-        Err(ErrorAccion::Argumentos(format!(
-            "servicio '{}' fuera de la lista cerrada ({})",
-            a.servicio,
-            SERVICIOS_REINICIABLES.join(", ")
-        )))
+        Err(ErrorAccion::Argumentos(format!("servicio '{}' fuera de la lista cerrada ({})", a.servicio, SERVICIOS_REINICIABLES.join(", "))))
     }
 }
 

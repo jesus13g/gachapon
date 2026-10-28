@@ -5,9 +5,11 @@ use ea_bus::{Bus, EstadoTrabajo};
 use ea_store::{EstadoPropuesta, PropuestaFilter};
 use time::OffsetDateTime;
 
-use super::{bus_lectura, propuestas::vista as propuesta_vista, ts, Resultado};
-use crate::vistas::{AgenteConPresencia, AgentesVista, AgenteVista, PresenciaVista, EstadoGeneral, Inicio, Orquestador, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento};
+use super::{Resultado, bus_lectura, propuestas::vista as propuesta_vista, ts};
 use crate::AppState;
+use crate::vistas::{
+    AgenteConPresencia, AgenteVista, AgentesVista, EstadoGeneral, Inicio, Orquestador, PresenciaVista, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento,
+};
 
 pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
     let servicios = ea_acciones::salud::servicios(s.config.systemctl).await;
@@ -36,16 +38,11 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
         })
         .collect();
 
-    let propuestas_pendientes = store
-        .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?
-        .len();
+    let propuestas_pendientes = store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?.len();
 
     Ok(EstadoGeneral {
         ahora: ts(OffsetDateTime::now_utc()),
-        servicios: servicios
-            .into_iter()
-            .map(|sv| ServicioVista { nombre: sv.nombre, activo: sv.activo, activo_s: sv.activo_s })
-            .collect(),
+        servicios: servicios.into_iter().map(|sv| ServicioVista { nombre: sv.nombre, activo: sv.activo, activo_s: sv.activo_s }).collect(),
         orquestador: Orquestador {
             vivo: orquestador.vivo,
             ultimo_latido: orquestador.ultimo_latido.map(ts),
@@ -81,19 +78,14 @@ fn trabajos_por_estado(s: &AppState) -> TrabajosPorEstado {
 /// `trabajos`, `colas` y `semaforos`.
 pub async fn inicio(s: &AppState) -> Resultado<Inicio> {
     let store = s.store.lock().await;
-    let propuestas = store
-        .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: Some(20) })?
-        .iter()
-        .map(propuesta_vista)
-        .collect();
+    let propuestas =
+        store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: Some(20) })?.iter().map(propuesta_vista).collect();
     Ok(Inicio { propuestas })
 }
 
 pub fn sesiones(s: &AppState) -> Sesiones {
     let subagentes = s.config.subagentes_dir.as_deref();
-    Sesiones {
-        sesiones: s.config.sesiones_dir.as_deref().map(|d| crate::sesiones::vivas(d, subagentes)).unwrap_or_default(),
-    }
+    Sesiones { sesiones: s.config.sesiones_dir.as_deref().map(|d| crate::sesiones::vivas(d, subagentes)).unwrap_or_default() }
 }
 
 /// El catálogo de agentes con su disponibilidad (spec 017). Los ajustes se

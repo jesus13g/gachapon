@@ -20,22 +20,17 @@ async fn rechaza_host_ajeno() {
 #[tokio::test]
 async fn las_escrituras_exigen_json() {
     let f = montar();
-    let (s, _) = enviar(
-        &f,
-        Method::POST,
-        "/api/rutinas/revision-diaria/lanzar",
-        "localhost:8092",
-        Some(json!({})),
-        false,
-    )
-    .await;
+    let (s, _) = enviar(&f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", Some(json!({})), false).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
 
 /// Rutas de escritura representativas (una por zona de la API).
 const ESCRITURAS: [(&str, &str); 11] = [
     ("/api/biblioteca/simular", r#"{"herramienta":"ea_desactivar_herramienta","argumentos":{"elemento":"claude-code/skill/usuario/propia"}}"#),
-    ("/api/biblioteca/ejecutar", r#"{"herramienta":"ea_desactivar_herramienta","argumentos":{"elemento":"claude-code/skill/usuario/propia"},"precondicion":{}}"#),
+    (
+        "/api/biblioteca/ejecutar",
+        r#"{"herramienta":"ea_desactivar_herramienta","argumentos":{"elemento":"claude-code/skill/usuario/propia"},"precondicion":{}}"#,
+    ),
     ("/api/rutinas/revision-diaria/lanzar", "{}"),
     ("/api/trabajos", concat!(r#"{"titulo":"x","worktree":""#, tmp!(), r#"","objetivo":"x","criterio":"true"}"#)),
     ("/api/propuestas/1/decidir", r#"{"decision":"rechazar"}"#),
@@ -57,8 +52,7 @@ async fn las_escrituras_sin_clave_dan_403() {
         let cuerpo: Value = serde_json::from_str(cuerpo).unwrap();
         for clave in [None, Some(""), Some("mala"), Some(otra.as_str()), Some(&f.state.clave.texto()[..63])] {
             for metodo in [Method::POST, Method::PUT, Method::DELETE] {
-                let (s, t) =
-                    enviar_con_clave(&f, metodo.clone(), ruta, "localhost:8092", Some(cuerpo.clone()), true, clave).await;
+                let (s, t) = enviar_con_clave(&f, metodo.clone(), ruta, "localhost:8092", Some(cuerpo.clone()), true, clave).await;
                 assert_eq!(s, StatusCode::FORBIDDEN, "{metodo} {ruta} con {clave:?}");
                 assert!(t.contains("ea-web-open"), "mensaje claro: {t}");
             }
@@ -87,26 +81,22 @@ async fn con_la_clave_correcta_funcionan() {
     let id = f.state.store.lock().await.crear_propuesta(texto("x")).unwrap().id;
     let clave = f.state.clave.texto().to_string();
     let (s, _) = enviar_con_clave(
-        &f, Method::POST, &format!("/api/propuestas/{id}/decidir"), "localhost:8092",
-        Some(json!({ "decision": "rechazar" })), true, Some(&clave),
+        &f,
+        Method::POST,
+        &format!("/api/propuestas/{id}/decidir"),
+        "localhost:8092",
+        Some(json!({ "decision": "rechazar" })),
+        true,
+        Some(&clave),
     )
     .await;
     assert_eq!(s, StatusCode::OK);
-    let (s, t) = enviar_con_clave(
-        &f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", Some(json!({})), true, Some(&clave),
-    )
-    .await;
+    let (s, t) = enviar_con_clave(&f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", Some(json!({})), true, Some(&clave)).await;
     assert!(s.is_success(), "{s} {t}");
     // La clave no exime del resto de la guardia.
-    let (s, _) = enviar_con_clave(
-        &f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", Some(json!({})), false, Some(&clave),
-    )
-    .await;
+    let (s, _) = enviar_con_clave(&f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", Some(json!({})), false, Some(&clave)).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
-    let (s, _) = enviar_con_clave(
-        &f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "evil.example", Some(json!({})), true, Some(&clave),
-    )
-    .await;
+    let (s, _) = enviar_con_clave(&f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "evil.example", Some(json!({})), true, Some(&clave)).await;
     assert_eq!(s, StatusCode::FORBIDDEN);
 }
 

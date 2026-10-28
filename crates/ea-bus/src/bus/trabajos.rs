@@ -6,11 +6,11 @@ use std::path::Path;
 
 use ea_store::{FilaFase, FilaTrabajo};
 
-use super::{ahora_rfc3339, espejo, nuevo_id, Bus, Cola};
+use super::{Bus, Cola, ahora_rfc3339, espejo, nuevo_id};
 use crate::equipo::RolEquipo;
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::escribir_json;
-use crate::skills::{pide_skills, ConfigSkills};
+use crate::skills::{ConfigSkills, pide_skills};
 use crate::tipos::{Estado, EstadoFase, EstadoTrabajo, Informe, Modo, Orden, Rol};
 
 impl Bus {
@@ -171,10 +171,7 @@ fn validar_estructura(o: &Orden) -> Resultado<()> {
     }
     if o.modo == Modo::Obra && o.fases.iter().enumerate().any(|(i, f)| f.numero as usize != i + 1) {
         let llegan: Vec<String> = o.fases.iter().map(|f| f.numero.to_string()).collect();
-        return Err(ErrorBus::Argumentos(format!(
-            "las fases deben numerarse 1, 2, …, N, en el orden en que van (esta obra trae {})",
-            llegan.join(", ")
-        )));
+        return Err(ErrorBus::Argumentos(format!("las fases deben numerarse 1, 2, …, N, en el orden en que van (esta obra trae {})", llegan.join(", "))));
     }
     Ok(())
 }

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use ea_bus::Bus;
-use ea_orchestrator::trabajadores::{arrancar, Contexto, Trabajadores};
+use ea_orchestrator::trabajadores::{Contexto, Trabajadores, arrancar};
 use ea_store::{EventOutcome, NewEvent, Store};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -42,10 +42,7 @@ fn diario(accion: &str, detalle: Option<String>) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(tracing_subscriber::fmt::layer())
         .init();
 

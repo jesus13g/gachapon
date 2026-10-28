@@ -77,8 +77,18 @@ pub enum Supervisada {
 impl Supervisada {
     /// Todas, en el orden del catálogo.
     pub const TODAS: [Supervisada; 13] = [
-        EncolarRutina, RegistrarRutina, ReiniciarServicio, ProgramarRutina, DesprogramarRutina, RetirarRutina,
-        RestaurarRutina, LanzarSesion, LimpiarWorktree, EliminarRutina, PromoverNota, ActivarHerramienta,
+        EncolarRutina,
+        RegistrarRutina,
+        ReiniciarServicio,
+        ProgramarRutina,
+        DesprogramarRutina,
+        RetirarRutina,
+        RestaurarRutina,
+        LanzarSesion,
+        LimpiarWorktree,
+        EliminarRutina,
+        PromoverNota,
+        ActivarHerramienta,
         DesactivarHerramienta,
     ];
 
@@ -219,11 +229,7 @@ pub(crate) fn bus_de(estado: &Path, store: &Store, actor: &str) -> Result<ea_bus
 }
 
 fn comprobar_slug(slug: &str) -> Result<(), ErrorAccion> {
-    if slug_valido(slug) {
-        Ok(())
-    } else {
-        Err(ErrorAccion::Argumentos(format!("slug de rutina inválido: '{slug}'")))
-    }
+    if slug_valido(slug) { Ok(()) } else { Err(ErrorAccion::Argumentos(format!("slug de rutina inválido: '{slug}'"))) }
 }
 
 /// Dónde está el TOML de la rutina según la [`Consulta`]: la misma regla que
@@ -267,9 +273,7 @@ pub fn validar_argumentos(nombre: &str, args: &Value) -> Result<(), ErrorAccion>
         RegistrarRutina => registrar_rutina::validar(&parsear(args)?),
         ReiniciarServicio => reiniciar_servicio::validar(&parsear(args)?),
         ProgramarRutina => programar_rutina::validar(&parsear(args)?),
-        DesprogramarRutina | RetirarRutina | RestaurarRutina | EliminarRutina => {
-            comprobar_slug(&parsear::<PorSlug>(args)?.slug)
-        }
+        DesprogramarRutina | RetirarRutina | RestaurarRutina | EliminarRutina => comprobar_slug(&parsear::<PorSlug>(args)?.slug),
         LanzarSesion => lanzar_sesion::validar(&parsear(args)?),
         LimpiarWorktree => limpiar_worktree::validar(&parsear(args)?),
         PromoverNota => promover_nota::validar(&parsear(args)?),
@@ -289,8 +293,15 @@ pub async fn observar<C: Consulta>(consulta: &C, nombre: &str, args: &Value) -> 
         }
         Some(DesprogramarRutina | RetirarRutina) => h.timer = observar_timer(consulta, args).await?,
         Some(
-            EncolarRutina | RegistrarRutina | RestaurarRutina | LanzarSesion | LimpiarWorktree | EliminarRutina
-            | PromoverNota | ActivarHerramienta | DesactivarHerramienta,
+            EncolarRutina
+            | RegistrarRutina
+            | RestaurarRutina
+            | LanzarSesion
+            | LimpiarWorktree
+            | EliminarRutina
+            | PromoverNota
+            | ActivarHerramienta
+            | DesactivarHerramienta,
         )
         | None => {}
     }
@@ -300,13 +311,7 @@ pub async fn observar<C: Consulta>(consulta: &C, nombre: &str, args: &Value) -> 
 /// Valida los argumentos y describe lo que haría la herramienta, leyendo el
 /// estado actual y sin escribir nada (ni en la base de datos ni en el
 /// sistema). Falla con `NoAplica` si la acción no tendría sentido ahora.
-pub fn simular_con<C: Consulta>(
-    store: &Store,
-    consulta: &C,
-    hechos: &Hechos,
-    nombre: &str,
-    args: &Value,
-) -> Result<Simulacion, ErrorAccion> {
+pub fn simular_con<C: Consulta>(store: &Store, consulta: &C, hechos: &Hechos, nombre: &str, args: &Value) -> Result<Simulacion, ErrorAccion> {
     let s = supervisada(nombre)?;
     let p = ParaSimular { store, consulta, hechos };
     let (argumentos, texto, precondicion) = match s {
@@ -330,14 +335,7 @@ pub fn simular_con<C: Consulta>(
 
 /// Comprueba que el mundo sigue como en la simulación; si no, falla con un
 /// mensaje claro en vez de hacer otra cosa.
-pub fn revalidar_con<C: Consulta>(
-    store: &Store,
-    consulta: &C,
-    hechos: &Hechos,
-    nombre: &str,
-    args: &Value,
-    precondicion: &Value,
-) -> Result<(), ErrorAccion> {
+pub fn revalidar_con<C: Consulta>(store: &Store, consulta: &C, hechos: &Hechos, nombre: &str, args: &Value, precondicion: &Value) -> Result<(), ErrorAccion> {
     // Primero la validación completa de la simulación (la
     // rutina existe, la unidad está instalada…), con el estado de ahora.
     let ahora = simular_con(store, consulta, hechos, nombre, args).map_err(|e| match e {
@@ -348,9 +346,7 @@ pub fn revalidar_con<C: Consulta>(
     for (clave, esperado) in precondicion.as_object().into_iter().flatten() {
         let actual = &ahora.precondicion[clave];
         if actual != esperado {
-            return Err(ErrorAccion::NoAplica(format!(
-                "el estado cambió desde la simulación: {clave} era {esperado} y ahora es {actual}"
-            )));
+            return Err(ErrorAccion::NoAplica(format!("el estado cambió desde la simulación: {clave} era {esperado} y ahora es {actual}")));
         }
     }
     Ok(())

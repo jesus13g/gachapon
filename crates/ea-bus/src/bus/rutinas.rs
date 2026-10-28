@@ -7,10 +7,10 @@ use std::path::Path;
 
 use ea_store::{EventOutcome, FilaRutina, NewEvent, Store};
 
-use super::{ahora_rfc3339, Bus};
+use super::{Bus, ahora_rfc3339};
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::escribir_atomico;
-use crate::rutina::{Rutina, MAX_DEFINICION};
+use crate::rutina::{MAX_DEFINICION, Rutina};
 use crate::tipos::{Estado, EstadoTrabajo};
 
 impl Bus {
@@ -58,10 +58,7 @@ impl Bus {
 
     /// Última versión registrada de una rutina.
     pub fn rutina(&self, slug: &str) -> Resultado<Rutina> {
-        let fila = self
-            .store_rutinas()?
-            .ultima_rutina(slug)?
-            .ok_or_else(|| ErrorBus::Argumentos(format!("la rutina {slug:?} no está registrada")))?;
+        let fila = self.store_rutinas()?.ultima_rutina(slug)?.ok_or_else(|| ErrorBus::Argumentos(format!("la rutina {slug:?} no está registrada")))?;
         Rutina::parsear(&fila.definicion)
     }
 
@@ -157,8 +154,10 @@ impl Bus {
                 break;
             }
             let Some(slug) = self.leer_orden(&id).ok().and_then(|o| o.rutina).map(|r| r.slug) else { continue };
-            if slugs.contains(&slug) && !out.contains_key(&slug)
-                && let Ok(e) = self.leer_estado(&id) {
+            if slugs.contains(&slug)
+                && !out.contains_key(&slug)
+                && let Ok(e) = self.leer_estado(&id)
+            {
                 out.insert(slug, (id, e));
             }
         }
@@ -175,14 +174,13 @@ impl Bus {
 /// registrada, si la hay.
 pub fn comprobar_registro(store: &Store, texto: &str) -> Resultado<(Rutina, Option<FilaRutina>)> {
     if texto.len() > MAX_DEFINICION {
-        return Err(ErrorBus::Argumentos(format!(
-            "la definición es demasiado larga ({} bytes; como mucho {MAX_DEFINICION})",
-            texto.len()
-        )));
+        return Err(ErrorBus::Argumentos(format!("la definición es demasiado larga ({} bytes; como mucho {MAX_DEFINICION})", texto.len())));
     }
     let r = Rutina::parsear(texto)?;
     let anterior = store.ultima_rutina(&r.rutina.slug)?;
-    if let Some(ult) = &anterior && i64::from(r.rutina.version) <= ult.version {
+    if let Some(ult) = &anterior
+        && i64::from(r.rutina.version) <= ult.version
+    {
         return Err(ErrorBus::Argumentos(format!(
             "la rutina {} ya está en la versión {}; la nueva debe ser mayor (es la {})",
             r.rutina.slug, ult.version, r.rutina.version

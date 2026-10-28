@@ -39,13 +39,7 @@ pub(crate) fn registrar(raiz: &Path, accion: &str, entrada: &str, ahora: u64) {
         "stop" => Some(ahora),
         _ => return,
     };
-    let marca = MarcaSubagente {
-        agente: texto("agent_id"),
-        tipo: texto("agent_type"),
-        transcript: texto("transcript_path"),
-        desde: ahora,
-        hasta,
-    };
+    let marca = MarcaSubagente { agente: texto("agent_id"), tipo: texto("agent_type"), transcript: texto("transcript_path"), desde: ahora, hasta };
     subagentes::registrar(raiz, &texto("session_id"), marca);
 }
 

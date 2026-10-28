@@ -60,11 +60,7 @@ impl Ubicacion {
 }
 
 fn comprobar(slug: &str) -> Resultado<()> {
-    if slug_valido(slug) {
-        Ok(())
-    } else {
-        Err(ErrorBus::Argumentos(format!("slug de rutina inválido: '{slug}'")))
-    }
+    if slug_valido(slug) { Ok(()) } else { Err(ErrorBus::Argumentos(format!("slug de rutina inválido: '{slug}'"))) }
 }
 
 /// `rutinas_dir/<slug>.toml`, con el slug validado.

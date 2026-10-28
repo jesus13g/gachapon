@@ -4,28 +4,22 @@
 //! (`ea propuestas decidir`, panel web). No existe ninguna herramienta ni
 //! token con el que un agente confirme.
 
-use ea_acciones::{autorizar_mcp, buscar, observar, proponer, simular_con, Riesgo};
+use ea_acciones::{Riesgo, autorizar_mcp, buscar, observar, proponer, simular_con};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, tool, tool_router};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::EaTools;
 use crate::args::{
-    EncolarRutinaArgs, HerramientaArgs, LanzarSesionArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs,
-    ReiniciarServicioArgs, RutinaArgs, WorktreeArgs,
+    EncolarRutinaArgs, HerramientaArgs, LanzarSesionArgs, ProgramarRutinaArgs, PromoverNotaArgs, RegistrarRutinaArgs, ReiniciarServicioArgs, RutinaArgs,
+    WorktreeArgs,
 };
 
 impl EaTools {
     /// Cuerpo común de las herramientas mutantes supervisadas.
-    async fn mutante(
-        &self,
-        context: RequestContext<RoleServer>,
-        nombre: &'static str,
-        args: Value,
-        simular: bool,
-    ) -> Result<CallToolResult, McpError> {
+    async fn mutante(&self, context: RequestContext<RoleServer>, nombre: &'static str, args: Value, simular: bool) -> Result<CallToolResult, McpError> {
         let mut args_log = args.clone();
         args_log["simular"] = json!(simular);
         let accion = format!("mcp_{}{}", nombre.trim_start_matches("ea_"), if simular { "_simulada" } else { "" });
@@ -79,18 +73,9 @@ impl EaTools {
             a la región compartida de la bóveda. NO la copia: con simular=true lo describe; \
             sin él encola una propuesta que solo el usuario puede aceptar (la promoción \
             la decide el usuario, nunca un agente).",
-        annotations(
-            title = "Proponer promoción de nota",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Proponer promoción de nota", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
-    async fn ea_promover_nota(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<PromoverNotaArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_promover_nota(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<PromoverNotaArgs>) -> Result<CallToolResult, McpError> {
         let mut a = json!({ "ruta": args.ruta });
         if let Some(d) = args.destino {
             a["destino"] = json!(d);
@@ -104,12 +89,7 @@ impl EaTools {
             escribir en él). Acepta `entradas` opcionales que sustituyen a las de por defecto. \
             NO lo ejecuta: con simular=true lo describe, con el criterio resultante; sin él \
             encola una propuesta que el usuario debe aceptar.",
-        annotations(
-            title = "Encolar rutina",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Encolar rutina", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
     async fn ea_encolar_rutina(
         &self,
@@ -130,12 +110,7 @@ impl EaTools {
             la rutina. NO lo registra: con simular=true lo describe, con el diff frente a la \
             versión registrada y el criterio resultante; sin él encola una propuesta que el \
             usuario debe aceptar (terminal o panel web).",
-        annotations(
-            title = "Registrar rutina",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Registrar rutina", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
     async fn ea_registrar_rutina(
         &self,
@@ -153,12 +128,7 @@ impl EaTools {
             simular=true valida el calendario con systemd-analyze y describe lo que haría, \
             con las próximas 3 ejecuciones; sin él encola una propuesta que el usuario debe \
             aceptar (terminal o panel web). Se deshace con ea_desprogramar_rutina.",
-        annotations(
-            title = "Programar rutina",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Programar rutina", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
     async fn ea_programar_rutina(
         &self,
@@ -176,18 +146,9 @@ impl EaTools {
             0600 efímeros, nunca a argumentos. NO lo abre: con simular=true describe el comando y \
             los ficheros (sin secretos); sin él encola una propuesta que el usuario debe aceptar \
             (terminal o panel web). No está disponible para el agente local.",
-        annotations(
-            title = "Lanzar sesión con herramientas",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Lanzar sesión con herramientas", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
-    async fn ea_lanzar_sesion(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<LanzarSesionArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_lanzar_sesion(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<LanzarSesionArgs>) -> Result<CallToolResult, McpError> {
         let mut a = json!({ "agente": args.agente, "herramientas": args.herramientas });
         if let Some(d) = args.directorio {
             a["directorio"] = json!(d);
@@ -200,18 +161,9 @@ impl EaTools {
             (systemctl --user disable --now ea-rutina@<slug>.timer y borra su fichero). La \
             rutina sigue registrada. NO lo hace: con simular=true lo describe; sin él encola \
             una propuesta que el usuario debe aceptar (terminal o panel web).",
-        annotations(
-            title = "Desprogramar rutina",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = true
-        )
+        annotations(title = "Desprogramar rutina", read_only_hint = false, destructive_hint = false, idempotent_hint = true)
     )]
-    async fn ea_desprogramar_rutina(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<RutinaArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_desprogramar_rutina(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<RutinaArgs>) -> Result<CallToolResult, McpError> {
         self.mutante(context, "ea_desprogramar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
     }
 
@@ -220,12 +172,7 @@ impl EaTools {
             (lista cerrada: llama-server, ea-mcp, ea-orchestrator, ea-web). \
             NO lo ejecuta: con simular=true lo describe; sin él encola una propuesta \
             que el usuario debe aceptar.",
-        annotations(
-            title = "Reiniciar servicio",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Reiniciar servicio", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
     async fn ea_reiniciar_servicio(
         &self,
@@ -241,18 +188,9 @@ impl EaTools {
             poder lanzarse; sus versiones siguen en SQLite. Se deshace con ea_restaurar_rutina. \
             NO lo hace: con simular=true lo describe; sin él encola una propuesta que el \
             usuario debe aceptar (terminal o panel web).",
-        annotations(
-            title = "Retirar rutina",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Retirar rutina", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
-    async fn ea_retirar_rutina(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<RutinaArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_retirar_rutina(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<RutinaArgs>) -> Result<CallToolResult, McpError> {
         self.mutante(context, "ea_retirar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
     }
 
@@ -262,18 +200,9 @@ impl EaTools {
             está limpio. La rama ea/<id> se conserva; fusionarla o borrarla es del usuario. \
             NO lo hace: con simular=true lo describe; sin él encola una propuesta que el \
             usuario debe aceptar (terminal o panel web).",
-        annotations(
-            title = "Limpiar worktree propio",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Limpiar worktree propio", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
-    async fn ea_limpiar_worktree(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<WorktreeArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_limpiar_worktree(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<WorktreeArgs>) -> Result<CallToolResult, McpError> {
         self.mutante(context, "ea_limpiar_worktree", json!({ "trabajo": args.trabajo }), args.simular.unwrap_or(false)).await
     }
 
@@ -283,18 +212,9 @@ impl EaTools {
             vuelve a programar su timer (eso es ea_programar_rutina). NO lo hace: con \
             simular=true lo describe; sin él encola una propuesta que el usuario debe aceptar \
             (terminal o panel web).",
-        annotations(
-            title = "Restaurar rutina",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Restaurar rutina", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
-    async fn ea_restaurar_rutina(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<RutinaArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_restaurar_rutina(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<RutinaArgs>) -> Result<CallToolResult, McpError> {
         self.mutante(context, "ea_restaurar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
     }
 
@@ -305,12 +225,7 @@ impl EaTools {
             qué fichero o comando se usaría y el valor antes y después; sin él encola una \
             propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con \
             ea_desactivar_herramienta.",
-        annotations(
-            title = "Activar herramienta",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Activar herramienta", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
     async fn ea_activar_herramienta(
         &self,
@@ -327,12 +242,7 @@ impl EaTools {
             qué fichero o comando se usaría y el valor antes y después; sin él encola una \
             propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con \
             ea_activar_herramienta.",
-        annotations(
-            title = "Desactivar herramienta",
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false
-        )
+        annotations(title = "Desactivar herramienta", read_only_hint = false, destructive_hint = false, idempotent_hint = false)
     )]
     async fn ea_desactivar_herramienta(
         &self,
@@ -347,18 +257,9 @@ impl EaTools {
             una rutina (la de la papelera; antes hay que retirarla con ea_retirar_rutina). Sus \
             versiones siguen en SQLite. NO lo ejecuta: con simular=true lo describe; sin él \
             encola una propuesta que el usuario solo puede confirmar desde una terminal.",
-        annotations(
-            title = "Eliminar rutina",
-            read_only_hint = false,
-            destructive_hint = true,
-            idempotent_hint = false
-        )
+        annotations(title = "Eliminar rutina", read_only_hint = false, destructive_hint = true, idempotent_hint = false)
     )]
-    async fn ea_eliminar_rutina(
-        &self,
-        context: RequestContext<RoleServer>,
-        Parameters(args): Parameters<RutinaArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ea_eliminar_rutina(&self, context: RequestContext<RoleServer>, Parameters(args): Parameters<RutinaArgs>) -> Result<CallToolResult, McpError> {
         self.mutante(context, "ea_eliminar_rutina", json!({ "slug": args.slug }), args.simular.unwrap_or(false)).await
     }
 }

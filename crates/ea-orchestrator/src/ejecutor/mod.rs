@@ -62,13 +62,13 @@ mod reclamo;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use ea_bus::{git, Artefactos, Bus, Entrega, Informe, Modo, Orden, ResultadoInforme};
+use ea_bus::{Artefactos, Bus, Entrega, Informe, Modo, Orden, ResultadoInforme, git};
 use ea_plataforma::proceso::Corrida;
 
 use crate::config::ConfigOrquestador;
 use ocupacion::Ocupacion;
 
-pub use crate::agentes::{fabricar, Ejecutor, QwenCode};
+pub use crate::agentes::{Ejecutor, QwenCode, fabricar};
 pub use criterio::correr_criterio;
 
 /// Lo que se espera al semáforo de un worktree antes de devolver el trabajo
@@ -334,7 +334,15 @@ mod tests {
         ejecutar_uno(&bus, &cfg, agente.as_ref());
         let inf = bus.leer_informe(&t).unwrap().unwrap();
         let bruta = std::fs::read_to_string(e.path().join("estado/trabajos").join(&t).join(ea_bus::SALIDA_AGENTE)).unwrap_or_default();
-        println!("{id}: {:?} en {:?}\nmotivo: {:?}\nevidencia:\n{}\n--- salida ({} bytes), final:\n{}", inf.resultado, inicio.elapsed(), inf.motivo, inf.evidencia, bruta.len(), &bruta[bruta.len().saturating_sub(1500)..]);
+        println!(
+            "{id}: {:?} en {:?}\nmotivo: {:?}\nevidencia:\n{}\n--- salida ({} bytes), final:\n{}",
+            inf.resultado,
+            inicio.elapsed(),
+            inf.motivo,
+            inf.evidencia,
+            bruta.len(),
+            &bruta[bruta.len().saturating_sub(1500)..]
+        );
         assert_eq!(inf.resultado, ResultadoInforme::Terminado);
         assert_eq!(inf.ejecutado_por.unwrap().agente, id);
         assert!(inf.evidencia.contains("resumen del agente"), "el resumen se extrajo de la salida");
@@ -465,10 +473,8 @@ mod tests {
             assert_eq!(ejecutar_uno(&bus, &config(), &doble(script, 0)), Some(id.clone()));
             id
         };
-        let revision = (
-            s(&["crear:en_cola", "tomar:ejecutando", "entregar:en_revision"]),
-            s(&["bus_crear:-", "bus_tomar:ejecutando", "bus_entregar:en_revision"]),
-        );
+        let revision =
+            (s(&["crear:en_cola", "tomar:ejecutando", "entregar:en_revision"]), s(&["bus_crear:-", "bus_tomar:ejecutando", "bus_entregar:en_revision"]));
         // Misión que pasa y que no pasa; obra a medias: a revisión.
         let mut no_pasa = orden(wt.path(), "false");
         no_pasa.topes.iteraciones = 1;

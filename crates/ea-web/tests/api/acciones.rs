@@ -178,12 +178,9 @@ async fn el_resultado_de_una_accion_trae_su_trabajo_y_su_evento() {
 
     let cuerpo = json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "revision-diaria" } });
     let (_, sim) = post(&f, "/api/acciones/simular", cuerpo).await;
-    let (s, r) = post(
-        &f,
-        "/api/acciones/ejecutar",
-        json!({ "herramienta": "ea_encolar_rutina", "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }),
-    )
-    .await;
+    let (s, r) =
+        post(&f, "/api/acciones/ejecutar", json!({ "herramienta": "ea_encolar_rutina", "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }))
+            .await;
     assert_eq!(s, StatusCode::OK);
     let trabajo = r["trabajo"].as_str().unwrap().to_string();
     assert_eq!(r["datos"]["trabajo"], trabajo.as_str());
@@ -221,19 +218,9 @@ async fn la_consola_valida_y_no_ejecuta_irreversibles() {
 
     let (s, _) = post(&f, "/api/acciones/simular", json!({ "herramienta": "ea_status" })).await;
     assert_eq!(s, StatusCode::NOT_FOUND, "solo las supervisadas");
-    let (s, _) = post(
-        &f,
-        "/api/acciones/simular",
-        json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": 1 } }),
-    )
-    .await;
+    let (s, _) = post(&f, "/api/acciones/simular", json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": 1 } })).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
-    let (s, _) = post(
-        &f,
-        "/api/acciones/simular",
-        json!({ "herramienta": "ea_reiniciar_servicio", "argumentos": { "servicio": "ea-mcp" } }),
-    )
-    .await;
+    let (s, _) = post(&f, "/api/acciones/simular", json!({ "herramienta": "ea_reiniciar_servicio", "argumentos": { "servicio": "ea-mcp" } })).await;
     assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
 
     ea_bus::retirar_rutina(&f.state.config.rutinas_dir, "revision-diaria").unwrap();
@@ -276,9 +263,7 @@ async fn el_historial_de_una_herramienta_incluye_simulaciones_y_ejecuciones() {
         // Ruido: otra herramienta, otra familia y un `accion_*` sin JSON.
         store.append_event(evento_mcp("claude-code", "mcp_registrar_rutina", true)).unwrap();
         store.append_event(evento_mcp("claude-code", "mcp_status", true)).unwrap();
-        store
-            .append_event(NewEvent { detail: Some("no es json".into()), ..evento_mcp("usuario", "accion_fallida", false) })
-            .unwrap();
+        store.append_event(NewEvent { detail: Some("no es json".into()), ..evento_mcp("usuario", "accion_fallida", false) }).unwrap();
     }
     // Una propuesta (propuesta_encolada) que el usuario rechaza: el rechazo
     // solo trae el id de la propuesta.
@@ -288,12 +273,9 @@ async fn el_historial_de_una_herramienta_incluye_simulaciones_y_ejecuciones() {
     // Y una ejecución desde la consola (accion_ejecutada, canal web).
     let cuerpo = json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "revision-diaria" } });
     let (_, sim) = post(&f, "/api/acciones/simular", cuerpo).await;
-    let (s, _) = post(
-        &f,
-        "/api/acciones/ejecutar",
-        json!({ "herramienta": "ea_encolar_rutina", "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }),
-    )
-    .await;
+    let (s, _) =
+        post(&f, "/api/acciones/ejecutar", json!({ "herramienta": "ea_encolar_rutina", "argumentos": sim["argumentos"], "precondicion": sim["precondicion"] }))
+            .await;
     assert_eq!(s, StatusCode::OK);
 
     let (s, h) = get(&f, "/api/acciones/ea_encolar_rutina/historial").await;
@@ -302,13 +284,7 @@ async fn el_historial_de_una_herramienta_incluye_simulaciones_y_ejecuciones() {
     let acciones: Vec<&str> = h.iter().map(|e| e["accion"].as_str().unwrap()).collect();
     assert_eq!(
         acciones,
-        [
-            "accion_ejecutada",
-            "propuesta_decidida",
-            "propuesta_encolada",
-            "mcp_encolar_rutina_denegada",
-            "mcp_encolar_rutina_simulada",
-        ],
+        ["accion_ejecutada", "propuesta_decidida", "propuesta_encolada", "mcp_encolar_rutina_denegada", "mcp_encolar_rutina_simulada",],
         "lo más reciente primero, sin lo de otras herramientas"
     );
     assert_eq!(h[0]["canal"], "web");

@@ -8,9 +8,9 @@ use serde::Serialize;
 use time::OffsetDateTime;
 
 use crate::bus::{Bus, Cola};
+use crate::equipo::RolEquipo;
 use crate::error::Resultado;
 use crate::presencia::Presencia;
-use crate::equipo::RolEquipo;
 use crate::tipos::{EjecutadoPor, Equipo, EstadoEquipo, EstadoTrabajo, Informe, Modo, ResultadoInforme, RutinaRef};
 
 /// Un miembro del equipo y si está despierto ahora.
@@ -193,11 +193,7 @@ impl Bus {
     /// Presencia viva del agente y anotada para ESTE equipo.
     fn viva_en_equipo(&self, e: &Equipo, agente: &str, ahora: OffsetDateTime) -> bool {
         e.estado == EstadoEquipo::Despierto
-            && self
-                .presencia_de(agente)
-                .ok()
-                .flatten()
-                .is_some_and(|p| p.equipo.as_deref() == Some(e.id.as_str()) && p.viva_en(ahora))
+            && self.presencia_de(agente).ok().flatten().is_some_and(|p| p.equipo.as_deref() == Some(e.id.as_str()) && p.viva_en(ahora))
     }
 
     /// El equipo con sus miembros y sus últimos `max_trabajos` trabajos.

@@ -159,10 +159,9 @@ pub fn plan_escritorio_windows(ctx: &Contexto, distro: &str) -> Vec<Paso> {
         return Vec::new();
     }
     match ctx.origen {
-        Origen::Paquete => ["ea-escritorio.exe", "ea.exe"]
-            .iter()
-            .map(|b| Paso::Copiar { origen: ctx.exes_origen.join(b), destino: ctx.destinos.bin.join(b) })
-            .collect(),
+        Origen::Paquete => {
+            ["ea-escritorio.exe", "ea.exe"].iter().map(|b| Paso::Copiar { origen: ctx.exes_origen.join(b), destino: ctx.destinos.bin.join(b) }).collect()
+        }
         Origen::Clon { .. } => Vec::new(),
     }
 }

@@ -45,8 +45,7 @@ impl<'a> Ocupacion<'a> {
     /// Toma el semáforo de `wt` para el trabajo `id`, esperando como mucho
     /// `espera` (RF-009: no esperar bloqueado).
     pub(super) fn tomar(bus: &Bus, config: &ConfigOrquestador, id: &str, wt: &Path, espera: Duration) -> Resultado<Self> {
-        let ocupante =
-            Ocupante { agente: config.ejecutor.id.clone(), trabajo: id.to_string(), pid: 0, desde: String::new(), rol: Some(Rol::Ejecutor) };
+        let ocupante = Ocupante { agente: config.ejecutor.id.clone(), trabajo: id.to_string(), pid: 0, desde: String::new(), rol: Some(Rol::Ejecutor) };
         let candado = CandadoWorktree::adquirir_en(bus.raiz(), wt, ocupante, espera)?;
         Ok(Self { candado: Some(candado), al_cambiar: None })
     }
@@ -92,10 +91,7 @@ mod tests {
         let id = bus.crear_trabajo(orden(wt.path(), "true")).unwrap();
         let ocupante = Ocupante { agente: "claude-code".into(), trabajo: "x".into(), pid: 0, desde: String::new(), rol: Some(Rol::Planificador) };
         let _c = CandadoWorktree::adquirir_en(e.path(), wt.path(), ocupante, Duration::from_secs(1)).unwrap();
-        assert_eq!(
-            ejecutar_uno_con_espera(&bus, &config(), &doble("true", 0), Duration::from_millis(200)),
-            Some(id.clone())
-        );
+        assert_eq!(ejecutar_uno_con_espera(&bus, &config(), &doble("true", 0), Duration::from_millis(200)), Some(id.clone()));
         assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
         assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap()[0].motivo, "worktree ocupado");
     }
@@ -140,10 +136,7 @@ mod tests {
         };
         let mut cfg = config();
         cfg.ejecutor.id = "codex".into();
-        assert_eq!(
-            ejecutar_intento(&bus, &cfg, &doble("true", 0), Duration::from_secs(1), &|_| {}, &|_| true, &|| false),
-            Intento::Ocupado(id.clone())
-        );
+        assert_eq!(ejecutar_intento(&bus, &cfg, &doble("true", 0), Duration::from_secs(1), &|_| {}, &|_| true, &|| false), Intento::Ocupado(id.clone()));
         dormir.join().unwrap();
         assert!(bus.listar_cola(Cola::Agente("codex")).unwrap().is_empty(), "el trabajo quedó en la cola de un agente dormido");
         let cola = bus.listar_cola(Rol::Ejecutor).unwrap();

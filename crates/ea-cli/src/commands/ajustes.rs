@@ -3,9 +3,9 @@
 //! único canal que puede tocar lo que afecta a la seguridad del agente local
 //! (sandbox, binario de Qwen, rutas, quién elige skills) y subir los techos.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use comfy_table::Table;
-use ea_ajustes::{cargar_de, clave, interpretar, sin_alias, Aplicado, Canal, Fuentes, SECCIONES};
+use ea_ajustes::{Aplicado, Canal, Fuentes, SECCIONES, cargar_de, clave, interpretar, sin_alias};
 use ea_store::Store;
 use serde_json::Value;
 

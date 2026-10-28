@@ -145,9 +145,7 @@ fn registrar_la_v1_es_directa_y_una_version_nueva_exige_terminal() {
     let o = ea(d.path(), &["rutina", "registrar", f.to_str().unwrap()]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let store = ea_store::Store::open_at(&d.path().join("ea.db")).unwrap();
-    let registros = || {
-        store.list_events(&Default::default()).unwrap().into_iter().filter(|e| e.action == "rutina_registrada").collect::<Vec<_>>()
-    };
+    let registros = || store.list_events(&Default::default()).unwrap().into_iter().filter(|e| e.action == "rutina_registrada").collect::<Vec<_>>();
     let r = registros();
     assert_eq!(r.len(), 1, "{r:?}");
     // Sin terminal la firma el planificador (U-06).

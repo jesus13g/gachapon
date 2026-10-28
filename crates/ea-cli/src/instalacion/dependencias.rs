@@ -101,12 +101,9 @@ impl GestorPaquetes {
 /// El gestor de paquetes del sistema, si hay uno conocido en el `PATH`.
 pub fn gestor_paquetes(sistema: Sistema, sonda: &dyn Sonda) -> Option<GestorPaquetes> {
     let candidatos: &[(&str, GestorPaquetes)] = match sistema {
-        Sistema::Linux => &[
-            ("pacman", GestorPaquetes::Pacman),
-            ("apt-get", GestorPaquetes::Apt),
-            ("dnf", GestorPaquetes::Dnf),
-            ("zypper", GestorPaquetes::Zypper),
-        ],
+        Sistema::Linux => {
+            &[("pacman", GestorPaquetes::Pacman), ("apt-get", GestorPaquetes::Apt), ("dnf", GestorPaquetes::Dnf), ("zypper", GestorPaquetes::Zypper)]
+        }
         Sistema::MacOs => &[("brew", GestorPaquetes::Brew)],
         Sistema::Windows => &[("winget", GestorPaquetes::Winget)],
         Sistema::Otro => &[],
@@ -278,7 +275,8 @@ fn webview2(sonda: &dyn Sonda, gestor: Option<GestorPaquetes>) -> Dependencia {
     match version {
         Some(v) => dep("webview2", descripcion, Estado::Presente(format!("versión {v}")), true),
         None => {
-            let (oferta, nota) = por_gestor(gestor, |_| Some(&["Microsoft.EdgeWebView2Runtime"]), "WebView2 Runtime (https://developer.microsoft.com/microsoft-edge/webview2/)");
+            let (oferta, nota) =
+                por_gestor(gestor, |_| Some(&["Microsoft.EdgeWebView2Runtime"]), "WebView2 Runtime (https://developer.microsoft.com/microsoft-edge/webview2/)");
             Dependencia { oferta, nota, ..dep("webview2", descripcion, Estado::Falta, true) }
         }
     }
@@ -306,10 +304,7 @@ fn modelo(ctx: &Contexto, sonda: &dyn Sonda, ajustes: &Ajustes) -> Dependencia {
     }
     let falta = Dependencia { descripcion: descripcion.clone(), ..dep("modelo", "", Estado::Falta, false) };
     let Some(d) = descarga_para(id_perfil) else {
-        return Dependencia {
-            nota: Some(format!("arranca un servidor compatible con OpenAI en {base} que sirva el modelo {}", perfil.nombre)),
-            ..falta
-        };
+        return Dependencia { nota: Some(format!("arranca un servidor compatible con OpenAI en {base} que sirva el modelo {}", perfil.nombre)), ..falta };
     };
     let dir = ctx.destinos.datos.join("modelos");
     let gguf = dir.join(d.fichero());
@@ -385,11 +380,7 @@ fn id_agente(agente: Option<AgenteId>) -> &'static str {
 fn npm(sonda: &dyn Sonda, paquete: &str) -> (Option<Oferta>, Option<String>) {
     match sonda.binario("npm") {
         Some(_) => (
-            Some(Oferta {
-                explicacion: format!("instalar {paquete} con npm"),
-                pasos: vec![ejecutar(argv(&["npm", "install", "-g", paquete]))],
-                admin: false,
-            }),
+            Some(Oferta { explicacion: format!("instalar {paquete} con npm"), pasos: vec![ejecutar(argv(&["npm", "install", "-g", paquete]))], admin: false }),
             None,
         ),
         None => (None, Some(format!("instala Node.js (https://nodejs.org) y después `npm install -g {paquete}`"))),

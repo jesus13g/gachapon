@@ -29,10 +29,9 @@ fn literal(texto: &str) -> String {
 /// pisarla al recargar). Sin clave no hace nada.
 pub fn guion_inicio(clave: Option<&str>) -> String {
     match clave {
-        Some(c) if es_valida(c) => format!(
-            "try {{ if (!sessionStorage.getItem('ea-clave')) sessionStorage.setItem('ea-clave', {}); }} catch (e) {{}}",
-            literal(c)
-        ),
+        Some(c) if es_valida(c) => {
+            format!("try {{ if (!sessionStorage.getItem('ea-clave')) sessionStorage.setItem('ea-clave', {}); }} catch (e) {{}}", literal(c))
+        }
         _ => String::new(),
     }
 }

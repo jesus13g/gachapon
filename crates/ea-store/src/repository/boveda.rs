@@ -2,7 +2,7 @@
 //! entrada en la tabla FTS5. Es solo una caché derivada de los ficheros; la
 //! escritura de las notas y su semántica viven en `ea-boveda`.
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::StoreResult;
 use crate::models::{EntradaIndice, ResultadoBusqueda, RutaIndexada};
@@ -11,8 +11,7 @@ use crate::models::{EntradaIndice, ResultadoBusqueda, RutaIndexada};
 /// atómica.
 pub fn indexar(conn: &mut Connection, e: &EntradaIndice, cuerpo: &str) -> StoreResult<()> {
     let tx = conn.transaction()?;
-    let previo: Option<i64> =
-        tx.query_row("SELECT id FROM boveda_notas WHERE ruta = ?1", [&e.ruta], |r| r.get(0)).optional()?;
+    let previo: Option<i64> = tx.query_row("SELECT id FROM boveda_notas WHERE ruta = ?1", [&e.ruta], |r| r.get(0)).optional()?;
     if let Some(id) = previo {
         tx.execute("DELETE FROM boveda_fts WHERE rowid = ?1", [id])?;
         tx.execute("DELETE FROM boveda_notas WHERE id = ?1", [id])?;
@@ -21,24 +20,17 @@ pub fn indexar(conn: &mut Connection, e: &EntradaIndice, cuerpo: &str) -> StoreR
         "INSERT INTO boveda_notas
             (ruta, region, autor, titulo, origen, promocion, creada, actualizada, mtime_ns, bytes)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![
-            e.ruta, e.region, e.autor, e.titulo, e.origen, e.promocion, e.creada, e.actualizada,
-            e.mtime_ns, e.bytes
-        ],
+        params![e.ruta, e.region, e.autor, e.titulo, e.origen, e.promocion, e.creada, e.actualizada, e.mtime_ns, e.bytes],
     )?;
     let id = tx.last_insert_rowid();
-    tx.execute(
-        "INSERT INTO boveda_fts (rowid, titulo, tags, cuerpo) VALUES (?1, ?2, ?3, ?4)",
-        params![id, e.titulo, e.tags, cuerpo],
-    )?;
+    tx.execute("INSERT INTO boveda_fts (rowid, titulo, tags, cuerpo) VALUES (?1, ?2, ?3, ?4)", params![id, e.titulo, e.tags, cuerpo])?;
     tx.commit()?;
     Ok(())
 }
 
 pub fn olvidar(conn: &mut Connection, ruta: &str) -> StoreResult<()> {
     let tx = conn.transaction()?;
-    let id: Option<i64> =
-        tx.query_row("SELECT id FROM boveda_notas WHERE ruta = ?1", [ruta], |r| r.get(0)).optional()?;
+    let id: Option<i64> = tx.query_row("SELECT id FROM boveda_notas WHERE ruta = ?1", [ruta], |r| r.get(0)).optional()?;
     if let Some(id) = id {
         tx.execute("DELETE FROM boveda_fts WHERE rowid = ?1", [id])?;
         tx.execute("DELETE FROM boveda_notas WHERE id = ?1", [id])?;
@@ -50,21 +42,13 @@ pub fn olvidar(conn: &mut Connection, ruta: &str) -> StoreResult<()> {
 /// Lo que el índice sabe de cada nota, para detectar cambios externos.
 pub fn rutas_indexadas(conn: &Connection) -> StoreResult<Vec<RutaIndexada>> {
     let mut st = conn.prepare("SELECT ruta, mtime_ns, bytes FROM boveda_notas")?;
-    let filas = st.query_map([], |r| {
-        Ok(RutaIndexada { ruta: r.get(0)?, mtime_ns: r.get(1)?, bytes: r.get(2)? })
-    })?;
+    let filas = st.query_map([], |r| Ok(RutaIndexada { ruta: r.get(0)?, mtime_ns: r.get(1)?, bytes: r.get(2)? }))?;
     Ok(filas.collect::<Result<_, _>>()?)
 }
 
 /// Busca con FTS5. `consulta_fts` ya viene saneada por quien llama (cada
 /// término entrecomillado): aquí no se interpreta sintaxis de usuario.
-pub fn buscar(
-    conn: &Connection,
-    consulta_fts: &str,
-    region: Option<&str>,
-    limite: i64,
-    max_fragmento: i64,
-) -> StoreResult<Vec<ResultadoBusqueda>> {
+pub fn buscar(conn: &Connection, consulta_fts: &str, region: Option<&str>, limite: i64, max_fragmento: i64) -> StoreResult<Vec<ResultadoBusqueda>> {
     // `snippet` cubre la columna `cuerpo` (índice 2) y acota por número de
     // tokens; el recorte final en caracteres lo hace quien llama.
     let mut st = conn.prepare(

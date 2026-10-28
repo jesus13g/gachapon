@@ -61,10 +61,7 @@ fn despertar_y_dormir_sin_terminal_se_rechazan_sin_tocar_nada() {
     let o = ea(d.path(), &["equipo", "despertar", "--todos", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!()]);
     assert!(!o.status.success());
     assert!(stderr(&o).contains("terminal interactiva"), "{}", stderr(&o));
-    let o = ea(
-        d.path(),
-        &["equipo", "despertar", "--miembro", "codex:ejecutor", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!(), "--sin-terminal"],
-    );
+    let o = ea(d.path(), &["equipo", "despertar", "--miembro", "codex:ejecutor", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!(), "--sin-terminal"]);
     assert!(!o.status.success() && stderr(&o).contains("terminal interactiva"), "{}", stderr(&o));
     assert!(!d.path().join("estado/equipos").exists(), "no se creó ningún equipo");
 

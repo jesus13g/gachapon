@@ -10,7 +10,7 @@ use ea_ajustes::{Canal as CanalAjustes, Fuentes};
 use ea_biblioteca::{Contexto, Raices};
 use ea_pruebas::escribe;
 use ea_store::{EstadoEjecucion, EventFilter, Store};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const CODEX: &str = "# config\n[mcp_servers.docs]\ncommand = \"docs-mcp\"  # cmd\n\n[mcp_servers.otro]\ncommand = \"o\"\n";
 
@@ -50,12 +50,7 @@ async fn proponer_de(m: &Mundo, h: &str, id: &str) -> ea_store::Propuesta {
 }
 
 fn acciones(s: &Store) -> Vec<String> {
-    let mut v: Vec<_> = s
-        .list_events(&EventFilter { limit: Some(500), ..Default::default() })
-        .unwrap()
-        .into_iter()
-        .map(|e| e.action)
-        .collect();
+    let mut v: Vec<_> = s.list_events(&EventFilter { limit: Some(500), ..Default::default() }).unwrap().into_iter().map(|e| e.action).collect();
     v.reverse();
     v
 }

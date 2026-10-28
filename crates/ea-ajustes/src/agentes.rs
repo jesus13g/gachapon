@@ -291,9 +291,7 @@ pub fn por_cliente_mcp(nombre: &str) -> Option<&'static FichaAgente> {
 /// Id válido de un perfil de modelo: minúsculas, dígitos, `-` y `_`, hasta
 /// 32 caracteres (es un trozo de clave de `ajustes.toml`).
 pub fn id_perfil_valido(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 32
-        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_'))
+    !id.is_empty() && id.len() <= 32 && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_'))
 }
 
 /// La ruta del binario: tal cual si lleva directorio, si no, en el `PATH`

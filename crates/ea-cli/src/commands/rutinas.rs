@@ -51,10 +51,8 @@ pub fn listar(ctx: &mut Contexto, retiradas: bool) -> Result<()> {
                 ea_bus::Ubicacion::Retirada => "papelera (ea rutina restaurar)",
                 _ => "sin fichero (registra una versión nueva)",
             };
-            let ultima = ultimas
-                .remove(&r.slug)
-                .map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str()))
-                .unwrap_or_else(|| "nunca".to_string());
+            let ultima =
+                ultimas.remove(&r.slug).map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str())).unwrap_or_else(|| "nunca".to_string());
             table.add_row(vec![r.slug, r.version.to_string(), donde.to_string(), ultima]);
         }
         println!("{table}");
@@ -63,10 +61,8 @@ pub fn listar(ctx: &mut Contexto, retiradas: bool) -> Result<()> {
     let proxima_cabecera = format!("Próxima ({})", programador());
     table.set_header(vec!["Rutina", "Versión", "Última ejecución", proxima_cabecera.as_str()]);
     for (r, _) in rutinas {
-        let ultima = ultimas
-            .remove(&r.slug)
-            .map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str()))
-            .unwrap_or_else(|| "nunca".to_string());
+        let ultima =
+            ultimas.remove(&r.slug).map(|(id, e)| format!("{} ({}, {id})", e.actualizado_en, e.estado.as_str())).unwrap_or_else(|| "nunca".to_string());
         let proxima = proxima_ejecucion(&t, &r.slug).unwrap_or_else(|| "—".to_string());
         table.add_row(vec![r.slug, r.version.to_string(), ultima, proxima]);
     }
@@ -95,10 +91,7 @@ pub fn ver_version(store: &Store, slug: &str, n: i64) -> Result<()> {
 
 pub fn ver(ctx: &mut Contexto, slug: &str) -> Result<()> {
     let t = ctx.temporizadores().clone();
-    let fila = ctx
-        .store()?
-        .ultima_rutina(slug)?
-        .ok_or_else(|| anyhow::anyhow!("la rutina '{slug}' no está registrada (ea rutina registrar <fichero>)"))?;
+    let fila = ctx.store()?.ultima_rutina(slug)?.ok_or_else(|| anyhow::anyhow!("la rutina '{slug}' no está registrada (ea rutina registrar <fichero>)"))?;
     println!("Rutina '{slug}', versión {} (registrada {} por {}):\n{}", fila.version, fila.creada_en, fila.creada_por, fila.definicion);
     if let Some(proxima) = proxima_ejecucion(&t, slug) {
         println!("  {:<24}{proxima}", format!("Próxima ({}):", programador()));
@@ -136,8 +129,7 @@ pub fn ultimas_ejecuciones(rutinas: &[(ea_store::FilaRutina, ea_bus::Ubicacion)]
 /// propone por MCP y la aceptas tú. Por cualquier camino queda
 /// `rutina_registrada` en el diario.
 pub fn registrar(ctx: &mut Contexto, fichero: &std::path::Path) -> Result<()> {
-    let texto = std::fs::read_to_string(fichero)
-        .map_err(|e| anyhow::anyhow!("no se pudo leer {}: {e}", fichero.display()))?;
+    let texto = std::fs::read_to_string(fichero).map_err(|e| anyhow::anyhow!("no se pudo leer {}: {e}", fichero.display()))?;
     let (r, anterior) = ea_bus::comprobar_registro(ctx.store()?, &texto)?;
     if let Some(ult) = anterior {
         if let Err(e) = ea_acciones::terminal_interactiva() {
@@ -163,11 +155,7 @@ pub fn registrar(ctx: &mut Contexto, fichero: &std::path::Path) -> Result<()> {
 pub fn lanzar(ctx: &mut Contexto, slug: &str, entradas: &[String]) -> Result<()> {
     let pares = entradas
         .iter()
-        .map(|e| {
-            e.split_once('=')
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .ok_or_else(|| anyhow::anyhow!("entrada inválida {e:?} (clave=valor)"))
-        })
+        .map(|e| e.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())).ok_or_else(|| anyhow::anyhow!("entrada inválida {e:?} (clave=valor)")))
         .collect::<Result<Vec<_>>>()?;
     // Una rutina retirada o sin fichero no se lanza, tampoco desde su timer.
     let dir = rutinas_dir(ctx);

@@ -12,8 +12,7 @@ use std::path::Path;
 use anyhow::Context;
 
 pub fn cabeceras() -> anyhow::Result<()> {
-    let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso)
-        .context("sin directorio de ejecución no hay credencial del MCP")?;
+    let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).context("sin directorio de ejecución no hay credencial del MCP")?;
     println!("{}", cabeceras_de(&ejecucion)?);
     Ok(())
 }

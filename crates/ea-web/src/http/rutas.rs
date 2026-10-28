@@ -3,16 +3,16 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
 
 use super::{ApiError, Cuerpo};
+use crate::AppState;
 use crate::servicio::trabajos::Decision;
 use crate::servicio::{self, diario::Filtro};
 use crate::vistas::*;
-use crate::AppState;
 
 type Estado = State<Arc<AppState>>;
 type Api<T> = Result<Json<T>, ApiError>;
@@ -101,11 +101,7 @@ pub async fn rutina_ver(State(s): Estado, Path(slug): Path<String>) -> Api<Rutin
     ok(servicio::rutinas::ver(&s, &slug).await)
 }
 
-pub async fn rutina_lanzar(
-    State(s): Estado,
-    Path(slug): Path<String>,
-    Cuerpo(b): Cuerpo<EntradasBody>,
-) -> Result<(StatusCode, Json<RutinaLanzada>), ApiError> {
+pub async fn rutina_lanzar(State(s): Estado, Path(slug): Path<String>, Cuerpo(b): Cuerpo<EntradasBody>) -> Result<(StatusCode, Json<RutinaLanzada>), ApiError> {
     Ok((StatusCode::CREATED, Json(servicio::rutinas::lanzar(&s, &slug, &b.entradas).await?)))
 }
 
@@ -117,10 +113,7 @@ pub async fn rutina_validar(State(s): Estado, Cuerpo(b): Cuerpo<TomlBody>) -> Ap
     ok(servicio::rutinas::validar(&s, &b.toml).await)
 }
 
-pub async fn rutina_registrar(
-    State(s): Estado,
-    Cuerpo(b): Cuerpo<TomlBody>,
-) -> Result<(StatusCode, Json<RutinaRegistrada>), ApiError> {
+pub async fn rutina_registrar(State(s): Estado, Cuerpo(b): Cuerpo<TomlBody>) -> Result<(StatusCode, Json<RutinaRegistrada>), ApiError> {
     Ok((StatusCode::CREATED, Json(servicio::rutinas::registrar(&s, &b.toml).await?)))
 }
 
@@ -148,10 +141,7 @@ pub async fn trabajos_listar(State(s): Estado) -> Api<Vec<TrabajoResumen>> {
     ok(servicio::trabajos::listar(&s))
 }
 
-pub async fn trabajo_crear(
-    State(s): Estado,
-    Cuerpo(b): Cuerpo<NuevoTrabajo>,
-) -> Result<(StatusCode, Json<EstadoTrabajo>), ApiError> {
+pub async fn trabajo_crear(State(s): Estado, Cuerpo(b): Cuerpo<NuevoTrabajo>) -> Result<(StatusCode, Json<EstadoTrabajo>), ApiError> {
     Ok((StatusCode::CREATED, Json(servicio::trabajos::crear(&s, b).await?)))
 }
 
@@ -197,19 +187,11 @@ pub async fn trabajo_continuar(State(s): Estado, Path(id): Path<String>) -> Api<
     decidir(&s, &id, Decision::Continuar).await
 }
 
-pub async fn trabajo_reformular(
-    State(s): Estado,
-    Path(id): Path<String>,
-    Cuerpo(b): Cuerpo<ReformularBody>,
-) -> Api<EstadoTrabajo> {
+pub async fn trabajo_reformular(State(s): Estado, Path(id): Path<String>, Cuerpo(b): Cuerpo<ReformularBody>) -> Api<EstadoTrabajo> {
     decidir(&s, &id, Decision::Reformular { nota: &b.nota, fase: b.fase }).await
 }
 
-pub async fn trabajo_confirmar(
-    State(s): Estado,
-    Path(id): Path<String>,
-    Cuerpo(b): Cuerpo<ConfirmarBody>,
-) -> Api<EstadoTrabajo> {
+pub async fn trabajo_confirmar(State(s): Estado, Path(id): Path<String>, Cuerpo(b): Cuerpo<ConfirmarBody>) -> Api<EstadoTrabajo> {
     decidir(&s, &id, Decision::Confirmar { contexto: &b.contexto }).await
 }
 
@@ -237,10 +219,7 @@ pub async fn equipo_ver(State(s): Estado, Path(id): Path<String>) -> Api<VistaEq
     ok(servicio::equipos::ver(&s, &id))
 }
 
-pub async fn equipo_despertar(
-    State(s): Estado,
-    Cuerpo(b): Cuerpo<DespertarEquipo>,
-) -> Result<(StatusCode, Json<Despierto>), ApiError> {
+pub async fn equipo_despertar(State(s): Estado, Cuerpo(b): Cuerpo<DespertarEquipo>) -> Result<(StatusCode, Json<Despierto>), ApiError> {
     Ok((StatusCode::CREATED, Json(servicio::equipos::despertar(&s, b).await?)))
 }
 
@@ -259,11 +238,7 @@ pub async fn propuestas_listar(State(s): Estado, Query(q): Query<PropuestasQuery
     ok(servicio::propuestas::listar(&s, q.estado.as_deref()).await)
 }
 
-pub async fn propuesta_decidir(
-    State(s): Estado,
-    Path(id): Path<i64>,
-    Cuerpo(b): Cuerpo<DecisionBody>,
-) -> Api<PropuestaVista> {
+pub async fn propuesta_decidir(State(s): Estado, Path(id): Path<i64>, Cuerpo(b): Cuerpo<DecisionBody>) -> Api<PropuestaVista> {
     ok(servicio::propuestas::decidir(&s, id, &b.decision).await)
 }
 
@@ -391,11 +366,7 @@ pub async fn memoria_leer(State(s): Estado, Path((proyecto, fichero)): Path<(Str
     ok(servicio::memoria::leer(&s, &proyecto, &fichero))
 }
 
-pub async fn memoria_guardar(
-    State(s): Estado,
-    Path((proyecto, fichero)): Path<(String, String)>,
-    Cuerpo(b): Cuerpo<MemoriaBody>,
-) -> Api<Memoria> {
+pub async fn memoria_guardar(State(s): Estado, Path((proyecto, fichero)): Path<(String, String)>, Cuerpo(b): Cuerpo<MemoriaBody>) -> Api<Memoria> {
     ok(servicio::memoria::guardar(&s, &proyecto, &fichero, &b.contenido, &b.version).await)
 }
 
@@ -404,36 +375,19 @@ pub async fn memoria_crear(
     Path(proyecto): Path<String>,
     Cuerpo(b): Cuerpo<CrearMemoriaBody>,
 ) -> Result<(StatusCode, Json<Memoria>), ApiError> {
-    let n = crate::memoria::NuevaMemoria {
-        fichero: &b.fichero,
-        titulo: &b.titulo,
-        descripcion: &b.descripcion,
-        tipo: &b.tipo,
-        cuerpo: &b.cuerpo,
-    };
+    let n = crate::memoria::NuevaMemoria { fichero: &b.fichero, titulo: &b.titulo, descripcion: &b.descripcion, tipo: &b.tipo, cuerpo: &b.cuerpo };
     Ok((StatusCode::CREATED, Json(servicio::memoria::crear(&s, &proyecto, &n).await?)))
 }
 
-pub async fn memoria_eliminar(
-    State(s): Estado,
-    Path((proyecto, fichero)): Path<(String, String)>,
-    Cuerpo(b): Cuerpo<VersionBody>,
-) -> Api<Hecho> {
+pub async fn memoria_eliminar(State(s): Estado, Path((proyecto, fichero)): Path<(String, String)>, Cuerpo(b): Cuerpo<VersionBody>) -> Api<Hecho> {
     ok(servicio::memoria::eliminar(&s, &proyecto, &fichero, &b.version).await)
 }
 
-pub async fn memoria_renombrar(
-    State(s): Estado,
-    Path((proyecto, fichero)): Path<(String, String)>,
-    Cuerpo(b): Cuerpo<RenombrarBody>,
-) -> Api<Renombrado> {
+pub async fn memoria_renombrar(State(s): Estado, Path((proyecto, fichero)): Path<(String, String)>, Cuerpo(b): Cuerpo<RenombrarBody>) -> Api<Renombrado> {
     ok(servicio::memoria::renombrar(&s, &proyecto, &fichero, &b.nuevo, &b.version).await)
 }
 
-pub async fn memoria_mostrar(
-    State(s): Estado,
-    Path((proyecto, fichero)): Path<(String, String)>,
-) -> Api<Hecho> {
+pub async fn memoria_mostrar(State(s): Estado, Path((proyecto, fichero)): Path<(String, String)>) -> Api<Hecho> {
     ok(servicio::memoria::mostrar(&s, &proyecto, &fichero).await)
 }
 
@@ -467,10 +421,7 @@ pub struct BibliotecaQuery {
     activado: Option<String>,
 }
 
-pub async fn biblioteca_listar(
-    State(s): Estado,
-    Query(q): Query<BibliotecaQuery>,
-) -> Api<BibliotecaVista> {
+pub async fn biblioteca_listar(State(s): Estado, Query(q): Query<BibliotecaQuery>) -> Api<BibliotecaVista> {
     let p = servicio::biblioteca::Peticion { agente: q.agente, tipo: q.tipo, categoria: q.categoria, activado: q.activado };
     ok(servicio::biblioteca::listar(&s, &p).await)
 }

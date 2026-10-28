@@ -5,8 +5,8 @@ use std::path::Path;
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{
-    Bus, Cola, ConfigSkills, EjecutadoPor, Equipo, ErrorBus, EstadoEquipo, EstadoTrabajo, Evento, Fase, Informe, Miembro, Modo, NuevoEquipo,
-    Orden, ResultadoInforme, Rol, RolEquipo,
+    Bus, Cola, ConfigSkills, EjecutadoPor, Equipo, ErrorBus, EstadoEquipo, EstadoTrabajo, Evento, Fase, Informe, Miembro, Modo, NuevoEquipo, Orden,
+    ResultadoInforme, Rol, RolEquipo,
 };
 use ea_pruebas::orden;
 use ea_store::Store;
@@ -25,22 +25,11 @@ fn ajustes(d: &Path) -> Ajustes {
 
 /// claude-code planifica, qwen-code y codex ejecutan, antigravity revisa.
 fn miembros() -> Vec<Miembro> {
-    vec![
-        m("claude-code", RolEquipo::Planificador),
-        m("qwen-code", RolEquipo::Ejecutor),
-        m("codex", RolEquipo::Ejecutor),
-        m("antigravity", RolEquipo::Revisor),
-    ]
+    vec![m("claude-code", RolEquipo::Planificador), m("qwen-code", RolEquipo::Ejecutor), m("codex", RolEquipo::Ejecutor), m("antigravity", RolEquipo::Revisor)]
 }
 
 fn nuevo(miembros: Vec<Miembro>) -> NuevoEquipo {
-    NuevoEquipo {
-        titulo: "equipo de prueba".into(),
-        objetivo: "probar".into(),
-        worktree_base: "/tmp/repo".into(),
-        miembros,
-        creado_por: "ea-cli".into(),
-    }
+    NuevoEquipo { titulo: "equipo de prueba".into(), objetivo: "probar".into(), worktree_base: "/tmp/repo".into(), miembros, creado_por: "ea-cli".into() }
 }
 
 struct Entorno {
@@ -376,10 +365,7 @@ fn los_planificadores_del_equipo_tienen_la_llave_de_las_skills_y_los_revisores_n
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_skills(cfg);
     // codex planifica (admite ambos roles) y antigravity revisa
     let eq = bus
-        .crear_equipo(
-            nuevo(vec![m("codex", RolEquipo::Planificador), m("qwen-code", RolEquipo::Ejecutor), m("antigravity", RolEquipo::Revisor)]),
-            &a,
-        )
+        .crear_equipo(nuevo(vec![m("codex", RolEquipo::Planificador), m("qwen-code", RolEquipo::Ejecutor), m("antigravity", RolEquipo::Revisor)]), &a)
         .unwrap();
     let con = |por: &str| Orden { equipo: Some(eq.id.clone()), creada_por: por.into(), skills: vec!["rust".into()], ..orden(d.path()) };
     assert!(bus.crear_trabajo(con("codex")).is_ok());

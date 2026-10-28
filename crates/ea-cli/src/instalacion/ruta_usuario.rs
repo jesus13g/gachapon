@@ -9,7 +9,7 @@ use ea_acciones::servicios::Paso;
 use ea_plataforma::Sistema;
 
 use super::origen::nombre_binario;
-use super::{leer_para_reescribir, Contexto, Sonda};
+use super::{Contexto, Sonda, leer_para_reescribir};
 
 pub const MARCA_INICIO: &str = "# gachapon:inicio";
 pub const MARCA_FIN: &str = "# gachapon:fin";
@@ -77,11 +77,7 @@ pub fn literal_ps(s: &str) -> String {
 }
 
 fn powershell(guion: String) -> Paso {
-    Paso::Ejecutar {
-        argv: vec!["powershell".into(), "-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), guion],
-        tolerar: false,
-        reintentos: 0,
-    }
+    Paso::Ejecutar { argv: vec!["powershell".into(), "-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), guion], tolerar: false, reintentos: 0 }
 }
 
 /// Leer el `Path` del usuario del registro **sin expandir** (`%USERPROFILE%`

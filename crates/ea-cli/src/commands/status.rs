@@ -26,9 +26,7 @@ pub fn mostrar(store: &Store) -> Result<()> {
     println!("Ecosistema de asistente — estado");
     println!("---------------------------------");
     println!("Orquestador: {}", estado_orquestador());
-    let pendientes = store
-        .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?
-        .len();
+    let pendientes = store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?.len();
     println!("Propuestas pendientes: {pendientes}");
     println!("Base de datos: {}", ea_ajustes::cargar().rutas.db.display());
     for l in lineas_roles(&ea_ajustes::cargar()) {
@@ -39,22 +37,14 @@ pub fn mostrar(store: &Store) -> Result<()> {
     mostrar_bus();
 
     println!("\nÚltimos eventos:");
-    let events = store.list_events(&EventFilter {
-        limit: Some(5),
-        ..Default::default()
-    })?;
+    let events = store.list_events(&EventFilter { limit: Some(5), ..Default::default() })?;
     if events.is_empty() {
         println!("  (sin eventos todavía)");
     } else {
         let mut table = Table::new();
         table.set_header(vec!["Cuándo", "Actor", "Acción", "Trabajo"]);
         for e in events {
-            table.add_row(vec![
-                fmt_ts(e.ts),
-                e.actor,
-                e.action,
-                e.trabajo.unwrap_or_default(),
-            ]);
+            table.add_row(vec![fmt_ts(e.ts), e.actor, e.action, e.trabajo.unwrap_or_default()]);
         }
         println!("{table}");
     }

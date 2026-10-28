@@ -2,9 +2,9 @@
 //! y las fechas: la «fecha flexible» de los filtros y el RFC 3339 de las
 //! marcas de tiempo. Cada superficie solo traduce su entrada y sus errores.
 
+use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use time::macros::format_description;
-use time::OffsetDateTime;
 
 use crate::models::EventOutcome;
 use crate::repository::events::EventFilter;
@@ -50,19 +50,13 @@ impl FiltroDiario {
     /// El filtro validado. `limite_max` recorta el límite a `1..=limite_max`;
     /// con `None`, el límite va tal cual.
     pub fn a_filtro(self, limite_max: Option<i64>) -> Result<EventFilter, ErrorFiltro> {
-        let outcome = self
-            .resultado
-            .map(|r| r.parse::<EventOutcome>().map_err(|_| ErrorFiltro::Resultado(r)))
-            .transpose()?;
+        let outcome = self.resultado.map(|r| r.parse::<EventOutcome>().map_err(|_| ErrorFiltro::Resultado(r))).transpose()?;
         if let Some(a) = &self.accion
             && !prefijo_accion_valido(a)
         {
             return Err(ErrorFiltro::Accion(a.clone()));
         }
-        let before_id = self
-            .antes_de
-            .map(|a| a.parse::<i64>().ok().filter(|n| *n > 0).ok_or(ErrorFiltro::AntesDe(a)))
-            .transpose()?;
+        let before_id = self.antes_de.map(|a| a.parse::<i64>().ok().filter(|n| *n > 0).ok_or(ErrorFiltro::AntesDe(a))).transpose()?;
         Ok(EventFilter {
             trabajo: self.trabajo,
             actor: self.actor,
@@ -128,18 +122,9 @@ mod tests {
         ] {
             assert_eq!(fecha_flexible(texto).unwrap(), esperado, "{texto}");
         }
-        for texto in [
-            "",
-            "2026-10-27T12:34:56",
-            "2026-10-27T12:34Z",
-            "2026-10-27Z",
-            "2026-1-7",
-            "20261027",
-            " 2026-10-27",
-            "2026-02-30",
-            "2026-10-27T24:00:00Z",
-            "ayer",
-        ] {
+        for texto in
+            ["", "2026-10-27T12:34:56", "2026-10-27T12:34Z", "2026-10-27Z", "2026-1-7", "20261027", " 2026-10-27", "2026-02-30", "2026-10-27T24:00:00Z", "ayer"]
+        {
             let e = fecha_flexible(texto).unwrap_err();
             assert_eq!(e.to_string(), format!("fecha inválida: '{texto}' (usa RFC3339 o AAAA-MM-DD)"));
             assert!(std::error::Error::source(&e).is_some(), "la causa de {texto:?} se conserva");

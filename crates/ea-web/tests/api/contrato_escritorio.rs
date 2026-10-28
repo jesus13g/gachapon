@@ -41,10 +41,8 @@ async fn los_trabajos_son_una_lista_con_id_estado_y_titulo() {
     let (s, v) = como_el_escritorio(&f, "/api/trabajos").await;
     assert_eq!(s, StatusCode::OK, "{v}");
     let filas = v.as_array().expect("/api/trabajos es una lista");
-    let mut vistos: Vec<(&str, &str, &str)> = filas
-        .iter()
-        .map(|t| (t["id"].as_str().unwrap(), t["estado"].as_str().unwrap(), t["titulo"].as_str().unwrap()))
-        .collect();
+    let mut vistos: Vec<(&str, &str, &str)> =
+        filas.iter().map(|t| (t["id"].as_str().unwrap(), t["estado"].as_str().unwrap(), t["titulo"].as_str().unwrap())).collect();
     vistos.sort();
     assert_eq!(
         vistos,

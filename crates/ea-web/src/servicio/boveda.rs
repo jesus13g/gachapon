@@ -5,24 +5,19 @@
 use ea_acciones::Canal;
 use serde_json::json;
 
-use super::{sistema, Resultado, ACTOR};
-use crate::vistas::{
-    ArbolBoveda, CabeceraVista, CarpetaBorradaVista, CarpetaRenombradaVista, EnPapelera, NotaMovida, Hecho, IndiceBoveda, ListadoBoveda, NotaFichero, NotaResumen, NotaVista, Promocion,
-    RenombradoBoveda,
-};
+use super::{ACTOR, Resultado, sistema};
 use crate::AppState;
+use crate::vistas::{
+    ArbolBoveda, CabeceraVista, CarpetaBorradaVista, CarpetaRenombradaVista, EnPapelera, Hecho, IndiceBoveda, ListadoBoveda, NotaFichero, NotaMovida,
+    NotaResumen, NotaVista, Promocion, RenombradoBoveda,
+};
 
 /// Cotas de la interfaz del usuario: más holgadas que las de los agentes,
 /// pero acotadas (la página no pinta cientos de notas).
 const LIMITES_WEB: ea_boveda::Limites = ea_boveda::Limites { max_resultados: 50, ..ea_boveda::Limites::AMPLIOS };
 
 /// Con `consulta`, búsqueda de texto completo; sin ella, las notas más recientes.
-pub async fn listar(
-    s: &AppState,
-    consulta: Option<&str>,
-    region: Option<&str>,
-    limite: Option<usize>,
-) -> Resultado<ListadoBoveda> {
+pub async fn listar(s: &AppState, consulta: Option<&str>, region: Option<&str>, limite: Option<usize>) -> Resultado<ListadoBoveda> {
     let mut store = s.store.lock().await;
     let region = region.filter(|r| !r.is_empty());
     let filas = match consulta.map(str::trim).filter(|t| !t.is_empty()) {

@@ -7,13 +7,13 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use comfy_table::Table;
 use ea_acciones::{observar, proponer};
 use ea_ajustes::Fuentes;
-use ea_biblioteca::uso::{calcular_uso, FuentesUso, InformeUso, Uso};
+use ea_biblioteca::uso::{FuentesUso, InformeUso, Uso, calcular_uso};
 use ea_biblioteca::{Activado, Biblioteca, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{bloquear, confirmar_y_aceptar, limpio};
 
@@ -66,9 +66,7 @@ pub fn listar(
     json: bool,
 ) -> Result<()> {
     let tipo = match tipo {
-        Some(t) => Some(Tipo::desde(&t).with_context(|| {
-            format!("tipo desconocido {t:?} (uno de: {})", Tipo::TODOS.map(|t| t.as_str()).join(", "))
-        })?),
+        Some(t) => Some(Tipo::desde(&t).with_context(|| format!("tipo desconocido {t:?} (uno de: {})", Tipo::TODOS.map(|t| t.as_str()).join(", ")))?),
         None => None,
     };
     let activado = match (activados, desactivados) {
@@ -257,13 +255,7 @@ fn proponer_y_quiza_aceptar(ctx: &mut super::Contexto, herramienta: &str, args: 
     let hechos = bloquear(observar(&sis, herramienta, args))?;
     let (p, nueva) = proponer(store, &sis, &hechos, ACTOR, None, herramienta, args)?;
     let accion = p.accion.as_ref().context("la propuesta no tiene acción")?;
-    println!(
-        "Propuesta #{} {} ({}, riesgo {}):",
-        p.id,
-        if nueva { "creada" } else { "ya estaba pendiente" },
-        accion.herramienta,
-        accion.riesgo
-    );
+    println!("Propuesta #{} {} ({}, riesgo {}):", p.id, if nueva { "creada" } else { "ya estaba pendiente" }, accion.herramienta, accion.riesgo);
     println!("  {}", accion.simulacion);
     if !esperar {
         println!("No se ha hecho nada. Para aplicarla: `ea propuestas decidir {} --aceptar`.", p.id);
@@ -292,12 +284,7 @@ pub fn cambiar(ctx: &mut super::Contexto, id: &str, activar: bool, esperar: bool
 pub fn sesion(ctx: &mut super::Contexto, agente: &str, ids: &[String], directorio: Option<String>, esperar: bool) -> Result<()> {
     // Una ruta relativa se entiende desde donde se lanza `ea`.
     let directorio = match directorio {
-        Some(d) => Some(
-            ea_plataforma::rutas::canonica(&d)
-                .with_context(|| format!("el directorio {d:?} no existe"))?
-                .display()
-                .to_string(),
-        ),
+        Some(d) => Some(ea_plataforma::rutas::canonica(&d).with_context(|| format!("el directorio {d:?} no existe"))?.display().to_string()),
         None => None,
     };
     // El plan (sin secretos) se enseña antes de proponer, y un plan imposible

@@ -13,13 +13,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ea_acciones::SistemaReal;
-use ea_biblioteca::uso::{calcular_uso, FuentesUso, InformeUso};
-use ea_biblioteca::{Activado, Biblioteca, Contexto, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo, AGENTES_CON_SESION};
+use ea_biblioteca::uso::{FuentesUso, InformeUso, calcular_uso};
+use ea_biblioteca::{AGENTES_CON_SESION, Activado, Biblioteca, Contexto, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo};
 use serde_json::Value;
 
 use super::{ErrorWeb, Resultado};
-use crate::vistas::{BibliotecaVista, CambioPosible, ElementoVista, FichaVista, ResultadoAccion, Simulacion};
 use crate::AppState;
+use crate::vistas::{BibliotecaVista, CambioPosible, ElementoVista, FichaVista, ResultadoAccion, Simulacion};
 
 /// Las únicas herramientas del catálogo que se simulan y ejecutan desde esta sección.
 pub const HERRAMIENTAS: [&str; 3] = ["ea_activar_herramienta", "ea_desactivar_herramienta", "ea_lanzar_sesion"];
@@ -72,9 +72,7 @@ pub(super) fn contexto_en(s: &AppState, raices: Raices) -> Contexto {
 async fn inventario(s: &AppState) -> Resultado<Inventario> {
     let r = raices(s);
     let a = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
-    tokio::task::spawn_blocking(move || Biblioteca::cargar(&r, &a))
-    .await
-    .map_err(|e| ErrorWeb::Interno(format!("la lectura de la biblioteca falló: {e}")))
+    tokio::task::spawn_blocking(move || Biblioteca::cargar(&r, &a)).await.map_err(|e| ErrorWeb::Interno(format!("la lectura de la biblioteca falló: {e}")))
 }
 
 fn cambio_posible(e: &Elemento) -> CambioPosible {
@@ -82,9 +80,7 @@ fn cambio_posible(e: &Elemento) -> CambioPosible {
     match e.mecanismo {
         Mecanismo::SoloSesion => no("solo se puede acotar en una sesión (su configuración no se edita): usa «▶ sesión con…»"),
         Mecanismo::No => no(e.nota.as_deref().unwrap_or("este elemento no se puede activar ni desactivar")),
-        Mecanismo::Ajustes => no(
-            "solo desde una terminal real: lo que cambia es lo que puede hacer el ejecutor (agente.skills.habilitadas)",
-        ),
+        Mecanismo::Ajustes => no("solo desde una terminal real: lo que cambia es lo que puede hacer el ejecutor (agente.skills.habilitadas)"),
         _ if e.activado == Activado::Desconocido => no("no se sabe si está activado, así que no hay qué cambiar"),
         _ => CambioPosible { posible: true, motivo: None },
     }
@@ -184,12 +180,7 @@ pub async fn simular(s: &AppState, herramienta: &str, argumentos: &Value) -> Res
 /// Ejecuta lo simulado: el gesto del usuario es la confirmación; la
 /// revalidación y el diario son los de siempre. Tras un cambio, el informe de
 /// uso en caché se descarta (el inventario ya no es el mismo).
-pub async fn ejecutar(
-    s: &AppState,
-    herramienta: &str,
-    argumentos: &Value,
-    precondicion: &Value,
-) -> Resultado<ResultadoAccion> {
+pub async fn ejecutar(s: &AppState, herramienta: &str, argumentos: &Value, precondicion: &Value) -> Resultado<ResultadoAccion> {
     comprobar(s, herramienta, argumentos)?;
     let r = super::acciones::ejecutar_en(s, &sistema_biblioteca(s), herramienta, argumentos, precondicion).await?;
     *s.biblioteca_uso.lock().await = None;

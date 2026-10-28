@@ -28,7 +28,8 @@ pub fn reescribir(texto: &str, mut f: impl FnMut(Forma, &str) -> Option<String>)
     let mut cambios = false;
     while !resto.is_empty() {
         if let Some(tras) = resto.strip_prefix("[[")
-            && let Some(fin) = tras.find("]]").filter(|&f| !tras[..f].contains('\n')) {
+            && let Some(fin) = tras.find("]]").filter(|&f| !tras[..f].contains('\n'))
+        {
             let dentro = &tras[..fin];
             let corte = dentro.find(['|', '#']).unwrap_or(dentro.len());
             let (destino, cola) = dentro.split_at(corte);
@@ -244,15 +245,7 @@ pub struct Reescrita {
 /// y después del movimiento (distintas solo si es la propia nota movida, cuyos
 /// enlaces markdown relativos hay que recalcular). `antes` y `despues` son las
 /// rutas de todas las notas en cada momento.
-pub fn reescribir_tras_mover(
-    texto: &str,
-    desde_antes: &str,
-    desde_ahora: &str,
-    vieja: &str,
-    nueva: &str,
-    antes: &[String],
-    despues: &[String],
-) -> Reescrita {
+pub fn reescribir_tras_mover(texto: &str, desde_antes: &str, desde_ahora: &str, vieja: &str, nueva: &str, antes: &[String], despues: &[String]) -> Reescrita {
     let mut ambiguos = false;
     let texto = reescribir(texto, |forma, destino| match forma {
         Forma::Wiki => match resolver_wiki(destino, desde_antes, antes) {
@@ -367,12 +360,17 @@ mod tests {
         let despues = v(&["compartida/sub/x2.md", "compartida/otra.md", "claude-code/n.md"]);
         let t = "[[x]] [[x|alias]] [[x#ancla]] [[compartida/x.md]] [v](x.md) [v](./x.md#a) [o](otra.md) [[otra]]";
         let r = reescribir_tras_mover(t, "compartida/otra.md", "compartida/otra.md", "compartida/x.md", "compartida/sub/x2.md", &antes, &despues);
-        assert_eq!(
-            r.texto.as_deref(),
-            Some("[[x2]] [[x2|alias]] [[x2#ancla]] [[sub/x2.md]] [v](sub/x2.md) [v](./sub/x2.md#a) [o](otra.md) [[otra]]")
-        );
+        assert_eq!(r.texto.as_deref(), Some("[[x2]] [[x2|alias]] [[x2#ancla]] [[sub/x2.md]] [v](sub/x2.md) [v](./sub/x2.md#a) [o](otra.md) [[otra]]"));
         assert!(!r.ambiguos);
-        let r = reescribir_tras_mover("[v](../compartida/x.md)", "claude-code/n.md", "claude-code/n.md", "compartida/x.md", "compartida/sub/x2.md", &antes, &despues);
+        let r = reescribir_tras_mover(
+            "[v](../compartida/x.md)",
+            "claude-code/n.md",
+            "claude-code/n.md",
+            "compartida/x.md",
+            "compartida/sub/x2.md",
+            &antes,
+            &despues,
+        );
         assert_eq!(r.texto.as_deref(), Some("[v](../compartida/sub/x2.md)"));
     }
 
@@ -380,7 +378,15 @@ mod tests {
     fn la_nota_movida_recalcula_sus_enlaces_relativos() {
         let antes = v(&["compartida/x.md", "compartida/otra.md"]);
         let despues = v(&["compartida/sub/x.md", "compartida/otra.md"]);
-        let r = reescribir_tras_mover("[o](otra.md) [[otra]] [yo](x.md)", "compartida/x.md", "compartida/sub/x.md", "compartida/x.md", "compartida/sub/x.md", &antes, &despues);
+        let r = reescribir_tras_mover(
+            "[o](otra.md) [[otra]] [yo](x.md)",
+            "compartida/x.md",
+            "compartida/sub/x.md",
+            "compartida/x.md",
+            "compartida/sub/x.md",
+            &antes,
+            &despues,
+        );
         assert_eq!(r.texto.as_deref(), Some("[o](../otra.md) [[otra]] [yo](x.md)"));
     }
 
@@ -391,7 +397,15 @@ mod tests {
         let r = reescribir_tras_mover("[[x]]", "claude-code/n.md", "claude-code/n.md", "compartida/a/x.md", "compartida/a/y.md", &antes, &despues);
         assert_eq!(r, Reescrita { texto: None, ambiguos: true });
         // Desde la misma carpeta no es ambiguo.
-        let r = reescribir_tras_mover("[[x]]", "compartida/a/n.md", "compartida/a/n.md", "compartida/a/x.md", "compartida/a/y.md", &v(&["compartida/a/x.md", "compartida/b/x.md", "compartida/a/n.md"]), &v(&["compartida/a/y.md", "compartida/b/x.md", "compartida/a/n.md"]));
+        let r = reescribir_tras_mover(
+            "[[x]]",
+            "compartida/a/n.md",
+            "compartida/a/n.md",
+            "compartida/a/x.md",
+            "compartida/a/y.md",
+            &v(&["compartida/a/x.md", "compartida/b/x.md", "compartida/a/n.md"]),
+            &v(&["compartida/a/y.md", "compartida/b/x.md", "compartida/a/n.md"]),
+        );
         assert_eq!(r.texto.as_deref(), Some("[[y]]"));
     }
 }

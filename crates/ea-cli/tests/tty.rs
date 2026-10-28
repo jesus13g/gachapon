@@ -115,10 +115,8 @@ fn mundo() -> Mundo {
     let (p, _) = ea_acciones::proponer(&store, &consulta, &hechos, "claude-code", None, "ea_eliminar_rutina", &args).unwrap();
     assert_eq!(p.accion.as_ref().unwrap().riesgo, "irreversible");
     let irreversible = p.id;
-    let texto = store
-        .crear_propuesta(ea_store::NuevaPropuesta { proponente: "claude-code".into(), descripcion: "solo texto".into(), accion: None })
-        .unwrap()
-        .id;
+    let texto =
+        store.crear_propuesta(ea_store::NuevaPropuesta { proponente: "claude-code".into(), descripcion: "solo texto".into(), accion: None }).unwrap().id;
     drop(store);
 
     let mut m = Mundo { d, irreversible, reversible: 0, texto, equipo: equipo.id };
@@ -309,7 +307,10 @@ fn sin_terminal_se_rechaza_y_se_acepta_lo_que_no_ejecuta_nada() {
 #[test]
 fn trabajo_confirmar_hoy_no_exige_terminal_u04() {
     let m = mundo();
-    let toml = format!("[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"{}\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n", ea_pruebas::repo_comun());
+    let toml = format!(
+        "[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"{}\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n",
+        ea_pruebas::repo_comun()
+    );
     escribe(m.ruta("informe.toml"), &toml);
     let o = m.ea(&["rutina", "registrar", m.ruta("informe.toml").to_str().unwrap()], "");
     assert!(o.status.success(), "{}", salida(&o));

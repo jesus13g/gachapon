@@ -21,8 +21,8 @@ use ea_acciones::{SistemaReal, SoloConsulta, Temporizadores};
 use ea_ajustes::Ajustes;
 use ea_bus::Bus;
 use ea_store::{AccionPropuesta, Propuesta, Store};
-use time::macros::format_description;
 use time::OffsetDateTime;
+use time::macros::format_description;
 
 /// Quién firma en el diario lo que esta CLI hace en el bus (U-06): el usuario
 /// si stdin y stdout son una terminal interactiva; sin ella, quien lanza `ea`
@@ -109,11 +109,7 @@ pub fn fmt_ts(dt: OffsetDateTime) -> String {
 
 /// Ejecuta un futuro de la capa de acciones desde el `main` síncrono.
 pub fn bloquear<F: std::future::Future>(f: F) -> F::Output {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime de tokio")
-        .block_on(f)
+    tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime de tokio").block_on(f)
 }
 
 /// Pregunta en la terminal y devuelve la línea escrita.
@@ -144,11 +140,7 @@ pub fn al_final(esperar: bool, r: Result<()>) -> Result<()> {
 /// reflejo ni con un simple Enter.
 pub fn respuesta_confirma(irreversible: bool, referencia: &str, respuesta: &str) -> bool {
     let r = respuesta.trim().to_lowercase();
-    if irreversible {
-        r == format!("confirmo {}", referencia.to_lowercase())
-    } else {
-        matches!(r.as_str(), "s" | "si" | "sí" | "y" | "yes")
-    }
+    if irreversible { r == format!("confirmo {}", referencia.to_lowercase()) } else { matches!(r.as_str(), "s" | "si" | "sí" | "y" | "yes") }
 }
 
 /// Con la acción de la propuesta `id` a la vista, pide su confirmación en
@@ -164,13 +156,7 @@ pub fn confirmar_y_aceptar(store: &mut Store, sis: &SistemaReal, id: i64, a: &Ac
 
 /// Muestra la simulación y exige confirmación en una terminal interactiva.
 /// Devuelve `Ok(true)` solo si el usuario confirmó.
-pub fn confirmar_en_terminal(
-    herramienta: &str,
-    riesgo: &str,
-    argumentos: &serde_json::Value,
-    simulacion: &str,
-    referencia: &str,
-) -> Result<bool> {
+pub fn confirmar_en_terminal(herramienta: &str, riesgo: &str, argumentos: &serde_json::Value, simulacion: &str, referencia: &str) -> Result<bool> {
     let irreversible = riesgo == "irreversible";
     println!("  Herramienta: {herramienta}   Riesgo: {}", riesgo.to_uppercase());
     println!("  Argumentos:  {argumentos}");

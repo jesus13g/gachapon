@@ -9,11 +9,11 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
 
-use ea_ajustes::{buscar_binario, ficha, Ajustes, Rol, IDS_AGENTES};
+use ea_ajustes::{Ajustes, IDS_AGENTES, Rol, buscar_binario, ficha};
 use ea_store::{EventOutcome, NewEvent};
 use serde::{Deserialize, Serialize};
 
-use crate::bus::{ahora_rfc3339, nuevo_id, Bus, Cola};
+use crate::bus::{Bus, Cola, ahora_rfc3339, nuevo_id};
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::escribir_json;
 use crate::tipos::{Equipo, EstadoEquipo, Orden};
@@ -90,7 +90,10 @@ pub fn validar_equipo(miembros: &[Miembro], a: &Ajustes) -> Resultado<()> {
             match a.modelos.get(perfil) {
                 None => return Err(ErrorBus::Argumentos(format!("{}: no existe el perfil de modelo {perfil:?}", f.nombre))),
                 Some(p) if p.remoto => {
-                    return Err(ErrorBus::Argumentos(format!("{} es ejecutor y su perfil {perfil:?} es remoto: el ejecutor solo usa modelos locales", f.nombre)));
+                    return Err(ErrorBus::Argumentos(format!(
+                        "{} es ejecutor y su perfil {perfil:?} es remoto: el ejecutor solo usa modelos locales",
+                        f.nombre
+                    )));
                 }
                 Some(_) => {}
             }
@@ -151,7 +154,10 @@ pub fn repartir_todos(a: &Ajustes, path: Option<&OsStr>) -> Resultado<(Vec<Miemb
         miembros.push(Miembro { agente: (*id).into(), rol });
     }
     if !miembros.iter().any(|m| m.agente == a.roles.planificador) {
-        return Err(ErrorBus::Argumentos(format!("el planificador de roles.planificador ({}) no está disponible: no se puede despertar a todos", a.roles.planificador)));
+        return Err(ErrorBus::Argumentos(format!(
+            "el planificador de roles.planificador ({}) no está disponible: no se puede despertar a todos",
+            a.roles.planificador
+        )));
     }
     let planificador = miembros.iter().find(|m| m.rol == RolEquipo::Planificador).cloned().expect("hay uno");
     let imposibles: Vec<String> = miembros

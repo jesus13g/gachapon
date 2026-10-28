@@ -7,8 +7,8 @@
 
 use std::collections::BTreeMap;
 
-use ea_biblioteca::uso::Uso;
 use ea_biblioteca::Elemento;
+use ea_biblioteca::uso::Uso;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -863,9 +863,7 @@ pub struct NuevoTrabajo {
 
 /// Distingue un campo ausente (`None`, por el `default`) de uno a `null`.
 fn presente<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<u32>>, D::Error> {
-    Option::<u32>::deserialize(d)
-        .map(Some)
-        .map_err(|e| serde::de::Error::custom(format!("'revisar_cada' debe ser un entero positivo o null ({e})")))
+    Option::<u32>::deserialize(d).map(Some).map_err(|e| serde::de::Error::custom(format!("'revisar_cada' debe ser un entero positivo o null ({e})")))
 }
 
 /// Cualquier valor presente, `null` incluido.

@@ -65,13 +65,7 @@ pub struct Herramienta {
 }
 
 pub const CATALOGO: &[Herramienta] = &[
-    Herramienta {
-        nombre: "ea_status",
-        riesgo: Riesgo::Lectura,
-        ejecucion: Ejecucion::Directa,
-        local: true,
-        resumen: "Resumen del estado del ecosistema",
-    },
+    Herramienta { nombre: "ea_status", riesgo: Riesgo::Lectura, ejecucion: Ejecucion::Directa, local: true, resumen: "Resumen del estado del ecosistema" },
     Herramienta {
         nombre: "ea_listar_trabajos",
         riesgo: Riesgo::Lectura,
@@ -102,13 +96,7 @@ pub const CATALOGO: &[Herramienta] = &[
         local: true,
         resumen: "Un equipo: miembros con presencia, colas y últimos trabajos con su informe",
     },
-    Herramienta {
-        nombre: "ea_listar_diario",
-        riesgo: Riesgo::Lectura,
-        ejecucion: Ejecucion::Directa,
-        local: true,
-        resumen: "Lista eventos del diario",
-    },
+    Herramienta { nombre: "ea_listar_diario", riesgo: Riesgo::Lectura, ejecucion: Ejecucion::Directa, local: true, resumen: "Lista eventos del diario" },
     Herramienta {
         nombre: "ea_encolar_rutina",
         riesgo: Riesgo::Reversible,
@@ -295,10 +283,7 @@ pub fn terminal_interactiva() -> Result<Canal, ErrorAccion> {
     if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
         Ok(Canal::Terminal)
     } else {
-        Err(ErrorAccion::Prohibida(
-            "la confirmación debe darse en una terminal interactiva (sin TTY no se confirma)"
-                .into(),
-        ))
+        Err(ErrorAccion::Prohibida("la confirmación debe darse en una terminal interactiva (sin TTY no se confirma)".into()))
     }
 }
 
@@ -306,10 +291,9 @@ pub fn terminal_interactiva() -> Result<Canal, ErrorAccion> {
 /// solo terminal.
 pub fn puede_confirmar(canal: Canal, riesgo: Riesgo) -> Result<(), ErrorAccion> {
     match (canal, riesgo) {
-        (Canal::Web, Riesgo::Irreversible) => Err(ErrorAccion::Prohibida(
-            "una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)"
-                .into(),
-        )),
+        (Canal::Web, Riesgo::Irreversible) => {
+            Err(ErrorAccion::Prohibida("una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)".into()))
+        }
         _ => Ok(()),
     }
 }
@@ -332,13 +316,5 @@ pub fn autorizar_mcp(actor: &str, h: &Herramienta) -> Result<(), String> {
         EJECUTOR => h.local && h.riesgo != Riesgo::Irreversible,
         _ => h.riesgo == Riesgo::Lectura,
     };
-    if permitido {
-        Ok(())
-    } else {
-        Err(format!(
-            "'{}' ({}) no está disponible para el actor '{actor}'",
-            h.nombre,
-            h.riesgo.as_str()
-        ))
-    }
+    if permitido { Ok(()) } else { Err(format!("'{}' ({}) no está disponible para el actor '{actor}'", h.nombre, h.riesgo.as_str())) }
 }

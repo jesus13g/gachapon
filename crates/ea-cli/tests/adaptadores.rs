@@ -45,10 +45,7 @@ fn cada_adaptador_apunta_a_un_flujo_que_existe() {
         // comillas rompen el YAML en algunos agentes).
         assert!(texto.starts_with("---\n"), "{ruta:?} sin frontmatter");
         let cabecera = texto[4..].split("\n---\n").next().unwrap();
-        let desc = cabecera
-            .lines()
-            .find_map(|l| l.strip_prefix("description: "))
-            .unwrap_or_else(|| panic!("{ruta:?} sin description"));
+        let desc = cabecera.lines().find_map(|l| l.strip_prefix("description: ")).unwrap_or_else(|| panic!("{ruta:?} sin description"));
         assert!(desc.starts_with('"') && desc.ends_with('"'), "{ruta:?}: description sin comillas");
     }
 }

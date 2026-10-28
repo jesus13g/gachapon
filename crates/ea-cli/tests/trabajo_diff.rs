@@ -68,8 +68,7 @@ fn el_diff_es_el_de_git_mas_los_ficheros_nuevos() {
     let store = ea_store::Store::open_at(&d.path().join("ea.db")).unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, "orquestador");
     let id = bus.crear_trabajo(orden(&wt)).unwrap();
-    bus.escribir_informe(&id, &Informe { commit_inicio: Some(inicio.clone()), ..Informe::nuevo(ResultadoInforme::Terminado) })
-        .unwrap();
+    bus.escribir_informe(&id, &Informe { commit_inicio: Some(inicio.clone()), ..Informe::nuevo(ResultadoInforme::Terminado) }).unwrap();
 
     let o = ea(d.path(), &["trabajo", "diff", &id]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
@@ -102,8 +101,7 @@ fn el_diff_no_ejecuta_lo_que_configure_el_repo() {
     let inicio = repo(&wt);
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
     let id = bus.crear_trabajo(orden(&wt)).unwrap();
-    bus.escribir_informe(&id, &Informe { commit_inicio: Some(inicio.clone()), ..Informe::nuevo(ResultadoInforme::Terminado) })
-        .unwrap();
+    bus.escribir_informe(&id, &Informe { commit_inicio: Some(inicio.clone()), ..Informe::nuevo(ResultadoInforme::Terminado) }).unwrap();
     let limpio = ea(d.path(), &["trabajo", "diff", &id]);
     assert!(limpio.status.success(), "{}", String::from_utf8_lossy(&limpio.stderr));
 

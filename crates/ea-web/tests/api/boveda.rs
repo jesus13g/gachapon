@@ -54,8 +54,7 @@ async fn aceptar_en_la_web_la_propuesta_de_promocion_de_un_agente_la_ejecuta() {
         let store = f.state.store.lock().await;
         let c = ea_acciones::SoloConsulta::usuario(f.state.config.rutinas_dir.clone(), f.state.boveda.clone(), f.state.config.estado_dir.clone());
         let args = json!({ "ruta": ruta });
-        ea_acciones::proponer(&store, &c, &Default::default(), "claude-code", None, "ea_promover_nota", &args)
-            .unwrap();
+        ea_acciones::proponer(&store, &c, &Default::default(), "claude-code", None, "ea_promover_nota", &args).unwrap();
     }
     assert!(!f.state.boveda.raiz().join("compartida").exists());
     let (_, ps) = get(&f, "/api/propuestas?estado=pendiente").await;
@@ -164,12 +163,7 @@ async fn renombrar_en_la_boveda_reescribe_los_enlaces() {
     let f = montar();
     let (_, x) = post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/x", "contenido": "soy x" })).await;
     post(&f, "/api/boveda/crear", json!({ "ruta": "compartida/otra", "contenido": "[[x]] y [x](x.md)" })).await;
-    let (s, r) = post(
-        &f,
-        "/api/boveda/renombrar",
-        json!({ "ruta": "compartida/x.md", "nuevo": "compartida/sub/y", "version": x["version"] }),
-    )
-    .await;
+    let (s, r) = post(&f, "/api/boveda/renombrar", json!({ "ruta": "compartida/x.md", "nuevo": "compartida/sub/y", "version": x["version"] })).await;
     assert_eq!(s, StatusCode::OK, "{r}");
     assert_eq!(r["nota"]["ruta"], "compartida/sub/y.md");
     assert_eq!(r["actualizadas"], json!(["compartida/otra.md"]));

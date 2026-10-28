@@ -4,8 +4,8 @@ use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
 use ea_bus::{
-    transicion, Bus, CandadoWorktree, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoFase, EstadoTrabajo, Evento, Fase,
-    Informe, Modo, Ocupante, Orden, ResultadoInforme, Rol, TipoAgente, Topes,
+    Bus, CandadoWorktree, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoFase, EstadoTrabajo, Evento, Fase, Informe, Modo, Ocupante, Orden,
+    ResultadoInforme, Rol, TipoAgente, Topes, transicion,
 };
 use ea_store::Store;
 
@@ -185,7 +185,11 @@ fn un_trabajo_de_antes_sin_ejecutado_por_se_sigue_leyendo() {
     let id = bus.crear_trabajo(orden(d.path())).unwrap();
     let dir = bus.raiz().join("trabajos").join(&id);
     // `estado.json` e `informe.json` tal y como los escribía la versión anterior.
-    std::fs::write(dir.join("estado.json"), r#"{"estado":"en_revision","fase_actual":null,"iteracion":1,"actualizado_en":"2026-10-01T10:00:00Z","detalle":null}"#).unwrap();
+    std::fs::write(
+        dir.join("estado.json"),
+        r#"{"estado":"en_revision","fase_actual":null,"iteracion":1,"actualizado_en":"2026-10-01T10:00:00Z","detalle":null}"#,
+    )
+    .unwrap();
     std::fs::write(
         dir.join("informe.json"),
         r#"{"resultado":"terminado","evidencia":"ok","fases":[{"numero":1,"titulo":"f","resultado":"hecha","diff_stat":""}]}"#,
@@ -227,14 +231,7 @@ fn reformular_anade_notas_y_vuelve_a_encolar() {
 fn obra_completa_en_revision(d: &Path) -> (Bus, String) {
     let store = Store::open_at(&d.join("ea.db")).unwrap();
     let bus = Bus::abrir_en(&d.join("estado")).unwrap().con_store(store, ORQ);
-    let fase = |n: u32| Fase {
-        numero: n,
-        titulo: format!("f{n}"),
-        instrucciones: "i".into(),
-        entregable: "e".into(),
-        criterio: "true".into(),
-        skills: vec![],
-    };
+    let fase = |n: u32| Fase { numero: n, titulo: format!("f{n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
     let id = bus.crear_trabajo(Orden { fases: vec![fase(1), fase(2), fase(3)], ..orden(d) }).unwrap();
     bus.tomar(Rol::Ejecutor).unwrap();
     bus.aplicar(&id, Evento::Tomar).unwrap();
@@ -307,9 +304,7 @@ fn reformular_con_fase_fuera_de_rango_o_en_mision_no_escribe_nada() {
     assert!(bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
 
     // Una misión no tiene fases.
-    let m = bus
-        .crear_trabajo(Orden { modo: Modo::Mision, fases: vec![], criterio_exito: Some("true".into()), ..orden(d.path()) })
-        .unwrap();
+    let m = bus.crear_trabajo(Orden { modo: Modo::Mision, fases: vec![], criterio_exito: Some("true".into()), ..orden(d.path()) }).unwrap();
     bus.tomar(Rol::Ejecutor).unwrap();
     bus.aplicar(&m, Evento::Tomar).unwrap();
     bus.aplicar(&m, Evento::Entregar(informe())).unwrap();
@@ -395,8 +390,7 @@ fn un_fallo_del_espejo_sqlite_no_hace_fallar_al_bus() {
     let c = rusqlite::Connection::open(&db).unwrap();
     for tabla in ["trabajos", "trabajo_fases"] {
         for op in ["INSERT", "UPDATE"] {
-            c.execute_batch(&format!("CREATE TRIGGER no_{op}_{tabla} BEFORE {op} ON {tabla} BEGIN SELECT RAISE(ABORT, 'solo lectura'); END;"))
-                .unwrap();
+            c.execute_batch(&format!("CREATE TRIGGER no_{op}_{tabla} BEFORE {op} ON {tabla} BEGIN SELECT RAISE(ABORT, 'solo lectura'); END;")).unwrap();
         }
     }
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);

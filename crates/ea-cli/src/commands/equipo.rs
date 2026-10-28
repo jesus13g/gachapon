@@ -15,10 +15,10 @@
 use std::process::Command;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use comfy_table::Table;
 use ea_ajustes::ficha;
-use ea_bus::{Bus, EstadoEquipo, Latido, Miembro, NuevoEquipo, Presencia, RolEquipo, VistaEquipo, INTERVALO_LATIDO_S};
+use ea_bus::{Bus, EstadoEquipo, INTERVALO_LATIDO_S, Latido, Miembro, NuevoEquipo, Presencia, RolEquipo, VistaEquipo};
 
 use super::limpio;
 
@@ -49,9 +49,7 @@ pub fn despertar(miembros: &[String], todos: bool, titulo: &str, objetivo: &str,
     // Lo primero: una persona delante de un teclado, no un agente con `ea`
     // como subproceso.
     ea_acciones::terminal_interactiva()?;
-    despertar_sin_tty(miembros, todos, titulo, objetivo, worktree, sin_terminal, &mut |argv| {
-        ea_acciones::terminal::lanzar_en_terminal(argv)
-    })
+    despertar_sin_tty(miembros, todos, titulo, objetivo, worktree, sin_terminal, &mut |argv| ea_acciones::terminal::lanzar_en_terminal(argv))
 }
 
 /// [`despertar`] sin la comprobación de TTY y con el lanzador de terminal
@@ -133,8 +131,7 @@ pub fn listar(json: bool) -> Result<()> {
     let mut t = Table::new();
     t.set_header(vec!["Equipo", "Estado", "Título", "Miembros (* despierto)", "Trabajos"]);
     for e in &v {
-        let miembros: Vec<String> =
-            e.miembros.iter().map(|m| format!("{}:{}{}", m.agente, m.rol.as_str(), if m.viva { "*" } else { "" })).collect();
+        let miembros: Vec<String> = e.miembros.iter().map(|m| format!("{}:{}{}", m.agente, m.rol.as_str(), if m.viva { "*" } else { "" })).collect();
         t.add_row(vec![e.id.clone(), e.estado.as_str().into(), limpio(&e.titulo), miembros.join(", "), e.trabajos.to_string()]);
     }
     println!("{t}");
@@ -154,14 +151,8 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
 
 /// La ficha de un equipo para la terminal.
 pub fn texto_equipo(v: &VistaEquipo) -> String {
-    let mut s = format!(
-        "equipo    {} ({})\ntitulo    {}\nobjetivo  {}\nworktree  {}\n\nmiembros\n",
-        v.id,
-        v.estado.as_str(),
-        v.titulo,
-        v.objetivo,
-        v.worktree_base
-    );
+    let mut s =
+        format!("equipo    {} ({})\ntitulo    {}\nobjetivo  {}\nworktree  {}\n\nmiembros\n", v.id, v.estado.as_str(), v.titulo, v.objetivo, v.worktree_base);
     for m in &v.miembros {
         let presencia = match (&m.presencia, m.viva) {
             (Some(_), true) => match &m.trabajo_actual {
