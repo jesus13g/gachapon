@@ -10,7 +10,6 @@ use ea_store::{EventOutcome, FilaFase, FilaRutina, FilaTrabajo, NewEvent, Store}
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::config::ConfigOrquestador;
 use crate::equipo::RolEquipo;
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::{escribir_atomico, escribir_json};
@@ -205,7 +204,7 @@ impl Bus {
         if pide_skills(&orden) {
             let mut cfg = match &self.skills {
                 Some(cfg) => cfg.clone(),
-                None => ConfigOrquestador::cargar().skills,
+                None => ConfigSkills::desde_ajustes(&ea_ajustes::cargar()),
             };
             if equipo.as_ref().is_some_and(|e| e.con_rol(&orden.creada_por, RolEquipo::Planificador)) {
                 cfg.pueden_elegir.push(orden.creada_por.clone());

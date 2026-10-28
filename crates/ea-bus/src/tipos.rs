@@ -51,6 +51,13 @@ impl Default for Topes {
     }
 }
 
+/// El techo de los ajustes (`agente.techo_topes`) como topes.
+impl From<&ea_ajustes::TechoTopes> for Topes {
+    fn from(t: &ea_ajustes::TechoTopes) -> Self {
+        Self { turnos: t.turnos, tiempo_s: t.tiempo_s, llamadas_herramienta: t.llamadas_herramienta, iteraciones: t.iteraciones }
+    }
+}
+
 impl Topes {
     /// Recorta cada tope al del techo (el de los ajustes). Al menos una
     /// iteración: una orden siempre llega a llamar al agente una vez.

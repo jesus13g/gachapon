@@ -31,8 +31,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use ea_ajustes::Ajustes;
-use ea_bus::{Bus, ConfigOrquestador, Equipo, EstadoEquipo, Latido, PerfilEjecutor, Presencia, RolEquipo, INTERVALO_LATIDO_S};
+use ea_bus::{Bus, Equipo, EstadoEquipo, Latido, Presencia, RolEquipo, INTERVALO_LATIDO_S};
 
+use crate::config::{ConfigOrquestador, PerfilEjecutor};
 use crate::ejecutor::{ejecutar_intento, fabricar, Ejecutor, Intento};
 
 /// Un agente ejecutor que debe tener trabajador, y el equipo que lo despertó.

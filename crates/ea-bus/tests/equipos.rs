@@ -393,9 +393,9 @@ fn los_planificadores_del_equipo_tienen_la_llave_de_las_skills_y_los_revisores_n
     let d = tempfile::tempdir().unwrap();
     let sk = tempfile::tempdir().unwrap();
     std::fs::write(sk.path().join("rust.md"), "---\ndescripcion: Rust\n---\nUsa cargo test.\n").unwrap();
-    let cfg = ConfigSkills { dir: sk.path().to_string_lossy().into(), ..Default::default() };
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_skills(cfg);
     let a = ajustes(d.path());
+    let cfg = ConfigSkills { dir: sk.path().to_string_lossy().into(), ..ConfigSkills::desde_ajustes(&a) };
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_skills(cfg);
     // codex planifica (admite ambos roles) y antigravity revisa
     let eq = bus
         .crear_equipo(

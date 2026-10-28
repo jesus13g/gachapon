@@ -1,9 +1,11 @@
 //! Orquestador del ecosistema de asistente: el ejecutor (`ejecutor`) toma
 //! trabajos de la cola del rol ejecutor (`modelo-local`) y los lanza con el
 //! agente que ocupe ese rol (`agentes`: Qwen Code, Codex u OpenCode). Desde la
-//! spec 019 hay un trabajador por ejecutor despierto (`trabajadores`).
+//! spec 019 hay un trabajador por ejecutor despierto (`trabajadores`). Su
+//! configuración, la parte de los ajustes que usa, está en `config`.
 
 pub mod agentes;
+pub mod config;
 pub mod ejecutor;
 pub mod sandbox;
 pub mod trabajadores;

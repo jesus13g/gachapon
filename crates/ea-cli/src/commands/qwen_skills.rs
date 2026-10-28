@@ -2,10 +2,10 @@
 //! selección. La validación al crear un trabajo la hace `Bus::crear_trabajo`.
 
 use anyhow::{anyhow, Result};
-use ea_bus::ConfigOrquestador;
+use ea_bus::ConfigSkills;
 
 pub fn listar(json: bool) -> Result<()> {
-    let cfg = ConfigOrquestador::cargar().skills;
+    let cfg = ConfigSkills::desde_ajustes(&ea_ajustes::cargar());
     let catalogo = cfg.catalogo()?;
     if json {
         let v: Vec<_> = catalogo
@@ -42,14 +42,14 @@ pub fn listar(json: bool) -> Result<()> {
 }
 
 pub fn ver(nombre: &str) -> Result<()> {
-    let cfg = ConfigOrquestador::cargar().skills;
+    let cfg = ConfigSkills::desde_ajustes(&ea_ajustes::cargar());
     let s = cfg.catalogo()?.into_iter().find(|s| s.nombre == nombre).ok_or_else(|| anyhow!("no existe la skill {nombre:?}"))?;
     println!("{}", s.cuerpo);
     Ok(())
 }
 
 pub fn probar(por: &str, skills: &[String]) -> Result<()> {
-    let s = ConfigOrquestador::cargar().skills.resolver(por, skills)?;
+    let s = ConfigSkills::desde_ajustes(&ea_ajustes::cargar()).resolver(por, skills)?;
     let total: usize = s.iter().map(|s| s.cuerpo.chars().count()).sum();
     println!("ok: {} skills, {total} caracteres", s.len());
     Ok(())

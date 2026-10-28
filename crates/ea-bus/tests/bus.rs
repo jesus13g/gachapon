@@ -18,7 +18,7 @@ macro_rules! tmp {
 }
 
 use ea_bus::{
-    transicion, Bus, CandadoWorktree, ConfigOrquestador, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoTrabajo, Evento, Fase,
+    transicion, Bus, CandadoWorktree, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoTrabajo, Evento, Fase,
     Informe, Modo, Ocupante, Orden, ResultadoInforme, Rol, TipoAgente, Topes,
 };
 use ea_store::Store;
@@ -178,38 +178,6 @@ fn la_escritura_es_atomica_y_no_quedan_temporales() {
     let mut malos = vec![];
     recorre(d.path(), &mut malos);
     assert!(malos.is_empty(), "{malos:?}");
-}
-
-#[test]
-fn la_configuracion_del_ejecutor_sale_de_los_roles() {
-    let d = tempfile::tempdir().unwrap();
-    let f = ea_ajustes::Fuentes::aislada(d.path());
-    let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
-    assert_eq!(c, ConfigOrquestador::desde_ajustes(&ea_ajustes::Ajustes::por_defecto(&f)));
-    assert_eq!(ConfigOrquestador::default().ejecutor.id, "qwen-code");
-    assert_eq!((c.ejecutor.id.as_str(), c.ejecutor.tipo, c.ejecutor.bin.as_str()), ("qwen-code", TipoAgente::QwenCode, "qwen"));
-    assert_eq!((c.ejecutor.modelo.nombre.as_str(), c.ejecutor.modelo.base_url.as_str()), ("qwen3-coder-30b", "http://127.0.0.1:8080/v1"));
-    assert_eq!(c.techo_topes.turnos, 100);
-    assert_eq!(c.skills.planificador, "claude-code");
-    assert!(c.avisos_escritorio);
-
-    // Otro ejecutor y otro planificador: el perfil sigue al agente.
-    std::fs::create_dir_all(&f.dir_config).unwrap();
-    std::fs::write(
-        f.dir_config.join("ajustes.toml"),
-        "[roles]\nplanificador = \"opencode\"\nejecutor = \"codex\"\n[modelos.otro]\nnombre = \"otro-7b\"\nbase_url = \"http://127.0.0.1:8081/v1\"\n[agentes.codex]\nmodelo = \"otro\"\n",
-    )
-    .unwrap();
-    let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
-    assert_eq!((c.ejecutor.id.as_str(), c.ejecutor.tipo, c.ejecutor.bin.as_str()), ("codex", TipoAgente::Codex, "codex"));
-    assert_eq!(c.ejecutor.ejecutado_por(), EjecutadoPor { agente: "codex".into(), modelo: "otro-7b".into() });
-    assert_eq!(c.skills.planificador, "opencode");
-
-    // El `orquestador.toml` heredado sigue valiendo (lo lee `ea-ajustes`).
-    std::fs::remove_file(f.dir_config.join("ajustes.toml")).unwrap();
-    std::fs::write(f.dir_config.join("orquestador.toml"), "modelo = \"otro\"\n[topes]\nturnos = 5\n").unwrap();
-    let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
-    assert_eq!((c.ejecutor.modelo.nombre.as_str(), c.techo_topes.turnos, c.techo_topes.tiempo_s), ("otro", 5, 3600));
 }
 
 #[test]
@@ -609,7 +577,8 @@ fn skills_de_prueba() -> (tempfile::TempDir, ConfigSkills) {
     let d = tempfile::tempdir().unwrap();
     std::fs::write(d.path().join("rust.md"), "---\ndescripcion: Rust\n---\nUsa cargo test.\n").unwrap();
     std::fs::write(d.path().join("tests.md"), "---\ndescripcion: tests\n---\nPrueba primero.\n").unwrap();
-    let cfg = ConfigSkills { dir: d.path().to_string_lossy().into(), ..Default::default() };
+    let a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(d.path()));
+    let cfg = ConfigSkills { dir: d.path().to_string_lossy().into(), ..ConfigSkills::desde_ajustes(&a) };
     (d, cfg)
 }
 

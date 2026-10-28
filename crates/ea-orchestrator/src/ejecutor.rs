@@ -51,10 +51,11 @@ use std::time::{Duration, Instant};
 use ea_plataforma::proceso::Corrida;
 use ea_bus::git::{self, instantanea};
 use ea_bus::{
-    Bus, Rol, CandadoWorktree, ConfigOrquestador, Entrega, FaseInforme, Informe, Modo, Ocupante,
+    Bus, Rol, CandadoWorktree, Entrega, FaseInforme, Informe, Modo, Ocupante,
     Orden, ResultadoInforme,
 };
 
+use crate::config::ConfigOrquestador;
 use crate::sandbox::Sandbox;
 
 /// Lo que se espera al semáforo de un worktree antes de devolver el trabajo

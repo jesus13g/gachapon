@@ -388,9 +388,9 @@ volver a arrancar los servicios.
   propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
   del worktree, rutinas versionadas, equipos y presencia de los agentes, las
-  marcas del hook de subagentes y la configuración del ejecutor.
+  marcas del hook de subagentes y la validación de las skills de cada orden.
 - `crates/ea-orchestrator`: binario `ea-orchestrator`, el ejecutor del agente
-  local y el heartbeat.
+  local con su configuración (la parte de los ajustes que usa) y el heartbeat.
 - `crates/ea-acciones`: catálogo único de herramientas con riesgo, simulación,
   revalidación y el flujo propuesta → aceptación → ejecución; también cambiar
   los ajustes con sus efectos y su evento en el diario (`ajustes`, para

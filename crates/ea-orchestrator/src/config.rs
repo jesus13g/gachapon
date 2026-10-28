@@ -5,40 +5,7 @@
 //! valores por defecto de `ea-ajustes`.
 
 use ea_ajustes::{Ajustes, Fuentes, PerfilModelo, Rol};
-use serde::Serialize;
-
-use crate::skills::ConfigSkills;
-use crate::tipos::{EjecutadoPor, Topes};
-
-/// El adaptador de cada agente que puede ejecutar (spec 017): cada CLI tiene
-/// sus argumentos y su formato de salida.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TipoAgente {
-    QwenCode,
-    Codex,
-    OpenCode,
-}
-
-impl TipoAgente {
-    /// El tipo de un agente del catálogo que admite el rol de ejecutor.
-    pub fn desde(id: &str) -> Option<Self> {
-        match id {
-            "qwen-code" => Some(Self::QwenCode),
-            "codex" => Some(Self::Codex),
-            "opencode" => Some(Self::OpenCode),
-            _ => None,
-        }
-    }
-
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::QwenCode => "qwen-code",
-            Self::Codex => "codex",
-            Self::OpenCode => "opencode",
-        }
-    }
-}
+use ea_bus::{ConfigSkills, EjecutadoPor, TipoAgente, Topes};
 
 /// El agente que ocupa el rol de ejecutor, con su binario y su modelo.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,11 +37,6 @@ pub struct ConfigOrquestador {
     pub skills: ConfigSkills,
 }
 
-fn techo(a: &Ajustes) -> Topes {
-    let t = a.agente.techo_topes;
-    Topes { turnos: t.turnos, tiempo_s: t.tiempo_s, llamadas_herramienta: t.llamadas_herramienta, iteraciones: t.iteraciones }
-}
-
 fn ejecutor(a: &Ajustes) -> PerfilEjecutor {
     let (id, config) = a.agente_de(Rol::Ejecutor);
     // `validar_roles` garantiza que el ejecutor es de uno de estos tipos y
@@ -89,20 +51,12 @@ fn ejecutor(a: &Ajustes) -> PerfilEjecutor {
 
 impl ConfigOrquestador {
     pub fn desde_ajustes(a: &Ajustes) -> Self {
-        let s = &a.agente.skills;
         Self {
             ejecutor: ejecutor(a),
-            techo_topes: techo(a),
+            techo_topes: Topes::from(&a.agente.techo_topes),
             avisos_escritorio: a.agente.avisos_escritorio,
             sandbox: a.agente.sandbox,
-            skills: ConfigSkills {
-                dir: s.dir.clone(),
-                habilitadas: s.habilitadas.clone(),
-                max_por_trabajo: s.max_por_trabajo,
-                max_caracteres: s.max_caracteres,
-                pueden_elegir: s.pueden_elegir.clone(),
-                planificador: a.roles.planificador.clone(),
-            },
+            skills: ConfigSkills::desde_ajustes(a),
         }
     }
 
@@ -117,15 +71,47 @@ impl ConfigOrquestador {
         let bin = a.agentes.get(id)?.bin.clone();
         Some(Self { ejecutor: PerfilEjecutor { id: id.to_string(), tipo, bin, modelo: modelo.clone() }, ..Self::desde_ajustes(a) })
     }
-
-    /// Los ajustes efectivos de ahora (se relee en cada ciclo del ejecutor).
-    pub fn cargar() -> Self {
-        Self::desde_ajustes(&ea_ajustes::cargar())
-    }
 }
 
 impl Default for ConfigOrquestador {
     fn default() -> Self {
         Self::desde_ajustes(&Ajustes::por_defecto(&Fuentes::sistema()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn la_configuracion_del_ejecutor_sale_de_los_roles() {
+        let d = tempfile::tempdir().unwrap();
+        let f = Fuentes::aislada(d.path());
+        let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
+        assert_eq!(c, ConfigOrquestador::desde_ajustes(&Ajustes::por_defecto(&f)));
+        assert_eq!(ConfigOrquestador::default().ejecutor.id, "qwen-code");
+        assert_eq!((c.ejecutor.id.as_str(), c.ejecutor.tipo, c.ejecutor.bin.as_str()), ("qwen-code", TipoAgente::QwenCode, "qwen"));
+        assert_eq!((c.ejecutor.modelo.nombre.as_str(), c.ejecutor.modelo.base_url.as_str()), ("qwen3-coder-30b", "http://127.0.0.1:8080/v1"));
+        assert_eq!(c.techo_topes.turnos, 100);
+        assert_eq!(c.skills.planificador, "claude-code");
+        assert!(c.avisos_escritorio);
+
+        // Otro ejecutor y otro planificador: el perfil sigue al agente.
+        std::fs::create_dir_all(&f.dir_config).unwrap();
+        std::fs::write(
+            f.dir_config.join("ajustes.toml"),
+            "[roles]\nplanificador = \"opencode\"\nejecutor = \"codex\"\n[modelos.otro]\nnombre = \"otro-7b\"\nbase_url = \"http://127.0.0.1:8081/v1\"\n[agentes.codex]\nmodelo = \"otro\"\n",
+        )
+        .unwrap();
+        let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
+        assert_eq!((c.ejecutor.id.as_str(), c.ejecutor.tipo, c.ejecutor.bin.as_str()), ("codex", TipoAgente::Codex, "codex"));
+        assert_eq!(c.ejecutor.ejecutado_por(), EjecutadoPor { agente: "codex".into(), modelo: "otro-7b".into() });
+        assert_eq!(c.skills.planificador, "opencode");
+
+        // El `orquestador.toml` heredado sigue valiendo (lo lee `ea-ajustes`).
+        std::fs::remove_file(f.dir_config.join("ajustes.toml")).unwrap();
+        std::fs::write(f.dir_config.join("orquestador.toml"), "modelo = \"otro\"\n[topes]\nturnos = 5\n").unwrap();
+        let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
+        assert_eq!((c.ejecutor.modelo.nombre.as_str(), c.techo_topes.turnos, c.techo_topes.tiempo_s), ("otro", 5, 3600));
     }
 }

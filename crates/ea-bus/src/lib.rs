@@ -5,7 +5,6 @@
 
 mod bus;
 mod candado;
-pub mod config;
 mod equipo;
 mod error;
 mod fs_atomico;
@@ -29,7 +28,6 @@ pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_e
 pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, ResumenTrabajo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
 pub use presencia::{Latido, Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};
 pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
-pub use config::{ConfigOrquestador, PerfilEjecutor, TipoAgente};
 pub use skills::{bloque_prompt, ConfigSkills, Skill};
 pub use rutina::{slug_valido, validar_entradas, CabeceraRutina, Paso, Rutina, MAX_DEFINICION, MAX_ENTRADAS, MAX_VALOR_ENTRADA};
 pub use error::{ErrorBus, Resultado};
@@ -42,8 +40,8 @@ pub use papelera::{
 /// escribe fuera del bus (el timer de una rutina, en `ea-acciones`).
 pub use fs_atomico::escribir_atomico;
 pub use instantanea::{
-    arbol_de_fase, diff_stat_de_fase, leer_salida_agente, rango_diff_fase, resumen_salida_agente, tipo_ejecutor, EXCLUIR_DIFF,
-    SALIDA_AGENTE, SALIDA_ANTIGUA, SKILLS_AGENTE,
+    arbol_de_fase, diff_stat_de_fase, leer_salida_agente, rango_diff_fase, resumen_salida_agente, tipo_ejecutor, TipoAgente,
+    EXCLUIR_DIFF, SALIDA_AGENTE, SALIDA_ANTIGUA, SKILLS_AGENTE,
 };
 pub use tipos::{
     EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Modo, Orden,

@@ -225,7 +225,7 @@ struct TopesPedidos {
 
 /// El techo de los topes de los ajustes efectivos (se relee en cada petición).
 fn techo(s: &AppState) -> Topes {
-    ea_bus::ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes).techo_topes
+    Topes::from(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes.agente.techo_topes)
 }
 
 /// Lo que el formulario necesita: techo, topes por defecto y los worktrees
@@ -244,7 +244,7 @@ pub fn formulario(s: &AppState) -> Resultado<FormularioTrabajo> {
 /// La configuración de skills de los ajustes efectivos; el catálogo por
 /// defecto cuelga del directorio de configuración de los ajustes del panel.
 fn config_skills(s: &AppState) -> ea_bus::ConfigSkills {
-    let mut c = ea_bus::ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes).skills;
+    let mut c = ea_bus::ConfigSkills::desde_ajustes(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes);
     if c.dir.is_empty() {
         c.dir = s.config.ajustes.dir_config.join("qwen-skills").to_string_lossy().into_owned();
     }

@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{
-    Bus, ConfigOrquestador, EstadoTrabajo, Miembro, Modo, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
+    Bus, EstadoTrabajo, Miembro, Modo, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
 };
+use ea_orchestrator::config::ConfigOrquestador;
 use ea_orchestrator::ejecutor::{correr_criterio, ejecutar_uno, Ejecutor, SalidaAgente};
 use ea_orchestrator::sandbox::Sandbox;
 use ea_orchestrator::trabajadores::{arrancar, ejecutores_despiertos, Contexto, Trabajadores};

@@ -17,8 +17,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use ea_ajustes::buscar_binario;
-use ea_bus::{ConfigOrquestador, PerfilEjecutor, TipoAgente, Topes};
+use ea_bus::{TipoAgente, Topes};
 
+use crate::config::{ConfigOrquestador, PerfilEjecutor};
 use crate::ejecutor::{avisar_sin_arbol, SalidaAgente};
 use crate::sandbox::Sandbox;
 
