@@ -31,13 +31,14 @@ fn store() -> (Store, tempfile::TempDir) {
             concat!("[rutina]\nslug = \"{slug}\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"),
             slug = slug
         )
+        .replace(tmp!(), ea_pruebas::repo_comun())
     };
     let (revision, vieja, nocturna) = (def("revision-diaria"), def("vieja"), def("nocturna"));
     ea_pruebas::store(&[
         ("revision-diaria", 1, &revision),
         ("vieja", 1, &vieja),
         ("nocturna", 1, &nocturna),
-        ("con-entradas", 1, concat!("[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n")),
+        ("con-entradas", 1, &concat!("[rutina]\nslug = \"con-entradas\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"escribe {salida}\"\n").replace(tmp!(), ea_pruebas::repo_comun())),
     ])
 }
 

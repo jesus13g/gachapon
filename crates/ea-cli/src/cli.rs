@@ -472,7 +472,7 @@ pub enum DiarioAccion {
 
 #[derive(Subcommand)]
 pub enum RutinaAccion {
-    /// Valida un fichero de rutina y lo registra (la versión debe subir)
+    /// Valida un fichero de rutina y lo registra (la versión debe subir; una versión nueva se confirma en una terminal)
     Registrar { fichero: std::path::PathBuf },
     /// Lista las rutinas registradas en uso, con su última ejecución
     Listar {

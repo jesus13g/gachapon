@@ -30,7 +30,12 @@ pub fn texto(descripcion: &str) -> ea_store::NuevaPropuesta {
     ea_store::NuevaPropuesta { proponente: "claude-code".into(), descripcion: descripcion.into(), accion: None }
 }
 
-pub const RUTINA_BUS: &str = concat!("[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"revisa y escribe {salida}\"\n");
+/// Con el repo común de las pruebas de worktree (U-05: el de una rutina es la
+/// raíz de un repo con commits).
+pub static RUTINA_BUS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    concat!("[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"revisa y escribe {salida}\"\n")
+        .replace(tmp!(), ea_pruebas::repo_comun())
+});
 
 /// El bus de la prueba: el mismo directorio temporal que lee el panel
 /// (`WebConfig::estado_dir`), nunca el real.
@@ -45,7 +50,7 @@ pub fn montar() -> Fixture {
     std::fs::write(rutinas_dir.join("revision-diaria.toml"), RUTINA_EJEMPLO).unwrap();
 
     let store = Store::open_at(&dir.path().join("test.db")).expect("abrir store");
-    ea_pruebas::guardar_rutinas(&store, &[("revision-diaria", 1, RUTINA_BUS)]);
+    ea_pruebas::guardar_rutinas(&store, &[("revision-diaria", 1, &RUTINA_BUS)]);
     // El `ea` que abriría la terminal: un fichero, como el de junto a ea-web.
     escribe(dir.path().join("bin/ea"), "");
     let terminal = Arc::new(ea_acciones::TerminalSimulada::default());

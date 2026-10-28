@@ -127,9 +127,31 @@ pub fn ultimas_ejecuciones(rutinas: &[(ea_store::FilaRutina, ea_bus::Ubicacion)]
     ea_bus::Bus::abrir().ok().and_then(|b| b.ultimas_ejecuciones(&slugs).ok()).unwrap_or_default()
 }
 
+/// `ea rutina registrar <fichero>` (U-05). Primero lo que comprueba todo
+/// registro ([`ea_bus::comprobar_registro`]). Una rutina nueva (su v1) se
+/// registra directamente; una versión nueva de una que ya existe es
+/// `ea_registrar_rutina`, con su simulación (los cambios frente a la
+/// registrada) y la confirmación en una terminal interactiva, como `ea
+/// acciones ejecutar`. Sin terminal no se registra: el planificador la
+/// propone por MCP y la aceptas tú. Por cualquier camino queda
+/// `rutina_registrada` en el diario.
 pub fn registrar(ctx: &mut Contexto, fichero: &std::path::Path) -> Result<()> {
     let texto = std::fs::read_to_string(fichero)
         .map_err(|e| anyhow::anyhow!("no se pudo leer {}: {e}", fichero.display()))?;
+    let (r, anterior) = ea_bus::comprobar_registro(ctx.store()?, &texto)?;
+    if let Some(ult) = anterior {
+        if let Err(e) = ea_acciones::terminal_interactiva() {
+            anyhow::bail!(
+                "{e}: la rutina '{}' ya está registrada (versión {}) y la {} es una versión nueva. Regístrala desde una \
+                 terminal (ea rutina registrar, que la simula y te pide confirmar) o que el planificador la proponga \
+                 con ea_registrar_rutina por MCP y la aceptes con ea propuestas decidir",
+                r.rutina.slug,
+                ult.version,
+                r.rutina.version
+            );
+        }
+        return super::acciones::ejecutar(ctx, "ea_registrar_rutina", &serde_json::json!({ "toml": texto }).to_string());
+    }
     let dir = rutinas_dir(ctx);
     let r = ctx.bus()?.registrar_rutina(&texto, &dir)?;
     println!("rutina '{}' registrada en la versión {}", r.rutina.slug, r.rutina.version);

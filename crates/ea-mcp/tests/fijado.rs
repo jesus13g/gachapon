@@ -136,7 +136,11 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     let raices = Raices::nuevo(home, None, dir.path().join("estado-biblioteca"), None);
     let db = dir.path().join("t.db");
     let store = Store::open_at(&db).unwrap();
-    ea_pruebas::guardar_rutinas(&store, &[("nocturna", 1, RUTINA)]);
+    // La versión registrada, con un repo de verdad (U-05: el worktree de una
+    // rutina es la raíz de un repo); el fichero de `rutinas_dir` sigue igual.
+    let repo = ea_pruebas::repo_git(&dir.path().join("repo"), true);
+    let rutina = RUTINA.replace("\"/tmp\"", &format!("\"{}\"", repo.display()));
+    ea_pruebas::guardar_rutinas(&store, &[("nocturna", 1, &rutina)]);
     let store = Arc::new(Mutex::new(store));
     let boveda = dir.path().join("boveda");
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
@@ -198,8 +202,8 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     reg.llamar(p, pc, "ea_encolar_rutina", json!({ "slug": "nocturna" })).await;
     reg.llamar(p, pc, "ea_encolar_rutina", json!({ "slug": "nocturna", "entradas": { "x": "1" }, "simular": true })).await;
     reg.llamar(x, xc, "ea_encolar_rutina", json!({ "slug": "nocturna" })).await;
-    reg.llamar(p, pc, "ea_registrar_rutina", json!({ "toml": RUTINA.replace("version = 1", "version = 2"), "simular": true })).await;
-    reg.llamar(p, pc, "ea_registrar_rutina", json!({ "toml": RUTINA.replace("version = 1", "version = 2") })).await;
+    reg.llamar(p, pc, "ea_registrar_rutina", json!({ "toml": rutina.replace("version = 1", "version = 2"), "simular": true })).await;
+    reg.llamar(p, pc, "ea_registrar_rutina", json!({ "toml": rutina.replace("version = 1", "version = 2") })).await;
     reg.llamar(p, pc, "ea_registrar_rutina", json!({ "toml": "[rutina]\n" })).await;
     reg.llamar(p, pc, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await;
     reg.llamar(p, pc, "ea_eliminar_rutina", json!({ "slug": "retirada" })).await;

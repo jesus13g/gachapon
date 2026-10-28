@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use ea_store::{FilaRutina, Store};
+use ea_store::{EventOutcome, FilaRutina, NewEvent, Store};
 
 use super::{ahora_rfc3339, Bus};
 use crate::error::{ErrorBus, Resultado};
@@ -19,13 +19,15 @@ impl Bus {
     }
 
     /// Valida y registra una rutina con [`comprobar_registro`] (tamaño,
-    /// formato y versión mayor que la última registrada). Guarda la versión
-    /// en SQLite y copia el fichero a `dir` (`<slug>.toml`). Si la rutina
-    /// estaba retirada, registrarla la vuelve a poner en uso: la copia vieja
-    /// de la papelera se borra (sus versiones siguen en SQLite).
+    /// formato, versión mayor que la última registrada y worktree). Guarda la
+    /// versión en SQLite y copia el fichero a `dir` (`<slug>.toml`). Si la
+    /// rutina estaba retirada, registrarla la vuelve a poner en uso: la copia
+    /// vieja de la papelera se borra (sus versiones siguen en SQLite). Deja
+    /// `rutina_registrada` en el diario, sea cual sea el camino (la CLI, la
+    /// web o `ea_registrar_rutina`; U-05).
     pub fn registrar_rutina(&self, texto: &str, dir: &Path) -> Resultado<Rutina> {
         let s = self.store_rutinas()?;
-        let (r, _) = comprobar_registro(s, texto)?;
+        let (r, anterior) = comprobar_registro(s, texto)?;
         s.guardar_rutina(&FilaRutina {
             slug: r.rutina.slug.clone(),
             version: i64::from(r.rutina.version),
@@ -36,7 +38,22 @@ impl Bus {
         fs::create_dir_all(dir)?;
         escribir_atomico(&dir.join(format!("{}.toml", r.rutina.slug)), texto.as_bytes())?;
         crate::papelera::quitar_de_papelera(dir, &r.rutina.slug)?;
+        let detalle = serde_json::json!({
+            "rutina": r.rutina.slug, "version": r.rutina.version, "anterior": anterior.map(|f| f.version), "bytes": texto.len(),
+        });
+        self.diario_rutina(s, "rutina_registrada", true, detalle);
         Ok(r)
+    }
+
+    /// El diario es secundario: un fallo de SQLite no deshace el registro.
+    fn diario_rutina(&self, s: &Store, accion: &str, ok: bool, detalle: serde_json::Value) {
+        let _ = s.append_event(NewEvent {
+            actor: self.actor.clone(),
+            action: accion.into(),
+            outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
+            detail: Some(detalle.to_string()),
+            ..Default::default()
+        });
     }
 
     /// Última versión registrada de una rutina.
@@ -63,10 +80,21 @@ impl Bus {
     /// Comprueba, por este orden: que está registrada, que las entradas valen
     /// ([`Rutina::a_orden`]) y, bajo un `flock` de `<raiz>/.rutinas.lock` que
     /// dura hasta crear el trabajo, que no hay otra en curso
-    /// ([`ErrorBus::EnCurso`]). Es la base de [`Bus::lanzar_rutina_en`] (CLI,
+    /// ([`ErrorBus::EnCurso`]). Antes, que su worktree vale
+    /// ([`crate::validar_worktree`]: pudo registrarse antes de exigirlo o el
+    /// repo pudo cambiar); si no, no se lanza y queda `rutina_no_lanzada` en
+    /// el diario con el motivo. Es la base de [`Bus::lanzar_rutina_en`] (CLI,
     /// timer y web) y de la aplicación de `ea_encolar_rutina`.
     pub fn lanzar_rutina(&self, slug: &str, entradas: &[(String, String)]) -> Resultado<String> {
-        let orden = self.rutina(slug)?.a_orden(entradas)?;
+        let mut orden = self.rutina(slug)?.a_orden(entradas)?;
+        match crate::validar_worktree(&orden.worktree, crate::git::TOPE_LECTURA) {
+            Ok(wt) => orden.worktree = wt,
+            Err(e) => {
+                let detalle = serde_json::json!({ "rutina": slug, "worktree": orden.worktree, "motivo": e.to_string() });
+                self.diario_rutina(self.store_rutinas()?, "rutina_no_lanzada", false, detalle);
+                return Err(e);
+            }
+        }
         let _bloqueo = self.bloquear_rutinas()?;
         if !self.trabajos_activos_de_rutina(slug)?.is_empty() {
             return Err(ErrorBus::EnCurso(slug.into()));
@@ -140,9 +168,11 @@ impl Bus {
 
 /// Lo que comprueba registrar una rutina, sin escribir nada: la política
 /// única de la CLI, la web y `ea_registrar_rutina`. La definición no pasa de
-/// [`MAX_DEFINICION`] bytes, es una rutina válida ([`Rutina::parsear`]) y su
-/// versión es mayor que la última registrada. Devuelve la rutina y la última
-/// versión registrada, si la hay.
+/// [`MAX_DEFINICION`] bytes, es una rutina válida ([`Rutina::parsear`]), su
+/// versión es mayor que la última registrada y su worktree vale como el de
+/// una orden ([`crate::validar_worktree`]: la raíz de un repo con commits,
+/// nunca `$HOME` ni un ancestro suyo). Devuelve la rutina y la última versión
+/// registrada, si la hay.
 pub fn comprobar_registro(store: &Store, texto: &str) -> Resultado<(Rutina, Option<FilaRutina>)> {
     if texto.len() > MAX_DEFINICION {
         return Err(ErrorBus::Argumentos(format!(
@@ -158,5 +188,6 @@ pub fn comprobar_registro(store: &Store, texto: &str) -> Resultado<(Rutina, Opti
             r.rutina.slug, ult.version, r.rutina.version
         )));
     }
+    crate::validar_worktree(&r.rutina.worktree, crate::git::TOPE_LECTURA)?;
     Ok((r, anterior))
 }

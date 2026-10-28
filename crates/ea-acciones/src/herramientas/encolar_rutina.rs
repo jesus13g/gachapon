@@ -49,6 +49,8 @@ pub(super) fn simular<C: Consulta>(p: &ParaSimular<'_, C>, a: Args) -> Result<De
         .rutina(&a.slug)
         .and_then(|r| r.a_orden(&a.pares()))
         .map_err(|e| ErrorAccion::Argumentos(e.to_string()))?;
+    // Un worktree que ya no vale (U-05) no se lanzaría: se dice ahora.
+    ea_bus::validar_worktree(&orden.worktree, ea_bus::git::TOPE_LECTURA).map_err(|e| ErrorAccion::NoAplica(e.to_string()))?;
     let activos = bus.trabajos_activos_de_rutina(&a.slug).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
     if let Some(t) = activos.first() {
         return Err(ErrorAccion::NoAplica(format!("la rutina '{}' ya tiene una ejecución en curso (trabajo {t})", a.slug)));

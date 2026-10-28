@@ -1055,7 +1055,7 @@ ea worktree listar [--json]                  # trabajo, rama ea/<id>, estado del
 ea worktree limpiar <trabajo>                # simula y pide confirmar (TTY): git worktree remove sin --force; la rama se conserva
 
 # Rutinas versionadas
-ea rutina registrar <fichero.toml>           # valida y registra (la versión debe subir)
+ea rutina registrar <fichero.toml>           # valida y registra la v1; una versión nueva, simula y confirma (TTY)
 ea rutina listar [--retiradas]|ver <slug>     # --retiradas: las de la papelera (o sin fichero)
 ea rutina ver <slug> --version N             # esa versión registrada y la lista de todas
 ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si está retirada ni si ya tiene una ejecución en curso)
@@ -1157,9 +1157,20 @@ una propuesta que acepta tras ver el criterio resultante en la simulación).
 
 Registrar sigue también una sola política (`ea_bus::comprobar_registro`), la
 misma para `ea rutina registrar`, el editor de la web y `ea_registrar_rutina`:
-el TOML no pasa de 64 KiB, es una rutina válida y su versión es mayor que la
-registrada. Registrar guarda la versión en SQLite y copia el TOML a
-`rutinas_dir/<slug>.toml`; no lanza nada. Tras un paquete de corrección,
+el TOML no pasa de 64 KiB, es una rutina válida, su versión es mayor que la
+registrada y su `worktree` vale como el de una orden (la raíz de un repo git
+con commits, nunca `$HOME` ni un ancestro suyo). Registrar guarda la versión en
+SQLite, copia el TOML a `rutinas_dir/<slug>.toml` y deja `rutina_registrada`
+en el diario (`{rutina, version, anterior, bytes}`, a nombre de quien registra),
+por cualquier camino; no lanza nada. `ea rutina registrar` registra
+directamente la v1 de una rutina nueva; una versión nueva de una que ya existe
+es `ea_registrar_rutina`: con terminal interactiva simula (con el diff frente a
+la registrada) y pide confirmar, como `ea acciones ejecutar`; sin ella no
+registra nada y explica que se proponga por MCP o se registre desde una
+terminal. Al lanzarla (CLI, timer, web o `ea_encolar_rutina`) se vuelve a
+comprobar el worktree: si ya no vale (una rutina registrada antes de exigirlo,
+o un repo que cambió), no se crea el trabajo y queda `rutina_no_lanzada` en el
+diario con el motivo; el trabajo lleva el worktree en su forma canónica. Tras un paquete de corrección,
 Claude Code no pide la terminal: propone la vN+1 con `ea_registrar_rutina` (la
 simulación enseña el diff y el criterio resultante) y el usuario la acepta en
 la franja «Te espera» de Actividad, o la pega en «✎ nueva versión» de la ficha de la rutina.
@@ -1704,7 +1715,7 @@ general, con 1-20 fases numeradas por su orden y `revisar_cada` obligatorio
 —`null` es «solo al final», si no entre 1 y el número de fases—; 400 si falta
 o una fase no tiene criterio), `GET /api/trabajos/nuevo` (modos, techo, topes por
 defecto y worktrees sugeridos para el formulario), `GET /api/skills` (catálogo de skills del ejecutor sin cuerpos, topes, `pueden_elegir` y `usuario_tiene_llave`) y `POST /api/skills/probar` (`{"skills": [...], "por"?: "claude-code"}`; la misma validación que `ea qwen-skills probar`: llave de `por` —por defecto `usuario`—, existencia, habilitada y topes; 200 `{por, skills, caracteres}` o 400 con el motivo; no escribe nada) y
-worktrees propios (spec 019, anexo A): `GET /api/worktrees` (solo lectura: `[{trabajo, ruta, rama, estado_trabajo, titulo, limpio, ocupado}]`) y `worktree` (esos mismos campos, o `null`) en `GET /api/trabajos/<id>`; quitarlos es `ea_limpiar_worktree` por `POST /api/acciones/{simular,ejecutar}` (409 si el trabajo no ha terminado, el semáforo está cogido o el worktree tiene cambios); equipos de agentes (spec 019): `GET /api/equipos` (una fila por equipo con sus miembros y si están vivos), `GET /api/equipos/<id>` (miembros con presencia y cola, y los últimos trabajos con su informe; 404 si no existe), `POST /api/equipos` (despertar; exige la clave; `{"titulo", "objetivo", "worktree", "miembros": [{"agente", "rol"}] | "todos": true, "terminal"?: bool}` → 201 `{equipo, omitidos, sesiones}`; mismas reglas que `ea equipo despertar` —roles que admite cada agente, sin repetir, ejecutor con modelo local, tope `orquestador.paralelo`, un agente en un solo equipo despierto, binarios presentes—, 400 con el motivo y nada escrito; `creado_por` es `usuario`; con `terminal` abre una terminal por cada planificador y revisor con `ea equipo sesion <id> <agente>` y lo apunta como `equipo_sesion_abierta`) y `POST /api/equipos/<id>/dormir` (exige la clave; lo pendiente de sus ejecutores vuelve a la cola de `modelo-local`); `POST /api/trabajos` admite además `equipo`, `asignado_a`, `revisor` y `worktree_propio` (400 con las validaciones del bus); `POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale o la versión no sube; deja `rutina_registrada` en el diario); la memoria de Claude Code va por
+worktrees propios (spec 019, anexo A): `GET /api/worktrees` (solo lectura: `[{trabajo, ruta, rama, estado_trabajo, titulo, limpio, ocupado}]`) y `worktree` (esos mismos campos, o `null`) en `GET /api/trabajos/<id>`; quitarlos es `ea_limpiar_worktree` por `POST /api/acciones/{simular,ejecutar}` (409 si el trabajo no ha terminado, el semáforo está cogido o el worktree tiene cambios); equipos de agentes (spec 019): `GET /api/equipos` (una fila por equipo con sus miembros y si están vivos), `GET /api/equipos/<id>` (miembros con presencia y cola, y los últimos trabajos con su informe; 404 si no existe), `POST /api/equipos` (despertar; exige la clave; `{"titulo", "objetivo", "worktree", "miembros": [{"agente", "rol"}] | "todos": true, "terminal"?: bool}` → 201 `{equipo, omitidos, sesiones}`; mismas reglas que `ea equipo despertar` —roles que admite cada agente, sin repetir, ejecutor con modelo local, tope `orquestador.paralelo`, un agente en un solo equipo despierto, binarios presentes—, 400 con el motivo y nada escrito; `creado_por` es `usuario`; con `terminal` abre una terminal por cada planificador y revisor con `ea equipo sesion <id> <agente>` y lo apunta como `equipo_sesion_abierta`) y `POST /api/equipos/<id>/dormir` (exige la clave; lo pendiente de sus ejecutores vuelve a la cola de `modelo-local`); `POST /api/trabajos` admite además `equipo`, `asignado_a`, `revisor` y `worktree_propio` (400 con las validaciones del bus); `POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale, la versión no sube o el worktree no es la raíz de un repo con commits; deja `rutina_registrada` en el diario, que escribe el bus como por los demás caminos); la memoria de Claude Code va por
 `GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
 `POST /api/memoria/<proyecto>/<fichero>` (`{"contenido": "...", "version": "..."}`;
 409 si la versión ya no es la del disco), `POST …/<fichero>/eliminar` (`{"version": "..."}`),

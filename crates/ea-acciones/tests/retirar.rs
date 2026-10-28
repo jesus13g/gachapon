@@ -20,7 +20,7 @@ macro_rules! tmp {
 }
 
 fn store() -> (Store, tempfile::TempDir) {
-    ea_pruebas::store(&[("nocturna", 1, RUTINA)])
+    ea_pruebas::store(&[("nocturna", 1, &RUTINA.replace(tmp!(), ea_pruebas::repo_comun()))])
 }
 
 const RUTINA: &str = concat!("[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n");

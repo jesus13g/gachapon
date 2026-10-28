@@ -103,6 +103,11 @@ fn mundo() -> Mundo {
 
     // Una propuesta irreversible como la dejaría un agente por MCP.
     let store = Store::open_at(&r.join("ea.db")).unwrap();
+    // «activa», registrada en la v1 (con un worktree que vale), y su v2 en un
+    // fichero: registrar una versión nueva se confirma en terminal (U-05).
+    let v1 = rutina("activa").replace("\"/tmp\"", &format!("\"{}\"", ea_pruebas::repo_comun()));
+    ea_pruebas::guardar_rutinas(&store, &[("activa", 1, &v1)]);
+    escribe(r.join("activa-v2.toml"), &v1.replace("version = 1", "version = 2"));
     let consulta = ea_acciones::SoloConsulta::usuario(r.join("config/rutinas"), ea_boveda::Boveda::en(r.join("boveda")), r.join("estado"));
     let args = json!({ "slug": "vieja" });
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -228,6 +233,7 @@ fn sin_terminal_ninguna_orden_confirma_nada() {
     let (irr, rev) = (m.irreversible.to_string(), m.reversible.to_string());
     let eq = m.equipo.as_str();
     let confirma_irr = format!("confirmo {irr}\n");
+    let v2 = m.ruta("activa-v2.toml").to_string_lossy().into_owned();
     let tabla: Vec<(Vec<&str>, &str, Sin)> = vec![
         (vec!["propuestas", "decidir", &irr, "--aceptar"], &confirma_irr, Sin::Rechaza),
         (vec!["propuestas", "decidir", &rev, "--aceptar"], "s\n", Sin::Rechaza),
@@ -238,6 +244,7 @@ fn sin_terminal_ninguna_orden_confirma_nada() {
         (vec!["worktree", "limpiar", "20260101T000000-00000001"], "s\n", Sin::Rechaza),
         (vec!["rutina", "retirar", "activa"], "s\n", Sin::Rechaza),
         (vec!["rutina", "restaurar", "vieja"], "s\n", Sin::Rechaza),
+        (vec!["rutina", "registrar", &v2], "s\n", Sin::Rechaza),
         (vec!["servicios", "instalar"], "s\n", Sin::Rechaza),
         (vec!["servicios", "desinstalar"], "s\n", Sin::Rechaza),
         (vec!["instalar", "--sin-dependencias", "--sin-escritorio"], "s\n", Sin::Rechaza),
@@ -302,7 +309,8 @@ fn sin_terminal_se_rechaza_y_se_acepta_lo_que_no_ejecuta_nada() {
 #[test]
 fn trabajo_confirmar_hoy_no_exige_terminal_u04() {
     let m = mundo();
-    escribe(m.ruta("informe.toml"), "[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n");
+    let toml = format!("[rutina]\nslug = \"informe\"\nversion = 1\nworktree = \"{}\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n", ea_pruebas::repo_comun());
+    escribe(m.ruta("informe.toml"), &toml);
     let o = m.ea(&["rutina", "registrar", m.ruta("informe.toml").to_str().unwrap()], "");
     assert!(o.status.success(), "{}", salida(&o));
     std::fs::copy(m.ruta("informe.toml"), m.ruta("config/rutinas/informe.toml")).unwrap();

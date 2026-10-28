@@ -62,6 +62,23 @@ pub fn repo_git(dir: &Path, commit: bool) -> PathBuf {
     dir.to_path_buf()
 }
 
+/// Un repo git con un commit, el mismo para todo el proceso de pruebas: el
+/// worktree de las rutinas de prueba, que tiene que ser la raíz de un repo y
+/// no `$HOME` (U-05). En forma canónica y con `/`, para poder escribirlo en
+/// un TOML. Vive en un directorio temporal que no se borra (es un `static`),
+/// y ninguna prueba escribe en él.
+pub fn repo_comun() -> &'static str {
+    static REPO: std::sync::OnceLock<(tempfile::TempDir, String)> = std::sync::OnceLock::new();
+    &REPO
+        .get_or_init(|| {
+            let d = tempfile::tempdir().unwrap();
+            let repo = std::fs::canonicalize(repo_git(&d.path().join("repo"), true)).unwrap();
+            let texto = repo.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/");
+            (d, texto)
+        })
+        .1
+}
+
 /// Una base nueva (`t.db` en un directorio temporal, que se devuelve con
 /// ella) con `rutinas` ya registradas (ver [`guardar_rutinas`]).
 pub fn store(rutinas: &[(&str, u32, &str)]) -> (Store, tempfile::TempDir) {

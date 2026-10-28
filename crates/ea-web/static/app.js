@@ -262,6 +262,7 @@ const EVENTOS = {
   accion_terminal_abierta: 'Terminal abierta para una acción',
   ajustes_cambiados: 'Ajustes cambiados',
   rutina_registrada: 'Rutina registrada',
+  rutina_no_lanzada: 'Rutina no lanzada',
   biblioteca_cambio: 'Herramienta activada o desactivada',
   equipo_despertado: 'Equipo despertado',
   equipo_dormido: 'Equipo dormido',

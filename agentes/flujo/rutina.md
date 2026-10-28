@@ -25,7 +25,7 @@ ejecutor lo corre cada vez. El planificador no ejecuta la rutina.
 slug = "resumen-diario"
 version = 1                      # solo puede subir
 descripcion = "Qué hace, en una línea"
-worktree = "/ruta/absoluta"      # repo git donde trabaja
+worktree = "/ruta/absoluta"      # raíz de un repo git con commits (nunca $HOME)
 criterio_exito = "test -s {salida}"
 salida_esperada = "Qué debe quedar hecho / dónde"
 
@@ -45,10 +45,16 @@ llamadas_herramienta = 60
 iteraciones = 3
 ```
 
-3. `ea rutina registrar <slug>.toml` (valida; error si la versión no sube).
-   Comprueba con `ea rutina ver <slug>`. Si el usuario prefiere decidirlo él,
-   proponla con `ea_registrar_rutina` (ver «Corrección») o que la pegue en
-   «＋ rutina» del panel (↻ Rutinas).
+3. Una rutina **nueva** (su `version = 1`): `ea rutina registrar <slug>.toml`
+   (valida; error si la versión no sube o si el worktree no es la raíz de un
+   repo git con commits). Comprueba con `ea rutina ver <slug>`. Una **versión
+   nueva** de una rutina que ya existe no la registra `ea rutina registrar` sin
+   terminal (se niega y lo explica): **proponla** con `ea_registrar_rutina`
+   (ver «Corrección»); el usuario la acepta, o la registra él desde su terminal
+   con `ea rutina registrar` (la simula y le pide confirmar). Si el usuario
+   prefiere decidirlo él también para una nueva, proponla igual o que la pegue
+   en «＋ rutina» del panel (↻ Rutinas). Cada registro, por cualquier camino,
+   queda en el diario como `rutina_registrada`.
 4. Si se pide lanzarla ya: `ea rutina lanzar <slug> [--entrada clave=valor]`
    imprime el id del trabajo; su revisión sigue `agentes/flujo/revisar.md`.
 

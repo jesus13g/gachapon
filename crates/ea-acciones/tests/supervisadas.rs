@@ -25,9 +25,12 @@ use serde_json::{json, Value};
 
 const CODEX: &str = "[mcp_servers.docs]\ncommand = \"docs-mcp\"\n\n[mcp_servers.apagado]\ncommand = \"a\"\nenabled = false\n";
 
+/// Con el repo común de las pruebas de worktree (U-05: la raíz de un repo),
+/// que en lo fijado sale como `<REPO>`.
 fn rutina(slug: &str, version: u32, criterio: &str, extra: &str) -> String {
+    let repo = ea_pruebas::repo_comun();
     format!(
-        "[rutina]\nslug = \"{slug}\"\nversion = {version}\nworktree = \"/tmp\"\ncriterio_exito = \"{criterio}\"\n{extra}[[pasos]]\ntexto = \"x\"\n"
+        "[rutina]\nslug = \"{slug}\"\nversion = {version}\nworktree = \"{repo}\"\ncriterio_exito = \"{criterio}\"\n{extra}[[pasos]]\ntexto = \"x\"\n"
     )
 }
 
@@ -65,8 +68,11 @@ impl Mundo {
         let sis = SistemaSimulado::default()
             .con_estado(&d.path().join("estado"))
             .con_servicio("ea-mcp", "active")
-            .con_rutina("nocturna", &nocturna(1))
-            .con_rutina("con-entradas", &con_entradas())
+            // Los ficheros de `rutinas_dir` (su huella y su tamaño salen en
+            // lo fijado) con un worktree fijo; las versiones registradas, con
+            // el repo común.
+            .con_rutina("nocturna", &nocturna(1).replace(ea_pruebas::repo_comun(), "/tmp"))
+            .con_rutina("con-entradas", &con_entradas().replace(ea_pruebas::repo_comun(), "/tmp"))
             .con_timer("nocturna", "daily")
             .con_retirada("vieja", "[rutina]\ndescripcion = \"x\"\n")
             .con_worktree(InfoWorktree {
@@ -110,7 +116,7 @@ impl Mundo {
         for (valor, marca) in volatiles.iter().filter(|(v, _)| !v.is_empty()) {
             t = t.replace(valor.as_str(), marca);
         }
-        t.replace(&self.d.path().display().to_string(), "<TMP>")
+        t.replace(ea_pruebas::repo_comun(), "<REPO>").replace(&self.d.path().display().to_string(), "<TMP>")
     }
 }
 
@@ -162,7 +168,7 @@ async fn fijar(nombre: &str, args: Value, errores: &[Value]) -> String {
         )
         .unwrap();
     }
-    writeln!(s, "argumentos: {args}").unwrap();
+    writeln!(s, "argumentos: {}", args.to_string().replace(ea_pruebas::repo_comun(), "<REPO>")).unwrap();
     writeln!(s, "validar: {}", res(validar_argumentos(nombre, &args))).unwrap();
 
     // Proponer (el planificador) y aceptar (el usuario).

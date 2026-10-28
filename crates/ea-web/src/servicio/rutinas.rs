@@ -3,8 +3,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ea_bus::{Bus, Rutina};
-use ea_store::{EventOutcome, NewEvent};
-use serde_json::json;
 
 use super::{bus_con_store, slug_valido, ErrorWeb, Resultado};
 use crate::vistas::{RutinaAnterior, RutinaDetalle, RutinaFila, RutinaLanzada, RutinaPrevia, RutinaRegistrada, RutinaValidada};
@@ -192,28 +190,13 @@ pub async fn validar(s: &AppState, toml: &str) -> Resultado<RutinaValidada> {
 }
 
 /// Registra `toml` igual que `ea rutina registrar`: `Bus::registrar_rutina`
-/// guarda la versión en SQLite (con `creada_por` el usuario) y copia el TOML
-/// a `rutinas_dir/<slug>.toml`. Si no vale, el error del bus y nada escrito.
-/// Deja `rutina_registrada` en el diario, como las demás decisiones de la web.
+/// guarda la versión en SQLite (con `creada_por` el usuario), copia el TOML
+/// a `rutinas_dir/<slug>.toml` y deja `rutina_registrada` en el diario. Si no
+/// vale, el error del bus y nada escrito.
 pub async fn registrar(s: &AppState, toml: &str) -> Resultado<RutinaRegistrada> {
     let anterior = ea_bus::comprobar_registro(&*s.store.lock().await, toml)?.1.map(|f| f.version);
     let r = bus_con_store(s).await?.registrar_rutina(toml, &s.config.rutinas_dir)?;
-    let c = &r.rutina;
-    let evento = NewEvent {
-        actor: super::ACTOR.into(),
-        action: "rutina_registrada".into(),
-        outcome: Some(EventOutcome::Ok),
-        detail: Some(
-            json!({ "canal": "web", "rutina": c.slug, "version": c.version, "anterior": anterior, "bytes": toml.len() })
-                .to_string(),
-        ),
-        ..Default::default()
-    };
-    // El registro ya está hecho: si el diario falla, se avisa en el log.
-    if let Err(e) = s.store.lock().await.append_event(evento) {
-        tracing::warn!(error = %e, "no se pudo apuntar el registro de la rutina en el diario");
-    }
-    Ok(RutinaRegistrada { rutina: c.slug.clone(), version: c.version, anterior })
+    Ok(RutinaRegistrada { rutina: r.rutina.slug, version: r.rutina.version, anterior })
 }
 
 /// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`):

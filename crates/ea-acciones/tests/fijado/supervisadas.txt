@@ -55,12 +55,12 @@ catálogo: riesgo=reversible ejecución=Supervisada local=false
 mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
 confirma: web=sí terminal=sí
 campo: toml obligatorio=true entero=false largo=true opciones=[] ayuda="definición TOML de la rutina ([rutina], [entradas], [[pasos]])"
-argumentos: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"}
+argumentos: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"}
 validar: ok
 error: {"toml":"[rutina]\nslug = \"x\"\n"}
   validar: error Argumentos("rutina inválida: TOML parse error at line 1, column 1\n  |\n1 | [rutina]\n  | ^^^^^^^^\nmissing field `version`\n")
   simular: error Argumentos("rutina inválida: TOML parse error at line 1, column 1\n  |\n1 | [rutina]\n  | ^^^^^^^^\nmissing field `version`\n")
-error: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"}
+error: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"<REPO>\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"}
   validar: ok
   simular: error NoAplica("la rutina nocturna ya está en la versión 1; la nueva debe ser mayor (es la 1)")
 error: {"toml":1}
@@ -68,16 +68,16 @@ error: {"toml":1}
   simular: error Argumentos("invalid type: integer `1`, expected a string")
 hechos: Hechos { servicio: None, timer: None, calendario: None }
 simulación: herramienta=ea_registrar_rutina riesgo=reversible
-  argumentos: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"}
+  argumentos: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"}
   precondición: {"slug":"nocturna","version_registrada":1}
-  texto: Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: /tmp. Criterio que ejecutará el sistema (entradas por defecto): `test -d .`.
+  texto: Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <REPO>. Criterio que ejecutará el sistema (entradas por defecto): `test -d .`.
 
 Cambios frente a la versión 1:
  [rutina]
  slug = "nocturna"
 -version = 1
 +version = 2
- worktree = "/tmp"
+ worktree = "<REPO>"
 -criterio_exito = "true"
 +criterio_exito = "test -d ."
  [[pasos]]
@@ -91,16 +91,16 @@ resultado: trabajo=None evento=Some(3)
   texto: Rutina 'nocturna' registrada en la versión 2.
 mutaciones: ["registrar_rutina:nocturna@2"]
 diario:
-  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_registrar_rutina","riesgo":"reversible","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"simulacion":"Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: /tmp. Criterio que ejecutará el sistema (entradas por defecto): `test -d .`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"/tmp\"\n-criterio_exito = \"true\"\n+criterio_exito = \"test -d .\"\n [[pasos]]\n texto = \"x\"\n"}
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_registrar_rutina","riesgo":"reversible","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"simulacion":"Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <REPO>. Criterio que ejecutará el sistema (entradas por defecto): `test -d .`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"<REPO>\"\n-criterio_exito = \"true\"\n+criterio_exito = \"test -d .\"\n [[pasos]]\n texto = \"x\"\n"}
   usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_registrar_rutina","riesgo":"reversible"}
-  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_registrar_rutina","riesgo":"reversible","canal":"web","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"propuesta":1,"proponente":"claude-code","resultado":{"rutina":"nocturna","version":2},"texto":"Rutina 'nocturna' registrada en la versión 2."}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_registrar_rutina","riesgo":"reversible","canal":"web","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"propuesta":1,"proponente":"claude-code","resultado":{"rutina":"nocturna","version":2},"texto":"Rutina 'nocturna' registrada en la versión 2."}
 
 directa (web): trabajo=None evento=Some(1)
   datos: {"rutina":"nocturna","version":2}
   texto: Rutina 'nocturna' registrada en la versión 2.
 mutaciones: ["registrar_rutina:nocturna@2"]
 diario:
-  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_registrar_rutina","riesgo":"reversible","canal":"web","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"propuesta":null,"proponente":null,"resultado":{"rutina":"nocturna","version":2},"texto":"Rutina 'nocturna' registrada en la versión 2."}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_registrar_rutina","riesgo":"reversible","canal":"web","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"propuesta":null,"proponente":null,"resultado":{"rutina":"nocturna","version":2},"texto":"Rutina 'nocturna' registrada en la versión 2."}
 
 
 == ea_reiniciar_servicio

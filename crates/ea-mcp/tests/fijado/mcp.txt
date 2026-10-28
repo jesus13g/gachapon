@@ -1228,19 +1228,19 @@
 << error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: la rutina no declara la entrada \"x\"", data: None })
 >> qwen-code-mcp-client ea_encolar_rutina {"slug":"nocturna"}
 << error McpError(ErrorData { code: ErrorCode(-32603), message: "'ea_encolar_rutina' (reversible) no está disponible para el actor 'modelo-local'", data: None })
->> claude-code ea_registrar_rutina {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":true}
+>> claude-code ea_registrar_rutina {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":true}
 << {"content":[{"type":"text","text":null}],"isError":false}
 {
   "simulado": true,
   "herramienta": "ea_registrar_rutina",
   "riesgo": "reversible",
   "argumentos": {
-    "toml": "[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+    "toml": "[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
   },
-  "simulacion": "Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: /tmp. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"/tmp\"\n criterio_exito = \"true\"\n",
+  "simulacion": "Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <TMP>/repo. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"<TMP>/repo\"\n criterio_exito = \"true\"\n",
   "aviso": "No se ha hecho nada. Para pedirlo, repite sin simular: se encolará una propuesta que el usuario decide."
 }
->> claude-code ea_registrar_rutina {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"}
+>> claude-code ea_registrar_rutina {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"}
 << {"content":[{"type":"text","text":null}],"isError":false}
 {
   "ejecutado": false,
@@ -1252,9 +1252,9 @@
   "herramienta": "ea_registrar_rutina",
   "riesgo": "reversible",
   "argumentos": {
-    "toml": "[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+    "toml": "[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
   },
-  "simulacion": "Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: /tmp. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"/tmp\"\n criterio_exito = \"true\"\n",
+  "simulacion": "Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <TMP>/repo. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"<TMP>/repo\"\n criterio_exito = \"true\"\n",
   "aviso": "NO se ha ejecutado nada: queda pendiente de la confirmación del usuario. El usuario la acepta con `ea propuestas decidir 3 --aceptar` o en el panel web (◇)."
 }
 >> claude-code ea_registrar_rutina {"toml":"[rutina]\n"}
@@ -1450,9 +1450,9 @@ failed to deserialize parameters: invalid type: integer `3`, expected a string
 33 claude-code mcp_encolar_rutina trabajo=None Some(Ok) {"args":{"slug":"nocturna","simular":false},"agente":"claude-code"}
 34 claude-code mcp_encolar_rutina_simulada trabajo=None Some(Error) {"args":{"slug":"nocturna","entradas":{"x":"1"},"simular":true},"error":"argumentos inválidos: la rutina no declara la entrada \"x\"","agente":"claude-code"}
 35 modelo-local mcp_encolar_rutina trabajo=None Some(Error) {"args":{"slug":"nocturna","simular":false},"error":"'ea_encolar_rutina' (reversible) no está disponible para el actor 'modelo-local'","agente":"qwen-code"}
-36 claude-code mcp_registrar_rutina_simulada trabajo=None Some(Ok) {"args":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":true},"agente":"claude-code"}
-37 claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":3,"herramienta":"ea_registrar_rutina","riesgo":"reversible","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"},"simulacion":"Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: /tmp. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"/tmp\"\n criterio_exito = \"true\"\n"}
-38 claude-code mcp_registrar_rutina trabajo=None Some(Ok) {"args":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"/tmp\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":false},"agente":"claude-code"}
+36 claude-code mcp_registrar_rutina_simulada trabajo=None Some(Ok) {"args":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":true},"agente":"claude-code"}
+37 claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":3,"herramienta":"ea_registrar_rutina","riesgo":"reversible","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"},"simulacion":"Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <TMP>/repo. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"<TMP>/repo\"\n criterio_exito = \"true\"\n"}
+38 claude-code mcp_registrar_rutina trabajo=None Some(Ok) {"args":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":false},"agente":"claude-code"}
 39 claude-code mcp_registrar_rutina trabajo=None Some(Error) {"args":{"toml":"[rutina]\n","simular":false},"error":"argumentos inválidos: rutina inválida: TOML parse error at line 1, column 1\n  |\n1 | [rutina]\n  | ^^^^^^^^\nmissing field `slug`\n","agente":"claude-code"}
 40 claude-code mcp_eliminar_rutina_simulada trabajo=None Some(Ok) {"args":{"slug":"retirada","simular":true},"agente":"claude-code"}
 41 claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":4,"herramienta":"ea_eliminar_rutina","riesgo":"irreversible","argumentos":{"slug":"retirada"},"simulacion":"Borraría PARA SIEMPRE la copia retirada de la rutina 'retirada' (rutinas_dir/.papelera/retirada.toml, 9 bytes, 1 líneas): ese fichero no se puede recuperar. Sus versiones registradas siguen en SQLite como historial; registrar una versión nueva la vuelve a poner en uso."}

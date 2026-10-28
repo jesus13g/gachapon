@@ -3,20 +3,6 @@ use std::path::Path;
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
-/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
-#[cfg(windows)]
-macro_rules! tmp {
-    () => {
-        "C:/Windows"
-    };
-}
-#[cfg(not(windows))]
-macro_rules! tmp {
-    () => {
-        "/tmp"
-    };
-}
-
 use ea_bus::{
     transicion, Bus, CandadoWorktree, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoFase, EstadoTrabajo, Evento, Fase,
     Informe, Modo, Ocupante, Orden, ResultadoInforme, Rol, TipoAgente, Topes,
@@ -385,7 +371,7 @@ fn recuperar_deja_en_espera_y_con_paquete_una_rutina_interrumpida() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
-    bus.registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
+    bus.registrar_rutina(&rutina(), &d.path().join("rutinas")).unwrap();
     let id = bus.lanzar_rutina("prueba", &[]).unwrap();
     bus.tomar(Rol::Ejecutor).unwrap();
     bus.aplicar(&id, Evento::Tomar).unwrap();
@@ -626,19 +612,25 @@ fn crear_trabajo_rechaza_skills_que_exceden_los_topes() {
     sin_rastro(&bus);
 }
 
-const RUTINA: &str = concat!(r#"
+/// La rutina de estas pruebas; su worktree, el repo común (U-05: la raíz de
+/// un repo con commits).
+fn rutina() -> String {
+    RUTINA.replace("@REPO@", ea_pruebas::repo_comun())
+}
+
+const RUTINA: &str = r#"
 [rutina]
 slug = "prueba"
 version = 1
 descripcion = "d"
-worktree = ""#, tmp!(), r#""
+worktree = "@REPO@"
 criterio_exito = "test -f {fichero}"
 salida_esperada = "nada"
 [entradas]
 fichero = "a.txt"
 [[pasos]]
 texto = "crea {fichero}"
-"#);
+"#;
 
 #[test]
 fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
@@ -646,11 +638,11 @@ fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let dir = d.path().join("rutinas");
-    bus.registrar_rutina(RUTINA, &dir).unwrap();
+    bus.registrar_rutina(&rutina(), &dir).unwrap();
     assert!(dir.join("prueba.toml").exists());
-    assert!(bus.registrar_rutina(RUTINA, &dir).is_err()); // misma versión
-    assert!(bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 0"), &dir).is_err());
-    bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 2"), &dir).unwrap();
+    assert!(bus.registrar_rutina(&rutina(), &dir).is_err()); // misma versión
+    assert!(bus.registrar_rutina(&rutina().replace("version = 1", "version = 0"), &dir).is_err());
+    bus.registrar_rutina(&rutina().replace("version = 1", "version = 2"), &dir).unwrap();
     let id = bus.lanzar_rutina("prueba", &[("fichero".into(), "b.txt".into())]).unwrap();
     let o = bus.leer_orden(&id).unwrap();
     assert_eq!(o.modo, Modo::Rutina);
@@ -671,7 +663,7 @@ fn una_rutina_no_se_lanza_dos_veces_mientras_la_anterior_sigue_activa() {
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let dir = d.path().join("rutinas");
-    bus.registrar_rutina(RUTINA, &dir).unwrap();
+    bus.registrar_rutina(&rutina(), &dir).unwrap();
     let id = bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap();
     let e = bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap_err();
     assert!(matches!(&e, ErrorBus::EnCurso(s) if s == "prueba"), "{e}");
@@ -696,7 +688,7 @@ fn varios_lanzamientos_a_la_vez_de_una_rutina_crean_un_solo_trabajo() {
     let d = tempfile::tempdir().unwrap();
     let db = d.path().join("ea.db");
     let raiz = d.path().join("estado");
-    Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap(), ORQ).registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
+    Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap(), ORQ).registrar_rutina(&rutina(), &d.path().join("rutinas")).unwrap();
     let barrera = Arc::new(Barrier::new(8));
     let hilos: Vec<_> = (0..8)
         .map(|_| {
@@ -722,7 +714,7 @@ fn una_rutina_retirada_no_se_lanza_y_registrarla_la_restaura() {
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let dir = d.path().join("rutinas");
-    bus.registrar_rutina(RUTINA, &dir).unwrap();
+    bus.registrar_rutina(&rutina(), &dir).unwrap();
     assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Activa);
     assert!(ea_bus::restaurar_rutina(&dir, "prueba").is_err(), "no está retirada");
 
@@ -740,7 +732,7 @@ fn una_rutina_retirada_no_se_lanza_y_registrarla_la_restaura() {
 
     // Registrar una versión nueva de una retirada la vuelve a poner en uso.
     ea_bus::retirar_rutina(&dir, "prueba").unwrap();
-    bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 2"), &dir).unwrap();
+    bus.registrar_rutina(&rutina().replace("version = 1", "version = 2"), &dir).unwrap();
     assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Activa);
     assert!(!dir.join(".papelera/prueba.toml").exists());
 
@@ -753,7 +745,7 @@ fn una_rutina_retirada_no_se_lanza_y_registrarla_la_restaura() {
 
 #[test]
 fn las_entradas_tienen_limites_y_no_admiten_caracteres_de_control() {
-    let r = ea_bus::Rutina::parsear(RUTINA).unwrap();
+    let r = ea_bus::Rutina::parsear(&rutina()).unwrap();
     let e = |v: &str| vec![("fichero".to_string(), v.to_string())];
     assert!(r.a_orden(&e("b.txt")).is_ok());
     for malo in ["a\nrm -rf x", "a\rb", "a\tb", "a\u{0}b"] {
@@ -841,19 +833,93 @@ fn anotar_iteracion_no_resucita_un_cancelado() {
 fn comprobar_registro_no_escribe_y_aplica_la_misma_politica_que_registrar() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let (r, anterior) = ea_bus::comprobar_registro(&store, RUTINA).unwrap();
+    let (r, anterior) = ea_bus::comprobar_registro(&store, &rutina()).unwrap();
     assert_eq!((r.rutina.slug.as_str(), r.rutina.version), ("prueba", 1));
     assert!(anterior.is_none());
     assert!(store.ultima_rutina("prueba").unwrap().is_none(), "comprobar no registra");
 
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), ORQ);
-    bus.registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
-    let e = ea_bus::comprobar_registro(&store, RUTINA).unwrap_err().to_string();
+    bus.registrar_rutina(&rutina(), &d.path().join("rutinas")).unwrap();
+    let e = ea_bus::comprobar_registro(&store, &rutina()).unwrap_err().to_string();
     assert!(e.contains("la nueva debe ser mayor"), "{e}");
-    let (_, anterior) = ea_bus::comprobar_registro(&store, &RUTINA.replace("version = 1", "version = 2")).unwrap();
+    let (_, anterior) = ea_bus::comprobar_registro(&store, &rutina().replace("version = 1", "version = 2")).unwrap();
     assert_eq!(anterior.map(|f| f.version), Some(1));
     // Demasiado larga: ni se interpreta, y registrar la rechaza igual.
-    let largo = format!("{}\n#{}", RUTINA.replace("version = 1", "version = 3"), "x".repeat(ea_bus::MAX_DEFINICION));
+    let largo = format!("{}\n#{}", rutina().replace("version = 1", "version = 3"), "x".repeat(ea_bus::MAX_DEFINICION));
     assert!(ea_bus::comprobar_registro(&store, &largo).unwrap_err().to_string().contains("demasiado larga"));
     assert!(bus.registrar_rutina(&largo, &d.path().join("rutinas")).is_err());
+}
+
+/// U-05: registrar una rutina deja `rutina_registrada` en el diario (con la
+/// versión anterior), sea quien sea quien llame al bus, y firmado por él.
+#[test]
+fn registrar_una_rutina_deja_evento_en_el_diario() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), "claude-code");
+    bus.registrar_rutina(&rutina(), &d.path().join("rutinas")).unwrap();
+    bus.registrar_rutina(&rutina().replace("version = 1", "version = 2"), &d.path().join("rutinas")).unwrap();
+    let mut eventos = store.list_events(&Default::default()).unwrap();
+    eventos.reverse();
+    let detalles: Vec<serde_json::Value> = eventos
+        .iter()
+        .filter(|e| e.action == "rutina_registrada" && e.actor == "claude-code")
+        .map(|e| serde_json::from_str(e.detail.as_deref().unwrap()).unwrap())
+        .collect();
+    assert_eq!(detalles.len(), 2, "{eventos:?}");
+    assert_eq!((&detalles[0]["version"], &detalles[0]["anterior"]), (&serde_json::json!(1), &serde_json::Value::Null));
+    assert_eq!((&detalles[1]["version"], &detalles[1]["anterior"]), (&serde_json::json!(2), &serde_json::json!(1)));
+    assert_eq!(store.ultima_rutina("prueba").unwrap().unwrap().creada_por, "claude-code");
+}
+
+/// U-05: el worktree de una rutina tiene que ser la raíz de un repo con
+/// commits (como el de una orden) al registrarla; uno que no es un repo o un
+/// subdirectorio del repo se rechazan sin escribir nada.
+#[test]
+fn registrar_una_rutina_valida_su_worktree() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), ORQ);
+    let sin_repo = d.path().join("sin-repo");
+    std::fs::create_dir_all(&sin_repo).unwrap();
+    let sub = ea_pruebas::repo_git(&d.path().join("repo"), true).join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    for (wt, motivo) in [(sin_repo.as_path(), "no está dentro de un repositorio git"), (sub.as_path(), "no es la raíz de su repositorio")] {
+        let toml = RUTINA.replace("@REPO@", &wt.to_string_lossy().replace('\\', "/"));
+        let e = ea_bus::comprobar_registro(&store, &toml).unwrap_err().to_string();
+        assert!(e.contains(motivo), "{e}");
+        assert!(bus.registrar_rutina(&toml, &d.path().join("rutinas")).is_err());
+    }
+    assert!(store.ultima_rutina("prueba").unwrap().is_none());
+    assert!(!d.path().join("rutinas/prueba.toml").exists());
+    assert!(store.list_events(&Default::default()).unwrap().is_empty());
+}
+
+/// U-05: una rutina registrada antes de que se exigiera (aquí, guardada a
+/// mano en la base) con un worktree que no vale no se lanza, y el motivo
+/// queda en el diario como `rutina_no_lanzada`. El trabajo de una que sí
+/// vale lleva el worktree canónico.
+#[test]
+fn una_rutina_con_un_worktree_invalido_no_se_lanza_y_lo_dice_el_diario() {
+    let d = tempfile::tempdir().unwrap();
+    let sin_repo = d.path().join("sin-repo");
+    std::fs::create_dir_all(&sin_repo).unwrap();
+    let mala = RUTINA.replace("@REPO@", &sin_repo.to_string_lossy().replace('\\', "/"));
+    let (store, _db) = ea_pruebas::store(&[("prueba", 1, &mala)]);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), "usuario");
+    let e = bus.lanzar_rutina("prueba", &[]).unwrap_err().to_string();
+    assert!(e.contains("no está dentro de un repositorio git"), "{e}");
+    assert!(bus.listar_trabajos().unwrap().is_empty());
+    let eventos = store.list_events(&Default::default()).unwrap();
+    assert_eq!(eventos.len(), 1, "{eventos:?}");
+    assert_eq!((eventos[0].action.as_str(), eventos[0].actor.as_str()), ("rutina_no_lanzada", "usuario"));
+    let det: serde_json::Value = serde_json::from_str(eventos[0].detail.as_deref().unwrap()).unwrap();
+    assert_eq!(det["rutina"], "prueba");
+    assert!(det["motivo"].as_str().unwrap().contains("no está dentro de un repositorio git"), "{det}");
+
+    // Una versión con un worktree que vale (registrarla ya lo exige) sí.
+    bus.registrar_rutina(&rutina().replace("version = 1", "version = 2"), &d.path().join("rutinas")).unwrap();
+    let id = bus.lanzar_rutina("prueba", &[]).unwrap();
+    let canonico = ea_bus::validar_worktree(ea_pruebas::repo_comun(), ea_bus::git::TOPE_LECTURA).unwrap();
+    assert_eq!(bus.leer_orden(&id).unwrap().worktree, canonico);
 }
