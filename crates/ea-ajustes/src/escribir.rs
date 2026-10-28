@@ -57,7 +57,7 @@ pub fn interpretar(c: &Clave, texto: &str) -> Result<Value, ErrorAjustes> {
         },
         Tipo::Entero { .. } => Value::from(t.parse::<i64>().map_err(|_| invalido(format!("{t:?} no es un entero")))?),
         Tipo::Mapa => serde_json::from_str::<Value>(t).map_err(|e| invalido(format!("se espera JSON de texto a texto: {e}")))?,
-        Tipo::Lista { .. } => {
+        Tipo::Lista { .. } | Tipo::Rutas => {
             Value::from(t.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>())
         }
         Tipo::Texto { .. } | Tipo::Url | Tipo::Ruta | Tipo::Eleccion { .. } | Tipo::UrlPerfil | Tipo::Perfil | Tipo::Distro => {

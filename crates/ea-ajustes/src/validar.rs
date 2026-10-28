@@ -2,14 +2,15 @@
 //! local), los tipos del registro de claves y la validación cruzada de
 //! perfiles, agentes y roles (`validar_roles`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ea_plataforma::wsl::nombre_distro_valido;
 use serde_json::Value;
 
 use crate::agentes::{ficha, id_perfil_valido, Rol};
 use crate::claves::{Clave, Tipo};
-use crate::fuentes::{Ajustes, PerfilModelo};
+use crate::ejecucion::dir_ejecucion;
+use crate::fuentes::{Ajustes, Fuentes, PerfilModelo};
 
 /// Expande `~` y `~/…` al directorio personal. Es la ÚNICA función del
 /// ecosistema que lo hace (los TOML y las variables los escribe una persona).
@@ -155,6 +156,23 @@ pub fn validar_valor(c: &Clave, v: &Value) -> Result<Value, String> {
             }
             Ok(Value::Object(salida))
         }
+        Tipo::Rutas => {
+            let lista = v.as_array().ok_or("se espera una lista de rutas")?;
+            if lista.len() > 32 {
+                return Err("la lista supera 32 rutas".into());
+            }
+            let mut salida: Vec<String> = Vec::new();
+            for e in lista {
+                let t = texto_limpio(e, 4096)?;
+                if !expandir_tilde(&t).is_absolute() {
+                    return Err(format!("{t:?} no es una ruta absoluta (ni empieza por ~/)"));
+                }
+                if !salida.contains(&t) {
+                    salida.push(t);
+                }
+            }
+            Ok(Value::from(salida))
+        }
         Tipo::Lista { permitidos } => {
             let lista = v.as_array().ok_or("se espera una lista de textos")?;
             if lista.len() > 100 {
@@ -180,6 +198,44 @@ pub fn validar_valor(c: &Clave, v: &Value) -> Result<Value, String> {
             Ok(Value::from(salida))
         }
     }
+}
+
+/// Las rutas escribibles del criterio (`agente.criterio.escribibles`, ya
+/// expandidas) en su forma canónica, si todas valen: cada una existe, no es
+/// el directorio personal ni un ancestro suyo (sí puede colgar de él, como
+/// `~/.cargo`), y no es, ni contiene, ni está dentro de un directorio del
+/// ecosistema: la configuración (`ajustes.toml`), los datos y la base, el
+/// estado del bus, la bóveda y el directorio de ejecución (la clave del
+/// panel). El criterio corre código que ha escrito el agente: con cualquiera
+/// de esos escribible podría quitarse el sandbox, falsear el bus o aceptar
+/// propuestas. Si no, el motivo de la primera que no vale.
+pub fn validar_escribibles(rutas: &[PathBuf], f: &Fuentes, a: &Ajustes) -> Result<Vec<PathBuf>, String> {
+    let canonica = |p: &Path| ea_plataforma::rutas::canonica(p).unwrap_or_else(|_| p.to_path_buf());
+    let casa = ea_plataforma::usuario::home().map(|h| canonica(&h));
+    let mut propios = vec![f.dir_config.clone(), f.dir_datos.clone(), f.dir_estado.clone(), a.rutas.estado.clone(), a.rutas.boveda.clone()];
+    propios.extend(a.rutas.db.parent().map(Path::to_path_buf));
+    propios.extend(dir_ejecucion(&f.entorno));
+    let propios: Vec<PathBuf> = propios.iter().filter(|d| d.is_absolute()).map(|d| canonica(d)).collect();
+    let mut salida = Vec::new();
+    for r in rutas {
+        let Ok(p) = ea_plataforma::rutas::canonica(r) else {
+            return Err(format!("{} no existe", r.display()));
+        };
+        if casa.as_ref().is_some_and(|h| h.starts_with(&p)) {
+            return Err(format!("{} es tu directorio personal o lo contiene", r.display()));
+        }
+        if let Some(d) = propios.iter().find(|d| d.starts_with(&p) || p.starts_with(d)) {
+            return Err(format!(
+                "{} se solapa con {}, del ecosistema (configuración, datos, estado, bóveda o directorio de ejecución)",
+                r.display(),
+                d.display()
+            ));
+        }
+        if !salida.contains(&p) {
+            salida.push(p);
+        }
+    }
+    Ok(salida)
 }
 
 /// Un perfil de modelo completo: con nombre, y si no es remoto, con un

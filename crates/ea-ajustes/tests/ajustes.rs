@@ -593,3 +593,67 @@ fn la_distribucion_de_wsl_vale_vacia_por_defecto_y_solo_se_cambia_desde_la_termi
     establecer(&f, Canal::Terminal, None, &cambio("escritorio.wsl", json!(""))).unwrap();
     assert_eq!(cargar_de(&f).ajustes.escritorio.wsl, "");
 }
+
+// ------------------------------------------------- U-01: el criterio en el sandbox
+
+/// `agente.criterio.escribibles`: vacía por defecto, solo desde la terminal,
+/// rutas absolutas (o con `~`) que existen, guardadas como se escribieron y
+/// expandidas en los ajustes; nunca el directorio personal ni un ancestro
+/// suyo, ni un directorio del ecosistema (ni dentro, ni por encima).
+#[test]
+fn las_rutas_escribibles_del_criterio_se_validan_y_solo_se_cambian_desde_la_terminal() {
+    let (d, f) = fuentes();
+    let k = "agente.criterio.escribibles";
+    assert!(cargar_de(&f).ajustes.agente.criterio.escribibles.is_empty());
+    let c = clave(k).unwrap();
+    assert_eq!((c.edicion, c.tipo.nombre()), (Edicion::Terminal, "lista"));
+    assert!(interpretar(c, "relativa/x").is_err());
+    assert!(interpretar(c, "~otro/x").is_err());
+    assert_eq!(interpretar(c, " /a , ~/b,/a ").unwrap(), json!(["/a", "~/b"]));
+
+    let cache = d.path().join("cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    let r = establecer(&f, Canal::Web, Some(""), &cambio(k, json!([cache.to_str().unwrap()])));
+    assert!(matches!(r, Err(ErrorAjustes::NoEditable { .. })), "{r:?}");
+    establecer(&f, Canal::Terminal, None, &cambio(k, json!([cache.to_str().unwrap()]))).unwrap();
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.agente.criterio.escribibles, std::slice::from_ref(&cache));
+    assert_eq!(e.valores[k], json!([cache.to_str().unwrap()]));
+    assert_eq!(validar_escribibles(&e.ajustes.agente.criterio.escribibles, &f, &e.ajustes).unwrap(), [std::fs::canonicalize(&cache).unwrap()]);
+
+    // Lo que no vale no se escribe y deja la lista como estaba.
+    for d in [&f.dir_config, &f.dir_datos, &f.dir_estado] {
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+    }
+    let casa = ea_plataforma::usuario::home().unwrap();
+    let malas: Vec<(PathBuf, &str)> = vec![
+        (d.path().join("no-existe"), "no existe"),
+        (casa.clone(), "directorio personal"),
+        (casa.parent().unwrap().to_path_buf(), "directorio personal"),
+        (PathBuf::from("/"), "directorio personal"),
+        (f.dir_config.clone(), "del ecosistema"),
+        (f.dir_datos.join("sub"), "del ecosistema"),
+        (f.dir_estado.join("sub"), "del ecosistema"),
+        (d.path().to_path_buf(), "del ecosistema"),
+    ];
+    for (mala, motivo) in &malas {
+        let r = establecer(&f, Canal::Terminal, None, &cambio(k, json!([cache.to_str().unwrap(), mala.to_str().unwrap()])));
+        assert!(matches!(&r, Err(ErrorAjustes::ValorInvalido { clave, motivo: m }) if clave == k && m.contains(motivo)), "{mala:?}: {r:?}");
+        assert_eq!(cargar_de(&f).ajustes.agente.criterio.escribibles, std::slice::from_ref(&cache), "{mala:?}");
+    }
+    let r = establecer(&f, Canal::Terminal, None, &cambio(k, json!(["~"])));
+    assert!(matches!(&r, Err(ErrorAjustes::ValorInvalido { motivo, .. }) if motivo.contains("directorio personal")), "{r:?}");
+
+    // El directorio de ejecución (la clave del panel), tampoco.
+    let rt = d.path().join("rt");
+    std::fs::create_dir_all(rt.join("ea-web")).unwrap();
+    let f2 = Fuentes::aislada(d.path()).con_var("XDG_RUNTIME_DIR", rt.to_str().unwrap());
+    let r = establecer(&f2, Canal::Terminal, None, &cambio(k, json!([rt.join("ea-web").to_str().unwrap()])));
+    assert!(matches!(&r, Err(ErrorAjustes::ValorInvalido { motivo, .. }) if motivo.contains("del ecosistema")), "{r:?}");
+
+    // Una ruta que deja de valer (aquí, borrada) se ignora al cargar, con aviso.
+    std::fs::remove_dir(&cache).unwrap();
+    let e = cargar_de(&f);
+    assert!(e.ajustes.agente.criterio.escribibles.is_empty());
+    assert!(e.avisos.iter().any(|a| a.contains(k) && a.contains("no existe")), "{:?}", e.avisos);
+}

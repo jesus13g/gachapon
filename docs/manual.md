@@ -214,18 +214,30 @@ desactivan los *hooks* ni la configuración del sistema (git-lfs y los *hooks*
 de `worktree add` siguen funcionando): los del repo los protege el `.git` de
 solo lectura del sandbox.
 
-**Límite conocido:** el criterio de éxito no corre dentro del sandbox del
-agente. El ejecutor lo lanza con `sh -c` en el worktree, con los permisos de tu
-usuario y un tope de 120 s. Lo único que se le quita, cuando el agente va
-aislado (`sandbox = true`), es el directorio de ejecución (en Linux, `$XDG_RUNTIME_DIR`):
-en Linux va con `bwrap` (todo el disco como fuera, escribible, y un tmpfs vacío
-sobre ese directorio) y en macOS con un perfil Seatbelt que solo le niega ese
-directorio y las vías para lanzar programas fuera. Así no lee la clave de sesión
-del panel (con la que podría aceptar propuestas por `127.0.0.1:8092`) ni llega a
-D-Bus ni a `systemd --user`; un criterio que necesite el bus de sesión fallará.
-Todo lo demás sí lo puede leer y escribir como tú (también `ajustes.toml`, la
-base de datos o `~/.bashrc`) y tiene la red abierta. Revisa el criterio de un
-trabajo antes de lanzarlo como revisarías un script.
+**El criterio de éxito corre en el mismo sandbox que el agente** (con
+`sandbox = true`): ejecuta tests, `build.rs` o `conftest.py` que el agente ha
+podido escribir, así que tiene el mismo perfil de disco. `/` de solo lectura,
+un `/tmp` propio, el directorio de ejecución tapado (no lee la clave de sesión
+del panel ni llega a D-Bus ni a `systemd --user`) y escribibles solo el worktree
+(su `.git` no) y las rutas de `agente.criterio.escribibles`. No puede tocar
+`ajustes.toml`, la base de datos, el bus ni `~/.bashrc`. La red no cambia: queda
+abierta, también en macOS (el perfil Seatbelt del criterio no lleva las reglas de
+red del agente). Lo lanza el sistema con `sh -c` en el worktree y un tope de
+120 s; con `sandbox = false` corre como el agente, con los permisos de tu
+usuario.
+
+Un criterio que escribía fuera del worktree falla ahora. Si necesita una caché
+(`cargo` al descargar dependencias en `~/.cargo`, `pip` en `~/.cache/pip`), añade
+la ruta desde la terminal, por ejemplo con `ea ajustes establecer
+agente.criterio.escribibles=~/.cargo,~/.cache/pip`. Cada ruta tiene que existir y
+no puede ser tu directorio personal ni un ancestro suyo, ni ser, contener o estar
+dentro de los directorios del ecosistema (configuración, datos y base, estado del
+bus, bóveda y directorio de ejecución): se comprueba al escribirla y cada vez que
+se cargan los ajustes (una que deja de valer se ignora con un aviso), y antes de
+cada criterio se mira que siga llevando al mismo sitio (si no, el criterio no se
+corre y no pasa). Lo que el criterio escribe en esas rutas es código del agente
+que otros programas pueden leer después: añade solo cachés. Revisa el criterio de
+un trabajo antes de lanzarlo como revisarías un script.
 
 Qué se le quita a cada agente para que no salga a la web:
 
@@ -268,6 +280,7 @@ comentarios y claves ajenas).
 | `modelos.<perfil>.base_url` | `local`: `http://127.0.0.1:8080/v1` | perfil no remoto: solo `127.0.0.1`, `localhost` o `[::1]` | | web y terminal | en caliente |
 | `modelos.<perfil>.remoto` | `false` | sí/no; uno remoto solo vale para el planificador | | web y terminal | en caliente |
 | `agente.sandbox` | `true` | sí/no | | solo terminal | en caliente |
+| `agente.criterio.escribibles` | `[]` | rutas absolutas o con `~`, que existan; nunca `$HOME` ni sus ancestros, ni los directorios del ecosistema | | solo terminal | en caliente (próximo trabajo) |
 | `agente.avisos_escritorio` | `true` | sí/no | | web y terminal | en caliente |
 | `agente.techo_topes.turnos` | 100 | 1–100 | | web solo baja; terminal | en caliente |
 | `agente.techo_topes.tiempo_s` | 3600 | 60–3600 | | web solo baja; terminal | en caliente |
@@ -976,7 +989,7 @@ aquí y el ecosistema no las relaja en silencio.
 | Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree (salvo su `.git`), un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
 | `.git` del worktree | de solo lectura dentro de `bwrap` (directorio o fichero del worktree propio); el worktree de una orden tiene que ser la raíz de su repo, así que siempre hay un `.git` que montar | escritura denegada siempre, exista o no (tampoco se puede crear uno falso) | — |
 | Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`), y al acabar cada corrida muere lo que haya dejado de fondo | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
-| Criterio de éxito | fuera del sandbox del agente; con `sandbox = true`, en `bwrap` solo para taparle `$XDG_RUNTIME_DIR` | ídem con Seatbelt (directorio de ejecución ilegible) | sin sandbox: con `sandbox = true` el ejecutor no arranca |
+| Criterio de éxito | con `sandbox = true`, en el `bwrap` del agente (escribe solo en el worktree, su `/tmp` y `agente.criterio.escribibles`; red abierta) | ídem con Seatbelt (mismo perfil de disco que el agente; red abierta) | sin sandbox: con `sandbox = true` el ejecutor no arranca |
 | Parada limpia | `SIGTERM` o Ctrl-C | ídem | Ctrl-C, cierre de la consola o apagado |
 | Solo local | `127.0.0.1`; `ea-web` y `ea-mcp` filtran el `Host` | ídem | ídem |
 | Terminal real (TTY) para lo irreversible | sí | sí | sí |

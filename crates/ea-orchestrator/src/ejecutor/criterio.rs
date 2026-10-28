@@ -1,7 +1,7 @@
 //! El criterio de éxito: lo ejecuta el SISTEMA, no el agente, con tope de
 //! tiempo y cancelable; su salida, recortada, es la evidencia del informe.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::avisar_sin_arbol;
@@ -47,22 +47,40 @@ pub(super) fn recortar_resumen(s: &str) -> String {
 /// y, si dice que sí, se mata su árbol y devuelve `None` (sin evidencia).
 /// Si no, `Some((pasa, evidencia))`.
 ///
-/// Si el agente va aislado (`sandbox` es bwrap o Seatbelt), el criterio va
-/// con [`Sandbox::envolver_criterio`]: no ve el directorio de `ejecucion`
-/// (la clave del panel, D-Bus, `systemd --user`), y el resto del disco y la
-/// red los ve como el usuario. Sin sandbox, tal cual; con uno que no está
-/// disponible no se corre y no pasa.
-pub fn correr_criterio(sandbox: &Sandbox, wt: &Path, criterio: &str, ejecucion: Option<&Path>, cancelado: &dyn Fn() -> bool) -> Option<(bool, String)> {
+/// Con el agente aislado (`sandbox` es bwrap o Seatbelt), el criterio corre
+/// en el mismo sandbox ([`Sandbox::envolver_criterio`]): ejecuta tests y
+/// guiones que ha podido escribir el agente, así que solo escribe en el
+/// worktree (no en su `.git`), en su `/tmp` y en `escribibles`
+/// (`agente.criterio.escribibles`, canónicas), y no ve el directorio de
+/// `ejecucion` (la clave del panel, D-Bus, `systemd --user`); la red, como
+/// el usuario. Una ruta de `escribibles` que ya no está o que ahora lleva a
+/// otro sitio (un enlace cambiado) no se monta: el criterio no se corre y no
+/// pasa. Sin sandbox, tal cual; con uno que no está disponible no se corre y
+/// no pasa.
+pub fn correr_criterio(
+    sandbox: &Sandbox,
+    wt: &Path,
+    criterio: &str,
+    escribibles: &[PathBuf],
+    ejecucion: Option<&Path>,
+    cancelado: &dyn Fn() -> bool,
+) -> Option<(bool, String)> {
     let Some(mut c) = ea_plataforma::shell::orden_sh(&format!("exec 2>&1; {criterio}")) else {
         // Sin `sh` el criterio no se puede comprobar: nunca cuenta como éxito.
         return Some((false, "no hay `sh`: instala Git for Windows (el criterio se ejecuta con sh)".into()));
     };
     c.current_dir(wt);
-    let c = match sandbox.envolver_criterio(c, wt, ejecucion) {
-        Ok(c) => c,
+    if *sandbox != Sandbox::Ninguno
+        && let Some(p) = escribibles.iter().find(|p| ea_plataforma::rutas::canonica(p).ok().as_deref() != Some(p.as_path()))
+    {
+        return Some((false, format!("la ruta escribible del criterio {} ya no existe o ha cambiado (agente.criterio.escribibles): no se corre", p.display())));
+    }
+    let envoltorio = match sandbox.envolver_criterio(c, wt, escribibles, ejecucion) {
+        Ok(e) => e,
         Err(motivo) => return Some((false, motivo)),
     };
-    let r = ea_plataforma::proceso::correr(c, Duration::from_secs(TIEMPO_CRITERIO_S), cancelado);
+    // La orden sale del envoltorio; su temporal (macOS) vive hasta el final.
+    let r = ea_plataforma::proceso::correr(envoltorio.orden, Duration::from_secs(TIEMPO_CRITERIO_S), cancelado);
     avisar_sin_arbol(&r);
     if r.cancelado {
         return None;

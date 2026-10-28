@@ -79,7 +79,7 @@ pub(super) fn bucle(ctx: &Contexto, titulo: &str, cuerpo: &str, criterio: &str, 
         if salida.cancelado || cortar() {
             return None;
         }
-        let (pasa, ev) = correr_criterio(&sandbox, wt, criterio, ejecucion.as_deref(), &cortar)?;
+        let (pasa, ev) = correr_criterio(&sandbox, wt, criterio, &config.criterio_escribibles, ejecucion.as_deref(), &cortar)?;
         let mut evidencia = ev.clone();
         if !salida.resumen.is_empty() {
             evidencia = recortar_resumen(&format!("{ev}\n--- resumen del agente ---\n{}", salida.resumen.trim()));

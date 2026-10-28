@@ -477,14 +477,14 @@ fn el_criterio_en_bwrap_no_lee_el_directorio_de_ejecucion() {
     // Fuera, se lee.
     let fuera = criterio(&leer).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&fuera.stdout), "secreto");
-    let dentro = Sandbox::Bwrap.envolver_criterio(criterio(&leer), &r, Some(&ejecucion)).unwrap().output().unwrap();
+    let dentro = Sandbox::Bwrap.envolver_criterio(criterio(&leer), &r, &[], Some(&ejecucion)).unwrap().orden.output().unwrap();
     if !dentro.status.success() && String::from_utf8_lossy(&dentro.stderr).contains("namespace") {
         eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
         return;
     }
     assert!(!dentro.status.success() && dentro.stdout.is_empty(), "el criterio leyó el directorio de ejecución");
     // Lo demás, como fuera: escribe en el worktree.
-    let ok = Sandbox::Bwrap.envolver_criterio(criterio("echo hecho > ok.txt && test -f ok.txt"), &r, Some(&ejecucion)).unwrap().output().unwrap();
+    let ok = Sandbox::Bwrap.envolver_criterio(criterio("echo hecho > ok.txt && test -f ok.txt"), &r, &[], Some(&ejecucion)).unwrap().orden.output().unwrap();
     assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
     assert!(r.join("ok.txt").exists());
 }
@@ -503,7 +503,7 @@ fn el_criterio_del_ejecutor_en_bwrap_no_lee_la_clave_del_panel_y_escribe_en_el_w
     let clave = ea_ajustes::fichero_clave_web(&ejecucion);
     std::fs::create_dir_all(clave.parent().unwrap()).unwrap();
     std::fs::write(&clave, "secreto").unwrap();
-    let criterio = |sandbox: &Sandbox, guion: &str| correr_criterio(sandbox, &r, guion, Some(&ejecucion), &|| false).unwrap();
+    let criterio = |sandbox: &Sandbox, guion: &str| correr_criterio(sandbox, &r, guion, &[], Some(&ejecucion), &|| false).unwrap();
     let leer = format!("cat '{}'", clave.display());
     // Sin sandbox, tal cual: se lee.
     assert_eq!(criterio(&Sandbox::Ninguno, &leer), (true, "secreto".to_string()));
@@ -516,6 +516,67 @@ fn el_criterio_del_ejecutor_en_bwrap_no_lee_la_clave_del_panel_y_escribe_en_el_w
     let (pasa, evidencia) = criterio(&Sandbox::Bwrap, "echo hecho > ok.txt && test -f ok.txt");
     assert!(pasa, "{evidencia}");
     assert_eq!(std::fs::read_to_string(r.join("ok.txt")).unwrap(), "hecho\n");
+}
+
+/// U-01: el criterio corre en el sandbox del agente. No escribe en el
+/// directorio personal ni en `ajustes.toml` (que sí puede leer), ni en el
+/// `.git` del worktree; sí en el worktree, en su `/tmp` y en una ruta de
+/// `agente.criterio.escribibles`. Los directorios van fuera de `/tmp` (en
+/// el de las pruebas de cargo) para que dentro se vean, de solo lectura.
+/// Una ruta escribible que ya no está no deja correr el criterio. Sin
+/// sandbox, el criterio corre como antes.
+#[test]
+fn el_criterio_en_bwrap_solo_escribe_en_el_worktree_su_tmp_y_sus_rutas() {
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        eprintln!("sin bwrap: prueba omitida");
+        return;
+    }
+    let guarda = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let d = ea_plataforma::rutas::canonica(guarda.path()).unwrap();
+    let r = repo(&d, "r");
+    let (casa, config, cache) = (d.join("home"), d.join("config"), d.join("cache"));
+    for dir in [&casa, &config, &cache] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let ajustes = config.join("ajustes.toml");
+    std::fs::write(&ajustes, "[agente]\nsandbox = true\n").unwrap();
+    let git_config = std::fs::read_to_string(r.join(".git/config")).unwrap();
+    let criterio = |guion: &str, escribibles: &[PathBuf]| correr_criterio(&Sandbox::Bwrap, &r, guion, escribibles, None, &|| false).unwrap();
+
+    let (pasa, evidencia) = criterio("echo ok", &[]);
+    if !pasa && evidencia.contains("namespace") {
+        eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
+        return;
+    }
+    let guion = format!(
+        "grep -q sandbox '{a}' && ! (echo 'sandbox = false' >> '{a}') && ! touch '{h}/.bashrc' \
+         && ! (echo x >> .git/config) && echo hecho > ok.txt && echo t > /tmp/t && test -f /tmp/t \
+         && echo c > '{c}/cache.txt'",
+        a = ajustes.display(),
+        h = casa.display(),
+        c = cache.display()
+    );
+    let (pasa, evidencia) = criterio(&guion, std::slice::from_ref(&cache));
+    assert!(pasa, "{evidencia}");
+    assert_eq!(std::fs::read_to_string(&ajustes).unwrap(), "[agente]\nsandbox = true\n", "el criterio cambió ajustes.toml");
+    assert!(!casa.join(".bashrc").exists(), "el criterio escribió en el directorio personal");
+    assert_eq!(std::fs::read_to_string(r.join(".git/config")).unwrap(), git_config, "el criterio escribió en .git");
+    assert_eq!(std::fs::read_to_string(r.join("ok.txt")).unwrap(), "hecho\n");
+    assert_eq!(std::fs::read_to_string(cache.join("cache.txt")).unwrap(), "c\n");
+
+    // Sin la ruta en la lista, la caché tampoco se escribe.
+    let (pasa, _) = criterio(&format!("echo c > '{}/otra.txt'", cache.display()), &[]);
+    assert!(!pasa && !cache.join("otra.txt").exists());
+    // Una ruta escribible que ya no existe: no se corre y no pasa.
+    let ida = d.join("ida");
+    std::fs::create_dir(&ida).unwrap();
+    let ida = ea_plataforma::rutas::canonica(&ida).unwrap();
+    std::fs::remove_dir(&ida).unwrap();
+    let (pasa, evidencia) = criterio("touch corrio", std::slice::from_ref(&ida));
+    assert!(!pasa && evidencia.contains("ya no existe o ha cambiado") && !r.join("corrio").exists(), "{evidencia}");
+    // Sin sandbox, como antes: escribe donde el usuario.
+    let (pasa, evidencia) = correr_criterio(&Sandbox::Ninguno, &r, &format!("touch '{}/.bashrc'", casa.display()), &[ida], None, &|| false).unwrap();
+    assert!(pasa && casa.join(".bashrc").exists(), "{evidencia}");
 }
 
 /// F-14: con un orquestador en marcha, un segundo no arranca y no toca nada:

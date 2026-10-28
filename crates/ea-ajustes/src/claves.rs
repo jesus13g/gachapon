@@ -19,6 +19,8 @@ pub enum Tipo {
     Ruta,
     /// Lista de nombres; con `permitidos`, solo esos.
     Lista { permitidos: Option<&'static [&'static str]> },
+    /// Lista de rutas absolutas (o con `~`).
+    Rutas,
     /// Uno de una lista cerrada.
     Eleccion { permitidos: &'static [&'static str] },
     /// URL de un perfil de modelo: vacía o `http(s)://` sin credenciales. Que
@@ -41,7 +43,7 @@ impl Tipo {
             Tipo::Texto { .. } => "texto",
             Tipo::Url => "url",
             Tipo::Ruta => "ruta",
-            Tipo::Lista { .. } => "lista",
+            Tipo::Lista { .. } | Tipo::Rutas => "lista",
             Tipo::Eleccion { .. } => "eleccion",
             Tipo::UrlPerfil => "url",
             Tipo::Perfil => "perfil",
@@ -320,6 +322,18 @@ pub static CLAVES: &[Clave] = &[
         aplica: Aplica::EnCaliente,
         entorno: None,
         heredada: &[(ORQ, "sandbox")],
+    },
+    Clave {
+        nombre: "agente.criterio.escribibles",
+        seccion: "agente",
+        titulo: "Rutas escribibles del criterio",
+        descripcion: "El criterio de éxito corre en el sandbox del agente: solo escribe en el worktree (no en su .git) y en un /tmp propio. Aquí van las rutas extra que puede escribir (p. ej. ~/.cargo o ~/.cache/pip): absolutas o con ~, que existan, y nunca tu directorio personal ni un ancestro suyo, ni la configuración, los datos, el estado o el directorio de ejecución del ecosistema. Es código del agente lo que escribe ahí: solo desde la terminal.",
+        tipo: Tipo::Rutas,
+        edicion: Edicion::Terminal,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
     },
     Clave {
         nombre: "agente.avisos_escritorio",
@@ -720,6 +734,7 @@ pub(crate) fn valor_de(a: &Ajustes, nombre: &str) -> Value {
         "roles.ejecutor" => a.roles.ejecutor.clone().into(),
         "agente.sandbox" => a.agente.sandbox.into(),
         "agente.avisos_escritorio" => a.agente.avisos_escritorio.into(),
+        "agente.criterio.escribibles" => a.agente.criterio.escribibles.iter().map(|p| ruta(p)).collect::<Vec<_>>().into(),
         "agente.techo_topes.turnos" => a.agente.techo_topes.turnos.into(),
         "agente.techo_topes.tiempo_s" => a.agente.techo_topes.tiempo_s.into(),
         "agente.techo_topes.llamadas_herramienta" => a.agente.techo_topes.llamadas_herramienta.into(),
@@ -790,6 +805,7 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
         "roles.ejecutor" => a.roles.ejecutor = t(),
         "agente.sandbox" => a.agente.sandbox = b(),
         "agente.avisos_escritorio" => a.agente.avisos_escritorio = b(),
+        "agente.criterio.escribibles" => a.agente.criterio.escribibles = lista(v).iter().map(|r| expandir_tilde(r)).collect(),
         "agente.techo_topes.turnos" => a.agente.techo_topes.turnos = n() as u32,
         "agente.techo_topes.tiempo_s" => a.agente.techo_topes.tiempo_s = n() as u64,
         "agente.techo_topes.llamadas_herramienta" => a.agente.techo_topes.llamadas_herramienta = n() as u32,

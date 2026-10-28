@@ -13,7 +13,7 @@ use crate::agentes::id_perfil_valido;
 use crate::claves::{aplicar, clave, concretas, heredadas, valor_de, Clave, ALIAS, AJ_VIEJO};
 use crate::escribir::{huella, interpretar};
 use crate::fuentes::{Ajustes, Fuentes};
-use crate::validar::{validar_perfil, validar_roles, validar_valor};
+use crate::validar::{validar_escribibles, validar_perfil, validar_roles, validar_valor};
 
 /// De dónde sale el valor efectivo de una clave.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -253,6 +253,15 @@ pub(crate) fn resolver(f: &Fuentes, ajustes_toml: Option<&str>, version: String,
                 revertir(&n, &mut valores, &mut origenes);
             }
         }
+    }
+
+    // Las rutas escribibles del criterio: que existan y no abran el
+    // directorio personal ni los del ecosistema (con los de este proceso).
+    let escribibles = "agente.criterio.escribibles";
+    let a = construir(&valores, &descartados);
+    if let Err(e) = validar_escribibles(&a.agente.criterio.escribibles, f, &a) {
+        conflictos.push(format!("{escribibles}: {e}; vuelve a su valor por defecto"));
+        revertir(escribibles, &mut valores, &mut origenes);
     }
 
     for id in &descartados {

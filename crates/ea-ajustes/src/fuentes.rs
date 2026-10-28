@@ -144,6 +144,17 @@ pub struct Agente {
     pub avisos_escritorio: bool,
     pub techo_topes: TechoTopes,
     pub skills: Skills,
+    pub criterio: Criterio,
+}
+
+/// El criterio de éxito, que corre en el sandbox del agente.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+pub struct Criterio {
+    /// Rutas que el criterio puede escribir además del worktree y su `/tmp`
+    /// (cachés como `~/.cargo`), ya expandidas. Se cambian solo desde la
+    /// terminal; al cargar se comprueba que existen y no abren el directorio
+    /// personal ni los del ecosistema (`validar_escribibles`).
+    pub escribibles: Vec<PathBuf>,
 }
 
 /// Techo de los topes de cualquier orden: el ejecutor recorta cada tope de la
@@ -247,6 +258,7 @@ impl Ajustes {
                     max_caracteres: 6000,
                     pueden_elegir: vec!["claude-code".into()],
                 },
+                criterio: Criterio::default(),
             },
             orquestador: Orquestador {
                 intervalo_sondeo_s: 5,

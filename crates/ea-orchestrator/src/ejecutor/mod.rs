@@ -27,9 +27,9 @@
 //! trabajo al tomarlo (`ejecutado_por`); un agente que no se puede lanzar
 //! deja el trabajo bloqueado con el motivo.
 //!
-//! El criterio corre fuera del sandbox del agente, con los permisos del
-//! usuario (límite conocido, U-01), pero si el agente va aislado tampoco ve
-//! el directorio de ejecución (la clave del panel): ver [`correr_criterio`].
+//! Si el agente va aislado, el criterio corre en su mismo sandbox (solo
+//! escribe en el worktree, su `/tmp` y `agente.criterio.escribibles`, y no ve
+//! el directorio de ejecución): ver [`correr_criterio`].
 //!
 //! Cancelación cooperativa: el estado se relee antes de cada iteración y de
 //! cada fase, y mientras corren el agente o el criterio se sondea cada

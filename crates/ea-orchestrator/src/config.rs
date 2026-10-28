@@ -4,6 +4,8 @@
 //! `modelo.*` y `orquestador.toml`); en el código solo aparecen en los
 //! valores por defecto de `ea-ajustes`.
 
+use std::path::PathBuf;
+
 use ea_ajustes::{Ajustes, Fuentes, PerfilModelo, Rol};
 use ea_bus::{ConfigSkills, EjecutadoPor, TipoAgente, Topes};
 
@@ -32,7 +34,12 @@ pub struct ConfigOrquestador {
     pub techo_topes: Topes,
     pub avisos_escritorio: bool,
     /// Ejecuta al agente dentro de bubblewrap (solo el worktree es escribible).
+    /// El criterio corre en el mismo sandbox.
     pub sandbox: bool,
+    /// Lo que el criterio puede escribir además del worktree y su `/tmp`
+    /// (`agente.criterio.escribibles`, validadas al cargar los ajustes), en
+    /// su forma canónica.
+    pub criterio_escribibles: Vec<PathBuf>,
     /// Catálogo de skills del ejecutor, cuáles se pueden usar y quién las elige.
     pub skills: ConfigSkills,
 }
@@ -56,6 +63,7 @@ impl ConfigOrquestador {
             techo_topes: Topes::from(&a.agente.techo_topes),
             avisos_escritorio: a.agente.avisos_escritorio,
             sandbox: a.agente.sandbox,
+            criterio_escribibles: a.agente.criterio.escribibles.iter().map(|p| crate::sandbox::canonica(p)).collect(),
             skills: ConfigSkills::desde_ajustes(a),
         }
     }

@@ -1,6 +1,7 @@
 //! Aislamiento del ejecutor por sistema (spec 020, decisión 2; art. V y VIII).
 //! [`Sandbox::envolver`] es el único sitio que construye la orden aislada del
-//! agente, y [`Sandbox::envolver_criterio`] la del criterio.
+//! agente, y [`Sandbox::envolver_criterio`] la del criterio, con el mismo
+//! perfil de disco (el criterio corre código que ha escrito el agente).
 //!
 //! - Linux: `bwrap` con los argumentos de [`argumentos_bwrap`].
 //! - macOS: `sandbox-exec` con un perfil Seatbelt (SBPL) equivalente, generado
@@ -15,6 +16,7 @@
 //! configuración o un *hook* plantados ahí correrían con los permisos del
 //! usuario.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -99,24 +101,68 @@ impl Sandbox {
         estado: &[PathBuf],
         ejecucion: Option<&Path>,
     ) -> Result<Envoltorio, String> {
+        self.construir(programa.as_ref(), args.iter().map(OsStr::new), wt, estado, ejecucion, false)
+    }
+
+    /// La orden `cmd` del criterio de éxito con el mismo aislamiento de disco
+    /// que el agente ([`Sandbox::envolver`]): `/` de solo lectura, un `/tmp`
+    /// propio, el directorio de `ejecucion` tapado y escribibles solo el
+    /// worktree (su `.git` no) y `escribibles` (`agente.criterio.escribibles`,
+    /// en su lugar de los directorios de estado del agente). La red, como
+    /// hasta ahora: abierta (en macOS el perfil del criterio no lleva las
+    /// reglas de red del agente). Sin sandbox, `cmd` tal cual. Conserva sus
+    /// argumentos, su entorno y su directorio (`wt` si no tiene).
+    pub fn envolver_criterio(&self, cmd: Command, wt: &Path, escribibles: &[PathBuf], ejecucion: Option<&Path>) -> Result<Envoltorio, String> {
+        if *self == Sandbox::Ninguno {
+            return Ok(Envoltorio { orden: cmd, _temporal: None });
+        }
+        let mut e = self.construir(cmd.get_program(), cmd.get_args(), wt, escribibles, ejecucion, true)?;
+        for (k, v) in cmd.get_envs() {
+            match v {
+                Some(v) => e.orden.env(k, v),
+                None => e.orden.env_remove(k),
+            };
+        }
+        e.orden.current_dir(cmd.get_current_dir().unwrap_or(wt));
+        Ok(e)
+    }
+
+    /// La orden aislada de `programa args`, del agente o (`criterio`) del
+    /// criterio: solo cambian el perfil de red de Seatbelt y el nombre del
+    /// temporal.
+    fn construir<'a>(
+        &self,
+        programa: &OsStr,
+        args: impl IntoIterator<Item = &'a OsStr>,
+        wt: &Path,
+        escribibles: &[PathBuf],
+        ejecucion: Option<&Path>,
+        criterio: bool,
+    ) -> Result<Envoltorio, String> {
         let mut temporal = None;
         let mut orden = match self {
             Sandbox::NoDisponible(m) => return Err(m.clone()),
             Sandbox::Ninguno => Command::new(programa),
             Sandbox::Bwrap => {
                 let mut c = Command::new("bwrap");
-                c.args(argumentos_bwrap(wt, ejecucion, estado)).arg(programa);
+                c.args(argumentos_bwrap(wt, ejecucion, escribibles)).arg(programa);
                 c
             }
             Sandbox::Seatbelt => {
+                let (prefijo, quien) = if criterio { ("ea-criterio-", "del criterio") } else { ("ea-ejecutor-", "del agente") };
                 let tmp = tempfile::Builder::new()
-                    .prefix("ea-ejecutor-")
+                    .prefix(prefijo)
                     .tempdir()
-                    .map_err(|e| format!("no se pudo crear el temporal propio del agente: {e}"))?;
-                let estado: Vec<PathBuf> = estado.iter().map(|d| canonica(d)).collect();
-                let perfil = perfil_seatbelt(&canonica(wt), &canonica(tmp.path()), &estado, ejecucion.map(canonica).as_deref());
+                    .map_err(|e| format!("no se pudo crear el temporal propio {quien}: {e}"))?;
+                let escribibles: Vec<PathBuf> = escribibles.iter().map(|d| canonica(d)).collect();
+                let (wt_c, tmp_c, ej) = (canonica(wt), canonica(tmp.path()), ejecucion.map(canonica));
+                let perfil = if criterio {
+                    perfil_seatbelt_criterio(&wt_c, &tmp_c, &escribibles, ej.as_deref())
+                } else {
+                    perfil_seatbelt(&wt_c, &tmp_c, &escribibles, ej.as_deref())
+                };
                 let mut c = Command::new(SANDBOX_EXEC);
-                c.arg("-p").arg(perfil).arg(programa).env("TMPDIR", canonica(tmp.path()));
+                c.arg("-p").arg(perfil).arg(programa).env("TMPDIR", tmp_c);
                 temporal = Some(tmp);
                 c
             }
@@ -124,44 +170,11 @@ impl Sandbox {
         orden.args(args).current_dir(wt);
         Ok(Envoltorio { orden, _temporal: temporal })
     }
-
-    /// La orden `cmd` del criterio de éxito con el aislamiento mínimo: todo
-    /// como fuera salvo el directorio de `ejecucion` (la clave del panel),
-    /// tapado. bwrap: `/` escribible, un tmpfs sobre `ejecucion` y muerte con
-    /// el padre ([`argumentos_bwrap_criterio`]); Seatbelt: todo permitido salvo
-    /// `ejecucion` y las vías de escape ([`perfil_seatbelt_criterio`]). Sin
-    /// sandbox, `cmd` tal cual. Conserva sus argumentos, su entorno y su
-    /// directorio (`wt` si no tiene).
-    pub fn envolver_criterio(&self, cmd: Command, wt: &Path, ejecucion: Option<&Path>) -> Result<Command, String> {
-        let mut c = match self {
-            Sandbox::NoDisponible(m) => return Err(m.clone()),
-            Sandbox::Ninguno => return Ok(cmd),
-            Sandbox::Bwrap => {
-                let mut c = Command::new("bwrap");
-                c.args(argumentos_bwrap_criterio(wt, ejecucion));
-                c
-            }
-            Sandbox::Seatbelt => {
-                let mut c = Command::new(SANDBOX_EXEC);
-                c.arg("-p").arg(perfil_seatbelt_criterio(ejecucion.map(canonica).as_deref()));
-                c
-            }
-        };
-        c.arg(cmd.get_program()).args(cmd.get_args());
-        for (k, v) in cmd.get_envs() {
-            match v {
-                Some(v) => c.env(k, v),
-                None => c.env_remove(k),
-            };
-        }
-        c.current_dir(cmd.get_current_dir().unwrap_or(wt));
-        Ok(c)
-    }
 }
 
-/// La orden aislada del agente ([`Sandbox::envolver`]). En macOS guarda
-/// además el temporal propio del agente, que se borra al soltarla: tiene que
-/// vivir lo que dure la corrida.
+/// La orden aislada del agente ([`Sandbox::envolver`]) o del criterio
+/// ([`Sandbox::envolver_criterio`]). En macOS guarda además su temporal
+/// propio, que se borra al soltarla: tiene que vivir lo que dure la corrida.
 pub struct Envoltorio {
     pub orden: Command,
     _temporal: Option<tempfile::TempDir>,
@@ -212,19 +225,6 @@ pub fn argumentos_bwrap(worktree: &Path, ejecucion: Option<&Path>, estado: &[Pat
     args
 }
 
-/// Argumentos de `bwrap` para el criterio (sin el programa): todo el sistema
-/// como fuera, escribible, salvo el directorio de ejecución, tapado por un
-/// tmpfs vacío.
-pub fn argumentos_bwrap_criterio(worktree: &Path, ejecucion: Option<&Path>) -> Vec<String> {
-    let mut args: Vec<String> = ["--bind", "/", "/"].map(String::from).into();
-    if let Some(d) = ejecucion {
-        args.push("--tmpfs".into());
-        args.push(d.to_string_lossy().into());
-    }
-    args.extend(["--chdir".into(), worktree.to_string_lossy().into(), "--die-with-parent".into()]);
-    args
-}
-
 /// Literal de cadena de SBPL: entre comillas, con `\` y `"` escapados.
 fn literal(ruta: &Path) -> String {
     let mut s = String::from("\"");
@@ -263,10 +263,22 @@ fn literal(ruta: &Path) -> String {
 /// de LaunchServices y AppleEvents. Un agente Node normal no los usa.
 const REGLAS_ESCAPE: &str = "(deny process-exec*\n  (literal \"/usr/bin/open\")\n  (literal \"/usr/bin/osascript\")\n  (literal \"/usr/bin/automator\")\n  (literal \"/usr/bin/shortcuts\")\n  (literal \"/bin/launchctl\")\n  (literal \"/usr/bin/launchctl\"))\n(deny mach-lookup\n  (global-name \"com.apple.coreservices.launchservicesd\")\n  (global-name \"com.apple.coreservices.appleevents\")\n  (global-name-prefix \"com.apple.lsd\"))\n";
 
+/// El del agente: el del criterio ([`perfil_seatbelt_criterio`]) con la red
+/// del punto 6.
 pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucion: Option<&Path>) -> String {
+    let mut p = perfil_seatbelt_criterio(worktree, tmp, estado, ejecucion);
+    p.push_str("(deny network*)\n(allow network* (remote ip \"localhost:*\"))\n(allow network-bind network-inbound (local ip \"localhost:*\"))\n");
+    p.push_str("(allow network* (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n");
+    p
+}
+
+/// Perfil Seatbelt del criterio (puro): el del agente ([`perfil_seatbelt`],
+/// puntos 1 a 5 y las vías de escape) sin las reglas de red; `escribibles`
+/// ocupa el lugar de los directorios de estado del agente.
+pub fn perfil_seatbelt_criterio(worktree: &Path, tmp: &Path, escribibles: &[PathBuf], ejecucion: Option<&Path>) -> String {
     let mut p = String::from("(version 1)\n(allow default)\n(deny file-write* (subpath \"/\"))\n(allow file-write*\n");
     p.push_str(&format!("  (subpath {})\n  (subpath {})\n", literal(worktree), literal(tmp)));
-    for d in estado {
+    for d in escribibles {
         p.push_str(&format!("  (subpath {})\n", literal(d)));
     }
     p.push_str("  (literal \"/dev/null\")\n  (literal \"/dev/tty\")\n  (regex #\"^/dev/fd/\"))\n");
@@ -274,20 +286,6 @@ pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucio
     p.push_str(&format!("(deny file-write* (literal {git}) (subpath {git}))\n"));
     if let Some(d) = ejecucion {
         p.push_str(&format!("(deny file-read* (subpath {}))\n", literal(d)));
-    }
-    p.push_str(REGLAS_ESCAPE);
-    p.push_str("(deny network*)\n(allow network* (remote ip \"localhost:*\"))\n(allow network-bind network-inbound (local ip \"localhost:*\"))\n");
-    p.push_str("(allow network* (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n");
-    p
-}
-
-/// Perfil Seatbelt del criterio (puro): todo permitido salvo leer o escribir
-/// el directorio de ejecución (canonicalizado) y las vías para lanzar código
-/// fuera del sandbox.
-pub fn perfil_seatbelt_criterio(ejecucion: Option<&Path>) -> String {
-    let mut p = String::from("(version 1)\n(allow default)\n");
-    if let Some(d) = ejecucion {
-        p.push_str(&format!("(deny file-read* file-write* (subpath {}))\n", literal(d)));
     }
     p.push_str(REGLAS_ESCAPE);
     p
@@ -426,16 +424,27 @@ mod tests {
     }
 
     #[test]
-    fn el_criterio_solo_tapa_el_directorio_de_ejecucion() {
-        let args = argumentos_bwrap_criterio(Path::new("/w/repo"), Some(Path::new("/run/user/1000")));
-        assert_eq!(args, ["--bind", "/", "/", "--tmpfs", "/run/user/1000", "--chdir", "/w/repo", "--die-with-parent"]);
-        assert_eq!(argumentos_bwrap_criterio(Path::new("/w"), None), ["--bind", "/", "/", "--chdir", "/w", "--die-with-parent"]);
-
-        let p = perfil_seatbelt_criterio(Some(Path::new("/private/var/run/ea")));
-        assert!(p.starts_with("(version 1)\n(allow default)\n(deny file-read* file-write* (subpath \"/private/var/run/ea\"))\n"), "{p}");
+    fn el_criterio_tiene_el_perfil_de_disco_del_agente_sin_su_red() {
+        let esc = [PathBuf::from("/Users/u/.cargo")];
+        let ej = Some(Path::new("/private/var/run/ea"));
+        let p = perfil_seatbelt_criterio(Path::new("/w/repo"), Path::new("/t"), &esc, ej);
+        // Lo mismo que el del agente con esas rutas, salvo la red.
+        let agente = perfil_seatbelt(Path::new("/w/repo"), Path::new("/t"), &esc, ej);
+        assert!(agente.starts_with(&p), "{p}\n---\n{agente}");
+        assert!(agente[p.len()..].starts_with("(deny network*)"), "{agente}");
+        assert!(!p.contains("network"), "la red del criterio no cambia: {p}");
+        for esperado in [
+            "(deny file-write* (subpath \"/\"))",
+            "(subpath \"/w/repo\")",
+            "(subpath \"/t\")",
+            "(subpath \"/Users/u/.cargo\")",
+            "(deny file-write* (literal \"/w/repo/.git\") (subpath \"/w/repo/.git\"))",
+            "(deny file-read* (subpath \"/private/var/run/ea\"))",
+        ] {
+            assert!(p.contains(esperado), "falta {esperado}\n{p}");
+        }
         assert!(p.ends_with(REGLAS_ESCAPE), "con las vías de escape cerradas\n{p}");
-        assert!(!p.contains("(deny file-write* (subpath \"/\"))") && !p.contains("network"), "nada más\n{p}");
-        assert_eq!(perfil_seatbelt_criterio(None), format!("(version 1)\n(allow default)\n{REGLAS_ESCAPE}"));
+        assert!(p.rfind("(allow file-write*").unwrap() < p.find("/w/repo/.git").unwrap(), "el .git, después de los permisos\n{p}");
     }
 
     fn argumentos(c: &Command) -> Vec<String> {
@@ -479,6 +488,7 @@ mod tests {
     fn envolver_el_criterio_conserva_la_orden() {
         let wt = tempfile::tempdir().unwrap();
         let ej = tempfile::tempdir().unwrap();
+        let esc = [PathBuf::from("/home/u/.cargo")];
         let criterio = |dir: Option<&Path>| {
             let mut c = Command::new("sh");
             c.args(["-c", "test -f ok.txt"]).env("A", "1").env_remove("B");
@@ -489,22 +499,30 @@ mod tests {
         };
         let entorno = |c: &Command| c.get_envs().map(|(k, v)| (k.to_os_string(), v.map(|v| v.to_os_string()))).collect::<Vec<_>>();
 
-        let c = Sandbox::Bwrap.envolver_criterio(criterio(Some(wt.path())), wt.path(), Some(ej.path())).unwrap();
-        let mut esperado = argumentos_bwrap_criterio(wt.path(), Some(ej.path()));
+        // bwrap: los argumentos del agente, con `escribibles` en lugar de su estado.
+        let e = Sandbox::Bwrap.envolver_criterio(criterio(Some(wt.path())), wt.path(), &esc, Some(ej.path())).unwrap();
+        let mut esperado = argumentos_bwrap(wt.path(), Some(ej.path()), &esc);
         esperado.extend(["sh".into(), "-c".into(), "test -f ok.txt".into()]);
-        assert_eq!((c.get_program(), argumentos(&c)), ("bwrap".as_ref(), esperado));
-        assert_eq!(entorno(&c), entorno(&criterio(None)), "mismo entorno");
-        assert_eq!(c.get_current_dir(), Some(wt.path()));
+        assert_eq!((e.orden.get_program(), argumentos(&e.orden)), ("bwrap".as_ref(), esperado));
+        assert_eq!(entorno(&e.orden), entorno(&criterio(None)), "mismo entorno");
+        assert_eq!(e.orden.get_current_dir(), Some(wt.path()));
 
-        let c = Sandbox::Seatbelt.envolver_criterio(criterio(None), wt.path(), Some(ej.path())).unwrap();
-        let a = argumentos(&c);
-        assert_eq!(c.get_program(), SANDBOX_EXEC);
-        assert_eq!(a, ["-p".to_string(), perfil_seatbelt_criterio(Some(&canonica(ej.path()))), "sh".into(), "-c".into(), "test -f ok.txt".into()]);
-        assert_eq!(c.get_current_dir(), Some(wt.path()), "sin directorio propio, el worktree");
+        // Seatbelt: el perfil del criterio con el temporal propio.
+        let e = Sandbox::Seatbelt.envolver_criterio(criterio(None), wt.path(), &esc, Some(ej.path())).unwrap();
+        let a = argumentos(&e.orden);
+        assert_eq!(e.orden.get_program(), SANDBOX_EXEC);
+        let tmp = e.orden.get_envs().find(|(k, _)| *k == "TMPDIR").and_then(|(_, v)| v).map(PathBuf::from).unwrap();
+        assert!(tmp.is_dir() && tmp.file_name().unwrap().to_string_lossy().starts_with("ea-criterio-"));
+        let perfil = perfil_seatbelt_criterio(&canonica(wt.path()), &tmp, &esc, Some(&canonica(ej.path())));
+        assert_eq!(a, ["-p".to_string(), perfil, "sh".into(), "-c".into(), "test -f ok.txt".into()]);
+        assert_eq!(e.orden.get_current_dir(), Some(wt.path()), "sin directorio propio, el worktree");
+        drop(e);
+        assert!(!tmp.exists(), "el temporal se borra al soltar el envoltorio");
 
-        let c = Sandbox::Ninguno.envolver_criterio(criterio(Some(wt.path())), wt.path(), Some(ej.path())).unwrap();
-        assert_eq!((c.get_program(), argumentos(&c)), ("sh".as_ref(), vec!["-c".to_string(), "test -f ok.txt".into()]));
-        let no = Sandbox::NoDisponible("sin sandbox".into()).envolver_criterio(criterio(None), wt.path(), None);
+        // Sin sandbox, tal cual; sin sandbox posible, el motivo.
+        let e = Sandbox::Ninguno.envolver_criterio(criterio(Some(wt.path())), wt.path(), &esc, Some(ej.path())).unwrap();
+        assert_eq!((e.orden.get_program(), argumentos(&e.orden)), ("sh".as_ref(), vec!["-c".to_string(), "test -f ok.txt".into()]));
+        let no = Sandbox::NoDisponible("sin sandbox".into()).envolver_criterio(criterio(None), wt.path(), &[], None);
         assert_eq!(no.err().as_deref(), Some("sin sandbox"));
     }
 
@@ -548,15 +566,21 @@ mod tests {
         assert!(!sh("mkdir .git/hooks".into()).status.success() && !wt_c.join(".git/hooks").exists());
         assert!(correr(&wt_c.join("dentro2")).status.success(), "el resto del worktree sigue escribible");
 
-        // El perfil del criterio: escribe donde el usuario, pero no lee el
-        // directorio de ejecución.
-        let criterio = perfil_seatbelt_criterio(Some(&run_c));
+        // El perfil del criterio: el mismo disco que el agente (más sus
+        // rutas escribibles), sin sus reglas de red.
+        let extra = tempfile::tempdir().unwrap();
+        let extra_c = canonica(extra.path());
+        let criterio = perfil_seatbelt_criterio(&wt_c, &tmp_c, std::slice::from_ref(&extra_c), Some(&run_c));
         let c = |orden: String| {
             Command::new(SANDBOX_EXEC).args(["-p", &criterio, "sh", "-c"]).arg(orden).current_dir(&wt_c).output().unwrap()
         };
         let l = c(format!("cat '{}'", run_c.join("clave").display()));
         assert!(!l.status.success() && l.stdout.is_empty(), "el criterio leyó el directorio de ejecución");
-        assert!(c(format!("touch '{}'", fuera_c.join("criterio").display())).status.success() && fuera_c.join("criterio").exists());
+        let f = c(format!("touch '{}'", fuera_c.join("criterio").display()));
+        assert!(!f.status.success() && !fuera_c.join("criterio").exists(), "el criterio escribió fuera del worktree");
+        assert!(c(format!("touch '{}'", extra_c.join("criterio").display())).status.success() && extra_c.join("criterio").exists());
+        assert!(c("touch criterio-dentro".into()).status.success() && wt_c.join("criterio-dentro").exists());
+        assert!(!c("echo x >> .git/config".into()).status.success(), "el criterio escribió en .git/config");
 
         // El directorio de ejecución (clave del panel) no se puede leer.
         let l = sh(format!("cat '{}'", run_c.join("clave").display()));
