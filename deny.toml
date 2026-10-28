@@ -1,0 +1,68 @@
+# cargo deny: licencias, avisos de seguridad (RustSec), crates vetados y
+# fuentes de las dependencias. Vale para los tres manifiestos (el CI lo pasa
+# con `--config deny.toml` en `escritorio/` e `instalador/`):
+#
+#   cargo deny check
+#   cargo deny --manifest-path escritorio/Cargo.toml check --config deny.toml
+#   cargo deny --manifest-path instalador/Cargo.toml check --config deny.toml
+
+[graph]
+# Solo los sistemas que se publican (release.yml): lo que una dependencia pide
+# para otros (wasm, Android, iOS…) no cuenta.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+all-features = false
+
+[advisories]
+# Toda vulnerabilidad o API insegura (unsound) de RustSec falla, venga de donde
+# venga; la salida suele ser `cargo update -p <crate>`. Un crate sin mantener
+# solo falla si es dependencia directa nuestra: los transitivos no tienen
+# sustituto que podamos elegir (hoy, `paste` por ratatui y, en la app,
+# `proc-macro-error` por gtk-rs y `zvariant`/`zbus_names` por zbus), y es cosa
+# de quien los usa. Una excepción va en `ignore` con su identificador y el motivo.
+unmaintained = "workspace"
+ignore = []
+
+[licenses]
+# Las que usa hoy el árbol de los tres manifiestos, todas permisivas. MPL-2.0
+# (copyleft por fichero: `option-ext` y, en la app, el analizador CSS de Tauri)
+# se admite porque solo se enlaza sin modificar sus ficheros.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.9
+# La lista vale para los tres manifiestos: que alguno no use una no es un aviso.
+unused-allowed-license = "allow"
+
+[licenses.private]
+# Los crates propios no se publican (publish = false) y no declaran licencia:
+# la del proyecto es la de LICENSE.
+ignore = true
+
+[bans]
+# Varias versiones del mismo crate son normales en el árbol de Tauri: aviso, no fallo.
+multiple-versions = "warn"
+wildcards = "deny"
+# Las dependencias por ruta entre crates propios no llevan versión.
+allow-wildcard-paths = true
+
+[sources]
+# Solo crates.io: nada de registros ni repos git ajenos.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

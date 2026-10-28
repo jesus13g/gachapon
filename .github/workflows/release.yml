@@ -7,6 +7,7 @@
 #   gachapon-x86_64-pc-windows-msvc.zip
 #   gachapon-instalar.exe
 #   SHA256SUMS
+# y una atestación de procedencia de cada paquete (`gh attestation verify`).
 # Los nombres no llevan versión: `releases/latest/download/<nombre>` sirve
 # siempre el último (lo usan instalar.sh e instalar.ps1).
 #
@@ -144,8 +145,12 @@ jobs:
           if-no-files-found: error
 
   publicar:
+    # id-token y attestations solo aquí: las atestaciones de procedencia se
+    # firman con la identidad OIDC de este workflow.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     name: publicar
     needs: construir
     runs-on: ubuntu-latest
@@ -159,6 +164,14 @@ jobs:
         run: |
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
+      # Atestación de procedencia (SLSA, firmada con Sigstore) de cada paquete:
+      # SHA256SUMS dice que el fichero llegó entero; esto, que lo compiló este
+      # workflow desde este commit. Se comprueba con
+      # `gh attestation verify <paquete> --repo jesus13g/gachapon`.
+      - name: Atestaciones de procedencia
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: salida/gachapon-*
       - name: Crear la Release
         env:
           GH_TOKEN: ${{ github.token }}

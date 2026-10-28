@@ -162,7 +162,9 @@ En **Windows** pregunta la vía:
   `sin sandbox`.
 
 Los binarios no están firmados: SmartScreen avisará («Más información →
-Ejecutar de todos modos»).
+Ejecutar de todos modos»). Cada paquete de la Release lleva una atestación de
+procedencia que puedes comprobar con `gh attestation verify <fichero> --repo
+jesus13g/gachapon` (ver el [manual](docs/manual.md)).
 
 Hay dos cosas que el instalador no puede hacer por ti, y te las recuerda al
 final con la orden exacta:

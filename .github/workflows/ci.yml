@@ -69,6 +69,23 @@ jobs:
         env:
           EA_EXIGIR_NODE: "1"
 
+  # Licencias, avisos de RustSec, crates vetados y fuentes (deny.toml) de los
+  # tres manifiestos. Un aviso nuevo de RustSec puede ponerlo en rojo sin que
+  # cambie el código: la salida suele ser `cargo update -p <crate>`.
+  dependencias:
+    name: cargo deny (${{ matrix.manifiesto }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        manifiesto: [Cargo.toml, escritorio/Cargo.toml, instalador/Cargo.toml]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: ${{ matrix.manifiesto }}
+          arguments: --all-features --config deny.toml
+
   web:
     name: web (página del proyecto)
     runs-on: ubuntu-latest

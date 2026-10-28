@@ -855,11 +855,25 @@ publica en la Release:
 - `gachapon-instalar.exe`;
 - `SHA256SUMS`.
 
+Antes, un job compila y pasa las pruebas; si fallan, no se publica nada. Cada
+paquete lleva además una **atestación de procedencia** (SLSA, firmada con
+Sigstore por la identidad del workflow): `SHA256SUMS` solo dice que el fichero
+llegó entero, y viene del mismo sitio que el paquete; la atestación dice que lo
+compiló `release.yml` de este repo desde un commit concreto. Para comprobarla:
+
+```bash
+gh attestation verify gachapon-x86_64-unknown-linux-gnu.tar.gz --repo jesus13g/gachapon
+```
+
+El CI pasa además `cargo deny` (`deny.toml`: licencias permitidas, avisos de
+RustSec, fuentes) en los tres manifiestos.
+
 `pages.yml` copia `instalar.sh` e `instalar.ps1` a la web.
 
 **Límites:**
 
-- Los binarios no están firmados. SmartScreen avisa en Windows; en macOS, lo
+- Los binarios no están firmados con un certificado del sistema (solo llevan la
+  atestación de procedencia). SmartScreen avisa en Windows; en macOS, lo
   descargado con `curl` no lleva cuarentena.
 - En distribuciones con una glibc más antigua que la de Ubuntu 22.04, compila
   desde el clon.
