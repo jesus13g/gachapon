@@ -400,7 +400,7 @@ mod tests {
     }
 
     fn topes() -> Topes {
-        Topes { turnos: 7, tiempo_s: 300, llamadas_herramienta: 9, iteraciones: 2 }
+        Topes { turnos: 7, tiempo_s: 300, llamadas_herramienta: 9, iteraciones: 2, tiempo_criterio_s: 120 }
     }
 
     fn args(a: &dyn AgenteCli, sistema: &str, sandbox: bool) -> Vec<String> {

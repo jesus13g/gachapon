@@ -43,30 +43,41 @@ pub struct Topes {
     pub tiempo_s: u64,
     pub llamadas_herramienta: u32,
     pub iteraciones: u32,
+    /// Segundos que puede durar cada corrida del criterio de éxito. Una orden
+    /// sin él (las de antes) lleva el de por defecto.
+    pub tiempo_criterio_s: u64,
 }
 
 impl Default for Topes {
     fn default() -> Self {
-        Self { turnos: 30, tiempo_s: 900, llamadas_herramienta: 60, iteraciones: 5 }
+        Self { turnos: 30, tiempo_s: 900, llamadas_herramienta: 60, iteraciones: 5, tiempo_criterio_s: 120 }
     }
 }
 
 /// El techo de los ajustes (`agente.techo_topes`) como topes.
 impl From<&ea_ajustes::TechoTopes> for Topes {
     fn from(t: &ea_ajustes::TechoTopes) -> Self {
-        Self { turnos: t.turnos, tiempo_s: t.tiempo_s, llamadas_herramienta: t.llamadas_herramienta, iteraciones: t.iteraciones }
+        Self {
+            turnos: t.turnos,
+            tiempo_s: t.tiempo_s,
+            llamadas_herramienta: t.llamadas_herramienta,
+            iteraciones: t.iteraciones,
+            tiempo_criterio_s: t.tiempo_criterio_s,
+        }
     }
 }
 
 impl Topes {
     /// Recorta cada tope al del techo (el de los ajustes). Al menos una
-    /// iteración: una orden siempre llega a llamar al agente una vez.
+    /// iteración: una orden siempre llega a llamar al agente una vez; y al
+    /// menos un segundo de criterio.
     pub fn acotar(self, techo: &Topes) -> Topes {
         Topes {
             turnos: self.turnos.min(techo.turnos),
             tiempo_s: self.tiempo_s.min(techo.tiempo_s),
             llamadas_herramienta: self.llamadas_herramienta.min(techo.llamadas_herramienta),
             iteraciones: self.iteraciones.min(techo.iteraciones).max(1),
+            tiempo_criterio_s: self.tiempo_criterio_s.min(techo.tiempo_criterio_s).max(1),
         }
     }
 }
@@ -476,10 +487,24 @@ mod tests {
 
     #[test]
     fn acotar_recorta_cada_tope_al_techo() {
-        let pedidos = Topes { turnos: 500, tiempo_s: 9000, llamadas_herramienta: 20, iteraciones: 0 };
-        let techo = Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 200, iteraciones: 3 };
+        let pedidos = Topes { turnos: 500, tiempo_s: 9000, llamadas_herramienta: 20, iteraciones: 0, tiempo_criterio_s: 600 };
+        let techo = Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 200, iteraciones: 3, tiempo_criterio_s: 300 };
         let t = pedidos.acotar(&techo);
-        assert_eq!(t, Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 20, iteraciones: 1 });
+        assert_eq!(t, Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 20, iteraciones: 1, tiempo_criterio_s: 300 });
         assert_eq!(Topes::default().acotar(&Topes::default()), Topes::default());
+        assert_eq!(Topes { tiempo_criterio_s: 0, ..Topes::default() }.acotar(&techo).tiempo_criterio_s, 1);
+    }
+
+    /// U-09: el tope del criterio vale 120 s por defecto y una orden escrita
+    /// antes de existir (sin el campo) sigue valiendo, con ese valor.
+    #[test]
+    fn el_tope_del_criterio_es_120_s_y_las_ordenes_de_antes_siguen_valiendo() {
+        assert_eq!(Topes::default().tiempo_criterio_s, 120);
+        let t: Topes = serde_json::from_str(r#"{"turnos": 7, "tiempo_s": 60, "llamadas_herramienta": 9, "iteraciones": 2}"#).unwrap();
+        assert_eq!(t, Topes { turnos: 7, tiempo_s: 60, llamadas_herramienta: 9, iteraciones: 2, tiempo_criterio_s: 120 });
+        let t: Topes = serde_json::from_str(r#"{"tiempo_criterio_s": 30}"#).unwrap();
+        assert_eq!(t, Topes { tiempo_criterio_s: 30, ..Topes::default() });
+        let techo = Topes::from(&ea_ajustes::TECHO_DURO);
+        assert_eq!(techo.tiempo_criterio_s, ea_ajustes::TECHO_DURO.tiempo_criterio_s);
     }
 }

@@ -51,7 +51,8 @@
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 5
+    "iteraciones": 5,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -133,7 +134,8 @@ Usa cargo test.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 3
+    "iteraciones": 3,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -202,7 +204,8 @@ Usa cargo test.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 2
+    "iteraciones": 2,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -271,7 +274,8 @@ Usa cargo test.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 3
+    "iteraciones": 3,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -323,7 +327,8 @@ Usa cargo test.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 3
+    "iteraciones": 3,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -373,7 +378,8 @@ Usa cargo test.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 3
+    "iteraciones": 3,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -441,7 +447,8 @@ Usa cargo test.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 3
+    "iteraciones": 3,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -510,7 +517,8 @@ Usa cargo test.
     "turnos": 30,
     "tiempo_s": 1,
     "llamadas_herramienta": 60,
-    "iteraciones": 1
+    "iteraciones": 1,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -653,7 +661,8 @@ Usa cargo test.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 2
+    "iteraciones": 2,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [],
@@ -833,7 +842,8 @@ Prueba primero.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 2
+    "iteraciones": 2,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [],
@@ -993,7 +1003,8 @@ fd690d601e373b1dc8e7540839b9dc67fa38a38d
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 2
+    "iteraciones": 2,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [],
@@ -1076,7 +1087,8 @@ Prueba primero.
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 2
+    "iteraciones": 2,
+    "tiempo_criterio_s": 120
   },
   "rutina": {
     "slug": "fallida",
@@ -1195,7 +1207,8 @@ revisa la ruta
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 2
+    "iteraciones": 2,
+    "tiempo_criterio_s": 120
   },
   "rutina": {
     "slug": "buena",
@@ -1266,7 +1279,8 @@ revisa la ruta
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 1
+    "iteraciones": 1,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -1332,7 +1346,8 @@ revisa la ruta
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 1
+    "iteraciones": 1,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -1398,7 +1413,8 @@ revisa la ruta
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 1
+    "iteraciones": 1,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [
@@ -1445,7 +1461,8 @@ revisa la ruta
     "turnos": 30,
     "tiempo_s": 900,
     "llamadas_herramienta": 60,
-    "iteraciones": 1
+    "iteraciones": 1,
+    "tiempo_criterio_s": 120
   },
   "rutina": null,
   "notas_revision": [

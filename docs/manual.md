@@ -153,7 +153,7 @@ lo detiene de verdad: el ejecutor relee el estado antes de cada iteración y de
 cada fase y, mientras corren el agente o el criterio, lo sondea cada 2 s; los dos
 van en su propio grupo de procesos, que recibe `SIGTERM` y, a los 10 s, `SIGKILL`.
 Tras cancelar no se corre el criterio (si estaba corriendo, se corta en el
-siguiente sondeo, sin esperar a su tope de 120 s) ni hay informe: se suelta el
+siguiente sondeo, sin esperar a su tope, `topes.tiempo_criterio_s`) ni hay informe: se suelta el
 semáforo y el diario apunta `bus_cancelado_en_curso`. **Lo que el agente ya
 escribió en el worktree no se deshace.** Mientras el semáforo siga cogido, la web
 muestra el trabajo como «cancelando…» (`cancelando: true` en `GET /api/trabajos`).
@@ -223,7 +223,9 @@ del panel ni llega a D-Bus ni a `systemd --user`) y escribibles solo el worktree
 `ajustes.toml`, la base de datos, el bus ni `~/.bashrc`. La red no cambia: queda
 abierta, también en macOS (el perfil Seatbelt del criterio no lleva las reglas de
 red del agente). Lo lanza el sistema con `sh -c` en el worktree y un tope de
-120 s; con `sandbox = false` corre como el agente, con los permisos de tu
+`topes.tiempo_criterio_s` segundos por corrida (120 por defecto; al vencer se
+corta y la evidencia acaba en «(criterio interrumpido por tiempo: N s,
+topes.tiempo_criterio_s)»); con `sandbox = false` corre como el agente, con los permisos de tu
 usuario.
 
 Un criterio que escribía fuera del worktree falla ahora. Si necesita una caché
@@ -286,6 +288,7 @@ comentarios y claves ajenas).
 | `agente.techo_topes.tiempo_s` | 3600 | 60–3600 | | web solo baja; terminal | en caliente |
 | `agente.techo_topes.llamadas_herramienta` | 200 | 1–200 | | web solo baja; terminal | en caliente |
 | `agente.techo_topes.iteraciones` | 10 | 1–10 | | web solo baja; terminal | en caliente |
+| `agente.techo_topes.tiempo_criterio_s` | 3600 | 10–3600 | | web solo baja; terminal | en caliente |
 | `agente.skills.dir` | `<config>/qwen-skills` | ruta (`~`) | | solo terminal | en caliente |
 | `agente.skills.habilitadas` | `[]` (todas) | lista | | solo terminal | en caliente |
 | `agente.skills.max_por_trabajo` | 3 | 0–5 | | web solo baja; terminal | en caliente |
@@ -334,10 +337,12 @@ clic para confirmar) que pasa por `POST /api/ajustes` y deja `ajustes_cambiados`
 en el diario.
 
 **Techo de topes.** Los topes de cada orden (`turnos`, `tiempo_s`,
-`llamadas_herramienta`, `iteraciones`; por defecto 30/900/60/5) los pone quien la
-escribe. El ejecutor los recorta a `agente.techo_topes` antes de lanzar al agente
-(mínimo por campo, al menos una iteración) y lo deja en el log. El techo nunca
-pasa de 100/3600/200/10. Un `[topes]` en un `orquestador.toml` antiguo pasa a ser
+`llamadas_herramienta`, `iteraciones` y `tiempo_criterio_s`, los segundos de
+cada corrida del criterio; por defecto 30/900/60/5/120) los pone quien la
+escribe; una orden sin `tiempo_criterio_s` (las de antes) lleva 120. El
+ejecutor los recorta a `agente.techo_topes` antes de lanzar al agente (mínimo por
+campo, al menos una iteración y un segundo de criterio) y lo deja en el log. El
+techo nunca pasa de 100/3600/200/10/3600. Un `[topes]` en un `orquestador.toml` antiguo pasa a ser
 ese techo.
 
 **Quién cambia qué.** `ea ajustes establecer` exige una terminal interactiva real

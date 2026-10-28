@@ -657,3 +657,25 @@ fn las_rutas_escribibles_del_criterio_se_validan_y_solo_se_cambian_desde_la_term
     assert!(e.ajustes.agente.criterio.escribibles.is_empty());
     assert!(e.avisos.iter().any(|a| a.contains(k) && a.contains("no existe")), "{:?}", e.avisos);
 }
+
+/// U-09: el techo del tope del criterio es uno más de `agente.techo_topes`:
+/// 3600 s de fábrica, de 10 a 3600, solo baja desde la web y se hereda del
+/// `[topes]` de `orquestador.toml`.
+#[test]
+fn el_techo_del_criterio_es_un_techo_de_topes_mas() {
+    let (_d, f) = fuentes();
+    let k = "agente.techo_topes.tiempo_criterio_s";
+    assert_eq!(cargar_de(&f).ajustes.agente.techo_topes.tiempo_criterio_s, 3600);
+    let c = clave(k).unwrap();
+    assert!(c.endurecible && c.edicion == Edicion::Web);
+    assert!(interpretar(c, "9").is_err() && interpretar(c, "3601").is_err());
+    escribe(&f, "orquestador.toml", "[topes]\ntiempo_criterio_s = 300\n");
+    assert_eq!(cargar_de(&f).ajustes.agente.techo_topes.tiempo_criterio_s, 300);
+    let v = version(&f);
+    establecer(&f, Canal::Web, Some(&v), &cambio(k, json!(200))).unwrap();
+    let v = version(&f);
+    let r = establecer(&f, Canal::Web, Some(&v), &cambio(k, json!(250)));
+    assert!(matches!(r, Err(ErrorAjustes::SoloEndurecer { .. })), "{r:?}");
+    establecer(&f, Canal::Terminal, None, &cambio(k, json!(900))).unwrap();
+    assert_eq!(cargar_de(&f).ajustes.agente.techo_topes.tiempo_criterio_s, 900);
+}

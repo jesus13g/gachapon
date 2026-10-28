@@ -898,7 +898,8 @@
       "turnos": 30,
       "tiempo_s": 900,
       "llamadas_herramienta": 60,
-      "iteraciones": 5
+      "iteraciones": 5,
+      "tiempo_criterio_s": 120
     },
     "rutina": null,
     "notas_revision": [],

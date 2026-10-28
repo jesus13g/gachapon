@@ -7,7 +7,6 @@ use std::time::Duration;
 use super::avisar_sin_arbol;
 use crate::sandbox::Sandbox;
 
-const TIEMPO_CRITERIO_S: u64 = 120;
 const MAX_EVIDENCIA: usize = 2048;
 
 /// Últimos `MAX_EVIDENCIA` bytes (en límite de carácter): la cola de la salida
@@ -42,8 +41,8 @@ pub(super) fn recortar_resumen(s: &str) -> String {
     format!("{}…", &s[..corte(s, max)])
 }
 
-/// Corre el criterio de éxito con `sh -c` en `wt`, con un tope de
-/// `TIEMPO_CRITERIO_S` y cancelable: mientras corre se pregunta a `cancelado`
+/// Corre el criterio de éxito con `sh -c` en `wt`, con un tope de `tope`
+/// (`topes.tiempo_criterio_s` de la orden, ya recortado al techo) y cancelable: mientras corre se pregunta a `cancelado`
 /// y, si dice que sí, se mata su árbol y devuelve `None` (sin evidencia).
 /// Si no, `Some((pasa, evidencia))`.
 ///
@@ -63,6 +62,7 @@ pub fn correr_criterio(
     criterio: &str,
     escribibles: &[PathBuf],
     ejecucion: Option<&Path>,
+    tope: Duration,
     cancelado: &dyn Fn() -> bool,
 ) -> Option<(bool, String)> {
     let Some(mut c) = ea_plataforma::shell::orden_sh(&format!("exec 2>&1; {criterio}")) else {
@@ -80,14 +80,14 @@ pub fn correr_criterio(
         Err(motivo) => return Some((false, motivo)),
     };
     // La orden sale del envoltorio; su temporal (macOS) vive hasta el final.
-    let r = ea_plataforma::proceso::correr(envoltorio.orden, Duration::from_secs(TIEMPO_CRITERIO_S), cancelado);
+    let r = ea_plataforma::proceso::correr(envoltorio.orden, tope, cancelado);
     avisar_sin_arbol(&r);
     if r.cancelado {
         return None;
     }
     let mut texto = format!("{}{}", r.salida, r.errores);
     if r.codigo.is_none() {
-        texto.push_str("\n(criterio interrumpido por tiempo)");
+        texto.push_str(&format!("\n(criterio interrumpido por tiempo: {} s, topes.tiempo_criterio_s)", tope.as_secs()));
     }
     Some((r.codigo == Some(0), recortar(&texto)))
 }
@@ -117,7 +117,7 @@ mod tests {
     }
 
     /// B-10: cancelar mientras corre un criterio largo lo corta en el
-    /// siguiente sondeo (2 s), sin esperar a que acabe ni a su tope de 120 s,
+    /// siguiente sondeo (2 s), sin esperar a que acabe ni a su tope (120 s),
     /// y sigue el camino de la cancelación: sin informe y anotada una vez.
     #[test]
     fn cancelar_durante_un_criterio_largo_lo_corta() {
@@ -140,5 +140,27 @@ mod tests {
         assert!(!wt.path().join("acabo").exists());
         queda_cancelado_y_suelto(&bus, &id, wt.path());
         assert_eq!(cancelaciones_en_curso(e.path()).len(), 1);
+    }
+
+    /// U-09: el criterio se corta al vencer `topes.tiempo_criterio_s`, ya
+    /// recortado al techo de los ajustes (aquí la orden pide 600 s y el techo
+    /// deja 1), y la evidencia lo dice.
+    #[test]
+    fn un_criterio_que_supera_su_tope_se_corta() {
+        let wt = repo();
+        let e = tempfile::tempdir().unwrap();
+        let bus = con_store(e.path());
+        let mut o = orden(wt.path(), "sleep 30; touch acabo");
+        (o.topes.iteraciones, o.topes.tiempo_criterio_s) = (1, 600);
+        let id = bus.crear_trabajo(o).unwrap();
+        let mut cfg = config();
+        cfg.techo_topes.tiempo_criterio_s = 1;
+        let inicio = Instant::now();
+        ejecutar_uno(&bus, &cfg, &doble("true", 0));
+        assert!(inicio.elapsed() < Duration::from_secs(15), "tardó {:?}", inicio.elapsed());
+        let inf = bus.leer_informe(&id).unwrap().unwrap();
+        assert_eq!(inf.resultado, ea_bus::ResultadoInforme::Bloqueado);
+        assert!(inf.evidencia.contains("(criterio interrumpido por tiempo: 1 s, topes.tiempo_criterio_s)"), "{}", inf.evidencia);
+        assert!(!wt.path().join("acabo").exists());
     }
 }

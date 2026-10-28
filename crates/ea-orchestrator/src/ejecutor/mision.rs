@@ -79,7 +79,8 @@ pub(super) fn bucle(ctx: &Contexto, titulo: &str, cuerpo: &str, criterio: &str, 
         if salida.cancelado || cortar() {
             return None;
         }
-        let (pasa, ev) = correr_criterio(&sandbox, wt, criterio, &config.criterio_escribibles, ejecucion.as_deref(), &cortar)?;
+        let tope = std::time::Duration::from_secs(orden.topes.tiempo_criterio_s);
+        let (pasa, ev) = correr_criterio(&sandbox, wt, criterio, &config.criterio_escribibles, ejecucion.as_deref(), tope, &cortar)?;
         let mut evidencia = ev.clone();
         if !salida.resumen.is_empty() {
             evidencia = recortar_resumen(&format!("{ev}\n--- resumen del agente ---\n{}", salida.resumen.trim()));

@@ -165,10 +165,13 @@ pub struct TechoTopes {
     pub tiempo_s: u64,
     pub llamadas_herramienta: u32,
     pub iteraciones: u32,
+    /// Segundos de cada corrida del criterio de éxito.
+    pub tiempo_criterio_s: u64,
 }
 
 /// Lo máximo que puede valer el techo, también desde la terminal.
-pub const TECHO_DURO: TechoTopes = TechoTopes { turnos: 100, tiempo_s: 3600, llamadas_herramienta: 200, iteraciones: 10 };
+pub const TECHO_DURO: TechoTopes =
+    TechoTopes { turnos: 100, tiempo_s: 3600, llamadas_herramienta: 200, iteraciones: 10, tiempo_criterio_s: 3600 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Skills {

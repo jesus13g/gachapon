@@ -64,10 +64,10 @@ mod tests {
         let wt = repo();
         let e = tempfile::tempdir().unwrap();
         let bus = Bus::abrir_en(e.path()).unwrap();
-        let topes = Topes { turnos: 500, tiempo_s: 9000, llamadas_herramienta: 20, iteraciones: 5 };
+        let topes = Topes { turnos: 500, tiempo_s: 9000, llamadas_herramienta: 20, iteraciones: 5, tiempo_criterio_s: 900 };
         bus.crear_trabajo(Orden { topes, ..orden(wt.path(), "false") }).unwrap();
         let cfg = ConfigOrquestador {
-            techo_topes: Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 200, iteraciones: 1 },
+            techo_topes: Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 200, iteraciones: 1, tiempo_criterio_s: 60 },
             ..config()
         };
         let ag = doble("true", 0);
@@ -75,7 +75,7 @@ mod tests {
         let vistos = ag.topes.lock().unwrap();
         // techo de iteraciones 1: una sola llamada aunque el criterio falle
         assert_eq!(vistos.len(), 1);
-        assert_eq!(vistos[0], Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 20, iteraciones: 1 });
+        assert_eq!(vistos[0], Topes { turnos: 10, tiempo_s: 120, llamadas_herramienta: 20, iteraciones: 1, tiempo_criterio_s: 60 });
     }
 
     /// Una orden ilegible se descarta en el reclamo: ni semáforo, ni

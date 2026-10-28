@@ -22,6 +22,8 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 const LIMITE: Duration = Duration::from_secs(20);
+/// El tope de los criterios que se corren aquí a mano (el de por defecto).
+const TOPE_CRITERIO: Duration = Duration::from_secs(120);
 
 fn esperar_que(mut cond: impl FnMut() -> bool, que: &str) {
     let fin = Instant::now() + LIMITE;
@@ -503,7 +505,7 @@ fn el_criterio_del_ejecutor_en_bwrap_no_lee_la_clave_del_panel_y_escribe_en_el_w
     let clave = ea_ajustes::fichero_clave_web(&ejecucion);
     std::fs::create_dir_all(clave.parent().unwrap()).unwrap();
     std::fs::write(&clave, "secreto").unwrap();
-    let criterio = |sandbox: &Sandbox, guion: &str| correr_criterio(sandbox, &r, guion, &[], Some(&ejecucion), &|| false).unwrap();
+    let criterio = |sandbox: &Sandbox, guion: &str| correr_criterio(sandbox, &r, guion, &[], Some(&ejecucion), TOPE_CRITERIO, &|| false).unwrap();
     let leer = format!("cat '{}'", clave.display());
     // Sin sandbox, tal cual: se lee.
     assert_eq!(criterio(&Sandbox::Ninguno, &leer), (true, "secreto".to_string()));
@@ -541,7 +543,7 @@ fn el_criterio_en_bwrap_solo_escribe_en_el_worktree_su_tmp_y_sus_rutas() {
     let ajustes = config.join("ajustes.toml");
     std::fs::write(&ajustes, "[agente]\nsandbox = true\n").unwrap();
     let git_config = std::fs::read_to_string(r.join(".git/config")).unwrap();
-    let criterio = |guion: &str, escribibles: &[PathBuf]| correr_criterio(&Sandbox::Bwrap, &r, guion, escribibles, None, &|| false).unwrap();
+    let criterio = |guion: &str, escribibles: &[PathBuf]| correr_criterio(&Sandbox::Bwrap, &r, guion, escribibles, None, TOPE_CRITERIO, &|| false).unwrap();
 
     let (pasa, evidencia) = criterio("echo ok", &[]);
     if !pasa && evidencia.contains("namespace") {
@@ -575,7 +577,7 @@ fn el_criterio_en_bwrap_solo_escribe_en_el_worktree_su_tmp_y_sus_rutas() {
     let (pasa, evidencia) = criterio("touch corrio", std::slice::from_ref(&ida));
     assert!(!pasa && evidencia.contains("ya no existe o ha cambiado") && !r.join("corrio").exists(), "{evidencia}");
     // Sin sandbox, como antes: escribe donde el usuario.
-    let (pasa, evidencia) = correr_criterio(&Sandbox::Ninguno, &r, &format!("touch '{}/.bashrc'", casa.display()), &[ida], None, &|| false).unwrap();
+    let (pasa, evidencia) = correr_criterio(&Sandbox::Ninguno, &r, &format!("touch '{}/.bashrc'", casa.display()), &[ida], None, TOPE_CRITERIO, &|| false).unwrap();
     assert!(pasa && casa.join(".bashrc").exists(), "{evidencia}");
 }
 
