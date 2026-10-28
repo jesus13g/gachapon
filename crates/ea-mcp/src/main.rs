@@ -28,6 +28,9 @@ async fn main() -> anyhow::Result<()> {
     let store = Store::open_at(&efectivos.ajustes.rutas.db).context("no se pudo abrir la base de datos")?;
     let store = Arc::new(Mutex::new(store));
 
+    // La señal de parada, antes de escuchar: un SIGTERM que llega en cuanto
+    // el puerto acepta ya encuentra el manejador.
+    let parada = ea_plataforma::parada::esperar_parada();
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
@@ -70,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
     // sesiones abiertas (sus flujos SSE no acabarían solos) y sale con 0.
     axum::serve(listener, router)
         .with_graceful_shutdown(async move {
-            ea_plataforma::parada::esperar_parada().await;
+            parada.await;
             cancel.cancel();
         })
         .await?;

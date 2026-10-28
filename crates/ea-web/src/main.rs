@@ -22,6 +22,9 @@ async fn main() -> anyhow::Result<()> {
     let estado = AppState::new(store, config).context("no se pudo preparar el panel")?;
     let estado = Arc::new(estado);
     let router = ea_web::http::router(estado.clone());
+    // La señal de parada, antes de escuchar: un SIGTERM temprano también
+    // pasa por el cierre limpio (y retira la clave).
+    let parada = ea_plataforma::parada::esperar_parada();
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
@@ -46,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(%bind_addr, clave = ?fichero_clave, "ea-web arrancado");
 
     axum::serve(listener, router)
-        .with_graceful_shutdown(ea_plataforma::parada::esperar_parada())
+        .with_graceful_shutdown(parada)
         .await?;
 
     if let Some(f) = fichero_clave {
