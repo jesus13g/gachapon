@@ -25,7 +25,7 @@ pub mod servicios;
 pub mod terminal;
 pub mod trabajos;
 
-const ACTOR: &str = "usuario";
+const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
 pub type Resultado<T> = Result<T, ErrorWeb>;
 
@@ -101,18 +101,20 @@ impl From<ErrorBus> for ErrorWeb {
     }
 }
 
-/// Directo, sin pasar por `ErrorAccion`: la bóveda distingue lo que no
-/// existe (404) de lo que choca con lo que hay (409).
+/// Con la clasificación de `ErrorAccion` (la única tabla) y el mensaje de la
+/// bóveda tal cual. Lo único que se afina: lo que no existe es 404, no el
+/// 409 de lo que choca con lo que hay.
 impl From<ea_boveda::ErrorBoveda> for ErrorWeb {
     fn from(e: ea_boveda::ErrorBoveda) -> Self {
-        use ea_boveda::ErrorBoveda as B;
         let m = e.to_string();
-        match e {
-            B::NoExiste(_) => Self::NoEncontrado(m),
-            B::YaExiste(_) | B::Cambio(_) | B::Ocupada => Self::Conflicto(m),
-            B::Ruta(_) | B::Argumentos(_) | B::Cabecera(_) => Self::Invalido(m),
-            B::Prohibida(_) | B::FueraDeLaBoveda(_) => Self::Prohibido(m),
-            B::Store(_) | B::Io(_) | B::EventoPerdido(..) => Self::Interno(m),
+        if matches!(e, ea_boveda::ErrorBoveda::NoExiste(_)) {
+            return Self::NoEncontrado(m);
+        }
+        match ErrorAccion::from(e) {
+            ErrorAccion::Argumentos(_) => Self::Invalido(m),
+            ErrorAccion::NoAplica(_) => Self::Conflicto(m),
+            ErrorAccion::Prohibida(_) => Self::Prohibido(m),
+            _ => Self::Interno(m),
         }
     }
 }
@@ -173,4 +175,36 @@ fn texto_no_vacio(valor: &str, campo: &str, max: usize) -> Resultado<String> {
         return Err(ErrorWeb::Invalido(format!("'{campo}' supera {max} caracteres")));
     }
     Ok(v.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ea_boveda::ErrorBoveda as B;
+
+    /// Cada error de la bóveda llega con su mensaje y el código de siempre:
+    /// 404 lo que no existe, 409 lo que choca, 400 la entrada, 403 lo prohibido.
+    #[test]
+    fn los_errores_de_la_boveda_conservan_codigo_y_mensaje() {
+        let casos: Vec<(B, &str)> = vec![
+            (B::NoExiste("n".into()), "NoEncontrado"),
+            (B::YaExiste("n".into()), "Conflicto"),
+            (B::Cambio("n".into()), "Conflicto"),
+            (B::Ocupada, "Conflicto"),
+            (B::Ruta("n".into()), "Invalido"),
+            (B::Argumentos("n".into()), "Invalido"),
+            (B::Cabecera("n".into()), "Invalido"),
+            (B::Prohibida("n".into()), "Prohibido"),
+            (B::FueraDeLaBoveda("n".into()), "Prohibido"),
+            (B::Store(StoreError::PropuestaNotFound(1)), "Interno"),
+            (B::Io("n".into()), "Interno"),
+            (B::EventoPerdido("n".into(), "m".into()), "Interno"),
+        ];
+        for (e, clase) in casos {
+            let texto = e.to_string();
+            let w = ErrorWeb::from(e);
+            assert_eq!(format!("{w:?}").split('(').next().unwrap(), clase, "{texto}");
+            assert_eq!(w.to_string(), texto);
+        }
+    }
 }

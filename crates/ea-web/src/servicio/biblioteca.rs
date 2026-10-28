@@ -12,16 +12,13 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ea_acciones::{Canal, SistemaReal};
+use ea_acciones::SistemaReal;
 use ea_biblioteca::uso::{calcular_uso, FuentesUso, InformeUso, Uso};
-use ea_biblioteca::{
-    Activado, Ambito, Biblioteca, Contexto, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo, AGENTES_CON_SESION,
-    AGENTE_ECOSISTEMA,
-};
+use ea_biblioteca::{Activado, Biblioteca, Contexto, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo, AGENTES_CON_SESION};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{ErrorWeb, Resultado, ACTOR};
+use super::{ErrorWeb, Resultado};
 use crate::vistas::{ResultadoAccion, Simulacion};
 use crate::AppState;
 
@@ -121,21 +118,6 @@ async fn inventario(s: &AppState) -> Resultado<Inventario> {
     .map_err(|e| ErrorWeb::Interno(format!("la lectura de la biblioteca falló: {e}")))
 }
 
-/// ¿Tiene sentido el elemento en una sesión de `agente`? (la misma regla que
-/// `ea-biblioteca::sesion`, para no ofrecer lo que el plan va a rechazar).
-fn compatible(agente: &str, e: &Elemento) -> bool {
-    let propio = e.agente == agente || e.agente == AGENTE_ECOSISTEMA;
-    if !propio && e.tipo != Tipo::Mcp {
-        return false;
-    }
-    let tipos: &[Tipo] = match agente {
-        "claude-code" => &[Tipo::Mcp, Tipo::Plugin, Tipo::Skill, Tipo::Subagente, Tipo::Comando],
-        "qwen-code" => &[Tipo::Mcp, Tipo::Extension],
-        _ => &[Tipo::Mcp],
-    };
-    tipos.contains(&e.tipo) && (e.tipo == Tipo::Mcp || !matches!(e.ambito, Ambito::Plugin(_)))
-}
-
 fn cambio_posible(e: &Elemento) -> CambioPosible {
     let no = |m: &str| CambioPosible { posible: false, motivo: Some(m.to_string()) };
     match e.mecanismo {
@@ -152,7 +134,7 @@ fn cambio_posible(e: &Elemento) -> CambioPosible {
 fn vista(e: &Elemento) -> ElementoVista {
     ElementoVista {
         cambio: cambio_posible(e),
-        sesion: AGENTES_CON_SESION.iter().copied().filter(|a| compatible(a, e)).collect(),
+        sesion: AGENTES_CON_SESION.iter().copied().filter(|a| ea_biblioteca::sesion::admite(a, e).is_ok()).collect(),
         elemento: e.clone(),
     }
 }
@@ -237,18 +219,7 @@ fn comprobar(s: &AppState, herramienta: &str, argumentos: &Value) -> Resultado<(
 /// de una sesión lleva el comando sin secretos).
 pub async fn simular(s: &AppState, herramienta: &str, argumentos: &Value) -> Resultado<Simulacion> {
     comprobar(s, herramienta, argumentos)?;
-    let sis = sistema_biblioteca(s);
-    let hechos = ea_acciones::observar(&sis, herramienta, argumentos).await?;
-    let store = s.store.lock().await;
-    let sim = ea_acciones::simular_con(&store, &sis, &hechos, herramienta, argumentos)?;
-    Ok(Simulacion {
-        herramienta: sim.herramienta,
-        riesgo: sim.riesgo.as_str(),
-        argumentos: sim.argumentos,
-        texto: sim.texto,
-        precondicion: sim.precondicion,
-        confirmable: ea_acciones::puede_confirmar(Canal::Web, sim.riesgo).is_ok(),
-    })
+    super::acciones::simular_en(s, &sistema_biblioteca(s), herramienta, argumentos).await
 }
 
 /// Ejecuta lo simulado: el gesto del usuario es la confirmación; la
@@ -261,9 +232,7 @@ pub async fn ejecutar(
     precondicion: &Value,
 ) -> Resultado<ResultadoAccion> {
     comprobar(s, herramienta, argumentos)?;
-    let sis = sistema_biblioteca(s);
-    let mut store = s.acciones.lock().await;
-    let r = ea_acciones::ejecutar(&mut store, &sis, ACTOR, Canal::Web, herramienta, argumentos, precondicion, None).await?;
+    let r = super::acciones::ejecutar_en(s, &sistema_biblioteca(s), herramienta, argumentos, precondicion).await?;
     *s.biblioteca_uso.lock().await = None;
-    Ok(ResultadoAccion { texto: r.texto, trabajo: r.trabajo, datos: r.datos, evento: r.evento })
+    Ok(r)
 }

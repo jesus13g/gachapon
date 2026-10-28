@@ -25,7 +25,9 @@ pub struct TerminalAbierta {
     pub comando: String,
 }
 
-/// Uno de los tres comandos permitidos, ya validado.
+/// Uno de los comandos permitidos, ya validado contra su forma y, una
+/// herramienta, contra el catálogo (una propuesta se mira además contra el
+/// estado al abrir, [`validar_propuesta`]).
 #[derive(Debug, PartialEq)]
 enum Orden {
     Propuesta(i64),
@@ -84,39 +86,30 @@ fn invalido(m: impl Into<String>) -> ErrorWeb {
     ErrorWeb::Invalido(m.into())
 }
 
-/// Lo que pide el cuerpo, sin validar todavía contra el estado.
-#[derive(Debug, PartialEq)]
-enum Pedido {
-    Propuesta(i64),
-    Servicios(&'static str),
-    Herramienta(String, Value),
-    VaciarPapeleraBoveda,
-}
-
 /// El cuerpo es `{propuesta: <id>}`, `{servicios: "instalar"|"desinstalar"}`,
 /// `{herramienta, argumentos}` o `{boveda: "vaciar-papelera"}`, nada más: ni
 /// comandos ni texto libre.
-fn leer_cuerpo(cuerpo: &Value) -> Resultado<Pedido> {
+fn leer_cuerpo(cuerpo: &Value) -> Resultado<Orden> {
     let obj = cuerpo
         .as_object()
         .ok_or_else(|| invalido("se espera {propuesta}, {servicios}, {herramienta, argumentos} o {boveda}"))?;
     let claves: Vec<&str> = obj.keys().map(String::as_str).collect();
     match claves.as_slice() {
-        ["boveda"] if obj["boveda"] == "vaciar-papelera" => Ok(Pedido::VaciarPapeleraBoveda),
+        ["boveda"] if obj["boveda"] == "vaciar-papelera" => Ok(Orden::VaciarPapeleraBoveda),
         ["boveda"] => Err(invalido("de la bóveda solo se abre en la terminal {\"boveda\": \"vaciar-papelera\"}")),
         ["propuesta"] => obj["propuesta"]
             .as_i64()
             .filter(|&id| id > 0)
-            .map(Pedido::Propuesta)
+            .map(Orden::Propuesta)
             .ok_or_else(|| invalido("'propuesta' debe ser el número de una propuesta")),
         ["servicios"] => match obj["servicios"].as_str() {
-            Some("instalar") => Ok(Pedido::Servicios("instalar")),
-            Some("desinstalar") => Ok(Pedido::Servicios("desinstalar")),
+            Some("instalar") => Ok(Orden::Servicios("instalar")),
+            Some("desinstalar") => Ok(Orden::Servicios("desinstalar")),
             _ => Err(invalido("'servicios' debe ser «instalar» o «desinstalar»")),
         },
         ["argumentos", "herramienta"] | ["herramienta", "argumentos"] => {
             let h = obj["herramienta"].as_str().ok_or_else(|| invalido("'herramienta' debe ser un nombre del catálogo"))?;
-            Ok(Pedido::Herramienta(h.to_string(), obj["argumentos"].clone()))
+            validar_herramienta(h, obj["argumentos"].clone())
         }
         _ => Err(invalido("solo se abre en la terminal {propuesta}, {servicios}, {herramienta, argumentos} o {boveda}")),
     }
@@ -146,14 +139,14 @@ fn validar_herramienta(nombre: &str, argumentos: Value) -> Resultado<Orden> {
 
 /// Una propuesta pendiente con una acción irreversible (las demás se
 /// deciden desde la web).
-async fn validar_propuesta(s: &AppState, id: i64) -> Resultado<Orden> {
+async fn validar_propuesta(s: &AppState, id: i64) -> Resultado<()> {
     let p = s.store.lock().await.get_propuesta(id)?;
     if p.estado != EstadoPropuesta::Pendiente {
         return Err(ErrorWeb::Conflicto(format!("la propuesta #{id} ya está decidida")));
     }
     let riesgo = p.accion.as_ref().and_then(|a| Riesgo::parse(&a.riesgo));
     match riesgo {
-        Some(r) if ea_acciones::puede_confirmar(Canal::Web, r).is_err() => Ok(Orden::Propuesta(id)),
+        Some(r) if ea_acciones::puede_confirmar(Canal::Web, r).is_err() => Ok(()),
         _ => Err(invalido(format!("la propuesta #{id} se decide desde la web; la terminal es para lo irreversible"))),
     }
 }
@@ -176,12 +169,10 @@ pub fn lanzar_argv(s: &AppState, args: &[String]) -> Resultado<()> {
 /// Abre una terminal con el comando que confirma en ella. Queda en el
 /// diario como `accion_terminal_abierta` (abrir no decide nada).
 pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
-    let orden = match leer_cuerpo(cuerpo)? {
-        Pedido::Propuesta(id) => validar_propuesta(s, id).await?,
-        Pedido::Servicios(accion) => Orden::Servicios(accion),
-        Pedido::Herramienta(h, args) => validar_herramienta(&h, args)?,
-        Pedido::VaciarPapeleraBoveda => Orden::VaciarPapeleraBoveda,
-    };
+    let orden = leer_cuerpo(cuerpo)?;
+    if let Orden::Propuesta(id) = orden {
+        validar_propuesta(s, id).await?;
+    }
     lanzar_argv(s, &orden.argv())?;
     let evento = NewEvent {
         actor: ACTOR.into(),
@@ -217,12 +208,12 @@ mod tests {
         assert!(leer_cuerpo(&json!("ea propuestas decidir 1")).is_err());
         assert!(leer_cuerpo(&json!({ "propuesta": "1; rm" })).is_err());
         assert!(leer_cuerpo(&json!({ "propuesta": 1, "confirmo": "1" })).is_err());
-        assert_eq!(leer_cuerpo(&json!({ "propuesta": 3 })).unwrap(), Pedido::Propuesta(3));
-        assert_eq!(leer_cuerpo(&json!({ "servicios": "instalar" })).unwrap(), Pedido::Servicios("instalar"));
+        assert_eq!(leer_cuerpo(&json!({ "propuesta": 3 })).unwrap(), Orden::Propuesta(3));
+        assert_eq!(leer_cuerpo(&json!({ "servicios": "instalar" })).unwrap(), Orden::Servicios("instalar"));
         for malo in [json!({ "servicios": "reiniciar" }), json!({ "servicios": 1 }), json!({ "servicios": "instalar", "x": 1 }), json!({ "servicios": "instalar; rm" })] {
             assert!(leer_cuerpo(&malo).is_err(), "{malo}");
         }
-        assert_eq!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera" })).unwrap(), Pedido::VaciarPapeleraBoveda);
+        assert_eq!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera" })).unwrap(), Orden::VaciarPapeleraBoveda);
         assert!(leer_cuerpo(&json!({ "boveda": "rm -rf" })).is_err());
         assert!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera", "confirmo": "x" })).is_err());
         let v = Orden::VaciarPapeleraBoveda;
@@ -233,5 +224,9 @@ mod tests {
         assert!(validar_herramienta("ea_encolar_rutina", json!({ "slug": "x" })).is_err(), "reversible: desde la web");
         assert!(validar_herramienta("ea_leer_nota", json!({})).is_err());
         assert!(validar_herramienta("ea_eliminar_rutina", json!({ "slug": "x" })).is_ok());
+        // El cuerpo de una herramienta sale ya validado contra el catálogo.
+        let h = leer_cuerpo(&json!({ "herramienta": "ea_eliminar_rutina", "argumentos": { "slug": "x" } })).unwrap();
+        assert_eq!(h, Orden::Herramienta { nombre: "ea_eliminar_rutina", argumentos: json!({ "slug": "x" }) });
+        assert!(leer_cuerpo(&json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "x" } })).is_err());
     }
 }

@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 pub const CLAVE_AL_INICIAR: &str = "escritorio.al_iniciar";
 
 /// Quien cambia los ajustes desde cualquier canal: el usuario.
-const ACTOR: &str = "usuario";
+const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
 /// Lo que deja un cambio ya escrito.
 #[derive(Debug)]

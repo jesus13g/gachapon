@@ -6,7 +6,7 @@ use ea_store::{EventOutcome, NewEvent, Store};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Actor que este proceso escribe en el diario.
-const ACTOR: &str = "orquestador";
+const ACTOR: &str = ea_ajustes::ACTOR_ORQUESTADOR;
 
 /// Bus con historial en SQLite (si la base no abre, sigue solo con ficheros).
 fn abrir_bus() -> anyhow::Result<Bus> {

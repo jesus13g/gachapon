@@ -4,6 +4,8 @@
 
 use std::io::IsTerminal;
 
+use ea_ajustes::Rol;
+
 use crate::error::ErrorAccion;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,9 +325,11 @@ pub fn puede_confirmar(canal: Canal, riesgo: Riesgo) -> Result<(), ErrorAccion> 
 /// - Cualquier otro (`orquestador`, lo desatendido, §11.2; un cliente
 ///   desconocido; un agente que no ocupa ningún rol): solo lectura.
 pub fn autorizar_mcp(actor: &str, h: &Herramienta) -> Result<(), String> {
+    const PLANIFICADOR: &str = Rol::Planificador.as_str();
+    const EJECUTOR: &str = Rol::Ejecutor.as_str();
     let permitido = match actor {
-        "claude-code" => true,
-        "modelo-local" => h.local && h.riesgo != Riesgo::Irreversible,
+        PLANIFICADOR => true,
+        EJECUTOR => h.local && h.riesgo != Riesgo::Irreversible,
         _ => h.riesgo == Riesgo::Lectura,
     };
     if permitido {

@@ -194,10 +194,12 @@ pub(crate) fn entrada_de(ruta: &str, texto: &str, meta: &fs::Metadata) -> (Entra
     (entrada, cuerpo.to_string())
 }
 
-/// Solo el usuario (sus interfaces) hace ciertas operaciones: promover y
-/// editar la bóveda a mano. Un agente, el orquestador o nadie, no.
+/// Solo el usuario (sus interfaces, que firman como
+/// [`ea_ajustes::ACTOR_USUARIO`]) hace ciertas operaciones: promover y editar
+/// la bóveda a mano. Es una lista blanca: un agente, el orquestador, un actor
+/// que no se conoce o nadie, no.
 pub(crate) fn exigir_usuario(quien: &str, que: &str) -> Resultado<()> {
-    if region_de_agente(quien).is_some() || quien == "orquestador" || quien.trim().is_empty() {
+    if quien != ea_ajustes::ACTOR_USUARIO {
         return Err(ErrorBoveda::Prohibida(format!("'{quien}' no puede {que}")));
     }
     Ok(())
@@ -792,5 +794,24 @@ impl Boveda {
         self.sincronizar(store, false)?;
         let n = pedido.unwrap_or(lim.max_resultados).clamp(1, lim.max_resultados);
         Ok(store.boveda_recientes(region, n as i64)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Solo `usuario`, el actor con que firman la CLI y la web, hace lo que
+    /// es del usuario. Ningún otro actor del sistema pasa: los de los roles,
+    /// el orquestador, los del MCP sin rol o desconocido, el bus de `ea
+    /// trabajo` (`ea-cli`) ni la cadena vacía.
+    #[test]
+    fn exigir_usuario_es_una_lista_blanca() {
+        assert!(exigir_usuario("usuario", "x").is_ok());
+        for quien in
+            ["modelo-local", "claude-code", "orquestador", "sin-rol", "desconocido", "ea-cli", "", " ", "Usuario", " usuario", "planificador", "ejecutor"]
+        {
+            assert!(matches!(exigir_usuario(quien, "x"), Err(ErrorBoveda::Prohibida(_))), "{quien:?}");
+        }
     }
 }

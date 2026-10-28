@@ -102,7 +102,7 @@ impl Bus {
         for d in ["trabajos", "semaforos", "equipos", "colas/agentes", "colas/revision"] {
             fs::create_dir_all(raiz.join(d))?;
         }
-        Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: "orquestador".into(), skills: None })
+        Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: ea_ajustes::ACTOR_ORQUESTADOR.into(), skills: None })
     }
 
     /// Con historial y diario en SQLite.

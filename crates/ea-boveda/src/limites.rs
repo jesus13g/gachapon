@@ -25,7 +25,7 @@ impl Limites {
 
     /// Las cotas del actor: el modelo local las estrechas; los demás, las amplias.
     pub fn para_actor(actor: &str) -> Limites {
-        if actor == "modelo-local" { Self::LOCAL } else { Self::AMPLIOS }
+        if actor == ea_ajustes::Rol::Ejecutor.as_str() { Self::LOCAL } else { Self::AMPLIOS }
     }
 }
 

@@ -424,7 +424,10 @@ fn texto_mcp(agente: &str, entradas: &[(String, Mcp, bool)]) -> String {
 
 // -------------------------------------------------------------- Plan
 
-fn admite(agente: &str, e: &Elemento) -> Result<(), ErrorBiblioteca> {
+/// Si el elemento tiene sentido en una sesión de `agente`, y si no, por qué.
+/// Es la regla del plan y la que usa el panel para no ofrecer lo que el plan
+/// va a rechazar.
+pub fn admite(agente: &str, e: &Elemento) -> Result<(), ErrorBiblioteca> {
     let propio = e.agente == agente || e.agente == AGENTE_ECOSISTEMA;
     if !propio && e.tipo != Tipo::Mcp {
         return mal(format!("{}: es de {} y no tiene sentido en una sesión de {agente}", e.id, e.agente));

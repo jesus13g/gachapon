@@ -39,10 +39,9 @@ pub struct Llamante {
     pub cliente: Option<String>,
 }
 
-/// Actor de un agente del catálogo que no ocupa ningún rol: solo lee.
-pub const ACTOR_SIN_ROL: &str = "sin-rol";
-/// Actor de un cliente que no es ningún agente del catálogo: solo lee.
-pub const ACTOR_DESCONOCIDO: &str = "desconocido";
+/// Los actores de un agente del catálogo que no ocupa ningún rol y de un
+/// cliente que no es ningún agente: solo leen.
+pub use ea_ajustes::{ACTOR_DESCONOCIDO, ACTOR_SIN_ROL};
 
 /// El actor de un cliente según el catálogo y los roles vigentes (spec 017,
 /// RF-013). Un agente actúa con el nombre en disco del rol que ocupa
@@ -53,7 +52,7 @@ pub const ACTOR_DESCONOCIDO: &str = "desconocido";
 pub fn actor_for(cliente: Option<&str>, ajustes: &ea_ajustes::Ajustes) -> Llamante {
     let cliente_s = cliente.map(str::to_string);
     if cliente == Some("ea-orchestrator") {
-        return Llamante { actor: "orquestador", agente: None, cliente: cliente_s };
+        return Llamante { actor: ea_ajustes::ACTOR_ORQUESTADOR, agente: None, cliente: cliente_s };
     }
     match cliente.and_then(ea_ajustes::por_cliente_mcp) {
         Some(f) => {
@@ -624,7 +623,7 @@ impl EaTools {
             let raices = self.raices.clone().unwrap_or_else(ea_biblioteca::Raices::desde_entorno);
             let ajustes = ea_ajustes::cargar_de(&self.ajustes).ajustes;
             // Leer el disco y la base del diario no es asunto del ejecutor async.
-            let cotas = if quien.actor == "modelo-local" { COTAS_BIBLIOTECA_LOCAL } else { COTAS_BIBLIOTECA };
+            let cotas = if quien.actor == ea_ajustes::Rol::Ejecutor.as_str() { COTAS_BIBLIOTECA_LOCAL } else { COTAS_BIBLIOTECA };
             tokio::task::spawn_blocking(move || biblioteca_json(&args, &raices, &ajustes, cotas))
                 .await
                 .map_err(|e| e.to_string())?
@@ -1147,5 +1146,23 @@ mod tests {
         assert_eq!(actor(Some("claude-code"), &a).actor, ACTOR_SIN_ROL);
         a.roles.planificador = "antigravity".into();
         assert_eq!(actor(Some("antigravity-client"), &a), Llamante { actor: "claude-code", agente: Some("antigravity"), cliente: Some("antigravity-client".into()) });
+    }
+
+    /// Ningún cliente MCP, se presente como se presente y ocupe el rol que
+    /// ocupe, actúa como `usuario` (el único que edita la bóveda a mano y
+    /// acepta propuestas).
+    #[test]
+    fn ningun_cliente_mcp_actua_como_usuario() {
+        let mut a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(std::path::Path::new("/nada")));
+        let clientes = [
+            None, Some("usuario"), Some("ea-cli"), Some("ea-web"), Some("ea-orchestrator"), Some("claude-code"), Some("qwen-code-mcp-client"),
+            Some("codex-mcp-client"), Some("opencode"), Some("antigravity-client"), Some("gemini-cli-mcp-client"), Some("lo-que-sea"), Some(""),
+        ];
+        for (planificador, ejecutor) in [("claude-code", "qwen-code"), ("opencode", "codex"), ("antigravity", "opencode")] {
+            (a.roles.planificador, a.roles.ejecutor) = (planificador.into(), ejecutor.into());
+            for c in clientes {
+                assert_ne!(actor_for(c, &a).actor, ea_ajustes::ACTOR_USUARIO, "{c:?} con {planificador}/{ejecutor}");
+            }
+        }
     }
 }

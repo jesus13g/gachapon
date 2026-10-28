@@ -450,6 +450,21 @@ pub struct Simulacion {
     pub confirmable: bool,
 }
 
+/// La simulación tal como la ve la web: `confirmable` si se puede confirmar
+/// desde aquí (lo irreversible, no).
+impl From<ea_acciones::Simulacion> for Simulacion {
+    fn from(sim: ea_acciones::Simulacion) -> Self {
+        Simulacion {
+            herramienta: sim.herramienta,
+            riesgo: sim.riesgo.as_str(),
+            argumentos: sim.argumentos,
+            texto: sim.texto,
+            precondicion: sim.precondicion,
+            confirmable: ea_acciones::puede_confirmar(ea_acciones::Canal::Web, sim.riesgo).is_ok(),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct ResultadoAccion {
     pub texto: String,
@@ -457,6 +472,12 @@ pub struct ResultadoAccion {
     pub datos: Value,
     /// El evento `accion_ejecutada` del diario (para «≡ en el diario»).
     pub evento: Option<i64>,
+}
+
+impl From<ea_acciones::Resultado> for ResultadoAccion {
+    fn from(r: ea_acciones::Resultado) -> Self {
+        ResultadoAccion { texto: r.texto, trabajo: r.trabajo, datos: r.datos, evento: r.evento }
+    }
 }
 
 /// Un evento del historial de una herramienta (A3): cuándo, quién, por qué

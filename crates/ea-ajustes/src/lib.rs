@@ -29,6 +29,7 @@ mod validar;
 mod vista;
 
 pub use agentes::{buscar_binario, ficha, id_perfil_valido, por_cliente_mcp, FichaAgente, Rol, VistaAgente, CATALOGO, IDS_AGENTES};
+pub use agentes::{ACTOR_DESCONOCIDO, ACTOR_ORQUESTADOR, ACTOR_SIN_ROL, ACTOR_USUARIO};
 pub use cargar::{cargar, cargar_de, Efectivos, Origen};
 pub use claves::{clave, concretas, sin_alias, titulo, Aplica, Canal, Clave, Edicion, Tipo, ALIAS, CLAVES, SECCIONES};
 pub use claves::{Servicio, SERVICIOS, SERVICIOS_INSTALABLES, SERVICIOS_MONITORIZADOS, SERVICIOS_REINICIABLES};

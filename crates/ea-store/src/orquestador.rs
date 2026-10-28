@@ -2,6 +2,7 @@
 //! emite `actor='orquestador', action='heartbeat'` y las interfaces solo
 //! leen el último. Compartido por `ea status`, la TUI, `ea-mcp` y `ea-web`.
 
+use ea_ajustes::Rol;
 use time::{Duration, OffsetDateTime};
 
 use crate::error::StoreResult;
@@ -84,7 +85,7 @@ impl Store {
     /// que sean.
     fn latido(&self, ahora: OffsetDateTime) -> StoreResult<Vec<Event>> {
         self.list_events(&EventFilter {
-            actor: Some("orquestador".into()),
+            actor: Some(ea_ajustes::ACTOR_ORQUESTADOR.into()),
             action_prefix: Some("heartbeat".into()),
             until: Some(ahora + MARGEN),
             limit: Some(1),
@@ -109,7 +110,7 @@ impl Store {
 /// Actores de IA que las interfaces muestran como agentes: los dos roles, con
 /// su nombre en disco (el planificador es `claude-code` y el ejecutor
 /// `modelo-local`, los ocupe el agente que los ocupe; spec 017).
-pub const AGENTES: [&str; 2] = ["claude-code", "modelo-local"];
+pub const AGENTES: [&str; 2] = [Rol::Planificador.as_str(), Rol::Ejecutor.as_str()];
 
 /// Qué hizo por última vez un rol según el diario, nunca preguntándole a él.
 #[derive(Clone, Debug)]

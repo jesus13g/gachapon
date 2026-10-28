@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use ea_acciones::Canal;
+use ea_acciones::{Canal, SistemaReal};
 use serde_json::Value;
 
 use super::{sistema, ts, ErrorWeb, Resultado, ACTOR};
@@ -113,18 +113,7 @@ fn comprobar(s: &AppState, herramienta: &str) -> Resultado<()> {
 /// Describe lo que haría la herramienta ahora, sin hacer nada.
 pub async fn simular(s: &AppState, herramienta: &str, argumentos: &Value) -> Resultado<Simulacion> {
     comprobar(s, herramienta)?;
-    let sis = sistema(s);
-    let hechos = ea_acciones::observar(&sis, herramienta, argumentos).await?;
-    let store = s.store.lock().await;
-    let sim = ea_acciones::simular_con(&store, &sis, &hechos, herramienta, argumentos)?;
-    Ok(Simulacion {
-        herramienta: sim.herramienta,
-        riesgo: sim.riesgo.as_str(),
-        argumentos: sim.argumentos,
-        texto: sim.texto,
-        precondicion: sim.precondicion,
-        confirmable: ea_acciones::puede_confirmar(Canal::Web, sim.riesgo).is_ok(),
-    })
+    simular_en(s, &sistema(s), herramienta, argumentos).await
 }
 
 /// Ejecuta lo que se acaba de simular. Si el mundo ha cambiado desde la
@@ -137,11 +126,28 @@ pub async fn ejecutar(
     precondicion: &Value,
 ) -> Resultado<ResultadoAccion> {
     comprobar(s, herramienta)?;
-    let sis = sistema(s);
+    ejecutar_en(s, &sistema(s), herramienta, argumentos, precondicion).await
+}
+
+/// Simular con `sis`, lo común a esta consola y a la biblioteca (cada una
+/// comprueba antes lo que deja simular).
+pub(super) async fn simular_en(s: &AppState, sis: &SistemaReal, herramienta: &str, argumentos: &Value) -> Resultado<Simulacion> {
+    let hechos = ea_acciones::observar(sis, herramienta, argumentos).await?;
+    let store = s.store.lock().await;
+    Ok(ea_acciones::simular_con(&store, sis, &hechos, herramienta, argumentos)?.into())
+}
+
+/// Ejecutar con `sis` lo simulado, como el usuario y desde la web.
+pub(super) async fn ejecutar_en(
+    s: &AppState,
+    sis: &SistemaReal,
+    herramienta: &str,
+    argumentos: &Value,
+    precondicion: &Value,
+) -> Resultado<ResultadoAccion> {
     let mut store = s.acciones.lock().await;
-    let r = ea_acciones::ejecutar(&mut store, &sis, ACTOR, Canal::Web, herramienta, argumentos, precondicion, None)
-        .await?;
-    Ok(ResultadoAccion { texto: r.texto, trabajo: r.trabajo, datos: r.datos, evento: r.evento })
+    let r = ea_acciones::ejecutar(&mut store, sis, ACTOR, Canal::Web, herramienta, argumentos, precondicion, None).await?;
+    Ok(r.into())
 }
 
 /// Cuántos eventos lleva el historial de una herramienta.

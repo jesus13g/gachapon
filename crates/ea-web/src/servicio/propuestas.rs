@@ -59,6 +59,6 @@ pub async fn decidir(s: &AppState, id: i64, decision: &str) -> Resultado<Propues
         (ea_acciones::rechazar_propuesta(&store, id, ACTOR, Canal::Web)?, None)
     };
     let mut v = vista(&p);
-    v.resultado = r.map(|r| ResultadoAccion { texto: r.texto, trabajo: r.trabajo, datos: r.datos, evento: r.evento });
+    v.resultado = r.map(ResultadoAccion::from);
     Ok(v)
 }

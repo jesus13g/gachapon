@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::{bloquear, confirmar_en_terminal, sistema};
 
-const ACTOR: &str = "usuario";
+const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
 fn parsear(args: &str) -> Result<Value> {
     let v: Value = serde_json::from_str(args).context("--args debe ser un objeto JSON")?;

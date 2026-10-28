@@ -100,7 +100,7 @@ pub fn leer(ruta: &str, desde: usize) -> Result<()> {
 }
 
 pub fn reindexar(store: &mut Store) -> Result<()> {
-    let r = Boveda::configurada().reindexar(store, "usuario")?;
+    let r = Boveda::configurada().reindexar(store, ea_ajustes::ACTOR_USUARIO)?;
     println!(
         "Índice reconstruido: {} nuevas, {} actualizadas, {} eliminadas, {} omitidas por tamaño",
         r.indexadas, r.actualizadas, r.eliminadas, r.omitidas
@@ -142,7 +142,7 @@ pub fn vaciar_papelera(store: &mut Store) -> Result<()> {
         println!("Cancelado: la papelera sigue como estaba y no se ha borrado nada.");
         return Ok(());
     }
-    let hecho = b.vaciar_papelera(store, "usuario")?;
+    let hecho = b.vaciar_papelera(store, ea_ajustes::ACTOR_USUARIO)?;
     println!(
         "Papelera vaciada: {} entradas ({} notas, {} bytes) borradas para siempre.",
         hecho.entradas, hecho.notas, hecho.bytes

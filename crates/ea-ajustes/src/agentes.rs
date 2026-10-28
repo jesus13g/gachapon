@@ -30,8 +30,8 @@ impl Rol {
         }
     }
 
-    /// Nombre en disco: cola, región y `creada_por`.
-    pub fn as_str(self) -> &'static str {
+    /// Nombre en disco: cola, región, `creada_por` y actor.
+    pub const fn as_str(self) -> &'static str {
         match self {
             Rol::Planificador => "claude-code",
             Rol::Ejecutor => "modelo-local",
@@ -47,6 +47,21 @@ impl Rol {
         }
     }
 }
+
+// ------------------------------------------------------------------ actores
+
+/// Los actores que no son un rol (los de los roles son [`Rol::as_str`]):
+/// quien firma en el diario y de quien salen los permisos.
+///
+/// El usuario, por sus interfaces (la CLI y la web): el único que acepta
+/// propuestas y edita la bóveda a mano.
+pub const ACTOR_USUARIO: &str = "usuario";
+/// El orquestador, desatendido (§11.2): solo lee.
+pub const ACTOR_ORQUESTADOR: &str = "orquestador";
+/// Un agente del catálogo que no ocupa ningún rol: solo lee.
+pub const ACTOR_SIN_ROL: &str = "sin-rol";
+/// Un cliente MCP que no es ningún agente del catálogo: solo lee.
+pub const ACTOR_DESCONOCIDO: &str = "desconocido";
 
 /// Un agente del catálogo.
 #[derive(Debug)]

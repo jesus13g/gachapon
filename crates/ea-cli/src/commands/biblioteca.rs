@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 use super::{bloquear, confirmar_en_terminal, limpio, sistema};
 
-const ACTOR: &str = "usuario";
+const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 const CLAVE_CATEGORIAS: &str = "biblioteca.categorias";
 
 fn cargar() -> (Raices, Inventario) {

@@ -5,7 +5,7 @@ use ea_store::{EstadoPropuesta, Propuesta, PropuestaFilter, Store};
 
 use super::{bloquear, confirmar_en_terminal, fmt_ts, limpio, sistema};
 
-const ACTOR: &str = "usuario";
+const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
 fn resumen_accion(p: &Propuesta) -> String {
     match &p.accion {

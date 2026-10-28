@@ -1431,8 +1431,10 @@ cabecera `promocion: promovida`, `promovida_de`, `promovida_por`,
 reversible y no quita nada a la región del autor. No sobrescribe nunca: si el
 destino existe, falla. La propuesta guarda la huella del contenido que el
 usuario vio: si la nota cambia entre proponer y aceptar, la ejecución falla
-con un mensaje claro y no copia nada. `Boveda::promover` rechaza además a
-cualquier agente o al orquestador como autor de la promoción.
+con un mensaje claro y no copia nada. `Boveda::promover` (como las ediciones
+a mano de la bóveda) solo admite como autor al actor `usuario`, con el que
+firman `ea` y `ea-web`: es una lista blanca, así que rechaza a cualquier
+agente, al orquestador y a cualquier otro actor.
 
 Lo que ve el usuario: `ea boveda estado|listar|buscar|leer|promover|reindexar`,
 la pestaña «Bóveda» de `ea tui` (solo lectura, fotografía) y la sección ▥ del
