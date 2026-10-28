@@ -32,7 +32,7 @@ async fn start_server(db_path: std::path::PathBuf) -> String {
     let ajustes = ea_ajustes::Fuentes::aislada(&db_path.parent().unwrap().join("ajustes"));
 
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), rutinas.clone(), boveda.clone(), estado_temporal().to_path_buf()).con_ajustes(ajustes.clone()),
+        move || EaTools::con_entorno(store.clone(), rutinas.clone(), boveda.clone(), estado_temporal().to_path_buf()).con_ajustes(ajustes.clone()).con_credencial(credencial()),
         Default::default(),
     );
 
@@ -120,6 +120,46 @@ async fn atribuye_al_modelo_local_cuando_el_cliente_es_qwen_code() {
     );
 
     client.cancel().await.ok();
+}
+
+/// El actor de cada llamada según la cabecera `X-EA-Credencial` (U-02): solo
+/// con la credencial buena vale el nombre declarado; sin ella, o con una
+/// mala, quien se presenta como el planificador es `desconocido` y no puede
+/// proponer ni escribir. El ejecutor actúa con o sin ella.
+#[tokio::test]
+async fn el_planificador_se_identifica_por_la_credencial_y_no_por_el_nombre() {
+    use ea_pruebas::mcp::{conectar_con, llamar, CREDENCIAL};
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("ecosistema-test.db");
+    let url = start_server(db_path.clone()).await;
+    let mala = "f".repeat(64);
+    let corta = &CREDENCIAL[..63];
+    let casos: [(&str, Option<&str>, &str); 7] = [
+        ("claude-code", Some(CREDENCIAL), "claude-code"),
+        ("claude-code", None, "desconocido"),
+        ("claude-code", Some(&mala), "desconocido"),
+        ("claude-code", Some(corta), "desconocido"),
+        ("ea-orchestrator", None, "desconocido"),
+        ("qwen-code-mcp-client", None, "modelo-local"),
+        ("qwen-code-mcp-client", Some(&mala), "modelo-local"),
+    ];
+    for (nombre, credencial, esperado) in casos {
+        let c = conectar_con(&url, nombre, credencial).await;
+        llamar(&c, "ea_status", serde_json::json!({})).await.expect("leer siempre se puede");
+        let nota = llamar(&c, "ea_escribir_nota", serde_json::json!({ "titulo": "Prueba", "contenido": "x", "simular": true })).await;
+        assert_eq!(nota.is_ok(), esperado != "desconocido", "{nombre} con {credencial:?}: {nota:?}");
+        c.cancel().await.ok();
+    }
+    let store = Store::open_at(&db_path).unwrap();
+    let todo = store.list_events(&Default::default()).unwrap();
+    let eventos: Vec<_> = todo.iter().filter(|e| e.action == "mcp_status").collect();
+    let mut actores: Vec<&str> = eventos.iter().map(|e| e.actor.as_str()).collect();
+    actores.reverse();
+    assert_eq!(actores, casos.map(|(_, _, a)| a), "{eventos:?}");
+    // Del desconocido queda el nombre que declaró; nunca la credencial.
+    let detalle = eventos.iter().filter_map(|e| e.detail.clone()).collect::<Vec<_>>().join("\n");
+    assert!(detalle.contains(r#""cliente":"claude-code""#), "{detalle}");
+    assert!(!format!("{todo:?}").contains(CREDENCIAL) && !format!("{todo:?}").contains(&mala));
 }
 
 #[tokio::test]
@@ -452,4 +492,9 @@ fn para_limpio_con_sigterm() {
     };
     assert!(st.success(), "ea-mcp debía salir con 0 tras SIGTERM: {st}");
     assert!(std::net::TcpStream::connect(("127.0.0.1", puerto)).is_err(), "ya no escucha");
+}
+
+/// La credencial de las pruebas, la que manda `conectar`.
+fn credencial() -> ea_mcp::Credencial {
+    ea_mcp::Credencial::de_texto(ea_pruebas::mcp::CREDENCIAL).unwrap()
 }

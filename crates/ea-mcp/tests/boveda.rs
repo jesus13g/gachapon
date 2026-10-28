@@ -32,7 +32,7 @@ async fn entorno() -> Entorno {
     let (r, b) = (rutinas.clone(), boveda.clone());
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone()), estado.to_path_buf()).con_ajustes(ajustes.clone()),
+        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone()), estado.to_path_buf()).con_ajustes(ajustes.clone()).con_credencial(credencial()),
         Default::default(),
     );
     Entorno { url: ea_pruebas::mcp::servidor(router).await, db, boveda, _dir: dir }
@@ -188,4 +188,9 @@ async fn escribir_admite_simulacion() {
     assert_eq!(r["ruta"], "claude-code/prueba.md");
     assert!(!e.boveda.join("claude-code").exists());
     assert!(acciones(&e).contains(&"mcp_escribir_nota_simulada".to_string()));
+}
+
+/// La credencial de las pruebas, la que manda `conectar`.
+fn credencial() -> ea_mcp::Credencial {
+    ea_mcp::Credencial::de_texto(ea_pruebas::mcp::CREDENCIAL).unwrap()
 }

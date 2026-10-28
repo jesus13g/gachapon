@@ -120,8 +120,19 @@ pub enum Command {
         #[command(subcommand)]
         accion: HookAccion,
     },
+    /// El cliente MCP del planificador (ea-mcp en 127.0.0.1)
+    Mcp {
+        #[command(subcommand)]
+        accion: McpAccion,
+    },
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum McpAccion {
+    /// Escribe en JSON la cabecera con la credencial del planificador (el headersHelper de Claude Code que pone `ea instalar`)
+    Cabeceras,
 }
 
 #[derive(Subcommand)]

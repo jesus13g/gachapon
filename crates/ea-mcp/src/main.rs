@@ -28,11 +28,41 @@ async fn main() -> anyhow::Result<()> {
     let store = Store::open_at(&efectivos.ajustes.rutas.db).context("no se pudo abrir la base de datos")?;
     let store = Arc::new(Mutex::new(store));
 
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let router = ea_mcp::router(move || EaTools::new(store.clone()), cancel.child_token());
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("no se pudo escuchar en {bind_addr}"))?;
+
+    // La credencial del planificador, después de escuchar (como la clave del
+    // panel en ea-web). Sin directorio de ejecución no hay dónde dejarla: solo
+    // actúa el ejecutor y los demás clientes solo leen.
+    let credencial = match ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso) {
+        Some(dir) => match ea_mcp::credencial::leer_o_crear(&dir) {
+            Ok((c, fichero)) => {
+                tracing::info!(fichero = %fichero.display(), "credencial del planificador lista");
+                Some(Arc::new(c))
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "no se pudo preparar la credencial del planificador: los clientes sin ella solo leen");
+                None
+            }
+        },
+        None => {
+            tracing::error!("sin directorio de ejecución no hay dónde dejar la credencial del planificador: los clientes sin ella solo leen");
+            None
+        }
+    };
+
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let router = ea_mcp::router(
+        move || {
+            let t = EaTools::new(store.clone());
+            match &credencial {
+                Some(c) => t.con_credencial(c.clone()),
+                None => t,
+            }
+        },
+        cancel.child_token(),
+    );
 
     tracing::info!(%bind_addr, "servidor de herramientas MCP arrancado (endpoint /mcp)");
 

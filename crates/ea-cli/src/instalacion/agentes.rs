@@ -127,10 +127,15 @@ fn orden_ea(ctx: &Contexto) -> PathBuf {
     ctx.destinos.bin.join(nombre)
 }
 
-fn orden_hook(ea: &Path, accion: &str) -> String {
+/// `<ea> <argumentos>` como orden de shell (el hook y el `headersHelper`).
+fn orden(ea: &Path, argumentos: &str) -> String {
     let ruta = ea.to_string_lossy().replace('\\', "/");
     let ruta = if ruta.contains(' ') { format!("\"{ruta}\"") } else { ruta };
-    format!("{ruta} hook subagentes {accion}")
+    format!("{ruta} {argumentos}")
+}
+
+fn orden_hook(ea: &Path, accion: &str) -> String {
+    orden(ea, &format!("hook subagentes {accion}"))
 }
 
 /// ¿Es `contenido` nuestro recurso (tal cual o con la ruta reescrita)?
@@ -355,10 +360,38 @@ fn plan_fragmento(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, f: &Fragmento, 
     }
 }
 
+/// El registro del MCP en Claude Code (ámbito de usuario): la URL y el
+/// `headersHelper` que entrega la credencial del planificador en cada
+/// conexión (`ea mcp cabeceras`, U-02). La credencial no se escribe nunca en
+/// `~/.claude.json`: el sandbox del ejecutor puede leer el HOME, pero no el
+/// directorio de ejecución donde está.
+fn registro_mcp(ctx: &Contexto) -> Value {
+    json!({
+        "type": "http",
+        "url": format!("http://127.0.0.1:{}/mcp", ctx.puerto_mcp),
+        "headersHelper": orden(&orden_ea(ctx), "mcp cabeceras"),
+    })
+}
+
+/// ¿Está ya en `~/.claude.json` nuestro registro, con la URL y el
+/// `headersHelper` de ahora?
+fn registro_mcp_al_dia(ctx: &Contexto, sonda: &dyn Sonda) -> bool {
+    let quiero = registro_mcp(ctx);
+    let Some(v) = sonda.leer(&ctx.home.join(".claude.json")).and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return false };
+    let hay = &v["mcpServers"][NOMBRE_MCP];
+    ["url", "headersHelper"].iter().all(|k| hay[*k] == quiero[*k])
+}
+
 fn plan_claude(ctx: &Contexto, sonda: &dyn Sonda, p: &mut Vec<Paso>) {
-    if sonda.salida(&["claude", "mcp", "get", NOMBRE_MCP]).is_none() {
-        let url = format!("http://127.0.0.1:{}/mcp", ctx.puerto_mcp);
-        let argv = ["claude", "mcp", "add", "--transport", "http", "--scope", "user", NOMBRE_MCP, &url];
+    if !registro_mcp_al_dia(ctx, sonda) {
+        // Uno anterior (sin `headersHelper`, o con otra URL o binario) se
+        // quita antes de volver a añadirlo: `add-json` no lo sustituye.
+        if sonda.salida(&["claude", "mcp", "get", NOMBRE_MCP]).is_some() {
+            let argv = ["claude", "mcp", "remove", "--scope", "user", NOMBRE_MCP];
+            p.push(Paso::Ejecutar { argv: argv.iter().map(|s| s.to_string()).collect(), tolerar: true, reintentos: 0 });
+        }
+        let registro = registro_mcp(ctx).to_string();
+        let argv = ["claude", "mcp", "add-json", "--scope", "user", NOMBRE_MCP, &registro];
         p.push(Paso::Ejecutar { argv: argv.iter().map(|s| s.to_string()).collect(), tolerar: false, reintentos: 0 });
     }
     let ruta = ruta_settings(ctx);
@@ -574,7 +607,18 @@ mod pruebas {
         let contenido = contenido.expect("escribe la skill");
         assert!(!contenido.contains(recursos::RUTA_FLUJO_FIJA));
         assert!(contenido.contains(&format!("{HOME}/.local/share/ea/flujo/mision.md")));
-        assert!(p.iter().any(|x| matches!(x, Paso::Ejecutar { argv, .. } if argv.join(" ") == "claude mcp add --transport http --scope user ea-ecosistema http://127.0.0.1:8765/mcp")));
+        // El MCP se registra con el `headersHelper` que entrega la
+        // credencial del planificador (U-02); la credencial no va en la orden.
+        let registro = p.iter().find_map(|x| match x {
+            Paso::Ejecutar { argv, tolerar: false, .. } if argv[..6].join(" ") == "claude mcp add-json --scope user ea-ecosistema" => Some(&argv[6]),
+            _ => None,
+        });
+        let registro: Value = serde_json::from_str(registro.expect("registra el MCP")).unwrap();
+        assert_eq!(
+            registro,
+            json!({"type": "http", "url": "http://127.0.0.1:8765/mcp", "headersHelper": format!("{HOME}/.local/share/ea/bin/ea mcp cabeceras")})
+        );
+        assert!(!p.iter().any(|x| matches!(x, Paso::Ejecutar { argv, .. } if argv.join(" ").contains("remove"))), "no había nada que quitar");
         let settings = c.home.join(".claude/settings.json");
         assert!(escrituras(&p).contains(&&settings));
         // Sin settings previo no hay copia.
@@ -582,14 +626,26 @@ mod pruebas {
     }
 
     #[test]
-    fn claude_con_mcp_previo_no_lo_vuelve_a_registrar_y_es_idempotente() {
+    fn claude_con_mcp_previo_sin_credencial_lo_rehace_y_despues_es_idempotente() {
         let c = ctx(Origen::Paquete);
         let mut s = Falsa { binarios: vec!["claude"], ..Default::default() };
         s.salidas.insert("claude mcp get ea-ecosistema".into(), "ea-ecosistema: http…".into());
-        // Simula lo ya instalado: aplicar las escrituras en la sonda.
-        for x in plan_agentes(&c, &s).unwrap() {
-            if let Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } = x {
-                s.ficheros.insert(ruta, contenido);
+        // El registro de antes de U-02: la URL sola, sin `headersHelper`.
+        let claude_json = c.home.join(".claude.json");
+        s.ficheros.insert(claude_json.clone(), r#"{"mcpServers":{"ea-ecosistema":{"type":"http","url":"http://127.0.0.1:8765/mcp"}}}"#.into());
+        let p = plan_agentes(&c, &s).unwrap();
+        let ordenes: Vec<String> = p.iter().filter_map(|x| if let Paso::Ejecutar { argv, .. } = x { Some(argv[..6].join(" ")) } else { None }).collect();
+        assert_eq!(ordenes, ["claude mcp remove --scope user ea-ecosistema", "claude mcp add-json --scope user ea-ecosistema"]);
+        // Simula lo ya instalado: aplicar las escrituras y el registro en la sonda.
+        for x in p {
+            match x {
+                Paso::Escribir { ruta, contenido } | Paso::EditarPersonal { ruta, contenido } => {
+                    s.ficheros.insert(ruta, contenido);
+                }
+                Paso::Ejecutar { argv, .. } if argv[2] == "add-json" => {
+                    s.ficheros.insert(claude_json.clone(), json!({"mcpServers": {"ea-ecosistema": serde_json::from_str::<Value>(&argv[6]).unwrap()}}).to_string());
+                }
+                _ => {}
             }
         }
         let p = plan_agentes(&c, &s).unwrap();

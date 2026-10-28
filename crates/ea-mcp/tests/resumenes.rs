@@ -28,7 +28,7 @@ async fn ea_status_y_ea_listar_trabajos_dicen_lo_mismo_que_siempre() {
     let boveda = ea_boveda::Boveda::en(dir.path().join("boveda"));
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), rutinas.clone(), boveda.clone(), estado.clone()).con_ajustes(ajustes.clone()),
+        move || EaTools::con_entorno(store.clone(), rutinas.clone(), boveda.clone(), estado.clone()).con_ajustes(ajustes.clone()).con_credencial(credencial()),
         Default::default(),
     );
     let url = ea_pruebas::mcp::servidor(router).await;
@@ -118,4 +118,9 @@ async fn ea_status_y_ea_listar_trabajos_dicen_lo_mismo_que_siempre() {
   ]
 }"#
     );
+}
+
+/// La credencial de las pruebas, la que manda `conectar`.
+fn credencial() -> ea_mcp::Credencial {
+    ea_mcp::Credencial::de_texto(ea_pruebas::mcp::CREDENCIAL).unwrap()
 }

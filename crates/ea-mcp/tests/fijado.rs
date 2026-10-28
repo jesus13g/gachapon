@@ -142,7 +142,7 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let (r, e) = (rutinas.clone(), estado.clone());
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), e.clone()).con_ajustes(ajustes.clone()).con_raices(raices.clone()),
+        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), e.clone()).con_ajustes(ajustes.clone()).con_credencial(credencial()).con_raices(raices.clone()),
         Default::default(),
     );
     let url = ea_pruebas::mcp::servidor(router).await;
@@ -255,4 +255,9 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
         panic!("la línea {} cambió:\n  antes: {e}\n  ahora: {a}", n + 1);
     }
     assert_eq!(reg.texto.lines().count(), esperado.lines().count(), "cambió el número de líneas");
+}
+
+/// La credencial de las pruebas, la que manda `conectar`.
+fn credencial() -> ea_mcp::Credencial {
+    ea_mcp::Credencial::de_texto(ea_pruebas::mcp::CREDENCIAL).unwrap()
 }

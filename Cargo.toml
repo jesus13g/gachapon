@@ -15,6 +15,7 @@ publish = false
 anyhow = "1.0"
 axum = "0.8"
 directories = "5.0"
+getrandom = "0.2"
 rmcp = "3.3"
 rusqlite = "0.32"
 serde = "1.0"

@@ -492,7 +492,9 @@ fn el_criterio_en_bwrap_no_lee_el_directorio_de_ejecucion() {
 }
 
 /// B-01: el criterio que corre el ejecutor, con el agente en bwrap, no lee
-/// la clave del panel (`<ejecucion>/ea-web/clave`) y escribe en el worktree.
+/// la clave del panel (`<ejecucion>/ea-web/clave`) ni la credencial del
+/// planificador en el MCP (`<ejecucion>/ea-mcp/credencial`, U-02) y escribe en
+/// el worktree.
 #[test]
 fn el_criterio_del_ejecutor_en_bwrap_no_lee_la_clave_del_panel_y_escribe_en_el_worktree() {
     if Command::new("bwrap").arg("--version").output().is_err() {
@@ -505,16 +507,21 @@ fn el_criterio_del_ejecutor_en_bwrap_no_lee_la_clave_del_panel_y_escribe_en_el_w
     let clave = ea_ajustes::fichero_clave_web(&ejecucion);
     std::fs::create_dir_all(clave.parent().unwrap()).unwrap();
     std::fs::write(&clave, "secreto").unwrap();
+    let credencial = ea_ajustes::fichero_credencial_mcp(&ejecucion);
+    std::fs::create_dir_all(credencial.parent().unwrap()).unwrap();
+    std::fs::write(&credencial, "contenido-credencial").unwrap();
     let criterio = |sandbox: &Sandbox, guion: &str| correr_criterio(sandbox, &r, guion, &[], Some(&ejecucion), TOPE_CRITERIO, &|| false).unwrap();
-    let leer = format!("cat '{}'", clave.display());
-    // Sin sandbox, tal cual: se lee.
-    assert_eq!(criterio(&Sandbox::Ninguno, &leer), (true, "secreto".to_string()));
-    let (pasa, evidencia) = criterio(&Sandbox::Bwrap, &leer);
-    if !pasa && evidencia.contains("namespace") {
-        eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
-        return;
+    // Sin sandbox, tal cual: se leen.
+    for (fichero, contenido) in [(&clave, "secreto"), (&credencial, "contenido-credencial")] {
+        let leer = format!("cat '{}'", fichero.display());
+        assert_eq!(criterio(&Sandbox::Ninguno, &leer), (true, contenido.to_string()));
+        let (pasa, evidencia) = criterio(&Sandbox::Bwrap, &leer);
+        if !pasa && evidencia.contains("namespace") {
+            eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
+            return;
+        }
+        assert!(!pasa && !evidencia.contains(contenido), "el criterio leyó {}: {evidencia}", fichero.display());
     }
-    assert!(!pasa && !evidencia.contains("secreto"), "el criterio leyó la clave del panel: {evidencia}");
     let (pasa, evidencia) = criterio(&Sandbox::Bwrap, "echo hecho > ok.txt && test -f ok.txt");
     assert!(pasa, "{evidencia}");
     assert_eq!(std::fs::read_to_string(r.join("ok.txt")).unwrap(), "hecho\n");

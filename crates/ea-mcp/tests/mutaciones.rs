@@ -39,7 +39,7 @@ async fn entorno() -> Entorno {
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let f = ajustes.clone();
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), estado.to_path_buf()).con_ajustes(f.clone()),
+        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), estado.to_path_buf()).con_ajustes(f.clone()).con_credencial(credencial()),
         Default::default(),
     );
     Entorno { url: ea_pruebas::mcp::servidor(router).await, db, rutinas, ajustes, _dir: dir }
@@ -292,4 +292,9 @@ async fn los_permisos_salen_del_rol_que_ocupa_el_agente_ahora() {
     assert!(llamar(&oc, "ea_status", json!({})).await.is_ok());
     let r = llamar(&oc, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await;
     assert!(r.is_err_and(|m| m.contains("modelo-local")));
+}
+
+/// La credencial de las pruebas, la que manda `conectar`.
+fn credencial() -> ea_mcp::Credencial {
+    ea_mcp::Credencial::de_texto(ea_pruebas::mcp::CREDENCIAL).unwrap()
 }

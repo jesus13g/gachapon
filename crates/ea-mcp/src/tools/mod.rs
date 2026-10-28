@@ -23,6 +23,8 @@ use tokio::sync::Mutex;
 use ea_acciones::{autorizar_mcp, buscar, SoloConsulta};
 use ea_boveda::Boveda;
 
+use crate::credencial::Credencial;
+
 mod biblioteca;
 mod boveda;
 mod consultas;
@@ -32,9 +34,9 @@ mod trabajos;
 
 /// Quién hace una llamada MCP: el actor que se escribe en el diario y del
 /// que salen los permisos ([`autorizar_mcp`]), el agente del catálogo y el
-/// nombre que declaró el cliente. Sale del `clientInfo.name` del
-/// `initialize`, nunca de un argumento: el modelo no debe poder declarar que
-/// actúa en nombre de otro (§7.3).
+/// nombre que declaró el cliente. Sale de la credencial de la petición y del
+/// `clientInfo.name` del `initialize` ([`actor_for`]), nunca de un argumento:
+/// el modelo no debe poder declarar que actúa en nombre de otro (§7.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Llamante {
     pub actor: &'static str,
@@ -46,24 +48,46 @@ pub struct Llamante {
 /// cliente que no es ningún agente: solo leen.
 pub use ea_ajustes::{ACTOR_DESCONOCIDO, ACTOR_SIN_ROL};
 
-/// El actor de un cliente según el catálogo y los roles vigentes (spec 017,
-/// RF-013). Un agente actúa con el nombre en disco del rol que ocupa
-/// (`claude-code` el planificador, `modelo-local` el ejecutor), que es el
-/// que da los permisos y la región de la bóveda; uno sin rol, o un cliente
-/// desconocido, solo lee. Antes, un cliente desconocido actuaba como
-/// `claude-code`.
-pub fn actor_for(cliente: Option<&str>, ajustes: &ea_ajustes::Ajustes) -> Llamante {
+/// El actor de un cliente según el catálogo, los roles vigentes (spec 017,
+/// RF-013) y si la petición trae la credencial del planificador (U-02). Un
+/// agente actúa con el nombre en disco del rol que ocupa (`claude-code` el
+/// planificador, `modelo-local` el ejecutor), que es el que da los permisos y
+/// la región de la bóveda; uno sin rol, o un cliente desconocido, solo lee.
+///
+/// El nombre lo declara el propio cliente, así que solo vale con
+/// `credencial` (la cabecera `X-EA-Credencial` correcta): sin ella, o con una
+/// que no coincide, el actor es `desconocido`. La única excepción es el
+/// agente que ocupa el ejecutor: es el rol que menos puede de los que actúan
+/// y el que corre en el sandbox, donde la credencial no se puede leer, así
+/// que hacerse pasar por él no da nada que un proceso sin sandbox no tenga ya.
+pub fn actor_for(cliente: Option<&str>, credencial: bool, ajustes: &ea_ajustes::Ajustes) -> Llamante {
     let cliente_s = cliente.map(str::to_string);
+    let desconocido = Llamante { actor: ACTOR_DESCONOCIDO, agente: None, cliente: cliente_s.clone() };
     if cliente == Some("ea-orchestrator") {
+        if !credencial {
+            return desconocido;
+        }
         return Llamante { actor: ea_ajustes::ACTOR_ORQUESTADOR, agente: None, cliente: cliente_s };
     }
-    match cliente.and_then(ea_ajustes::por_cliente_mcp) {
-        Some(f) => {
-            let actor = ajustes.rol_de(f.id.as_str()).map_or(ACTOR_SIN_ROL, |r| r.as_str());
-            Llamante { actor, agente: Some(f.id.as_str()), cliente: cliente_s }
-        }
-        None => Llamante { actor: ACTOR_DESCONOCIDO, agente: None, cliente: cliente_s },
+    let Some(f) = cliente.and_then(ea_ajustes::por_cliente_mcp) else { return desconocido };
+    let rol = ajustes.rol_de(f.id.as_str());
+    if !credencial && rol != Some(ea_ajustes::Rol::Ejecutor) {
+        return desconocido;
     }
+    let actor = rol.map_or(ACTOR_SIN_ROL, |r| r.as_str());
+    Llamante { actor, agente: Some(f.id.as_str()), cliente: cliente_s }
+}
+
+/// ¿Trae la petición la credencial del planificador? Se compara en tiempo
+/// constante; sin credencial en el servidor (sin directorio de ejecución)
+/// ninguna petición la trae.
+fn trae_credencial(context: &RequestContext<RoleServer>, credencial: Option<&Credencial>) -> bool {
+    let Some(c) = credencial else { return false };
+    context
+        .extensions
+        .get::<axum::http::request::Parts>()
+        .and_then(|p| p.headers.get(ea_ajustes::CABECERA_CREDENCIAL_MCP))
+        .is_some_and(|v| c.coincide(v.as_bytes()))
 }
 
 /// Las herramientas de una sesión MCP. Se copia (barato: rutas y punteros
@@ -84,6 +108,9 @@ pub struct EaTools {
     ajustes: ea_ajustes::Fuentes,
     /// Dónde mira la biblioteca; `None`: el entorno real en cada llamada.
     raices: Option<ea_biblioteca::Raices>,
+    /// La credencial del planificador ([`crate::credencial`]); `None`: nadie
+    /// la trae, y solo el ejecutor actúa.
+    credencial: Option<Arc<Credencial>>,
 }
 
 type ToolBody = Result<Value, String>;
@@ -118,7 +145,14 @@ impl EaTools {
             estado_dir,
             ajustes: ea_ajustes::Fuentes::sistema(),
             raices: None,
+            credencial: None,
         }
+    }
+
+    /// La credencial con la que el planificador demuestra quién es.
+    pub fn con_credencial(mut self, credencial: impl Into<Arc<Credencial>>) -> Self {
+        self.credencial = Some(credencial.into());
+        self
     }
 
     /// La biblioteca mira estas raíces en vez del entorno real (pruebas).
@@ -150,11 +184,12 @@ impl EaTools {
         tokio::task::spawn_blocking(move || f(&t)).await.map_err(|e| e.to_string())?
     }
 
-    /// Quién llama, con los roles de ahora: cambiar de planificador no exige
-    /// reconectar.
+    /// Quién llama, con los roles de ahora y la credencial de esta petición:
+    /// cambiar de planificador no exige reconectar.
     async fn llamante(&self, context: &RequestContext<RoleServer>) -> Llamante {
         let cliente = context.client_info().as_ref().map(|i| i.name.clone());
-        self.bloqueante(move |t| Ok(actor_for(cliente.as_deref(), &ea_ajustes::cargar_de(&t.ajustes).ajustes)))
+        let credencial = trae_credencial(context, self.credencial.as_deref());
+        self.bloqueante(move |t| Ok(actor_for(cliente.as_deref(), credencial, &ea_ajustes::cargar_de(&t.ajustes).ajustes)))
             .await
             .unwrap_or_else(|e| panic!("{e}"))
     }
@@ -284,7 +319,7 @@ mod tests {
     #[test]
     fn el_actor_sale_del_catalogo_y_del_rol() {
         let mut a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(std::path::Path::new("/nada")));
-        let actor = |c: Option<&str>, a: &ea_ajustes::Ajustes| actor_for(c, a);
+        let actor = |c: Option<&str>, a: &ea_ajustes::Ajustes| actor_for(c, true, a);
         assert_eq!(actor(Some("claude-code"), &a).actor, "claude-code");
         assert_eq!(actor(Some("qwen-code-mcp-client"), &a), Llamante { actor: "modelo-local", agente: Some("qwen-code"), cliente: Some("qwen-code-mcp-client".into()) });
         assert_eq!(actor(Some("ea-orchestrator"), &a).actor, "orquestador");
@@ -299,9 +334,28 @@ mod tests {
         assert_eq!(actor(Some("antigravity-client"), &a), Llamante { actor: "claude-code", agente: Some("antigravity"), cliente: Some("antigravity-client".into()) });
     }
 
-    /// Ningún cliente MCP, se presente como se presente y ocupe el rol que
-    /// ocupe, actúa como `usuario` (el único que edita la bóveda a mano y
-    /// acepta propuestas).
+    /// Sin la credencial, el nombre declarado no da ningún rol salvo el del
+    /// ejecutor (U-02): ni el planificador, ni el orquestador, ni sin-rol.
+    #[test]
+    fn sin_credencial_solo_el_ejecutor_actua() {
+        let mut a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(std::path::Path::new("/nada")));
+        let actor = |c: &str, a: &ea_ajustes::Ajustes| actor_for(Some(c), false, a);
+        let desconocido = |c: &str| Llamante { actor: ACTOR_DESCONOCIDO, agente: None, cliente: Some(c.into()) };
+        assert_eq!(actor("claude-code", &a), desconocido("claude-code"));
+        assert_eq!(actor("ea-orchestrator", &a), desconocido("ea-orchestrator"));
+        assert_eq!(actor("codex-mcp-client", &a), desconocido("codex-mcp-client"));
+        assert_eq!(actor("lo-que-sea", &a), desconocido("lo-que-sea"));
+        assert_eq!(actor_for(None, false, &a).actor, ACTOR_DESCONOCIDO);
+        assert_eq!(actor("qwen-code-mcp-client", &a), Llamante { actor: "modelo-local", agente: Some("qwen-code"), cliente: Some("qwen-code-mcp-client".into()) });
+        // El ejecutor es el agente que ocupe el rol ahora, no un nombre fijo.
+        (a.roles.planificador, a.roles.ejecutor) = ("qwen-code".into(), "codex".into());
+        assert_eq!(actor("qwen-code-mcp-client", &a), desconocido("qwen-code-mcp-client"));
+        assert_eq!(actor("codex-mcp-client", &a).actor, "modelo-local");
+    }
+
+    /// Ningún cliente MCP, se presente como se presente, ocupe el rol que
+    /// ocupe y traiga o no la credencial, actúa como `usuario` (el único que
+    /// edita la bóveda a mano y acepta propuestas).
     #[test]
     fn ningun_cliente_mcp_actua_como_usuario() {
         let mut a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(std::path::Path::new("/nada")));
@@ -312,7 +366,9 @@ mod tests {
         for (planificador, ejecutor) in [("claude-code", "qwen-code"), ("opencode", "codex"), ("antigravity", "opencode")] {
             (a.roles.planificador, a.roles.ejecutor) = (planificador.into(), ejecutor.into());
             for c in clientes {
-                assert_ne!(actor_for(c, &a).actor, ea_ajustes::ACTOR_USUARIO, "{c:?} con {planificador}/{ejecutor}");
+                for credencial in [true, false] {
+                    assert_ne!(actor_for(c, credencial, &a).actor, ea_ajustes::ACTOR_USUARIO, "{c:?} con {planificador}/{ejecutor}");
+                }
             }
         }
     }

@@ -774,9 +774,11 @@ ea desinstalar [--esperar]
    5. copia las guías `agentes/flujo` y las skills del ejecutor a
       `agente.skills.dir`;
    6. instala el adaptador de cada agente del catálogo que esté en el `PATH`;
-   7. registra el MCP (`claude mcp add … ea-ecosistema`) y fusiona el hook de
-      subagentes en `~/.claude/settings.json` (deja una copia
-      `settings.json.gachapon.bak`);
+   7. registra el MCP en Claude Code (`claude mcp add-json … ea-ecosistema`,
+      con el `headersHelper` `ea mcp cabeceras` que entrega la credencial del
+      planificador; ver [Identidad del cliente](#identidad-del-cliente)) y
+      fusiona el hook de subagentes en `~/.claude/settings.json` (deja una
+      copia `settings.json.gachapon.bak`);
    8. instala y arranca los servicios;
    9. crea la entrada de la app en el menú y fija `escritorio.al_iniciar = true`.
 5. **Verifica.** Espera a que respondan `ea-web` y `ea-mcp`, enseña los
@@ -815,7 +817,9 @@ y no duplica nada:
 - el hook se compara por su orden;
 - los fragmentos de `AGENTS.md` van entre `<!-- gachapon:inicio -->` y
   `<!-- gachapon:fin -->`;
-- el MCP no se vuelve a registrar.
+- el MCP no se vuelve a registrar si ya tiene la URL y el `headersHelper` de
+  ahora; un registro anterior (sin `headersHelper`, o con otro puerto o
+  binario) se quita y se vuelve a añadir.
 
 **`ea desinstalar`** quita lo que puso `ea instalar`: servicios, menú y
 autoarranque, adaptadores (solo los suyos), hook, MCP, el enlace del `PATH` y
@@ -1072,6 +1076,7 @@ ea ajustes ver|obtener|establecer|ruta       # ajustes.toml (establecer: solo co
 ea biblioteca listar|ver|uso|activar|desactivar|sesion|categoria  # herramientas de los agentes (ver «Biblioteca»)
 ea servicios ver|instalar|desinstalar        # servicios residentes en el gestor del sistema (instalar/desinstalar: solo con TTY)
 ea hook subagentes start|stop                # hook de Claude Code (ver «Hook de subagentes»)
+ea mcp cabeceras                             # {"X-EA-Credencial": …} para el headersHelper del MCP (ver «Identidad del cliente»)
 ea tui                                       # interfaz interactiva
 ```
 
@@ -1183,10 +1188,24 @@ riesgo (§7.3):
 | `ea_activar_herramienta` y `ea_desactivar_herramienta` (`elemento`: id `agente/tipo/ámbito/nombre` de la biblioteca; la simulación da el comando o fichero y el valor antes y después; comando oficial, campo `enabled` con copia previa, mover a un almacén o `agente.skills.habilitadas`; nunca `~/.claude.json`) | mutación reversible | solo simula o propone |
 | `ea_eliminar_rutina` (borra para siempre la copia retirada; antes hay que retirarla) | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
-Toda invocación queda registrada en el diario. El actor sale del nombre con
-que el cliente se presenta al conectar (`clientInfo.name`, nunca de un
-argumento) y del rol que ocupa ese agente **en ese momento** según los ajustes
-(spec 017):
+#### Identidad del cliente
+
+Toda invocación queda registrada en el diario con su actor. El actor sale de
+dos cosas, nunca de un argumento:
+
+1. **La credencial del planificador** (cabecera `X-EA-Credencial` en cada
+   petición). Son 256 bits aleatorios que `ea-mcp` deja al arrancar en
+   `<ejecución>/ea-mcp/credencial` (directorio 0700, fichero 0600; el
+   directorio de ejecución es `$XDG_RUNTIME_DIR` en Linux,
+   `$TMPDIR/ecosistema-asistente-ejecucion` en macOS y
+   `%LOCALAPPDATA%\ecosistema-asistente\ejecucion` en Windows). Si ya hay una
+   válida, la reutiliza: sobrevive a reiniciar `ea-mcp` y cambia cuando se
+   vacía el directorio de ejecución (al cerrar la sesión o reiniciar). El
+   servidor la compara en tiempo constante y nunca la escribe en el diario,
+   en los registros ni en un mensaje de error.
+2. **El nombre con que el cliente se presenta** (`clientInfo.name` del
+   `initialize`) y el rol que ocupa ese agente **en ese momento** según los
+   ajustes (spec 017):
 
 | Cliente MCP | Agente |
 |---|---|
@@ -1197,19 +1216,33 @@ argumento) y del rol que ocupa ese agente **en ese momento** según los ajustes
 | `antigravity-client` | Antigravity (`agy`) |
 | `ea-orchestrator` | el propio orquestador (actor `orquestador`) |
 
-- El agente que ocupa el planificador actúa como `claude-code` (el nombre en
-  disco del rol): catálogo completo, aunque las mutantes solo simulan o
-  proponen. El del ejecutor actúa como `modelo-local`: la proyección reducida
-  y nada irreversible. El diario guarda en el detalle qué agente fue
-  (`"agente": "codex"`).
-- Un agente del catálogo sin rol (actor `sin-rol`), un cliente desconocido
-  (actor `desconocido`) y lo desatendido (`orquestador`) **solo leen**. Del
-  desconocido, el diario guarda el nombre que declaró (`"cliente": …`): así se
-  ve cuál añadir. Antigravity aún no tiene nombre comprobado, así que por ahora
-  solo lee.
+El nombre lo declara el propio cliente, así que **solo cuenta con la
+credencial**:
 
-La autorización es del servidor, no del prompt. Cambiar de planificador no exige
-reconectar: los roles se releen en cada llamada.
+- Con la credencial, el agente que ocupa el planificador actúa como
+  `claude-code` (el nombre en disco del rol): catálogo completo, aunque las
+  mutantes solo simulan o proponen. Un agente del catálogo sin rol actúa como
+  `sin-rol` y `ea-orchestrator` como `orquestador`; los dos **solo leen**.
+- Sin la credencial, o con una que no coincide, el actor es `desconocido`
+  (**solo lee**), se presente como se presente. La excepción es el agente que
+  ocupa el ejecutor: actúa como `modelo-local` (la proyección reducida y nada
+  irreversible) con o sin ella. Es el que corre en el sandbox, donde el
+  directorio de ejecución está tapado (`bwrap` y Seatbelt, también para el
+  criterio) y la credencial no se puede leer; hacerse pasar por él no da
+  nada que un proceso sin sandbox no tenga ya.
+- El diario guarda en el detalle qué agente fue (`"agente": "codex"`) y, del
+  desconocido, el nombre que declaró (`"cliente": …`): un `"cliente":
+  "claude-code"` con actor `desconocido` es un planificador sin credencial.
+
+Lo que protege: que el agente local se presente como el planificador (cuotas
+amplias, la región `claude-code/` de la bóveda, proponer como él). Lo que no:
+un proceso sin sandbox de la misma cuenta lee el fichero igual que el
+planificador. La autorización es del servidor, no del prompt. Cambiar de
+planificador no exige reconectar: los roles se releen en cada llamada.
+
+**Tras actualizar desde una versión sin credencial, vuelve a ejecutar
+`ea instalar`** (o registra el MCP a mano como abajo): hasta entonces Claude
+Code se conecta sin la cabecera y queda como `desconocido`, que solo lee.
 
 Instalación como servicio de sesión: `ea servicios instalar` (ver
 [Instalación por sistema](#instalación-por-sistema)) o, a mano en Linux
@@ -1224,26 +1257,37 @@ systemctl --user enable --now ea-mcp.service
 ```
 
 Registro en Claude Code (disponible en cualquier sesión, no solo en este
-directorio):
+directorio; es lo que hace `ea instalar`):
 
 ```bash
-claude mcp add --transport http --scope user ea-ecosistema http://127.0.0.1:8765/mcp
+claude mcp add-json --scope user ea-ecosistema \
+  '{"type":"http","url":"http://127.0.0.1:8765/mcp","headersHelper":"ea mcp cabeceras"}'
 ```
 
-Registro en los demás agentes (misma URL, `http://127.0.0.1:8765/mcp`):
+`ea mcp cabeceras` escribe `{"X-EA-Credencial": "…"}` con la credencial del
+fichero; Claude Code lo corre en cada conexión (en un shell, con 10 s de
+tope), así que la credencial nunca queda escrita en `~/.claude.json`, que el
+sandbox del ejecutor sí puede leer. Falla, sin enseñar el fichero, si `ea-mcp`
+no ha dejado aún la credencial.
 
-| Agente | Registro | Nombre de cliente MCP |
-|---|---|---|
-| Claude Code | `claude mcp add --transport http --scope user ea-ecosistema <url>` | `claude-code` |
-| Qwen Code | `qwen mcp add --transport http ea-ecosistema <url>` | `qwen-code-mcp-client` |
-| Codex | `codex mcp add ea-ecosistema --url <url>` | `codex-mcp-client` |
-| OpenCode | `opencode mcp add --global --url <url> ea-ecosistema` (escribe `"mcp": {"servers": {"ea-ecosistema": {"type": "remote", "url": "<url>"}}}` en `~/.config/opencode/opencode.json`) | `opencode` |
-| Antigravity | `agy mcp add -t http ea-ecosistema <url>` | `antigravity-client` |
+Registro en los demás agentes (misma URL, `http://127.0.0.1:8765/mcp`). `ea
+instalar` no los registra: hay que hacerlo a mano y, para que el agente actúe
+como planificador, darle la cabecera desde el fichero de la credencial sin
+copiarla en su configuración (el sandbox puede leer el HOME). Lo de la última
+columna sale de la documentación de cada agente y no se ha comprobado aquí;
+sin la cabecera, el agente queda como `desconocido` (solo lee) salvo cuando
+ocupa el ejecutor:
 
-`agy` 1.4 prueba antes con una petición `server/discover` (`ea-mcp` la rechaza con un error de parámetros; `agy` manda después `initialize` con su `clientInfo`, sin comprobar aún que conecta con sesión iniciada).
+| Agente | Registro | Nombre de cliente MCP | Cabecera con la credencial |
+|---|---|---|---|
+| Claude Code | `claude mcp add-json` (arriba) | `claude-code` | `headersHelper` (comprobado) |
+| Qwen Code | `qwen mcp add --transport http ea-ecosistema <url>` | `qwen-code-mcp-client` | `"headers": {"X-EA-Credencial": "$EA_MCP_CREDENCIAL"}` en su `settings.json`, arrancando `qwen` con `EA_MCP_CREDENCIAL="$(cat <fichero>)"` |
+| Codex | `codex mcp add ea-ecosistema --url <url>` | `codex-mcp-client` | `env_http_headers = { "X-EA-Credencial" = "EA_MCP_CREDENCIAL" }` en `[mcp_servers.ea-ecosistema]`, con la misma variable |
+| OpenCode | `opencode mcp add --global --url <url> ea-ecosistema` (escribe `"mcp": {"servers": {"ea-ecosistema": {"type": "remote", "url": "<url>"}}}` en `~/.config/opencode/opencode.json`) | `opencode` | `"headers": {"X-EA-Credencial": "{file:<fichero>}"}` en esa entrada (OpenCode lee el fichero al arrancar) |
+| Antigravity | `agy mcp add -t http ea-ecosistema <url>` | `antigravity-client` | sin mecanismo conocido: queda como `desconocido` |
 
-El nombre de cliente sale de lo que cada agente manda en `initialize`
-(`clientInfo.name`); es lo que decide sus permisos, junto con el rol que ocupa.
+`<fichero>` es la ruta absoluta de la credencial (`<ejecución>/ea-mcp/credencial`,
+p. ej. `/run/user/1000/ea-mcp/credencial`). `agy` 1.4 prueba antes con una petición `server/discover` (`ea-mcp` la rechaza con un error de parámetros; `agy` manda después `initialize` con su `clientInfo`, sin comprobar aún que conecta con sesión iniciada).
 
 ### Biblioteca
 

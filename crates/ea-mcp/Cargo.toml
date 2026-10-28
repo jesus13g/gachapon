@@ -29,6 +29,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 schemars = "1.0"
 anyhow.workspace = true
+getrandom.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 

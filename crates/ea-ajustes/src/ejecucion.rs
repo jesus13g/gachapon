@@ -1,7 +1,10 @@
-//! El directorio de ejecución de la sesión (`$XDG_RUNTIME_DIR`) y la clave
-//! de sesión del panel web que vive en él. Lo comparten `ea-web` (que la
-//! escribe), `ea-web-open` (que la lee) y el ejecutor (que tapa el
-//! directorio dentro de `bwrap` para que el agente local no la lea).
+//! El directorio de ejecución de la sesión (`$XDG_RUNTIME_DIR`) y los dos
+//! secretos que viven en él: la clave de sesión del panel web y la
+//! credencial del planificador en el MCP. Lo comparten `ea-web` (que escribe
+//! la clave), `ea-web-open` (que la lee), `ea-mcp` (que escribe la
+//! credencial), `ea mcp cabeceras` (que la entrega al cliente MCP) y el
+//! ejecutor (que tapa el directorio dentro de `bwrap` y de Seatbelt, también
+//! para el criterio, para que el agente local no lea ninguno de los dos).
 
 use std::path::{Path, PathBuf};
 
@@ -38,7 +41,30 @@ pub fn fichero_clave_web(ejecucion: &Path) -> PathBuf {
 /// ¿Es una clave de sesión del panel bien formada? 64 cifras hexadecimales:
 /// lo que escribe `ea-web` y lo único que acepta la app de escritorio.
 pub fn clave_web_valida(clave: &str) -> bool {
-    clave.len() == 64 && clave.bytes().all(|b| b.is_ascii_hexdigit())
+    hex_64(clave)
+}
+
+/// Subdirectorio de `ea-mcp` dentro del directorio de ejecución (0700).
+pub const DIR_MCP: &str = "ea-mcp";
+/// Fichero con la credencial del planificador en el MCP (0600).
+pub const FICHERO_CREDENCIAL: &str = "credencial";
+/// Cabecera HTTP con la que el cliente MCP manda la credencial.
+pub const CABECERA_CREDENCIAL_MCP: &str = "X-EA-Credencial";
+
+/// Ruta del fichero de la credencial del MCP dentro de un directorio de
+/// ejecución: `<ejecucion>/ea-mcp/credencial`.
+pub fn fichero_credencial_mcp(ejecucion: &Path) -> PathBuf {
+    ejecucion.join(DIR_MCP).join(FICHERO_CREDENCIAL)
+}
+
+/// ¿Es una credencial del MCP bien formada? 64 cifras hexadecimales, como la
+/// clave del panel.
+pub fn credencial_mcp_valida(credencial: &str) -> bool {
+    hex_64(credencial)
+}
+
+fn hex_64(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -65,6 +91,7 @@ mod tests {
         assert_eq!(dir_ejecucion(&e), Some(PathBuf::from("/run/user/42")));
         assert_eq!(fichero_clave_web(Path::new("/run/user/42")), PathBuf::from("/run/user/42/ea-web/clave"));
         assert_eq!(fichero_presencia_escritorio(Path::new("/run/user/42")), PathBuf::from("/run/user/42/ea-escritorio/presencia"));
+        assert_eq!(fichero_credencial_mcp(Path::new("/run/user/42")), PathBuf::from("/run/user/42/ea-mcp/credencial"));
         // Una ruta relativa no vale: se cae al de /run/user/<uid> (si existe).
         let rel = Entorno::Fijo(BTreeMap::from([("XDG_RUNTIME_DIR".into(), "relativa".into())]));
         assert_ne!(dir_ejecucion(&rel), Some(PathBuf::from("relativa")));

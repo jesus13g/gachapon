@@ -36,7 +36,7 @@ async fn entorno() -> Entorno {
     let router = ea_mcp::router(
         move || {
             EaTools::con_entorno(store.clone(), rutinas.clone(), Boveda::en(boveda.clone()), estado.clone())
-                .con_ajustes(ajustes.clone())
+                .con_ajustes(ajustes.clone()).con_credencial(credencial())
                 .con_raices(raices.clone())
         },
         Default::default(),
@@ -114,4 +114,9 @@ async fn solo_mira_y_deja_rastro_en_el_diario() {
     let tools = c.list_tools(Default::default()).await.unwrap().tools;
     let t = tools.iter().find(|t| t.name == "ea_biblioteca").expect("expuesta");
     assert_eq!(t.annotations.as_ref().unwrap().read_only_hint, Some(true));
+}
+
+/// La credencial de las pruebas, la que manda `conectar`.
+fn credencial() -> ea_mcp::Credencial {
+    ea_mcp::Credencial::de_texto(ea_pruebas::mcp::CREDENCIAL).unwrap()
 }

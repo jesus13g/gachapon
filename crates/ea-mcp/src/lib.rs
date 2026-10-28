@@ -1,6 +1,8 @@
 pub mod args;
+pub mod credencial;
 pub mod tools;
 
+pub use credencial::Credencial;
 pub use tools::EaTools;
 
 use rmcp::transport::streamable_http_server::{

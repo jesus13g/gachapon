@@ -6,7 +6,7 @@ mod tui;
 use anyhow::Result;
 use clap::Parser;
 
-use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, HookAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion, WorktreeAccion};
+use cli::{AccionesAccion, AgentesAccion, AjustesAccion, BibliotecaAccion, BovedaAccion, Cli, Command, DiarioAccion, EquipoAccion, HookAccion, McpAccion, PropuestasAccion, QwenSkillsAccion, RutinaAccion, ServiciosAccion, TrabajoAccion, WorktreeAccion};
 
 fn main() -> Result<()> {
     salir_en_silencio_si_se_cierra_la_tuberia();
@@ -28,6 +28,7 @@ fn main() -> Result<()> {
             Some(AgentesAccion::Rol { rol, agente }) => commands::agentes::rol(&rol, &agente)?,
         },
         Command::Hook { accion: HookAccion::Subagentes { accion } } => commands::hook::subagentes(&accion)?,
+        Command::Mcp { accion: McpAccion::Cabeceras } => commands::mcp::cabeceras()?,
         Command::Servicios { accion } => match accion {
             ServiciosAccion::Ver => commands::servicios::ver()?,
             ServiciosAccion::Instalar { esperar } => commands::al_final(esperar, commands::servicios::instalar())?,

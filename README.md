@@ -149,7 +149,8 @@ El instalador (`ea instalar`) hace esto:
    - la app de escritorio en el menú del sistema, arrancando con la sesión;
    - las skills del ejecutor;
    - el adaptador de cada agente que tengas instalado;
-   - el MCP y el hook de subagentes en Claude Code.
+   - el MCP (con la credencial del planificador) y el hook de subagentes en
+     Claude Code.
 5. Comprueba que el panel y el MCP responden y ofrece abrir la app.
 
 En **Windows** pregunta la vía:
@@ -329,6 +330,12 @@ para que el servicio vea tu `PATH`.
 no se migra. Para los servicios, guarda una copia de
 `~/.local/share/ecosistema-asistente/ecosistema.db*`, bórrala y vacía
 `~/.local/state/ecosistema-asistente/`.
+
+**Claude Code solo puede leer por MCP (actor `desconocido` en el diario).**
+El MCP identifica al planificador por una credencial y no por el nombre que
+declara: vuelve a ejecutar `ea instalar` para registrar el MCP con
+`ea mcp cabeceras` y reconecta (`/mcp` en Claude Code). Ver «Identidad del
+cliente» en el manual.
 
 **He cambiado el código y no veo el cambio.** Los servicios ejecutan los
 binarios de `target/release/`: compila en release y reinícialos
