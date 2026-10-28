@@ -44,7 +44,6 @@ pub fn clave_web_valida(clave: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
 
     #[test]
     fn solo_vale_una_clave_de_64_hex() {
@@ -61,6 +60,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn el_directorio_sale_de_xdg_runtime_dir() {
+        use std::collections::BTreeMap;
         let e = Entorno::Fijo(BTreeMap::from([("XDG_RUNTIME_DIR".into(), "/run/user/42".into())]));
         assert_eq!(dir_ejecucion(&e), Some(PathBuf::from("/run/user/42")));
         assert_eq!(fichero_clave_web(Path::new("/run/user/42")), PathBuf::from("/run/user/42/ea-web/clave"));

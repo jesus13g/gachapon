@@ -7,5 +7,26 @@ exclude = ["escritorio", "instalador"]
 edition = "2024"
 publish = false
 
+# Las versiones de las dependencias externas que comparten varios crates se
+# fijan aquí una sola vez (`x.workspace = true`); cada crate pide sus propias
+# features, que se suman. `escritorio/` e `instalador/` no son miembros y no
+# heredan de aquí.
+[workspace.dependencies]
+anyhow = "1.0"
+axum = "0.8"
+directories = "5.0"
+rmcp = "3.3"
+rusqlite = "0.32"
+serde = "1.0"
+serde_json = "1.0"
+tempfile = "3"
+thiserror = "1.0"
+time = "0.3"
+tokio = "1"
+toml = "0.8"
+toml_edit = "0.22"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
 [profile.release]
 lto = true

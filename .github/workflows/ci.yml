@@ -60,11 +60,9 @@ jobs:
       # Compilación de todo el workspace, pruebas incluidas.
       - name: Compilar
         run: cargo build --workspace --all-targets --keep-going
-      # Clippy sin avisos en todo el workspace, por ahora solo en Linux: las
-      # ramas por sistema de los demás crates aún no se comprueban en macOS
-      # ni en Windows (ea-plataforma sí, en el job anterior).
+      # Clippy sin avisos en todo el workspace y en los tres sistemas: cada
+      # uno ve sus propias ramas por sistema (sobre todo, en las pruebas).
       - name: Clippy
-        if: runner.os == 'Linux'
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Pruebas
         run: cargo test --workspace --no-fail-fast
@@ -98,6 +96,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: escritorio
@@ -109,6 +109,8 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Compilar
         run: cargo build --manifest-path escritorio/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --manifest-path escritorio/Cargo.toml --all-targets -- -D warnings
       - name: Pruebas
         run: cargo test --manifest-path escritorio/Cargo.toml
 
@@ -122,10 +124,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: instalador
           key: instalador
+      - name: Clippy del instalador
+        run: cargo clippy --manifest-path instalador/Cargo.toml --all-targets -- -D warnings
       - name: Pruebas del instalador
         run: cargo test --manifest-path instalador/Cargo.toml
       - name: Compilar con binarios de prueba
@@ -139,6 +145,27 @@ jobs:
         run: |
           sh -n instalar.sh
           if command -v shellcheck >/dev/null; then shellcheck instalar.sh; else echo "sin shellcheck"; fi
+      # Humo de instalar.sh como se usa (`curl … | sh`) contra una Release
+      # local (GACHAPON_URL_BASE=file://…) con un `ea` falso: comprueba la suma,
+      # descomprime y le pasa el control con /dev/tty (lo da `script`). Con
+      # una suma que no cuadra no lanza nada.
+      - name: instalar.sh (humo con un paquete falso)
+        if: runner.os == 'Linux'
+        run: |
+          d=$(mktemp -d)
+          p=gachapon-x86_64-unknown-linux-gnu.tar.gz
+          mkdir "$d/paquete"
+          printf '#!/bin/sh\necho "$*" > %s/argumentos\n' "$d" > "$d/paquete/ea"
+          chmod +x "$d/paquete/ea"
+          tar -czf "$d/$p" -C "$d/paquete" ea
+          (cd "$d" && sha256sum "$p" > SHA256SUMS)
+          instalar() { GACHAPON_URL_BASE="file://$d" script -qec "curl -fsSL file://$PWD/instalar.sh | sh -s -- --sin-escritorio" /dev/null; }
+          instalar
+          test "$(cat "$d/argumentos")" = "instalar --sin-escritorio"
+          rm "$d/argumentos"
+          echo "0000  $p" > "$d/SHA256SUMS"
+          if instalar; then echo "instaló con una suma que no cuadra"; exit 1; fi
+          test ! -e "$d/argumentos"
       - name: instalar.ps1 (sintaxis)
         if: runner.os == 'Windows'
         shell: pwsh

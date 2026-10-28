@@ -5,7 +5,6 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 
 use ea_bus::git::{self, FicheroNuevo, TOPE_LECTURA};
 use ea_bus::{ErrorBus, EXCLUIR_DIFF};
@@ -205,6 +204,7 @@ fn el_textconv_del_repo_no_se_ejecuta() {
 #[cfg(unix)]
 #[test]
 fn un_git_que_no_termina_se_corta_en_su_tope() {
+    use std::time::Duration;
     let r = repo(&[(".gitattributes", "*.txt filter=lento\n")]);
     let guiones = r.d.path().join("guiones");
     std::fs::create_dir_all(&guiones).unwrap();

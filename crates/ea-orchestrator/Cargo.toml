@@ -13,13 +13,13 @@ ea-store = { path = "../ea-store" }
 ea-bus = { path = "../ea-bus" }
 ea-ajustes = { path = "../ea-ajustes" }
 ea-plataforma = { path = "../ea-plataforma", features = ["tokio"] }
-serde_json = "1.0"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net"] }
-anyhow = "1.0"
-tempfile = "3"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time", "net"] }
+anyhow.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
 ea-pruebas = { path = "../ea-pruebas" }
-time = { version = "0.3", features = ["formatting", "parsing"] }
+time = { workspace = true, features = ["formatting", "parsing"] }

@@ -25,6 +25,7 @@ const SIN_TTY: &str = "la confirmación debe darse en una terminal interactiva (
 
 /// Programas que una orden confirmada lanzaría (servicios, avisos,
 /// terminales, sudo): en el PATH de la prueba son dobles que dejan una marca.
+#[cfg(unix)]
 const DOBLES: &[&str] = &[
     "systemctl",
     "systemd-analyze",

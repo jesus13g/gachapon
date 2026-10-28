@@ -16,11 +16,11 @@ ea-bus = { path = "../ea-bus" }
 ea-ajustes = { path = "../ea-ajustes" }
 ea-biblioteca = { path = "../ea-biblioteca" }
 ea-plataforma = { path = "../ea-plataforma" }
-time = { version = "0.3", features = ["formatting", "macros"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["preserve_order"] }
-thiserror = "1.0"
-tokio = { version = "1", features = ["process", "time", "rt"] }
+time = { workspace = true, features = ["formatting", "macros"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "time", "rt"] }
 # La sonda de los modelos de `salud` (un endpoint local puede ser `https://`).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
@@ -28,5 +28,5 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Las pruebas de `tests/` usan los dobles (`SistemaSimulado`, `TerminalSimulada`).
 ea-acciones = { path = ".", features = ["dobles"] }
 ea-pruebas = { path = "../ea-pruebas" }
-tempfile = "3"
-tokio = { version = "1", features = ["rt", "macros", "net", "io-util"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "net", "io-util"] }
