@@ -8,10 +8,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 /// Actor que este proceso escribe en el diario.
 const ACTOR: &str = ea_ajustes::ACTOR_ORQUESTADOR;
 
-/// Bus con historial en SQLite (si la base no abre, sigue solo con ficheros).
+/// Bus con historial en SQLite (si la base no abre, sigue solo con ficheros),
+/// en las rutas de los ajustes de ahora.
 fn abrir_bus() -> anyhow::Result<Bus> {
-    let bus = Bus::abrir()?;
-    Ok(match Store::open() {
+    let rutas = ea_ajustes::cargar().rutas;
+    let bus = Bus::abrir_en(&rutas.estado)?;
+    Ok(match Store::open_at(&rutas.db) {
         Ok(s) => bus.con_store(s),
         Err(e) => {
             tracing::warn!(error = %e, "bus sin historial SQLite");
@@ -54,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
     };
     tokio::spawn(async move {
         loop {
-            match Store::open() {
+            match Store::open_at(&ea_ajustes::cargar().rutas.db) {
                 Ok(store) => {
                     if let Err(e) = store.append_event(NewEvent {
                         actor: ACTOR.to_string(),

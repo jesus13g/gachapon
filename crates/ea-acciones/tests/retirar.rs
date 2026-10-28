@@ -20,9 +20,6 @@ macro_rules! tmp {
 }
 
 fn store() -> (Store, tempfile::TempDir) {
-    static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
-    unsafe { std::env::set_var("EA_ESTADO_DIR", estado.path()) };
     let dir = tempfile::tempdir().unwrap();
     let s = Store::open_at(&dir.path().join("t.db")).unwrap();
     s.guardar_rutina(&ea_store::FilaRutina {
@@ -48,8 +45,8 @@ async fn simular<C: Consulta>(s: &Store, c: &C, nombre: &str, args: &Value) -> R
 /// timer; y borrarla para siempre exige que esté retirada.
 #[tokio::test]
 async fn retirar_desprograma_el_timer_y_restaurar_no_lo_reprograma() {
-    let (mut s, _d) = store();
-    let sis = SistemaSimulado::default().con_rutina("nocturna", RUTINA).con_timer("nocturna", "daily");
+    let (mut s, d) = store();
+    let sis = SistemaSimulado::default().con_estado(&d.path().join("estado")).con_rutina("nocturna", RUTINA).con_timer("nocturna", "daily");
 
     // Activa: no se borra para siempre ni se restaura.
     let e = simular(&s, &sis, "ea_eliminar_rutina", &json!({ "slug": "nocturna" })).await.unwrap_err();
@@ -107,7 +104,7 @@ async fn la_papelera_real_mueve_el_fichero_y_revalida() {
     // `true` como systemctl: no hay timer y nada sale del directorio temporal.
     let temporizadores =
         Temporizadores::systemd(unidades, vec!["true".into()], vec!["true".into()]);
-    let mut sis = SistemaReal::usuario(rutinas.clone(), ea_boveda::Boveda::en(d.path().join("boveda")), None);
+    let mut sis = SistemaReal::usuario(rutinas.clone(), ea_boveda::Boveda::en(d.path().join("boveda")), d.path().join("estado"), None);
     sis.consulta.temporizadores = temporizadores;
 
     let sim = simular(&s, &sis, "ea_retirar_rutina", &json!({ "slug": "nocturna" })).await.unwrap();

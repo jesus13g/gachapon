@@ -513,6 +513,7 @@ version = "0.1.0"
 dependencies = [
  "ea-ajustes",
  "ea-plataforma",
+ "ea-store",
  "rusqlite",
  "serde",
  "serde_json",

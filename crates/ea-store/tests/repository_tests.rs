@@ -298,6 +298,36 @@ fn una_base_del_esquema_antiguo_se_rechaza_sin_tocarla() {
     }
 }
 
+/// La apertura de solo lectura (la de la biblioteca) no crea, no migra y no
+/// escribe: lee el uso de `ea-mcp` por actor y rechaza un esquema ajeno.
+#[test]
+fn la_apertura_de_solo_lectura_no_crea_ni_escribe() {
+    let dir = tempfile::tempdir().unwrap();
+    let falta = dir.path().join("no-existe.db");
+    assert!(Store::abrir_lectura(&falta).is_err());
+    assert!(!falta.exists(), "no la crea");
+
+    let ruta = dir.path().join("ea.db");
+    let store = Store::open_at(&ruta).unwrap();
+    for (actor, accion, detalle) in [("claude-code", "mcp_status", None), ("mcp", "mcp_leer_nota", Some(r#"{"agente":"codex"}"#)), ("orquestador", "heartbeat", None)] {
+        store
+            .append_event(NewEvent { actor: actor.into(), action: accion.into(), detail: detalle.map(str::to_string), ..Default::default() })
+            .unwrap();
+    }
+    drop(store);
+    let lectura = Store::abrir_lectura(&ruta).unwrap();
+    let mut uso: Vec<(String, u64, bool)> = lectura.uso_mcp_por_actor().unwrap().into_iter().map(|(a, n, t)| (a, n, t.is_some())).collect();
+    uso.sort();
+    assert_eq!(uso, vec![("claude-code".into(), 1, true), ("codex".into(), 1, true)]);
+    assert!(lectura.append_event(NewEvent { actor: "x".into(), action: "y".into(), ..Default::default() }).is_err(), "no escribe");
+
+    let antigua = dir.path().join("antigua.db");
+    rusqlite::Connection::open(&antigua).unwrap().execute_batch("CREATE TABLE tasks (id INTEGER); PRAGMA user_version = 1;").unwrap();
+    let antes = std::fs::read(&antigua).unwrap();
+    assert!(matches!(Store::abrir_lectura(&antigua).err(), Some(StoreError::EsquemaAntiguo)));
+    assert_eq!(std::fs::read(&antigua).unwrap(), antes, "intacta");
+}
+
 #[test]
 fn el_indice_de_la_boveda_busca_sin_acentos_ni_mayusculas() {
     let mut store = open_test_store();

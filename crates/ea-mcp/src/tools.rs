@@ -73,6 +73,8 @@ pub struct EaTools {
     /// ([`Boveda::escribir_nota`]); promover a la compartida es del usuario y
     /// este servidor solo puede proponerlo.
     boveda: Boveda,
+    /// La raíz del bus que se lee (la misma que la de `consulta`).
+    estado_dir: std::path::PathBuf,
     /// De dónde se leen los roles vigentes en cada llamada.
     ajustes: ea_ajustes::Fuentes,
     /// Dónde mira la biblioteca; `None`: el entorno real en cada llamada.
@@ -117,10 +119,10 @@ fn event_to_json(e: &Event) -> serde_json::Value {
 
 /// Trabajos por estado, colas y semáforos del bus. Si el bus no se puede
 /// leer (aún no existe), todo vacío: un `ea_status` no debe fallar por eso.
-fn resumen_bus() -> (serde_json::Value, serde_json::Value, serde_json::Value) {
+fn resumen_bus(estado: &std::path::Path) -> (serde_json::Value, serde_json::Value, serde_json::Value) {
     let mut por_estado = serde_json::Map::new();
     let mut colas = serde_json::Map::new();
-    if let Ok(bus) = Bus::abrir() {
+    if let Ok(bus) = Bus::abrir_en(estado) {
         for (estado, n) in bus.conteo_por_estado() {
             por_estado.insert(estado.as_str().into(), json!(n));
         }
@@ -129,7 +131,7 @@ fn resumen_bus() -> (serde_json::Value, serde_json::Value, serde_json::Value) {
             colas.insert(a.as_str().into(), json!(ids));
         }
     }
-    let semaforos: Vec<_> = ea_bus::listar_semaforos()
+    let semaforos: Vec<_> = ea_bus::listar_semaforos_en(estado)
         .into_iter()
         .map(|(_, o)| json!({ "agente": o.agente, "trabajo": o.trabajo, "pid": o.pid, "desde": o.desde }))
         .collect();
@@ -138,8 +140,8 @@ fn resumen_bus() -> (serde_json::Value, serde_json::Value, serde_json::Value) {
 
 /// Los equipos despiertos y las presencias anotadas (vivas o caducadas), para
 /// `ea_status`. Vacío si el bus no se puede leer.
-fn resumen_equipos() -> (serde_json::Value, serde_json::Value) {
-    let Ok(bus) = Bus::abrir() else { return (json!([]), json!([])) };
+fn resumen_equipos(estado: &std::path::Path) -> (serde_json::Value, serde_json::Value) {
+    let Ok(bus) = Bus::abrir_en(estado) else { return (json!([]), json!([])) };
     let equipos: Vec<_> = bus
         .resumen_equipos()
         .unwrap_or_default()
@@ -232,20 +234,24 @@ fn biblioteca_json(
 
 #[tool_router]
 impl EaTools {
+    /// Con las rutas de los ajustes de ahora (una carga): rutinas, bóveda y
+    /// bus (`EA_BOVEDA_DIR` y `EA_ESTADO_DIR` mandan, a través de los ajustes).
     pub fn new(store: Arc<Mutex<Store>>) -> Self {
-        Self::con_rutinas_dir(store, ea_ajustes::cargar().orquestador.rutinas_dir)
+        let a = ea_ajustes::cargar();
+        Self::con_entorno(store, a.orquestador.rutinas_dir, Boveda::en(a.rutas.boveda), a.rutas.estado)
     }
 
-    /// Con la bóveda configurada (`EA_BOVEDA_DIR`, `boveda.toml`).
-    pub fn con_rutinas_dir(store: Arc<Mutex<Store>>, rutinas_dir: std::path::PathBuf) -> Self {
-        Self::con_entorno(store, rutinas_dir, Boveda::configurada())
-    }
-
-    pub fn con_entorno(store: Arc<Mutex<Store>>, rutinas_dir: std::path::PathBuf, boveda: Boveda) -> Self {
+    pub fn con_entorno(
+        store: Arc<Mutex<Store>>,
+        rutinas_dir: std::path::PathBuf,
+        boveda: Boveda,
+        estado_dir: std::path::PathBuf,
+    ) -> Self {
         Self {
             store,
-            consulta: Arc::new(SoloConsulta::usuario(rutinas_dir, boveda.clone())),
+            consulta: Arc::new(SoloConsulta::usuario(rutinas_dir, boveda.clone(), estado_dir.clone())),
             boveda,
+            estado_dir,
             ajustes: ea_ajustes::Fuentes::sistema(),
             raices: None,
             tool_router: Self::tool_router(),
@@ -393,8 +399,8 @@ impl EaTools {
 
         let body: ToolBody = async {
             let store = self.store.lock().await;
-            let (por_estado, colas, semaforos) = resumen_bus();
-            let (equipos, presencias) = resumen_equipos();
+            let (por_estado, colas, semaforos) = resumen_bus(&self.estado_dir);
+            let (equipos, presencias) = resumen_equipos(&self.estado_dir);
             let events = store
                 .list_events(&EventFilter {
                     limit: Some(5),
@@ -403,7 +409,7 @@ impl EaTools {
                 .map_err(|e| e.to_string())?;
             // Mismo criterio que `ea status` y `ea-web`: último latido del
             // diario, con umbral del doble del intervalo configurado.
-            let umbral_s = ea_ajustes::cargar().umbral_latido_s();
+            let umbral_s = ea_ajustes::cargar_de(&self.ajustes).ajustes.umbral_latido_s();
             let orquestador = store.estado_orquestador(umbral_s).map_err(|e| e.to_string())?;
             Ok(json!({
                 "orquestador": {
@@ -443,7 +449,7 @@ impl EaTools {
         let args_json = json!({ "estado": args.estado, "modo": args.modo, "limite": args.limite });
 
         let body: ToolBody = async {
-            let bus = Bus::abrir().map_err(|e| e.to_string())?;
+            let bus = Bus::abrir_en(&self.estado_dir).map_err(|e| e.to_string())?;
             let mut ids = bus.listar_trabajos().map_err(|e| e.to_string())?;
             ids.reverse();
             let limite = args.limite.filter(|n| *n > 0).unwrap_or(20) as usize;
@@ -478,7 +484,7 @@ impl EaTools {
         let args_json = json!({ "id": args.id });
 
         let body: ToolBody = async {
-            let bus = Bus::abrir().map_err(|e| e.to_string())?;
+            let bus = Bus::abrir_en(&self.estado_dir).map_err(|e| e.to_string())?;
             let orden = bus.leer_orden(&args.id).map_err(|e| e.to_string())?;
             let estado = bus.leer_estado(&args.id).map_err(|e| e.to_string())?;
             let informe = bus.leer_informe(&args.id).map_err(|e| e.to_string())?;
@@ -514,7 +520,7 @@ impl EaTools {
         let started = Instant::now();
 
         let body: ToolBody = async {
-            let bus = Bus::abrir().map_err(|e| e.to_string())?;
+            let bus = Bus::abrir_en(&self.estado_dir).map_err(|e| e.to_string())?;
             let mut equipos = bus.resumen_equipos().map_err(|e| e.to_string())?;
             equipos.reverse();
             let total = equipos.len();
@@ -544,7 +550,7 @@ impl EaTools {
         let args_json = json!({ "id": args.id, "trabajos": args.trabajos });
 
         let body: ToolBody = async {
-            let bus = Bus::abrir().map_err(|e| e.to_string())?;
+            let bus = Bus::abrir_en(&self.estado_dir).map_err(|e| e.to_string())?;
             let n = args.trabajos.filter(|n| *n > 0).map_or(TRABAJOS_POR_DEFECTO, |n| (n as usize).min(MAX_TRABAJOS));
             let v = bus.vista_equipo(&args.id, n).map_err(|e| e.to_string())?;
             serde_json::to_value(v).map_err(|e| e.to_string())

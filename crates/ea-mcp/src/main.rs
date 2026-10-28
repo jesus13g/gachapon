@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     let port = efectivos.ajustes.red.puerto_mcp;
     let bind_addr = format!("127.0.0.1:{port}");
 
-    let store = Store::open().context("no se pudo abrir la base de datos")?;
+    let store = Store::open_at(&efectivos.ajustes.rutas.db).context("no se pudo abrir la base de datos")?;
     let store = Arc::new(Mutex::new(store));
 
     let cancel = tokio_util::sync::CancellationToken::new();

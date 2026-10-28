@@ -7,13 +7,15 @@ publish.workspace = true
 [dependencies]
 ea-ajustes = { path = "../ea-ajustes" }
 ea-plataforma = { path = "../ea-plataforma" }
+# El diario del ecosistema, en solo lectura (`Store::abrir_lectura`).
+ea-store = { path = "../ea-store" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 toml_edit = "0.22"
 thiserror = "1.0"
-# Solo lectura del diario del ecosistema y de la base de OpenCode: ea-store ejecuta
-# migraciones al abrir y rechaza esquemas ajenos, y aquí no se debe escribir nada.
+# Solo lectura de las bases ajenas (OpenCode, Codex): no son del ecosistema y aquí no
+# se debe escribir nada.
 rusqlite = { version = "0.32", features = ["bundled"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 

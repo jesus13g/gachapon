@@ -41,25 +41,13 @@ fn texto(descripcion: &str) -> ea_store::NuevaPropuesta {
 
 const RUTINA_BUS: &str = concat!("[rutina]\nslug = \"revision-diaria\"\nversion = 1\nworktree = \"", tmp!(), "\"\ncriterio_exito = \"test -f {salida}\"\n[entradas]\nsalida = \"informe.md\"\n[[pasos]]\ntexto = \"revisa y escribe {salida}\"\n");
 
-/// Las pruebas que lanzan rutinas comparten la variable de entorno del
-/// directorio de estado del bus: una a una, cada cual con el suyo.
-static BUS_EXCLUSIVO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-async fn aislar_bus(f: &Fixture) -> tokio::sync::MutexGuard<'static, ()> {
-    let g = BUS_EXCLUSIVO.lock().await;
-    unsafe { std::env::set_var("EA_ESTADO_DIR", f._dir.path().join("estado")) };
-    g
+/// El bus de la prueba: el mismo directorio temporal que lee el panel
+/// (`WebConfig::estado_dir`), nunca el real.
+fn bus(f: &Fixture) -> ea_bus::Bus {
+    ea_bus::Bus::abrir_en(&f.state.config.estado_dir).unwrap()
 }
 
 fn montar() -> Fixture {
-    // Nunca el estado real del bus: un directorio temporal para todo el proceso
-    // de pruebas (las que lanzan trabajos lo cambian con `aislar_bus`).
-    static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-    ESTADO.get_or_init(|| {
-        let d = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var("EA_ESTADO_DIR", d.path()) };
-        d
-    });
     let dir = tempfile::tempdir().expect("directorio temporal");
     let rutinas_dir = dir.path().join("rutinas");
     std::fs::create_dir_all(&rutinas_dir).unwrap();
@@ -244,7 +232,6 @@ const ESCRITURAS: [(&str, &str); 11] = [
 #[tokio::test]
 async fn las_escrituras_sin_clave_dan_403() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let id = f.state.store.lock().await.crear_propuesta(texto("x")).unwrap().id;
     assert_eq!(id, 1);
     let otra = "0".repeat(64);
@@ -279,7 +266,6 @@ async fn las_escrituras_sin_clave_dan_403() {
 #[tokio::test]
 async fn con_la_clave_correcta_funcionan() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let id = f.state.store.lock().await.crear_propuesta(texto("x")).unwrap().id;
     let clave = f.state.clave.texto().to_string();
     let (s, _) = enviar_con_clave(
@@ -325,7 +311,6 @@ async fn las_lecturas_no_piden_clave_y_la_sesion_dice_si_vale() {
 #[tokio::test]
 async fn el_estado_resume_trabajos_y_agentes_y_el_sistema_antiguo_no_existe() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
 
     let (s, e) = get(&f, "/api/estado").await;
     assert_eq!(s, StatusCode::OK);
@@ -470,7 +455,6 @@ async fn el_diario_filtra_por_actor_resultado_y_familia() {
 
     // Las transiciones del bus quedan en la columna `trabajo`: el filtro por
     // trabajo (el que usa la ficha) las encuentra.
-    let _g = aislar_bus(&f).await;
     let (s, l) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
     assert_eq!(s, StatusCode::CREATED);
     let id = l["trabajo"].as_str().unwrap();
@@ -724,7 +708,6 @@ async fn decidir_una_propuesta() {
 #[tokio::test]
 async fn rutinas_listar_ver_y_lanzar() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
 
     let (_, lista) = get(&f, "/api/rutinas").await;
     assert_eq!(lista[0]["slug"], "revision-diaria");
@@ -735,7 +718,7 @@ async fn rutinas_listar_ver_y_lanzar() {
     assert!(r["contenido"].as_str().unwrap().contains("revisa"));
 
     assert_eq!(lista[0]["entradas"]["salida"], "informe.md");
-    let trabajos = || ea_bus::Bus::abrir().unwrap().listar_trabajos().unwrap().len();
+    let trabajos = || bus(&f).listar_trabajos().unwrap().len();
 
     // Vista previa: lo sustituido, sin crear trabajo.
     let (s, p) = post(&f, "/api/rutinas/revision-diaria/previa", json!({ "entradas": { "salida": "otro.md" } })).await;
@@ -770,18 +753,18 @@ async fn rutinas_listar_ver_y_lanzar() {
     let id = t["trabajo"].as_str().unwrap().to_string();
     let (_, j) = get(&f, &format!("/api/trabajos/{id}")).await;
     assert_eq!(j["estado"]["estado"], "en_cola");
-    let orden = ea_bus::Bus::abrir().unwrap().leer_orden(&id).unwrap();
+    let orden = bus(&f).leer_orden(&id).unwrap();
     assert_eq!(orden.criterio_exito.as_deref(), Some("test -f otro.md"));
     assert!(orden.objetivo.contains("revisa y escribe otro.md"));
     assert!(!orden.objetivo.contains("informe.md"));
     let (s, _) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
     assert_eq!(s, StatusCode::CONFLICT, "ya hay una ejecución en curso");
     // Cuerpo vacío: los valores por defecto (lo que ya hacía la página).
-    ea_bus::Bus::abrir().unwrap().aplicar(&id, ea_bus::Evento::Cancelar).unwrap();
+    bus(&f).aplicar(&id, ea_bus::Evento::Cancelar).unwrap();
     let (s, t) = enviar(&f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", None, true).await;
     assert_eq!(s, StatusCode::CREATED, "{t}");
     let id: String = serde_json::from_str::<Value>(&t).unwrap()["trabajo"].as_str().unwrap().into();
-    assert_eq!(ea_bus::Bus::abrir().unwrap().leer_orden(&id).unwrap().criterio_exito.as_deref(), Some("test -f informe.md"));
+    assert_eq!(bus(&f).leer_orden(&id).unwrap().criterio_exito.as_deref(), Some("test -f informe.md"));
 
     let (s, _) = get(&f, "/api/rutinas/no-existe").await;
     assert_eq!(s, StatusCode::NOT_FOUND);
@@ -796,8 +779,7 @@ async fn rutinas_listar_ver_y_lanzar() {
 #[tokio::test]
 async fn la_ficha_de_una_rutina_lista_sus_ejecuciones_mas_recientes_primero() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
-    let bus = ea_bus::Bus::abrir().unwrap();
+    let bus = bus(&f);
 
     // Sin trabajos: la fila no tiene última y la ficha no tiene ejecuciones.
     let (_, l) = get(&f, "/api/rutinas").await;
@@ -885,8 +867,7 @@ fn orden(modo: ea_bus::Modo, titulo: &str, worktree: &str) -> ea_bus::Orden {
 #[tokio::test]
 async fn trabajos_colas_y_semaforos_de_solo_lectura() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
-    let bus = ea_bus::Bus::abrir().unwrap();
+    let bus = bus(&f);
 
     let (s, v) = get(&f, "/api/trabajos").await;
     assert_eq!((s, v.as_array().unwrap().len()), (StatusCode::OK, 0));
@@ -949,8 +930,7 @@ async fn trabajos_colas_y_semaforos_de_solo_lectura() {
 #[tokio::test]
 async fn acciones_del_usuario_sobre_los_trabajos() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
-    let bus = ea_bus::Bus::abrir().unwrap();
+    let bus = bus(&f);
     let entrega = |id: &str, completa: bool| {
         bus.aplicar(id, ea_bus::Evento::Tomar).unwrap();
         let mut inf = ea_bus::Informe::nuevo(ea_bus::ResultadoInforme::Terminado);
@@ -1025,8 +1005,7 @@ fn obra_completa(bus: &ea_bus::Bus) -> String {
 #[tokio::test]
 async fn reformular_con_fase_fuera_de_rango_da_400() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
-    let bus = ea_bus::Bus::abrir().unwrap();
+    let bus = bus(&f);
     let o = obra_completa(&bus);
     let antes = bus.leer_estado(&o).unwrap();
     for fase in [0, 4] {
@@ -1049,8 +1028,7 @@ async fn reformular_con_fase_fuera_de_rango_da_400() {
 #[tokio::test]
 async fn reformular_una_obra_con_fase_deja_la_fase_actual_en_ella() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
-    let bus = ea_bus::Bus::abrir().unwrap();
+    let bus = bus(&f);
     let o = obra_completa(&bus);
     let (s, r) = post(&f, &format!("/api/trabajos/{o}/reformular"), json!({ "nota": "rehaz la 2", "fase": 2 })).await;
     assert_eq!((s, r["estado"].as_str()), (StatusCode::OK, Some("en_cola")));
@@ -1152,7 +1130,7 @@ async fn las_cabeceras_de_seguridad_van_en_todas_las_respuestas() {
 }
 
 async fn proponer_accion(f: &Fixture, herramienta: &str, args: Value) -> i64 {
-    let sis = ea_acciones::SoloConsulta::usuario(f.state.config.rutinas_dir.clone(), f.state.boveda.clone());
+    let sis = ea_acciones::SoloConsulta::usuario(f.state.config.rutinas_dir.clone(), f.state.boveda.clone(), f.state.config.estado_dir.clone());
     let hechos = ea_acciones::observar(&sis, herramienta, &args).await.unwrap();
     let store = f.state.store.lock().await;
     ea_acciones::proponer(&store, &sis, &hechos, "claude-code", None, herramienta, &args)
@@ -1164,7 +1142,6 @@ async fn proponer_accion(f: &Fixture, herramienta: &str, args: Value) -> i64 {
 #[tokio::test]
 async fn aceptar_una_propuesta_con_accion_la_ejecuta_una_sola_vez() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let id = proponer_accion(&f, "ea_encolar_rutina", json!({ "slug": "revision-diaria" })).await;
 
     let (_, lista) = get(&f, "/api/propuestas?estado=pendiente").await;
@@ -1193,7 +1170,6 @@ async fn aceptar_una_propuesta_con_accion_la_ejecuta_una_sola_vez() {
 #[tokio::test]
 async fn una_propuesta_cuyo_estado_cambio_falla_con_mensaje_claro() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let id = proponer_accion(&f, "ea_encolar_rutina", json!({ "slug": "revision-diaria" })).await;
     // Mientras tanto, alguien lanza la rutina.
     let (s, _) = post(&f, "/api/rutinas/revision-diaria/lanzar", json!({})).await;
@@ -1295,7 +1271,7 @@ async fn aceptar_en_la_web_la_propuesta_de_promocion_de_un_agente_la_ejecuta() {
     let ruta = nota(&f, "claude-code", "Hallazgo", "Texto del hallazgo.");
     {
         let store = f.state.store.lock().await;
-        let c = ea_acciones::SoloConsulta::usuario(f.state.config.rutinas_dir.clone(), f.state.boveda.clone());
+        let c = ea_acciones::SoloConsulta::usuario(f.state.config.rutinas_dir.clone(), f.state.boveda.clone(), f.state.config.estado_dir.clone());
         let args = json!({ "ruta": ruta });
         ea_acciones::proponer(&store, &c, &Default::default(), "claude-code", None, "ea_promover_nota", &args)
             .unwrap();
@@ -1342,7 +1318,6 @@ async fn la_portada_reune_las_propuestas_pendientes() {
 #[tokio::test]
 async fn la_consola_lista_simula_y_ejecuta_acciones() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
 
     let (s, cat) = get(&f, "/api/acciones").await;
     assert_eq!(s, StatusCode::OK);
@@ -1382,7 +1357,6 @@ async fn la_consola_lista_simula_y_ejecuta_acciones() {
 #[tokio::test]
 async fn el_resultado_de_una_accion_trae_su_trabajo_y_su_evento() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let evento_de = |d: &Value, id: i64| d.as_array().unwrap().iter().find(|e| e["id"] == id).cloned();
 
     let cuerpo = json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "revision-diaria" } });
@@ -1478,7 +1452,6 @@ fn evento_mcp(actor: &str, accion: &str, ok: bool) -> NewEvent {
 #[tokio::test]
 async fn el_historial_de_una_herramienta_incluye_simulaciones_y_ejecuciones() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     {
         let store = f.state.store.lock().await;
         store.append_event(evento_mcp("claude-code", "mcp_encolar_rutina_simulada", true)).unwrap();
@@ -2273,7 +2246,6 @@ fn mision(wt: &str) -> Value {
 #[tokio::test]
 async fn crear_una_mision_desde_la_web_la_encola() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let wt = repo_git(&f);
     // El formulario da los modos, el techo y los topes por defecto.
     let (s, form) = get(&f, "/api/trabajos/nuevo").await;
@@ -2319,7 +2291,6 @@ async fn crear_una_mision_desde_la_web_la_encola() {
 #[tokio::test]
 async fn crear_sin_criterio_o_worktree_invalido_da_400_y_no_escribe() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let wt = repo_git(&f);
     let wt = wt.to_str().unwrap();
     let sin_repo = f._dir.path().join("sin-repo");
@@ -2381,7 +2352,6 @@ async fn crear_sin_criterio_o_worktree_invalido_da_400_y_no_escribe() {
 #[tokio::test]
 async fn crear_exige_json_host_local_y_clave() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let wt = repo_git(&f);
     let cuerpo = mision(wt.to_str().unwrap());
     let clave = f.state.clave.texto().to_string();
@@ -2444,7 +2414,6 @@ async fn bus_vacio(f: &Fixture) {
 #[tokio::test]
 async fn crear_una_obra_valida_cada_fase() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let wt = repo_git(&f);
     let wt = wt.to_str().unwrap();
     let con = |campo: &str, valor: Value| {
@@ -2548,7 +2517,6 @@ async fn crear_una_obra_valida_cada_fase() {
 #[tokio::test]
 async fn crear_en_un_repo_sin_commits_da_400() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let vacio = repo_git_vacio(&f, "sin-commits");
     let vacio = vacio.to_str().unwrap();
     for cuerpo in [mision(vacio), obra(vacio)] {
@@ -2658,7 +2626,6 @@ async fn crear_una_rutina_nueva_desde_la_web() {
     let (s, d) = get(&f, "/api/rutinas/nueva").await;
     assert_eq!((s, d["contenido"].as_str()), (StatusCode::OK, Some(toml)));
     // Y se puede lanzar como cualquier otra.
-    let _g = aislar_bus(&f).await;
     let (s, v) = post(&f, "/api/rutinas/nueva/lanzar", json!({})).await;
     assert_eq!(s, StatusCode::CREATED, "{v}");
 }
@@ -2711,7 +2678,6 @@ fn instantanea(wt: &std::path::Path) -> String {
 #[tokio::test]
 async fn diff_de_una_fase_usa_las_instantaneas() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let wt = f._dir.path().join("obra");
     std::fs::create_dir_all(&wt).unwrap();
     git_en(&wt, None, &["init", "-q"]);
@@ -2731,7 +2697,7 @@ async fn diff_de_una_fase_usa_las_instantaneas() {
     o.criterio_exito = None;
     o.fases = vec![fase(1), fase(2), fase(3)];
     let store = f.state.store.lock().await.duplicar().unwrap();
-    let bus = ea_bus::Bus::abrir().unwrap().con_store(store);
+    let bus = bus(&f).con_store(store);
     let id = bus.crear_trabajo(o).unwrap();
 
     // La obra cierra las fases 1 y 2 con su instantánea; la 3 sigue pendiente.
@@ -2807,7 +2773,6 @@ async fn diff_de_una_fase_usa_las_instantaneas() {
 #[tokio::test]
 async fn el_diff_es_el_de_git_mas_los_ficheros_nuevos() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let wt = f._dir.path().join("repo");
     std::fs::create_dir_all(&wt).unwrap();
     git_en(&wt, None, &["init", "-q"]);
@@ -2827,7 +2792,7 @@ async fn el_diff_es_el_de_git_mas_los_ficheros_nuevos() {
     std::fs::create_dir_all(wt.join("__pycache__")).unwrap();
     std::fs::write(wt.join("__pycache__/m.pyc"), "pyc").unwrap();
 
-    let bus = ea_bus::Bus::abrir().unwrap();
+    let bus = bus(&f);
     let id = bus.crear_trabajo(orden(ea_bus::Modo::Mision, "Diff", wt.to_str().unwrap())).unwrap();
     bus.escribir_informe(&id, &serde_json::from_value(json!({ "resultado": "terminado", "commit_inicio": inicio })).unwrap())
         .unwrap();
@@ -3017,7 +2982,6 @@ fn lanzadas(f: &Fixture) -> Vec<Vec<String>> {
 #[tokio::test]
 async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let reversible = proponer_accion(&f, "ea_encolar_rutina", json!({ "slug": "revision-diaria" })).await;
     // Solo se borra para siempre una rutina retirada (en la papelera).
     ea_bus::retirar_rutina(&f.state.config.rutinas_dir, "revision-diaria").unwrap();
@@ -3111,7 +3075,6 @@ async fn el_plan_de_servicios_dice_gestor_unidades_y_binarios() {
 #[tokio::test]
 async fn abrir_en_terminal_instalar_y_desinstalar_servicios() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     for cuerpo in [
         json!({ "servicios": "reiniciar" }),
         json!({ "servicios": "instalar; rm -rf ~" }),
@@ -3157,7 +3120,6 @@ async fn abrir_en_terminal_instalar_y_desinstalar_servicios() {
 #[tokio::test]
 async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let dir = f.state.config.rutinas_dir.clone();
     let timer = f._dir.path().join("systemd-user/ea-rutina@revision-diaria.timer");
     let ejecutar = |sim: &Value| {
@@ -3200,7 +3162,7 @@ async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     assert_eq!(e["error"], motivo);
     let (s, e_web) = post(&f, "/api/acciones/simular", accion("ea_encolar_rutina")).await;
     assert_eq!(s, StatusCode::CONFLICT);
-    let mcp = ea_acciones::SoloConsulta::usuario(dir.clone(), f.state.boveda.clone());
+    let mcp = ea_acciones::SoloConsulta::usuario(dir.clone(), f.state.boveda.clone(), f.state.config.estado_dir.clone());
     let args = json!({ "slug": "revision-diaria" });
     let h = ea_acciones::observar(&mcp, "ea_encolar_rutina", &args).await.unwrap();
     let e_mcp =
@@ -3696,7 +3658,6 @@ async fn despertar_rechaza_lo_que_la_cli_rechaza() {
 #[tokio::test]
 async fn dormir_devuelve_lo_pendiente_a_la_cola_del_ejecutor() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let wt = preparar_equipos(&f, 2);
     let (_, r) = post(&f, "/api/equipos", despertar_cuerpo(&wt, &BASICO, false)).await;
     let id = r["equipo"]["id"].as_str().unwrap().to_string();
@@ -3748,7 +3709,6 @@ async fn los_agentes_traen_su_presencia() {
 #[tokio::test]
 async fn crear_un_trabajo_para_un_equipo_valida_como_el_bus() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
     let wt = preparar_equipos(&f, 2);
     let cuerpo = |extra: Value| {
         let mut m = mision(wt.to_str().unwrap());
@@ -3883,8 +3843,7 @@ async fn probar_skills_desde_la_web_reutiliza_la_validacion() {
 #[tokio::test]
 async fn los_worktrees_propios_se_listan_y_se_limpian_con_simulacion() {
     let f = montar();
-    let _g = aislar_bus(&f).await;
-    let bus = ea_bus::Bus::abrir().unwrap();
+    let bus = bus(&f);
     let repo = repo_git(&f);
     let (s, v) = get(&f, "/api/worktrees").await;
     assert_eq!((s, v), (StatusCode::OK, json!([])));

@@ -20,19 +20,21 @@ pub struct Store {
 }
 
 impl Store {
-    /// Abre la base de datos en su ruta XDG estándar (o `$EA_DB_PATH` si está
-    /// definida) y aplica migraciones pendientes.
-    pub fn open() -> StoreResult<Self> {
-        Ok(Self {
-            conn: connection::open()?,
-        })
-    }
-
-    /// Igual que [`Store::open`] pero sobre una ruta explícita (`":memory:"`
-    /// para tests).
+    /// Abre la base de datos en `path` (`rutas.db` de los ajustes; `":memory:"`
+    /// para tests), creando su directorio si falta, y aplica las migraciones
+    /// pendientes.
     pub fn open_at(path: &Path) -> StoreResult<Self> {
         Ok(Self {
             conn: connection::open_at(path)?,
+        })
+    }
+
+    /// Solo lectura, sin migraciones y sin crear nada: para mirar el diario
+    /// sin poder escribir en él (la biblioteca). Una base de un esquema ajeno
+    /// se rechaza sin tocarla.
+    pub fn abrir_lectura(path: &Path) -> StoreResult<Self> {
+        Ok(Self {
+            conn: connection::abrir_lectura(path)?,
         })
     }
 
@@ -107,6 +109,12 @@ impl Store {
     /// invocaciones por MCP y los `accion_*`/`propuesta_*` que la nombran.
     pub fn list_events_herramienta(&self, herramienta: &str, limit: i64) -> StoreResult<Vec<Event>> {
         events::list_events_herramienta(&self.conn, herramienta, limit)
+    }
+
+    /// `(actor, usos, última)` de las llamadas a `ea-mcp` (`mcp_*`), por
+    /// actor (`detail.agente` o, si no hay, la columna `actor`).
+    pub fn uso_mcp_por_actor(&self) -> StoreResult<Vec<(String, u64, Option<time::OffsetDateTime>)>> {
+        events::uso_mcp_por_actor(&self.conn)
     }
 
     /// Añade una nota del usuario (`usuario_nota`), que puede corregir otro

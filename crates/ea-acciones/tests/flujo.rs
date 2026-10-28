@@ -19,11 +19,13 @@ macro_rules! tmp {
     };
 }
 
-fn store() -> (Store, tempfile::TempDir) {
-    // Una sola raíz de estado del bus para todo el proceso de pruebas.
+/// Una sola raíz de estado del bus para todo el proceso de pruebas.
+fn estado() -> &'static std::path::Path {
     static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
-    unsafe { std::env::set_var("EA_ESTADO_DIR", estado.path()) };
+    ESTADO.get_or_init(|| tempfile::tempdir().unwrap()).path()
+}
+
+fn store() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let s = Store::open_at(&dir.path().join("t.db")).unwrap();
     for slug in ["revision-diaria", "vieja", "nocturna"] {
@@ -52,6 +54,7 @@ fn store() -> (Store, tempfile::TempDir) {
 
 fn sistema() -> SistemaSimulado {
     SistemaSimulado::default()
+        .con_estado(estado())
         .con_servicio("ea-mcp", "active")
         // «vieja» está retirada: en la papelera, lo único que se borra para siempre.
         .con_retirada("vieja", "[rutina]\ndescripcion = \"x\"\n")
@@ -323,7 +326,7 @@ async fn encolar_rutina_con_entradas_muestra_el_criterio_y_las_valida() {
     assert!(matches!(proponer_(&s, &sis, "claude-code", "ea_encolar_rutina", &salto).await, Err(ErrorAccion::Argumentos(_))));
 
     let r = ejecutar_directo(&mut s, &sis, "usuario", Canal::Web, "ea_encolar_rutina", &args).await.unwrap();
-    let orden = ea_bus::Bus::abrir().unwrap().leer_orden(r.trabajo.as_deref().unwrap()).unwrap();
+    let orden = ea_bus::Bus::abrir_en(estado()).unwrap().leer_orden(r.trabajo.as_deref().unwrap()).unwrap();
     assert_eq!(orden.criterio_exito.as_deref(), Some("test -f otro.md"));
 }
 
@@ -401,7 +404,7 @@ async fn ejecutar_directo_registra_en_el_diario_como_la_via_de_propuestas() {
         .unwrap();
     assert_eq!(r.trabajo.as_deref(), r.datos["trabajo"].as_str());
     let trabajo = r.datos["trabajo"].as_str().unwrap().to_string();
-    let bus = ea_bus::Bus::abrir().unwrap();
+    let bus = ea_bus::Bus::abrir_en(estado()).unwrap();
     assert_eq!(bus.leer_orden(&trabajo).unwrap().rutina.unwrap().slug, "nocturna");
     assert_eq!(bus.listar_cola(ea_bus::Rol::Ejecutor).unwrap().iter().filter(|e| e.trabajo == trabajo).count(), 1);
     // No se lanza dos veces la misma rutina mientras la anterior no termina.

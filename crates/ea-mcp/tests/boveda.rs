@@ -29,8 +29,7 @@ struct Entorno {
 async fn entorno() -> Entorno {
     // Estado del bus en un directorio temporal, nunca el real.
     static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
-    unsafe { std::env::set_var("EA_ESTADO_DIR", estado.path()) };
+    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap()).path();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("t.db");
     let rutinas = dir.path().join("rutinas");
@@ -40,7 +39,7 @@ async fn entorno() -> Entorno {
     let (r, b) = (rutinas.clone(), boveda.clone());
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let router = ea_mcp::router(
-        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone())).con_ajustes(ajustes.clone()),
+        move || EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(b.clone()), estado.to_path_buf()).con_ajustes(ajustes.clone()),
         Default::default(),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

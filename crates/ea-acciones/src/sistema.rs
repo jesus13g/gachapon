@@ -172,10 +172,11 @@ pub struct SoloConsulta {
 }
 
 impl SoloConsulta {
-    /// La del usuario: la raíz del bus de siempre ([`ea_bus::raiz_estado`]),
-    /// sus timers y la biblioteca del entorno real.
-    pub fn usuario(rutinas_dir: PathBuf, boveda: Boveda) -> Self {
-        Self { rutinas_dir, boveda, estado_dir: ea_bus::raiz_estado(), temporizadores: Temporizadores::usuario(), biblioteca: None }
+    /// La del usuario sobre las rutas dadas (las de sus ajustes, o
+    /// temporales en las pruebas), con sus timers y la biblioteca del
+    /// entorno real.
+    pub fn usuario(rutinas_dir: PathBuf, boveda: Boveda, estado_dir: PathBuf) -> Self {
+        Self { rutinas_dir, boveda, estado_dir, temporizadores: Temporizadores::usuario(), biblioteca: None }
     }
 
     /// El contexto de la biblioteca, con el canal más restrictivo (`Web`)
@@ -246,8 +247,8 @@ pub struct SistemaReal {
 
 impl SistemaReal {
     /// El del usuario ([`SoloConsulta::usuario`]) con la terminal del sistema.
-    pub fn usuario(rutinas_dir: PathBuf, boveda: Boveda, propio: Option<&'static str>) -> Self {
-        Self { consulta: SoloConsulta::usuario(rutinas_dir, boveda), propio, terminal: Arc::new(TerminalSistema) }
+    pub fn usuario(rutinas_dir: PathBuf, boveda: Boveda, estado_dir: PathBuf, propio: Option<&'static str>) -> Self {
+        Self { consulta: SoloConsulta::usuario(rutinas_dir, boveda, estado_dir), propio, terminal: Arc::new(TerminalSistema) }
     }
 }
 
@@ -388,6 +389,9 @@ pub struct SistemaSimulado {
     pub sesiones: Mutex<Option<(Inventario, Raices)>>,
     /// Las terminales que se habrían abierto.
     pub terminal: TerminalSimulada,
+    /// La raíz del bus (las rutinas encoladas); `None`: una temporal común a
+    /// las pruebas que no la fijan, nunca la del usuario.
+    pub estado: Option<PathBuf>,
 }
 
 impl SistemaSimulado {
@@ -426,6 +430,11 @@ impl SistemaSimulado {
 
     pub fn con_biblioteca(self, ctx: Contexto) -> Self {
         *self.biblioteca.lock().unwrap() = Some(ctx);
+        self
+    }
+
+    pub fn con_estado(mut self, raiz: &std::path::Path) -> Self {
+        self.estado = Some(raiz.to_path_buf());
         self
     }
 
@@ -535,9 +544,8 @@ impl Consulta for SistemaSimulado {
     fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String> {
         Ok(self.worktrees.lock().unwrap().get(trabajo).cloned())
     }
-    /// La del entorno, como el resto del bus de las pruebas (`EA_ESTADO_DIR`).
     fn estado_dir(&self) -> PathBuf {
-        ea_bus::raiz_estado()
+        self.estado.clone().unwrap_or_else(|| std::env::temp_dir().join("ea-sistema-simulado"))
     }
 }
 

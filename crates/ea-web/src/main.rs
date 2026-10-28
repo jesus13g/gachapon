@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = WebConfig::load();
-    let store = Store::open().context("no se pudo abrir la base de datos")?;
+    let store = Store::open_at(&ea_ajustes::cargar_de(&config.ajustes).ajustes.rutas.db).context("no se pudo abrir la base de datos")?;
 
     let bind_addr = format!("127.0.0.1:{}", config.puerto);
     let estado = AppState::new(store, config).context("no se pudo preparar el panel")?;

@@ -44,7 +44,8 @@ pub fn bloquear<F: std::future::Future>(f: F) -> F::Output {
 
 /// El sistema real para lo que el usuario confirma desde esta terminal.
 pub fn sistema() -> ea_acciones::SistemaReal {
-    ea_acciones::SistemaReal::usuario(ea_ajustes::cargar().orquestador.rutinas_dir, ea_boveda::Boveda::configurada(), None)
+    let a = ea_ajustes::cargar();
+    ea_acciones::SistemaReal::usuario(a.orquestador.rutinas_dir, ea_boveda::Boveda::en(a.rutas.boveda), a.rutas.estado, None)
 }
 
 /// Pregunta en la terminal y devuelve la línea escrita.

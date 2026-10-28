@@ -44,21 +44,19 @@ fn text_of(result: &rmcp::model::CallToolResult) -> serde_json::Value {
 /// pruebas, nunca el real.
 fn estado_temporal() -> &'static std::path::Path {
     static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-    let dir = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
-    unsafe { std::env::set_var("EA_ESTADO_DIR", dir.path()) };
-    dir.path()
+    ESTADO.get_or_init(|| tempfile::tempdir().unwrap()).path()
 }
 
 async fn start_server(db_path: std::path::PathBuf) -> String {
-    estado_temporal();
     let store = Store::open_at(&db_path).expect("abrir store de prueba");
     let store = Arc::new(Mutex::new(store));
     let rutinas = db_path.parent().unwrap().join("rutinas");
+    let boveda = ea_boveda::Boveda::en(db_path.parent().unwrap().join("boveda"));
     // Roles de fábrica, no los del usuario.
     let ajustes = ea_ajustes::Fuentes::aislada(&db_path.parent().unwrap().join("ajustes"));
 
     let router = ea_mcp::router(
-        move || EaTools::con_rutinas_dir(store.clone(), rutinas.clone()).con_ajustes(ajustes.clone()),
+        move || EaTools::con_entorno(store.clone(), rutinas.clone(), boveda.clone(), estado_temporal().to_path_buf()).con_ajustes(ajustes.clone()),
         Default::default(),
     );
 
@@ -230,7 +228,7 @@ async fn los_trabajos_del_bus_se_leen_pero_no_se_crean_desde_mcp() {
 
     // Un trabajo creado por el bus (como haría `ea trabajo crear`).
     let wt = tempfile::tempdir().expect("worktree");
-    let bus = ea_bus::Bus::abrir().expect("bus temporal");
+    let bus = ea_bus::Bus::abrir_en(estado_temporal()).expect("bus temporal");
     let id = bus
         .crear_trabajo(ea_bus::Orden {
             id: String::new(),
@@ -355,7 +353,7 @@ async fn ea_status_informa_del_estado_real_del_orquestador() {
 /// Un equipo despierto en el bus temporal, como lo dejaría `ea equipo despertar`.
 fn equipo_de_prueba() -> String {
     let d = tempfile::tempdir().unwrap();
-    let bus = ea_bus::Bus::abrir().expect("bus temporal");
+    let bus = ea_bus::Bus::abrir_en(estado_temporal()).expect("bus temporal");
     let mut ajustes = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(d.path()));
     ajustes.orquestador.paralelo = 4;
     let m = |a: &str, r| ea_bus::Miembro { agente: a.into(), rol: r };

@@ -211,10 +211,13 @@ impl Boveda {
         Self { raiz: raiz.into(), espera: ESPERA_POR_DEFECTO }
     }
 
-    /// Sobre la raíz configurada (`rutas.boveda` de los ajustes: `EA_BOVEDA_DIR`,
-    /// `ajustes.toml`, `boveda.toml` heredado o por defecto).
+    /// Sobre la raíz configurada: `rutas.boveda` de los ajustes, que resuelve,
+    /// por este orden, `EA_BOVEDA_DIR`, `ajustes.toml`, el heredado
+    /// `boveda.toml` (`raiz = "..."`) y un directorio propio del ecosistema. El
+    /// valor por defecto NO es la bóveda personal de Obsidian del usuario:
+    /// apuntarla allí es una decisión suya, explícita (ver README).
     pub fn configurada() -> Self {
-        Self::en(crate::config::raiz())
+        Self::en(ea_ajustes::cargar().rutas.boveda)
     }
 
     /// Cuánto espera el escritor al candado antes de rendirse.

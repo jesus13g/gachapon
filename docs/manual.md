@@ -382,7 +382,7 @@ volver a arrancar los servicios.
 - `crates/ea-biblioteca`: la biblioteca de herramientas (spec 018): inventario de
   solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de
   los agentes, su uso, los planes de activar y desactivar y de sesión efímera;
-  solo depende de `ea-ajustes` y `ea-plataforma`.
+  depende de `ea-ajustes`, `ea-plataforma` y `ea-store` (el diario, en solo lectura).
 - `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
   propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo

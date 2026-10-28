@@ -204,3 +204,21 @@ pub fn list_events_herramienta(conn: &Connection, herramienta: &str, limit: i64)
     }
     Ok(events)
 }
+
+/// `(actor, usos, última)` de las llamadas al servidor `ea-mcp` (acciones
+/// `mcp_*`), por actor: `detail.agente` si existe y, si no, la columna
+/// `actor`. Una fecha ilegible cuenta como desconocida, no como error.
+pub fn uso_mcp_por_actor(conn: &Connection) -> StoreResult<Vec<(String, u64, Option<time::OffsetDateTime>)>> {
+    let mut st = conn.prepare(
+        "SELECT coalesce(CASE WHEN json_valid(detail) THEN json_extract(detail, '$.agente') END, actor) AS a,
+                count(*), max(ts)
+         FROM events WHERE action LIKE 'mcp\\_%' ESCAPE '\\' GROUP BY a",
+    )?;
+    let filas = st.query_map([], |f| Ok((f.get::<_, String>(0)?, f.get::<_, i64>(1)? as u64, f.get::<_, Option<String>>(2)?)))?;
+    let mut uso = Vec::new();
+    for fila in filas {
+        let (actor, n, ts) = fila?;
+        uso.push((actor, n, ts.as_deref().and_then(|t| parse_ts(t).ok())));
+    }
+    Ok(uso)
+}

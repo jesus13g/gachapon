@@ -50,7 +50,7 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
         agentes,
         trabajos: trabajos_por_estado(s),
         propuestas_pendientes,
-        db: ea_store::resolve_db_path().ok().map(|p| p.display().to_string()),
+        db: Some(ea_ajustes::cargar_de(&s.config.ajustes).ajustes.rutas.db.display().to_string()),
     })
 }
 

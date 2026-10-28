@@ -32,7 +32,7 @@ pub fn mostrar(store: &Store) -> Result<()> {
         .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?
         .len();
     println!("Propuestas pendientes: {pendientes}");
-    println!("Base de datos: {}", ea_store::resolve_db_path()?.display());
+    println!("Base de datos: {}", ea_ajustes::cargar().rutas.db.display());
     for l in lineas_roles(&ea_ajustes::cargar()) {
         println!("{l}");
     }

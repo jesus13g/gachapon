@@ -8,8 +8,9 @@ use ea_bus::{Bus, Rol, Evento, Modo, Orden};
 use super::limpio;
 
 pub(super) fn bus() -> Result<Bus> {
-    let b = Bus::abrir()?.con_actor("ea-cli");
-    Ok(match ea_store::Store::open() {
+    let rutas = ea_ajustes::cargar().rutas;
+    let b = Bus::abrir_en(&rutas.estado)?.con_actor("ea-cli");
+    Ok(match ea_store::Store::open_at(&rutas.db) {
         Ok(s) => b.con_store(s),
         Err(_) => b,
     })
@@ -183,7 +184,7 @@ pub fn diff(id: &str, fase: Option<u32>) -> Result<()> {
     if let Some(n) = fase {
         // Árboles guardados por la obra en el informe de cada fase (SQLite);
         // el rango lo calcula `ea-bus`, igual que para `ea-web`.
-        let store = ea_store::Store::open().map_err(|e| anyhow!("sin acceso al store: {e}"))?;
+        let store = ea_store::Store::open_at(&ea_ajustes::cargar().rutas.db).map_err(|e| anyhow!("sin acceso al store: {e}"))?;
         let fases = store.listar_fases(id)?;
         let (base, fin) = ea_bus::rango_diff_fase(inicio.as_deref(), &fases, n)?;
         print!("{}", git::diff_entre(wt, &base, &fin, false, TOPE_LECTURA)?);

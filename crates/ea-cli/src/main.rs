@@ -72,7 +72,7 @@ fn main() -> Result<()> {
         },
         otro => Cli { command: otro },
     };
-    let mut store = Store::open()?;
+    let mut store = Store::open_at(&ea_ajustes::cargar().rutas.db)?;
 
     match args.command {
         Command::Status => commands::status::mostrar(&store)?,

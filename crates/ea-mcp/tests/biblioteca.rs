@@ -51,7 +51,8 @@ async fn entorno() -> Entorno {
             "\n"
         ),
     );
-    let raices = Raices::nuevo(home, None, dir.path().join("estado"), None);
+    let estado = dir.path().join("estado");
+    let raices = Raices::nuevo(home, None, estado.clone(), None);
     let db = dir.path().join("t.db");
     let store = Arc::new(Mutex::new(Store::open_at(&db).unwrap()));
     let rutinas = dir.path().join("rutinas");
@@ -60,7 +61,7 @@ async fn entorno() -> Entorno {
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let router = ea_mcp::router(
         move || {
-            EaTools::con_entorno(store.clone(), rutinas.clone(), Boveda::en(boveda.clone()))
+            EaTools::con_entorno(store.clone(), rutinas.clone(), Boveda::en(boveda.clone()), estado.clone())
                 .con_ajustes(ajustes.clone())
                 .con_raices(raices.clone())
         },

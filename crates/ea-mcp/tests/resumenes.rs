@@ -1,6 +1,4 @@
 //! El texto exacto de `ea_status` y `ea_listar_trabajos` sobre un bus conocido.
-//! Va en su propio binario de pruebas porque las herramientas leen el bus de
-//! `EA_ESTADO_DIR`: aquí nadie más lo toca.
 
 use std::sync::Arc;
 
@@ -56,17 +54,18 @@ async fn llamar(url: &str, herramienta: &str) -> String {
 #[tokio::test]
 async fn ea_status_y_ea_listar_trabajos_dicen_lo_mismo_que_siempre() {
     let dir = tempfile::tempdir().unwrap();
-    unsafe {
-        std::env::set_var("EA_ESTADO_DIR", dir.path().join("estado"));
-        std::env::set_var("EA_CONFIG_DIR", dir.path().join("config"));
-    }
-    let bus = Bus::abrir().unwrap();
+    let estado = dir.path().join("estado");
+    let bus = Bus::abrir_en(&estado).unwrap();
     let ids = sembrar(&bus, &dir.path().to_string_lossy());
 
     let store = Arc::new(Mutex::new(Store::open_at(&dir.path().join("ea.db")).unwrap()));
     let rutinas = dir.path().join("rutinas");
+    let boveda = ea_boveda::Boveda::en(dir.path().join("boveda"));
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
-    let router = ea_mcp::router(move || EaTools::con_rutinas_dir(store.clone(), rutinas.clone()).con_ajustes(ajustes.clone()), Default::default());
+    let router = ea_mcp::router(
+        move || EaTools::con_entorno(store.clone(), rutinas.clone(), boveda.clone(), estado.clone()).con_ajustes(ajustes.clone()),
+        Default::default(),
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/mcp", listener.local_addr().unwrap());
     tokio::spawn(async move {

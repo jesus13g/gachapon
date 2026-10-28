@@ -28,7 +28,8 @@ use crate::tipos::{Orden, Rol};
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct ConfigSkills {
-    /// Catálogo de skills. Vacío: `~/.config/ecosistema-asistente/qwen-skills`.
+    /// Catálogo de skills (`agente.skills.dir` de los ajustes, que nunca está
+    /// vacío: por defecto `<config>/qwen-skills`).
     pub dir: String,
     /// Skills que se pueden usar. Vacío: todas las del catálogo.
     pub habilitadas: Vec<String>,
@@ -67,10 +68,7 @@ pub struct Skill {
 
 impl ConfigSkills {
     pub fn ruta_catalogo(&self) -> PathBuf {
-        if !self.dir.is_empty() {
-            return ea_ajustes::expandir_tilde(&self.dir);
-        }
-        ea_ajustes::Fuentes::sistema().dir_config.join("qwen-skills")
+        ea_ajustes::expandir_tilde(&self.dir)
     }
 
     fn habilitada(&self, nombre: &str) -> bool {

@@ -68,6 +68,36 @@ fn precedencia_defecto_ajustes_entorno() {
     assert_eq!(e.origenes["red.puerto_web"].legible(), "entorno: EA_WEB_PORT");
 }
 
+/// Las rutas que leen el bus, el diario y la bóveda salen solo de aquí: la
+/// variable de entorno gana a `ajustes.toml` y al heredado, sin espacios en los
+/// extremos y con `~` expandido, y `ea ajustes ver` dice que viene del entorno.
+#[test]
+fn las_rutas_del_entorno_ganan_a_los_ficheros() {
+    let (d, f) = fuentes();
+    escribe(&f, "ajustes.toml", "[rutas]\ndb = \"/a/ea.db\"\nestado = \"/a/estado\"\n");
+    escribe(&f, "boveda.toml", "raiz = \"/a/boveda\"\n");
+    let e = cargar_de(&f);
+    assert_eq!((e.ajustes.rutas.db, e.ajustes.rutas.estado), (PathBuf::from("/a/ea.db"), PathBuf::from("/a/estado")));
+    assert_eq!((e.ajustes.rutas.boveda, &e.origenes["rutas.boveda"]), (PathBuf::from("/a/boveda"), &Origen::Heredado { fichero: "boveda.toml" }));
+
+    let f = Fuentes::aislada(d.path())
+        .con_var("EA_DB_PATH", " /e/ea.db ")
+        .con_var("EA_ESTADO_DIR", "/e/estado")
+        .con_var("EA_BOVEDA_DIR", "~/boveda");
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.rutas.db, PathBuf::from("/e/ea.db"));
+    assert_eq!(e.ajustes.rutas.estado, PathBuf::from("/e/estado"));
+    if let Some(casa) = ea_plataforma::usuario::home() {
+        assert_eq!(e.ajustes.rutas.boveda, casa.join("boveda"));
+    }
+    for (clave, variable) in [("rutas.db", "EA_DB_PATH"), ("rutas.estado", "EA_ESTADO_DIR"), ("rutas.boveda", "EA_BOVEDA_DIR")] {
+        assert_eq!(e.origenes[clave].legible(), format!("entorno: {variable}"));
+    }
+    // Una variable vacía no cuenta.
+    let e = cargar_de(&Fuentes::aislada(d.path()).con_var("EA_ESTADO_DIR", "  "));
+    assert_eq!((e.ajustes.rutas.estado, &e.origenes["rutas.estado"]), (PathBuf::from("/a/estado"), &Origen::Ajustes));
+}
+
 #[test]
 fn los_toml_heredados_siguen_valiendo_y_ajustes_les_gana() {
     let (_d, f) = fuentes();

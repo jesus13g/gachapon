@@ -22,12 +22,12 @@ fn entorno() -> Entorno {
 
 impl Entorno {
     fn real(&self) -> SistemaReal {
-        let mut s = SistemaReal::usuario(self.dir.path().join("rutinas"), self.boveda.clone(), None);
+        let mut s = SistemaReal::usuario(self.dir.path().join("rutinas"), self.boveda.clone(), self.dir.path().join("estado"), None);
         s.consulta.temporizadores = ea_acciones::Temporizadores::systemd(self.dir.path().join("unidades"), vec!["true".into()], vec!["true".into()]);
         s
     }
     fn consulta(&self) -> SoloConsulta {
-        SoloConsulta::usuario(self.dir.path().join("rutinas"), self.boveda.clone())
+        SoloConsulta::usuario(self.dir.path().join("rutinas"), self.boveda.clone(), self.dir.path().join("estado"))
     }
     fn nota(&mut self, autor: &str, titulo: &str, cuerpo: &str) -> String {
         self.boveda

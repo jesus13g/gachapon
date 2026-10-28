@@ -18,7 +18,6 @@
 //!   enlaces al día, papelera). Ningún agente llega a ellas.
 
 pub mod cabecera;
-pub mod config;
 pub mod enlaces;
 pub mod error;
 pub mod limites;

@@ -169,27 +169,20 @@ fn el_catalogo_las_declara_reversibles_supervisadas_y_fuera_del_modelo_local() {
 }
 
 /// `SoloConsulta` (lo que reciben `ea-mcp` y el orquestador) solo simula y
-/// propone: no implementa `Sistema`, así que no hay forma de aplicar. En
-/// este binario de pruebas el entorno apunta a un HOME temporal.
+/// propone: no implementa `Sistema`, así que no hay forma de aplicar. La
+/// biblioteca mira un HOME temporal, con el canal más restrictivo (`Web`).
 #[tokio::test]
 async fn solo_consulta_simula_y_propone_pero_no_ejecuta() {
     let d = tempfile::tempdir().unwrap();
     let home = d.path().join("home");
     fs::create_dir_all(home.join(".codex")).unwrap();
     fs::write(home.join(".codex/config.toml"), CODEX).unwrap();
-    // SAFETY: este es el único test del binario que lee el entorno real.
-    unsafe {
-        std::env::set_var("HOME", &home);
-        std::env::set_var("USERPROFILE", &home);
-        std::env::set_var("EA_ESTADO_DIR", d.path().join("estado"));
-        std::env::set_var("EA_CONFIG_DIR", d.path().join("config"));
-        std::env::remove_var("XDG_RUNTIME_DIR");
-        std::env::set_var("LOCALAPPDATA", d.path().join("rt"));
-    }
     let rutinas = d.path().join("rutinas");
     fs::create_dir_all(&rutinas).unwrap();
     let boveda = ea_boveda::Boveda::en(d.path().join("boveda"));
-    let consulta = SoloConsulta::usuario(rutinas, boveda);
+    let mut consulta = SoloConsulta::usuario(rutinas, boveda, d.path().join("estado"));
+    let raices = Raices::nuevo(home.clone(), None, d.path().join("estado"), Some(d.path().join("rt")));
+    consulta.biblioteca = Some(Contexto::nuevo(raices, Fuentes::aislada(d.path()), CanalAjustes::Web));
     let store = Store::open_at(&d.path().join("t.db")).unwrap();
     let args = json!({ "elemento": "codex/mcp/usuario/docs" });
     let h = "ea_desactivar_herramienta";

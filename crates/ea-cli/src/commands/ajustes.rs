@@ -112,7 +112,7 @@ pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
 /// no llegó al diario y de los efectos que fallaron. Antes de imprimir nada
 /// más: si la salida se corta, el diario ya lo tiene.
 pub(super) fn cambiar(f: &Fuentes, lote: &[(String, Option<Value>)]) -> Result<Vec<Aplicado>> {
-    let c = ea_acciones::ajustes::cambiar(f, Canal::Terminal, None, lote, Store::open)?;
+    let c = ea_acciones::ajustes::cambiar(f, Canal::Terminal, None, lote, || Store::open_at(&ea_ajustes::cargar().rutas.db))?;
     if let Some(e) = &c.sin_diario {
         aviso_diario(e);
     }
@@ -125,7 +125,7 @@ pub(super) fn cambiar(f: &Fuentes, lote: &[(String, Option<Value>)]) -> Result<V
 /// Al diario un lote que ya escribió quien llama, si la base abre (mejor
 /// esfuerzo: el cambio ya está escrito).
 pub(super) fn apuntar(f: &Fuentes, aplicados: &[Aplicado]) {
-    if let Err(e) = Store::open().and_then(|s| ea_acciones::ajustes::apuntar(&s, Canal::Terminal, f, aplicados)) {
+    if let Err(e) = Store::open_at(&ea_ajustes::cargar().rutas.db).and_then(|s| ea_acciones::ajustes::apuntar(&s, Canal::Terminal, f, aplicados)) {
         aviso_diario(&e);
     }
 }

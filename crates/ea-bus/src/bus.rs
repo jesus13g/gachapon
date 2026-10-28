@@ -20,15 +20,12 @@ use crate::tipos::{
     transicion, EjecutadoPor, Estado, EstadoTrabajo, Evento, FaseInforme, Informe, Modo, Orden, ResultadoInforme, Rol,
 };
 
-pub const ENV_ESTADO: &str = "EA_ESTADO_DIR";
 static CONTADOR_ID: AtomicU64 = AtomicU64::new(0);
 
-/// `$EA_ESTADO_DIR`, si no `rutas.estado` de los ajustes (por defecto
-/// `~/.local/state/ecosistema-asistente/`).
+/// `rutas.estado` de los ajustes, que resuelven `$EA_ESTADO_DIR` (por defecto
+/// `~/.local/state/ecosistema-asistente/`). Un atajo para los binarios: las
+/// bibliotecas reciben la raíz.
 pub fn raiz_estado() -> PathBuf {
-    if let Ok(v) = std::env::var(ENV_ESTADO) && !v.trim().is_empty() {
-        return PathBuf::from(v.trim());
-    }
     ea_ajustes::cargar().rutas.estado
 }
 
