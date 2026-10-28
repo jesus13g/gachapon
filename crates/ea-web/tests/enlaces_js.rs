@@ -1,6 +1,7 @@
 //! Las pruebas en JavaScript de la página (`tests/js/`), lanzadas con `node`.
-//! Sin `node` en el PATH se saltan con un aviso: el panel no lo necesita para
-//! funcionar, solo estas pruebas.
+//! Sin `node` en el PATH se saltan con un aviso (el panel no lo necesita para
+//! funcionar, solo estas pruebas), salvo con `EA_EXIGIR_NODE=1` (el CI): ahí
+//! fallan.
 
 use std::path::Path;
 use std::process::Command;
@@ -9,16 +10,17 @@ fn node() -> Option<Command> {
     match Command::new("node").arg("--version").output() {
         Ok(s) if s.status.success() => Some(Command::new("node")),
         _ => {
+            assert!(std::env::var_os("EA_EXIGIR_NODE").is_none_or(|v| v != "1"), "EA_EXIGIR_NODE=1 y no hay `node` en el PATH");
             eprintln!("aviso: no hay `node` en el PATH; se saltan las pruebas de JavaScript");
             None
         }
     }
 }
 
-#[test]
-fn el_parseo_del_hash_pasa_sus_pruebas() {
+/// `node --test tests/js/<fichero>`.
+fn pasa(fichero: &str) {
     let Some(mut node) = node() else { return };
-    let prueba = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/js/enlaces.test.js");
+    let prueba = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/js").join(fichero);
     let salida = node.arg("--test").arg(&prueba).output().expect("lanzar node");
     assert!(
         salida.status.success(),
@@ -26,6 +28,18 @@ fn el_parseo_del_hash_pasa_sus_pruebas() {
         String::from_utf8_lossy(&salida.stdout),
         String::from_utf8_lossy(&salida.stderr)
     );
+}
+
+#[test]
+fn el_parseo_del_hash_pasa_sus_pruebas() {
+    pasa("enlaces.test.js");
+}
+
+/// El Markdown que pinta lo que escriben los agentes no deja pasar HTML
+/// activo (`static/markdown.js`).
+#[test]
+fn el_markdown_pasa_sus_pruebas_de_xss() {
+    pasa("markdown.test.js");
 }
 
 /// Los `.js` de `static/`, por nombre.
@@ -48,7 +62,9 @@ fn guiones() -> Vec<(String, String)> {
 fn los_scripts_de_la_pagina_son_javascript_valido() {
     let static_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
     let nombres: Vec<String> = guiones().into_iter().map(|(n, _)| n).collect();
-    assert!(nombres.contains(&"tema-inicial.js".to_string()) && nombres.contains(&"gashapon.js".to_string()), "{nombres:?}");
+    for js in ["tema-inicial.js", "gashapon.js", "markdown.js"] {
+        assert!(nombres.iter().any(|n| n == js), "{js}: {nombres:?}");
+    }
     for js in nombres {
         let Some(mut node) = node() else { return };
         let salida = node.arg("--check").arg(static_dir.join(&js)).output().expect("lanzar node");

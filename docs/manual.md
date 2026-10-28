@@ -1773,6 +1773,12 @@ de sesión del usuario), y los dobles (`SistemaSimulado`, `TerminalSimulada`,
 `OrdenesDoble`) solo se compilan en las pruebas: la *feature* `dobles` la activan las
 `[dev-dependencies]`.
 
+El JavaScript del panel tiene sus pruebas en `crates/ea-web/tests/js/` (`node --test`,
+sin dependencias): el parseo de los enlaces y el Markdown de lo que escriben los agentes
+(`static/markdown.js`), que no deja pasar HTML activo. Las lanza `cargo test` (también
+`node --check` de cada guion de `static/`); sin `node` en el PATH se saltan con un
+aviso, salvo con `EA_EXIGIR_NODE=1`, que el CI exporta: ahí fallan.
+
 ```bash
 cargo test --workspace
 cargo build --release

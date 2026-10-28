@@ -198,6 +198,7 @@ pub const ESTATICOS: &[(&str, &str, &str)] = &[
     ("/tour.js", JS, include_str!("../../static/tour.js")),
     ("/cliente.js", JS, include_str!("../../static/cliente.js")),
     ("/enlaces.js", JS, include_str!("../../static/enlaces.js")),
+    ("/markdown.js", JS, include_str!("../../static/markdown.js")),
     ("/app.js", JS, include_str!("../../static/app.js")),
 ];
 

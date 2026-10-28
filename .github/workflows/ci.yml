@@ -52,6 +52,11 @@ jobs:
       - name: Comprobar que sh existe
         shell: bash
         run: command -v sh && sh -c 'echo sh ok'
+      # Las pruebas de JavaScript del panel (`node --test`, sin dependencias):
+      # con EA_EXIGIR_NODE=1 fallan si no hay node, en vez de saltarse.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       # Compilación de todo el workspace, pruebas incluidas.
       - name: Compilar
         run: cargo build --workspace --all-targets --keep-going
@@ -63,6 +68,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Pruebas
         run: cargo test --workspace --no-fail-fast
+        env:
+          EA_EXIGIR_NODE: "1"
 
   web:
     name: web (página del proyecto)
