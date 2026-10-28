@@ -872,7 +872,7 @@ ti.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Rust stable y Git | sí | sí | sí |
+| Rust ≥ 1.89 (≥ 1.90 para la app de escritorio) y Git | sí | sí | sí |
 | Aislamiento del ejecutor | `bubblewrap` (`bwrap`) | `/usr/bin/sandbox-exec` (viene con el sistema) | no hay: con `sandbox = true` el ejecutor se niega; usa WSL2 (vale lo de Linux) |
 | `sh` para el criterio | el del sistema | el del sistema | el `sh` de **Git for Windows** (si falta, el criterio falla con motivo claro) |
 | Gestor de servicios | `systemd --user` | `launchd` | Programador de tareas (`schtasks`) |
@@ -1904,4 +1904,26 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # Linux; en otros siste
 sqlite3 ~/.local/share/ecosistema-asistente/ecosistema.db \
     "DELETE FROM events WHERE id = 1;"
 # -> error del trigger ABORT
+```
+
+### Versión de Rust, perfil de release y lockfiles
+
+El repo compila con el `stable` de `rust-toolchain.toml`, pero cada manifiesto declara
+la versión mínima con `rust-version`, así que con un Rust más viejo `cargo` lo dice en
+vez de fallar con un error de sintaxis: **1.89** en el workspace (por `File::lock`) y en
+`instalador/`, y **1.90** en `escritorio/` (lo pide Tauri 2).
+
+El perfil de release de los tres manifiestos es `lto = true`, `codegen-units = 1` y
+`strip = true` (binarios más pequeños, sin símbolos de depuración). No se usa
+`panic = "abort"`: cambiaría cómo mueren las tareas de tokio.
+
+Hay **tres `Cargo.lock`**: el del workspace, `escritorio/Cargo.lock` e
+`instalador/Cargo.lock` (los dos últimos son paquetes propios, fuera del workspace).
+`escritorio/` comparte con el workspace `ea-ajustes` y `ea-plataforma`, así que, al
+actualizar dependencias, se actualizan los tres para que no diverjan:
+
+```bash
+cargo update
+cargo update --manifest-path escritorio/Cargo.toml
+cargo update --manifest-path instalador/Cargo.toml
 ```

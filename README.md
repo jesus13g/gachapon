@@ -99,7 +99,7 @@ uno en la nube. Un mismo agente no ocupa los dos roles a la vez.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Rust stable | solo para compilar desde el código | ídem | ídem |
+| Rust ≥ 1.89 (1.90 para la app) | solo para compilar desde el código | ídem | ídem |
 | Git | sí | sí | sí |
 | Sandbox del ejecutor | `bubblewrap` (`bwrap`) | incluido (`sandbox-exec`) | no hay: usa **WSL2** (el instalador lo prepara) |
 | Servicios | `systemd --user` | `launchd` | Programador de tareas |
@@ -375,6 +375,9 @@ Fuera del workspace: `escritorio/` (app de escritorio), `instalador/` (el
 instalador de Windows, `gachapon-instalar.exe`), `claude/` y `agentes/` (skills y
 adaptadores de los planificadores), `qwen/skills/` (skills del ejecutor), `web/`
 (la página del proyecto) y `bench/` (banco de pruebas de modelos).
+`escritorio/` e `instalador/` tienen su propio `Cargo.lock`: al actualizar
+dependencias, actualiza los tres (ver «Versión de Rust, perfil de release y
+lockfiles» en el [manual](docs/manual.md)).
 
 Todo el proyecto (código, mensajes y documentación) está en español. Las
 mejoras salen de la rama `desarrollo` y vuelven a ella; `main` es la versión
