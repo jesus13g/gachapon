@@ -444,7 +444,7 @@
     },
     {
       "name": "ea_listar_diario",
-      "description": "Lista eventos del diario, opcionalmente filtrados por trabajo, actor o rango de fechas. Los más recientes primero.",
+      "description": "Lista eventos del diario, opcionalmente filtrados por trabajo, actor o rango de fechas. Los más recientes primero, 20 por defecto y como mucho 50 (10 y 20 para el agente local).",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -477,7 +477,7 @@
             ]
           },
           "limite": {
-            "description": "Número máximo de eventos a devolver, los más recientes primero.\nPor defecto 20.",
+            "description": "Número máximo de eventos a devolver, los más recientes primero.\nPor defecto 20, como mucho 50 (10 y 20 para el agente local).",
             "type": [
               "integer",
               "null"
@@ -506,7 +506,7 @@
     },
     {
       "name": "ea_listar_trabajos",
-      "description": "Lista trabajos del bus (misiones, obras y rutinas), opcionalmente filtrados por estado o modo. Los más recientes primero. Solo lectura: crear o decidir trabajo se hace con la CLI (`ea trabajo`) y las skills /mision, /obra, /rutina y /revisar.",
+      "description": "Lista trabajos del bus (misiones, obras y rutinas), opcionalmente filtrados por estado o modo. Los más recientes primero, 20 por defecto y como mucho 50 (10 y 20 para el agente local). Solo lectura: crear o decidir trabajo se hace con la CLI (`ea trabajo`) y las skills /mision, /obra, /rutina y /revisar.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -525,7 +525,7 @@
             ]
           },
           "limite": {
-            "description": "Número máximo de trabajos a devolver, los más recientes primero.\nPor defecto 20.",
+            "description": "Número máximo de trabajos a devolver, los más recientes primero.\nPor defecto 20, como mucho 50 (10 y 20 para el agente local).",
             "type": [
               "integer",
               "null"

@@ -136,7 +136,7 @@ impl EaTools {
         self.registrada(&context, "mcp_ver_equipo", None, args_json, |_| {
             self.bloqueante(move |t| {
                 let bus = Bus::abrir_en(&t.estado_dir).map_err(|e| e.to_string())?;
-                let n = args.trabajos.filter(|n| *n > 0).map_or(TRABAJOS_POR_DEFECTO, |n| (n as usize).min(MAX_TRABAJOS));
+                let n = super::limite(args.trabajos, (TRABAJOS_POR_DEFECTO, MAX_TRABAJOS));
                 let v = bus.vista_equipo(&args.id, n).map_err(|e| e.to_string())?;
                 serde_json::to_value(v).map_err(|e| e.to_string())
             })

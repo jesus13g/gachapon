@@ -9,7 +9,7 @@ use rmcp::{ErrorData as McpError, RoleServer, tool, tool_router};
 use serde_json::{json, Value};
 
 use super::diario::event_to_json;
-use super::EaTools;
+use super::{cotas_listado, limite, EaTools};
 use crate::args::{ListarTrabajosArgs, VerTrabajoArgs};
 
 /// Resumen de un trabajo del bus, o `None` si sus ficheros no se pueden leer.
@@ -32,7 +32,8 @@ fn trabajo_resumen(bus: &Bus, id: &str) -> Option<Value> {
 impl EaTools {
     #[tool(
         description = "Lista trabajos del bus (misiones, obras y rutinas), \
-            opcionalmente filtrados por estado o modo. Los más recientes primero. \
+            opcionalmente filtrados por estado o modo. Los más recientes primero, \
+            20 por defecto y como mucho 50 (10 y 20 para el agente local). \
             Solo lectura: crear o decidir trabajo se hace con la CLI (`ea trabajo`) \
             y las skills /mision, /obra, /rutina y /revisar.",
         annotations(title = "Listar trabajos", read_only_hint = true)
@@ -43,12 +44,12 @@ impl EaTools {
         Parameters(args): Parameters<ListarTrabajosArgs>,
     ) -> Result<CallToolResult, McpError> {
         let args_json = json!({ "estado": args.estado, "modo": args.modo, "limite": args.limite });
-        self.registrada(&context, "mcp_listar_trabajos", None, args_json, |_| {
+        self.registrada(&context, "mcp_listar_trabajos", None, args_json, |quien| {
             self.bloqueante(move |t| {
                 let bus = Bus::abrir_en(&t.estado_dir).map_err(|e| e.to_string())?;
                 let mut ids = bus.listar_trabajos().map_err(|e| e.to_string())?;
                 ids.reverse();
-                let limite = args.limite.filter(|n| *n > 0).unwrap_or(20) as usize;
+                let limite = limite(args.limite, cotas_listado(quien.actor));
                 let trabajos: Vec<_> = ids
                     .iter()
                     .filter_map(|id| trabajo_resumen(&bus, id))

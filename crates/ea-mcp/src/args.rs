@@ -14,7 +14,7 @@ pub struct ListarTrabajosArgs {
     /// Filtra por modo: mision, obra o rutina.
     pub modo: Option<String>,
     /// Número máximo de trabajos a devolver, los más recientes primero.
-    /// Por defecto 20.
+    /// Por defecto 20, como mucho 50 (10 y 20 para el agente local).
     pub limite: Option<i64>,
 }
 
@@ -44,7 +44,7 @@ pub struct ListarDiarioArgs {
     /// Fecha/hora hasta la que listar (RFC3339 o AAAA-MM-DD, UTC).
     pub hasta: Option<String>,
     /// Número máximo de eventos a devolver, los más recientes primero.
-    /// Por defecto 20.
+    /// Por defecto 20, como mucho 50 (10 y 20 para el agente local).
     pub limite: Option<i64>,
 }
 

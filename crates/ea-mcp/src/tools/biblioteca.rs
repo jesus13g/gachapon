@@ -46,7 +46,7 @@ fn biblioteca_json(
         categoria: args.categoria.clone(),
         activado: args.activado.map(Activado::desde_bool),
     };
-    let limite = args.limite.filter(|n| *n > 0).map_or(por_defecto, |n| (n as usize).min(maximo));
+    let limite = super::limite(args.limite, (por_defecto, maximo));
     let todos = inv.filtrar(&filtro);
     let elementos: Vec<_> = todos
         .iter()

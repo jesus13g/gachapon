@@ -141,7 +141,7 @@ async fn proponer_encola_pero_no_ejecuta_y_no_duplica() {
 }
 
 #[tokio::test]
-async fn la_cola_de_propuestas_con_accion_tiene_tope() {
+async fn la_cola_de_propuestas_con_accion_tiene_tope_por_proponente() {
     let (s, _d) = store();
     let mut sis = sistema();
     for i in 0..=MAX_PEND {
@@ -153,7 +153,13 @@ async fn la_cola_de_propuestas_con_accion_tiene_tope() {
     }
     let e = proponer_(&s, &sis, "claude-code", "ea_eliminar_rutina", &json!({ "slug": format!("r{MAX_PEND}") })).await
         .unwrap_err();
-    assert!(e.to_string().contains("pendientes"));
+    assert!(e.to_string().contains("pendientes") && e.to_string().contains("claude-code"), "{e}");
+    // El tope es por proponente (U-08): uno lleno no bloquea a otro, y una
+    // igual a una pendiente ajena se sigue devolviendo sin duplicar.
+    let (p, nueva) = proponer_(&s, &sis, "modelo-local", "ea_eliminar_rutina", &json!({ "slug": format!("r{MAX_PEND}") })).await.unwrap();
+    assert!(nueva && p.proponente.as_deref() == Some("modelo-local"));
+    let (igual, nueva) = proponer_(&s, &sis, "modelo-local", "ea_eliminar_rutina", &json!({ "slug": "r0" })).await.unwrap();
+    assert!(!nueva && igual.proponente.as_deref() == Some("claude-code"));
 }
 const MAX_PEND: usize = ea_acciones::flujo::MAX_PENDIENTES_CON_ACCION;
 

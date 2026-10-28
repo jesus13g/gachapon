@@ -90,6 +90,23 @@ fn trae_credencial(context: &RequestContext<RoleServer>, credencial: Option<&Cre
         .is_some_and(|v| c.coincide(v.as_bytes()))
 }
 
+/// Cotas de `ea_listar_trabajos` y `ea_listar_diario`: (por defecto,
+/// máximo), del orden de las de equipos y bóveda. El agente local, con poco
+/// contexto, recibe las estrechas (U-08).
+const COTAS_LISTADO: (usize, usize) = (20, 50);
+const COTAS_LISTADO_LOCAL: (usize, usize) = (10, 20);
+
+/// Las cotas de un listado para este actor.
+fn cotas_listado(actor: &str) -> (usize, usize) {
+    if actor == ea_ajustes::Rol::Ejecutor.as_str() { COTAS_LISTADO_LOCAL } else { COTAS_LISTADO }
+}
+
+/// Cuántos elementos devuelve un listado: lo pedido, recortado al máximo; sin
+/// pedir nada (o con un número que no es positivo), el valor por defecto.
+fn limite(pedido: Option<i64>, (por_defecto, maximo): (usize, usize)) -> usize {
+    pedido.filter(|n| *n > 0).map_or(por_defecto, |n| usize::try_from(n).unwrap_or(maximo).min(maximo))
+}
+
 /// Las herramientas de una sesión MCP. Se copia (barato: rutas y punteros
 /// compartidos) a un hilo aparte para todo lo que bloquea.
 #[derive(Clone)]
@@ -351,6 +368,18 @@ mod tests {
         (a.roles.planificador, a.roles.ejecutor) = ("qwen-code".into(), "codex".into());
         assert_eq!(actor("qwen-code-mcp-client", &a), desconocido("qwen-code-mcp-client"));
         assert_eq!(actor("codex-mcp-client", &a).actor, "modelo-local");
+    }
+
+    #[test]
+    fn el_limite_se_recorta_al_maximo() {
+        assert_eq!(limite(None, (20, 50)), 20);
+        assert_eq!(limite(Some(0), (20, 50)), 20);
+        assert_eq!(limite(Some(-3), (20, 50)), 20);
+        assert_eq!(limite(Some(7), (20, 50)), 7);
+        assert_eq!(limite(Some(100_000), (20, 50)), 50);
+        assert_eq!(limite(Some(i64::MAX), (10, 20)), 20);
+        assert_eq!(cotas_listado("modelo-local"), COTAS_LISTADO_LOCAL);
+        assert_eq!(cotas_listado("claude-code"), COTAS_LISTADO);
     }
 
     /// Ningún cliente MCP, se presente como se presente, ocupe el rol que

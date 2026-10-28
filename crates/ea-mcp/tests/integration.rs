@@ -288,6 +288,30 @@ async fn ea_listar_diario_acepta_las_fechas_de_siempre() {
     client.cancel().await.ok();
 }
 
+/// U-08: `ea_listar_diario` tiene máximo (50; 20 para el agente local) y un
+/// `limite` mayor se recorta; sin `limite`, 20 (10 para el agente local).
+#[tokio::test]
+async fn ea_listar_diario_recorta_el_limite_al_maximo_del_actor() {
+    use ea_pruebas::mcp::llamar;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("ecosistema-test.db");
+    let url = start_server(db_path.clone()).await;
+    let store = Store::open_at(&db_path).unwrap();
+    for i in 0..80 {
+        store.append_event(ea_store::NewEvent { actor: "usuario".into(), action: format!("usuario_nota_{i}"), ..Default::default() }).unwrap();
+    }
+    let planificador = conectar(&url, "claude-code").await;
+    let local = conectar(&url, "qwen-code-mcp-client").await;
+    let cuantos = async |c: &ea_pruebas::mcp::Cliente, args: serde_json::Value| {
+        llamar(c, "ea_listar_diario", args).await.unwrap()["eventos"].as_array().unwrap().len()
+    };
+    assert_eq!(cuantos(&planificador, serde_json::json!({ "limite": 100_000 })).await, 50);
+    assert_eq!(cuantos(&planificador, serde_json::json!({})).await, 20);
+    assert_eq!(cuantos(&planificador, serde_json::json!({ "limite": 7 })).await, 7);
+    assert_eq!(cuantos(&local, serde_json::json!({ "limite": 100_000 })).await, 20);
+    assert_eq!(cuantos(&local, serde_json::json!({})).await, 10);
+}
+
 #[tokio::test]
 async fn ea_status_informa_del_estado_real_del_orquestador() {
     let dir = tempfile::tempdir().expect("tempdir");

@@ -13,8 +13,10 @@ use crate::error::ErrorAccion;
 use crate::herramientas::{self, supervisada, Hechos};
 use crate::sistema::{Consulta, Sistema};
 
-/// Tope de propuestas con acción pendientes: un agente que insiste no puede
-/// inundar la cola del usuario.
+/// Tope de propuestas con acción pendientes **por proponente**: un agente que
+/// insiste no puede inundar la cola del usuario, ni llenarla para que no
+/// quepan las de otro (U-08). El proponente es el actor verificado (en el MCP,
+/// por la credencial del planificador).
 pub const MAX_PENDIENTES_CON_ACCION: usize = 30;
 
 #[derive(Debug, Clone)]
@@ -69,10 +71,11 @@ pub fn proponer<C: Consulta>(
     }) {
         return Ok((igual.clone(), false));
     }
-    if pendientes.iter().filter(|p| p.accion.is_some()).count() >= MAX_PENDIENTES_CON_ACCION {
+    let propias = pendientes.iter().filter(|p| p.accion.is_some() && p.proponente.as_deref() == Some(proponente)).count();
+    if propias >= MAX_PENDIENTES_CON_ACCION {
         return Err(ErrorAccion::NoAplica(format!(
-            "hay {MAX_PENDIENTES_CON_ACCION} propuestas con acción pendientes; el usuario debe \
-             decidir algunas antes de encolar más"
+            "{proponente} ya tiene {MAX_PENDIENTES_CON_ACCION} propuestas con acción pendientes; el \
+             usuario debe decidir algunas antes de que encole más"
         )));
     }
 

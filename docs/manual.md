@@ -1172,7 +1172,7 @@ riesgo (§7.3):
 
 | Herramienta | Riesgo | Desde un agente |
 |---|---|---|
-| `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
+| `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` (los dos listados con `limite`: por defecto 20 y hasta 50, y 10 y 20 para el agente local; uno mayor se recorta) | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
 | `ea_listar_equipos`, `ea_ver_equipo` (miembros con presencia, colas y últimos trabajos con su informe; `ea_status` también trae equipos y presencias) | lectura (despertar y dormir equipos es de la CLI con TTY: ningún agente puede) | se ejecuta |
 | `ea_biblioteca` (sin `id`: lista con filtros `agente`, `tipo`, `categoria`, `activado` y `limite`, por defecto 50 y hasta 200, y 15 y 40 para el agente local; con `id`: la ficha con la definición MCP sin secretos y el uso por actor) | lectura | se ejecuta |
 | `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta |
@@ -1341,7 +1341,9 @@ las operaciones que mutan el sistema.
 Flujo propuesta → aceptación → ejecución:
 
 1. Un agente propone (`ea_encolar_rutina`, `ea_promover_nota` …). Una propuesta idéntica
-   pendiente no se duplica y hay un tope de 30 con acción.
+   pendiente no se duplica y hay un tope de 30 con acción **por proponente**
+   (el actor verificado): un agente que llena las suyas no impide proponer a
+   otro.
 2. El usuario la ve en `ea propuestas ver <id>`, en la TUI o en la sección ◇ de
    `ea-web`, con la simulación.
 3. **Aceptar la ejecuta**: `ea propuestas decidir <id> --aceptar` (pide una
