@@ -138,7 +138,7 @@ pub async fn ejecutar<S: Sistema>(
         canal.puede_confirmar(h.riesgo)?;
         let hechos = herramientas::observar(sistema, herramienta, args).await?;
         herramientas::revalidar_con(store, sistema, &hechos, herramienta, args, precondicion)?;
-        match herramientas::aplicar_en_store(store, actor, canal, herramienta, args)? {
+        match herramientas::aplicar_en_store(store, &sistema.estado_dir(), actor, canal, herramienta, args)? {
             Some(a) => Ok(a),
             None => {
                 herramientas::aplicar_en_sistema(sistema, store, actor, canal, herramienta, args, precondicion).await

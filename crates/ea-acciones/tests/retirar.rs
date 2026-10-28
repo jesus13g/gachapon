@@ -107,12 +107,8 @@ async fn la_papelera_real_mueve_el_fichero_y_revalida() {
     // `true` como systemctl: no hay timer y nada sale del directorio temporal.
     let temporizadores =
         Temporizadores::systemd(unidades, vec!["true".into()], vec!["true".into()]);
-    let sis = SistemaReal {
-        rutinas_dir: rutinas.clone(),
-        boveda: ea_boveda::Boveda::en(d.path().join("boveda")),
-        propio: None,
-        temporizadores,
-    };
+    let mut sis = SistemaReal::usuario(rutinas.clone(), ea_boveda::Boveda::en(d.path().join("boveda")), None);
+    sis.consulta.temporizadores = temporizadores;
 
     let sim = simular(&s, &sis, "ea_retirar_rutina", &json!({ "slug": "nocturna" })).await.unwrap();
     std::fs::write(rutinas.join("nocturna.toml"), format!("{RUTINA}# cambio\n")).unwrap();

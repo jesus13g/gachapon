@@ -11,6 +11,7 @@
 //! a través de `ea-acciones`: `~/.config/systemd/user/ea-rutina@<slug>.timer`).
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use ea_store::Store;
 use tokio::sync::Mutex;
@@ -56,9 +57,15 @@ pub struct WebConfig {
     /// (`systemctl`, `systemd-analyze`). En las pruebas, un directorio
     /// temporal y órdenes simuladas.
     pub temporizadores: ea_acciones::Temporizadores,
-    /// Cómo se abre una terminal real para confirmar lo irreversible
-    /// (`servicio::terminal`). Las pruebas usan una simulada.
-    pub terminal: servicio::terminal::Terminal,
+    /// El binario `ea` que se abre en una terminal real para confirmar lo
+    /// irreversible (`servicio::terminal`): el de la misma carpeta que este
+    /// binario (`target/release/`, donde los ejecutan los servicios), nunca el
+    /// del PATH. `None`: no hay terminal (503).
+    pub ea: Option<PathBuf>,
+    /// Cómo se abre una terminal, para eso y para las sesiones de la
+    /// biblioteca. Las pruebas usan `ea_acciones::TerminalSimulada` (nunca se
+    /// abre una ventana de verdad desde una prueba).
+    pub terminal: Arc<dyn ea_acciones::Terminal>,
     /// Dónde mira la biblioteca de herramientas (HOME, proyecto, estado,
     /// runtime). `None`: las del entorno real (`Raices::desde_entorno`); las
     /// pruebas ponen las suyas, bajo un directorio temporal.
@@ -94,7 +101,8 @@ impl WebConfig {
             estado_dir: a.rutas.estado,
             ajustes: fuentes,
             temporizadores: ea_acciones::Temporizadores::usuario(),
-            terminal: servicio::terminal::Terminal::del_sistema(),
+            ea: ea_plataforma::rutas::ruta_hermana("ea"),
+            terminal: Arc::new(ea_acciones::TerminalSistema),
             biblioteca_raices: None,
         }
     }

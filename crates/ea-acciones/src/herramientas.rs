@@ -3,6 +3,8 @@
 //! Es la "capa interna" de §7.3; el catálogo y las definiciones MCP solo
 //! nombran estas herramientas.
 
+use std::path::Path;
+
 use ea_biblioteca::{Cambio, Id};
 use ea_store::{EventOutcome, NewEvent, Store};
 use serde::Deserialize;
@@ -238,10 +240,9 @@ fn huella(texto: &str) -> String {
     ea_plataforma::fs::huella(texto.as_bytes())
 }
 
-/// Bus del orquestador sobre la raíz de estado estándar (o `EA_ESTADO_DIR`).
-fn bus_de(store: &Store, actor: &str) -> Result<ea_bus::Bus, ErrorAccion> {
-    let err = |e: &dyn std::fmt::Display| ErrorAccion::Sistema(e.to_string());
-    let bus = ea_bus::Bus::abrir().map_err(|e| err(&e))?;
+/// El bus de la raíz `estado` ([`Consulta::estado_dir`]), con historial.
+fn bus_de(estado: &Path, store: &Store, actor: &str) -> Result<ea_bus::Bus, ErrorAccion> {
+    let bus = ea_bus::Bus::abrir_en(estado).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
     Ok(bus.con_store(store.duplicar()?).con_actor(actor))
 }
 
@@ -422,7 +423,7 @@ pub fn simular_con<C: Consulta>(
                     ErrorAccion::NoAplica(format!("la rutina '{}' no está registrada (ea rutina registrar)", a.slug))
                 })?
                 .version;
-            let bus = bus_de(store, "simulacion")?;
+            let bus = bus_de(&consulta.estado_dir(), store, "simulacion")?;
             // La orden que saldría, con las mismas comprobaciones que al
             // lanzar (entrada no declarada, límites): así el usuario ve el
             // criterio que ejecutará el sistema antes de aceptar.
@@ -573,7 +574,7 @@ pub fn simular_con<C: Consulta>(
             } else {
                 "No tiene timer que desprogramar.".to_string()
             };
-            let en_curso = bus_de(store, "simulacion")?
+            let en_curso = bus_de(&consulta.estado_dir(), store, "simulacion")?
                 .trabajos_activos_de_rutina(&a.slug)
                 .map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
             let en_curso = match en_curso.first() {
@@ -846,6 +847,7 @@ pub fn revalidar_con<C: Consulta>(
 /// `None` si la herramienta actúa sobre el sistema (ver [`aplicar_en_sistema`]).
 pub(crate) fn aplicar_en_store(
     store: &mut Store,
+    estado: &Path,
     actor: &str,
     canal: Canal,
     nombre: &str,
@@ -854,7 +856,7 @@ pub(crate) fn aplicar_en_store(
     match nombre {
         "ea_encolar_rutina" => {
             let a: EncolarRutina = parsear(args)?;
-            let bus = bus_de(store, actor)?;
+            let bus = bus_de(estado, store, actor)?;
             let id = bus.lanzar_rutina(&a.slug, &a.pares()).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
             let _ = canal;
             Ok(Some(Aplicada {

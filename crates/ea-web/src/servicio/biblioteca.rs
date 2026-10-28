@@ -12,19 +12,16 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ea_acciones::{Canal, Consulta, Sistema, SistemaReal};
+use ea_acciones::{Canal, SistemaReal};
 use ea_biblioteca::uso::{calcular_uso, FuentesUso, InformeUso, Uso};
 use ea_biblioteca::{
-    Activado, Ambito, Biblioteca, Cambio, Contexto, Elemento, Filtro, Hecho, Inventario, Mecanismo, OrdenesReales,
-    PlanSesion, Raices, Tipo, AGENTES_CON_SESION, AGENTE_ECOSISTEMA,
+    Activado, Ambito, Biblioteca, Contexto, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo, AGENTES_CON_SESION,
+    AGENTE_ECOSISTEMA,
 };
-use ea_boveda::{ErrorBoveda, PlanPromocion};
-use ea_store::Store;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::terminal::Terminal;
-use super::{sistema, ErrorWeb, Resultado, ACTOR};
+use super::{ErrorWeb, Resultado, ACTOR};
 use crate::vistas::{ResultadoAccion, Simulacion};
 use crate::AppState;
 
@@ -108,9 +105,10 @@ fn raices(s: &AppState) -> Raices {
     s.config.biblioteca_raices.clone().unwrap_or_else(Raices::desde_entorno)
 }
 
-fn contexto(s: &AppState) -> Contexto {
-    // El canal de ajustes es Web: las skills del ejecutor solo se cambian desde una terminal.
-    Contexto::nuevo(raices(s), s.config.ajustes.clone(), ea_ajustes::Canal::Web)
+/// La biblioteca en `raices` con los ajustes de la configuración. El canal de
+/// ajustes es Web: las skills del ejecutor solo se cambian desde una terminal.
+pub(super) fn contexto_en(s: &AppState, raices: Raices) -> Contexto {
+    Contexto::nuevo(raices, s.config.ajustes.clone(), ea_ajustes::Canal::Web)
 }
 
 /// Lee el disco (muchos ficheros): fuera del hilo asíncrono. El inventario ya
@@ -211,127 +209,11 @@ pub async fn ficha(s: &AppState, id: &str) -> Resultado<FichaVista> {
 
 // ------------------------------------------------- el sistema de la sección
 
-/// El sistema real, con las raíces, los ajustes y la terminal de `WebConfig`
-/// para lo de la biblioteca; lo demás, lo de siempre.
-struct SistemaBiblioteca {
-    base: SistemaReal,
-    ctx: Contexto,
-    terminal: Terminal,
-}
-
-/// La terminal de `WebConfig` como la de `ea-acciones`.
-struct TerminalWeb<'a>(&'a Terminal);
-
-impl ea_acciones::Terminal for TerminalWeb<'_> {
-    fn abrir(&self, argv: &[String]) -> Result<(), String> {
-        match self.0 {
-            Terminal::Sistema { .. } => ea_acciones::TerminalSistema.abrir(argv),
-            Terminal::Simulada { lanzadas, .. } => {
-                lanzadas.lock().map_err(|_| "registro envenenado".to_string())?.push(argv.to_vec());
-                Ok(())
-            }
-            Terminal::Ninguna => Err("no hay terminal configurada".into()),
-        }
-    }
-
-    /// Con directorio y entorno: la del sistema los traduce a su lanzador; la
-    /// simulada apunta el argv de Linux (`env -C …`).
-    fn abrir_orden(&self, orden: &ea_acciones::OrdenTerminal) -> Result<(), String> {
-        match self.0 {
-            Terminal::Sistema { .. } => ea_acciones::TerminalSistema.abrir_orden(orden),
-            _ => self.abrir(&ea_acciones::terminal::argv_linux(orden)),
-        }
-    }
-}
-
-impl Consulta for SistemaBiblioteca {
-    async fn servicio_estado(&self, nombre: &str) -> Result<ea_acciones::EstadoServicio, String> {
-        self.base.servicio_estado(nombre).await
-    }
-    fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
-        self.base.rutina_contenido(slug)
-    }
-    fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String> {
-        self.base.rutina_retirada(slug)
-    }
-    fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
-        self.base.plan_promocion(ruta, destino)
-    }
-    fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String> {
-        let a = ea_ajustes::cargar_de(&self.ctx.fuentes).ajustes;
-        let inv = Biblioteca::cargar(&self.ctx.raices, &a);
-        ea_acciones::sesion::plan_en(agente, ids, directorio, &inv, &self.ctx.raices)
-    }
-    async fn timer_estado(&self, slug: &str) -> Result<ea_acciones::EstadoTimer, String> {
-        self.base.timer_estado(slug).await
-    }
-    async fn calendario_validar(&self, c: &str) -> Result<Result<ea_acciones::Calendario, String>, String> {
-        self.base.calendario_validar(c).await
-    }
-    fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
-        let c = ea_biblioteca::planear(elemento, activar, &self.ctx).map_err(|e| e.to_string())?;
-        ea_biblioteca::cambio::comprobar_disponible(&c, &OrdenesReales).map_err(|e| e.to_string())?;
-        Ok(c)
-    }
-    fn worktree_info(&self, trabajo: &str) -> Result<Option<ea_bus::InfoWorktree>, String> {
-        self.base.worktree_info(trabajo)
-    }
-}
-
-impl Sistema for SistemaBiblioteca {
-    async fn servicio_reiniciar(&self, nombre: &str) -> Result<(), String> {
-        self.base.servicio_reiniciar(nombre).await
-    }
-    fn rutina_eliminar(&self, slug: &str) -> Result<(), String> {
-        self.base.rutina_eliminar(slug)
-    }
-    fn rutina_retirar(&self, slug: &str) -> Result<(), String> {
-        self.base.rutina_retirar(slug)
-    }
-    fn rutina_restaurar(&self, slug: &str) -> Result<(), String> {
-        self.base.rutina_restaurar(slug)
-    }
-    fn worktree_limpiar(&self, trabajo: &str) -> Result<bool, String> {
-        self.base.worktree_limpiar(trabajo)
-    }
-    fn sesion_lanzar(&self, plan: &PlanSesion) -> Result<(), String> {
-        // El proyecto de los ficheros efímeros es el del plan.
-        let raices = Raices { proyecto: plan.cwd.clone(), ..self.ctx.raices.clone() };
-        ea_acciones::sesion::lanzar_con(plan, raices, &TerminalWeb(&self.terminal))
-    }
-    fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String> {
-        self.base.rutina_registrar(store, texto, actor)
-    }
-    fn nota_promover(
-        &self,
-        store: &mut Store,
-        ruta: &str,
-        destino: Option<&str>,
-        huella: &str,
-        actor: &str,
-        canal: &str,
-    ) -> Result<PlanPromocion, ErrorBoveda> {
-        self.base.nota_promover(store, ruta, destino, huella, actor, canal)
-    }
-    async fn timer_programar(&self, slug: &str, calendario: &str) -> Result<(), String> {
-        self.base.timer_programar(slug, calendario).await
-    }
-    async fn timer_desprogramar(&self, slug: &str) -> Result<bool, String> {
-        self.base.timer_desprogramar(slug).await
-    }
-    async fn biblioteca_aplicar(&self, cambio: &Cambio, canal: ea_acciones::Canal) -> Result<Hecho, String> {
-        let (c, mut ctx) = (cambio.clone(), self.ctx.clone());
-        ctx.canal = ea_acciones::canal_de_ajustes(canal);
-        // Puede lanzar una orden de hasta 30 s: en un hilo aparte.
-        tokio::task::spawn_blocking(move || ea_biblioteca::aplicar_con(&c, &ctx, &OrdenesReales))
-            .await
-            .map_err(|e| format!("la tarea del cambio falló: {e}"))?
-            .map_err(|e| e.to_string())
-    }
-}
-
-fn sistema_biblioteca(s: &AppState) -> SistemaBiblioteca {
-    SistemaBiblioteca { base: sistema(s), ctx: contexto(s), terminal: s.config.terminal.clone() }
+/// El sistema real con la biblioteca de la sección: las raíces de
+/// `WebConfig` (o las del entorno) y sus ajustes. El plan de una sesión toma
+/// el `directorio` tal cual: [`comprobar`] solo deja pasar el de ea-web.
+fn sistema_biblioteca(s: &AppState) -> SistemaReal {
+    super::sistema_con(s, Some(contexto_en(s, raices(s))))
 }
 
 fn comprobar(s: &AppState, herramienta: &str, argumentos: &Value) -> Resultado<()> {

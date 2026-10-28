@@ -245,7 +245,7 @@ impl EaTools {
     pub fn con_entorno(store: Arc<Mutex<Store>>, rutinas_dir: std::path::PathBuf, boveda: Boveda) -> Self {
         Self {
             store,
-            consulta: Arc::new(SoloConsulta { rutinas_dir, boveda: boveda.clone() }),
+            consulta: Arc::new(SoloConsulta::usuario(rutinas_dir, boveda.clone())),
             boveda,
             ajustes: ea_ajustes::Fuentes::sistema(),
             raices: None,

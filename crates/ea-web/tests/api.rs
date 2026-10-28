@@ -75,8 +75,10 @@ fn montar() -> Fixture {
             creada_por: "test".into(),
         })
         .unwrap();
-    let terminal = ea_web::servicio::terminal::Terminal::simulada(dir.path().join("bin/ea"));
-    let terminales = terminal.1.clone();
+    // El `ea` que abriría la terminal: un fichero, como el de junto a ea-web.
+    escribir(dir.path().join("bin/ea"), "");
+    let terminal = Arc::new(ea_acciones::TerminalSimulada::default());
+    let terminales = terminal.lanzadas.clone();
     let config = WebConfig {
         puerto: 0,
         umbral_heartbeat_s: 60,
@@ -90,7 +92,8 @@ fn montar() -> Fixture {
         estado_dir: dir.path().join("estado"),
         ajustes: ea_ajustes::Fuentes::aislada(dir.path()),
         temporizadores: temporizadores_falsos(dir.path()),
-        terminal: terminal.0,
+        ea: Some(dir.path().join("bin/ea")),
+        terminal,
         biblioteca_raices: Some(raices_biblioteca(dir.path())),
     };
     let state = Arc::new(AppState::new(store, config).expect("estado"));
@@ -1149,10 +1152,7 @@ async fn las_cabeceras_de_seguridad_van_en_todas_las_respuestas() {
 }
 
 async fn proponer_accion(f: &Fixture, herramienta: &str, args: Value) -> i64 {
-    let sis = ea_acciones::SoloConsulta {
-        rutinas_dir: f.state.config.rutinas_dir.clone(),
-        boveda: f.state.boveda.clone(),
-    };
+    let sis = ea_acciones::SoloConsulta::usuario(f.state.config.rutinas_dir.clone(), f.state.boveda.clone());
     let hechos = ea_acciones::observar(&sis, herramienta, &args).await.unwrap();
     let store = f.state.store.lock().await;
     ea_acciones::proponer(&store, &sis, &hechos, "claude-code", None, herramienta, &args)
@@ -1295,10 +1295,7 @@ async fn aceptar_en_la_web_la_propuesta_de_promocion_de_un_agente_la_ejecuta() {
     let ruta = nota(&f, "claude-code", "Hallazgo", "Texto del hallazgo.");
     {
         let store = f.state.store.lock().await;
-        let c = ea_acciones::SoloConsulta {
-            rutinas_dir: f.state.config.rutinas_dir.clone(),
-            boveda: f.state.boveda.clone(),
-        };
+        let c = ea_acciones::SoloConsulta::usuario(f.state.config.rutinas_dir.clone(), f.state.boveda.clone());
         let args = json!({ "ruta": ruta });
         ea_acciones::proponer(&store, &c, &Default::default(), "claude-code", None, "ea_promover_nota", &args)
             .unwrap();
@@ -3014,10 +3011,7 @@ async fn programar_desde_la_web_pide_simulacion_y_revalida() {
 
 /// Lo que la terminal simulada de la prueba habría lanzado.
 fn lanzadas(f: &Fixture) -> Vec<Vec<String>> {
-    match &f.state.config.terminal {
-        ea_web::servicio::terminal::Terminal::Simulada { lanzadas, .. } => lanzadas.lock().unwrap().clone(),
-        _ => panic!("las pruebas usan la terminal simulada"),
-    }
+    f.terminales.lock().unwrap().clone()
 }
 
 #[tokio::test]
@@ -3063,15 +3057,11 @@ async fn abrir_en_terminal_solo_acepta_comandos_del_catalogo() {
     let args = json!({ "slug": "revision-diaria" });
     let (s, _) = post(&f, "/api/terminal/abrir", json!({ "herramienta": "ea_eliminar_rutina", "argumentos": args })).await;
     assert_eq!(s, StatusCode::OK);
-    let ea = match &f.state.config.terminal {
-        ea_web::servicio::terminal::Terminal::Simulada { ea, .. } => ea.display().to_string(),
-        _ => unreachable!(),
-    };
+    let ea = f.state.config.ea.as_ref().unwrap().display().to_string();
     let id_txt = id.to_string();
-    let lanzador = ea_plataforma::escritorio::lanzadores_terminal()[0];
     let esperado: Vec<Vec<String>> = [
-        vec![lanzador, &ea, "propuestas", "decidir", &id_txt, "--aceptar", "--esperar"],
-        vec![lanzador, &ea, "acciones", "ejecutar", "ea_eliminar_rutina", "--args", r#"{"slug":"revision-diaria"}"#, "--esperar"],
+        vec![&ea, "propuestas", "decidir", &id_txt, "--aceptar", "--esperar"],
+        vec![&ea, "acciones", "ejecutar", "ea_eliminar_rutina", "--args", r#"{"slug":"revision-diaria"}"#, "--esperar"],
     ]
     .into_iter()
     .map(|v| v.into_iter().map(String::from).collect())
@@ -3144,14 +3134,10 @@ async fn abrir_en_terminal_instalar_y_desinstalar_servicios() {
         assert_eq!(s, StatusCode::OK, "{r}");
         assert_eq!(r["comando"], comando);
     }
-    let ea = match &f.state.config.terminal {
-        ea_web::servicio::terminal::Terminal::Simulada { ea, .. } => ea.display().to_string(),
-        _ => unreachable!(),
-    };
-    let lanzador = ea_plataforma::escritorio::lanzadores_terminal()[0];
+    let ea = f.state.config.ea.as_ref().unwrap().display().to_string();
     let esperado: Vec<Vec<String>> = [
-        vec![lanzador, &ea, "servicios", "instalar", "--esperar"],
-        vec![lanzador, &ea, "servicios", "desinstalar", "--esperar"],
+        vec![&ea, "servicios", "instalar", "--esperar"],
+        vec![&ea, "servicios", "desinstalar", "--esperar"],
     ]
     .into_iter()
     .map(|v| v.into_iter().map(String::from).collect())
@@ -3214,7 +3200,7 @@ async fn una_rutina_retirada_no_se_lista_ni_se_lanza_y_se_restaura() {
     assert_eq!(e["error"], motivo);
     let (s, e_web) = post(&f, "/api/acciones/simular", accion("ea_encolar_rutina")).await;
     assert_eq!(s, StatusCode::CONFLICT);
-    let mcp = ea_acciones::SoloConsulta { rutinas_dir: dir.clone(), boveda: f.state.boveda.clone() };
+    let mcp = ea_acciones::SoloConsulta::usuario(dir.clone(), f.state.boveda.clone());
     let args = json!({ "slug": "revision-diaria" });
     let h = ea_acciones::observar(&mcp, "ea_encolar_rutina", &args).await.unwrap();
     let e_mcp =
@@ -3623,7 +3609,7 @@ async fn despertar_con_terminal_abre_una_por_planificador_y_revisor() {
     assert!(r["sesiones"].as_array().unwrap().iter().all(|x| x["abierta"] == true && x["error"].is_null()));
     // Solo planificador y revisor; argv cerrado `ea equipo sesion <id> <agente>`.
     let ea = f._dir.path().join("bin/ea").display().to_string();
-    let esperado = |agente: &str| vec![ea_plataforma::escritorio::lanzadores_terminal()[0].to_string(), ea.clone(), "equipo".into(), "sesion".into(), id.into(), agente.into()];
+    let esperado = |agente: &str| vec![ea.clone(), "equipo".into(), "sesion".into(), id.into(), agente.into()];
     assert_eq!(lanzadas(&f), vec![esperado("claude-code"), esperado("antigravity")]);
     let (_, d) = get(&f, "/api/diario?accion=equipo_sesion").await;
     assert_eq!(d.as_array().unwrap().len(), 2, "{d}");

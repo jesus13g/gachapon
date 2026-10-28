@@ -52,16 +52,6 @@ pub fn plan_real(agente: &str, ids: &[String], directorio: Option<&str>) -> Resu
     plan_sesion(agente, &analizar_ids(ids)?, &inventario, &raices).map_err(|e| e.to_string())
 }
 
-/// Las raíces con las que se materializó el plan: el proyecto es el suyo.
-fn raices_del_plan(plan: &PlanSesion, base: Raices) -> Raices {
-    Raices { proyecto: plan.cwd.clone(), ..base }
-}
-
-/// Materializa y abre la terminal, con el entorno real.
-pub fn lanzar_real(plan: &PlanSesion, terminal: &dyn Terminal) -> Result<(), String> {
-    lanzar_con(plan, raices_del_plan(plan, Raices::desde_entorno()), terminal)
-}
-
 /// Materializa con las `raices` dadas y abre la terminal.
 pub fn lanzar_con(plan: &PlanSesion, raices: Raices, terminal: &dyn Terminal) -> Result<(), String> {
     // El plan real es el devuelto: su directorio lleva un nonce propio.

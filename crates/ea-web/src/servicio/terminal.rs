@@ -9,9 +9,6 @@
 //! validan contra sus campos) y va como argv, sin shell, como hace
 //! `explorador` con el gestor de ficheros.
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-
 use ea_acciones::{Canal, Riesgo};
 use ea_store::{EstadoPropuesta, EventOutcome, NewEvent};
 use serde::Serialize;
@@ -19,36 +16,6 @@ use serde_json::{json, Map, Value};
 
 use super::{ErrorWeb, Resultado, ACTOR};
 use crate::AppState;
-
-/// Cómo se abre la terminal. `WebConfig::load` usa `Sistema`; las pruebas,
-/// `Simulada` (nunca se abre una ventana de verdad desde una prueba).
-#[derive(Clone)]
-pub enum Terminal {
-    /// Un lanzador del sistema (`ea_plataforma::escritorio::lanzadores_terminal`),
-    /// con el binario `ea` que hay junto a `ea-web`.
-    Sistema { ea: PathBuf },
-    /// No se lanza nada: cada argv que se habría lanzado se apunta aquí.
-    Simulada { ea: PathBuf, lanzadas: Arc<Mutex<Vec<Vec<String>>>> },
-    /// Sin terminal (503).
-    Ninguna,
-}
-
-impl Terminal {
-    /// La del sistema, con el `ea` de la misma carpeta que este binario
-    /// (`target/release/`, donde los ejecutan los servicios), nunca del PATH.
-    pub fn del_sistema() -> Self {
-        match ea_plataforma::rutas::ruta_hermana("ea") {
-            Some(ea) => Self::Sistema { ea },
-            None => Self::Ninguna,
-        }
-    }
-
-    /// Una simulada y el registro donde apunta lo que habría lanzado.
-    pub fn simulada(ea: impl Into<PathBuf>) -> (Self, Arc<Mutex<Vec<Vec<String>>>>) {
-        let lanzadas = Arc::new(Mutex::new(Vec::new()));
-        (Self::Simulada { ea: ea.into(), lanzadas: lanzadas.clone() }, lanzadas)
-    }
-}
 
 /// Lo que se ha abierto, para que la página lo diga.
 #[derive(Debug, Serialize)]
@@ -191,27 +158,19 @@ async fn validar_propuesta(s: &AppState, id: i64) -> Resultado<Orden> {
     }
 }
 
-/// Abre una terminal con `ea <args>` según la configuración: la del sistema,
-/// la simulada de las pruebas o ninguna (503). Quien llama ya ha validado los
-/// argumentos contra una lista cerrada.
+/// Abre una terminal con `ea <args>` (el `ea` y la terminal de la
+/// configuración; sin `ea`, 503). Quien llama ya ha validado los argumentos
+/// contra una lista cerrada.
 pub fn lanzar_argv(s: &AppState, args: &[String]) -> Resultado<()> {
-    match &s.config.terminal {
-        Terminal::Ninguna => return Err(ErrorWeb::NoDisponible("no hay terminal configurada".into())),
-        Terminal::Sistema { ea } => {
-            if !ea.is_file() {
-                return Err(ErrorWeb::NoDisponible(format!("no está el binario {}", ea.display())));
-            }
-            let mut argv = vec![ea.display().to_string()];
-            argv.extend(args.iter().cloned());
-            ea_acciones::lanzar_en_terminal(&argv).map_err(ErrorWeb::NoDisponible)?;
-        }
-        Terminal::Simulada { ea, lanzadas } => {
-            let mut argv = vec![ea_plataforma::escritorio::lanzadores_terminal()[0].to_string(), ea.display().to_string()];
-            argv.extend(args.iter().cloned());
-            lanzadas.lock().map_err(|_| ErrorWeb::Interno("registro envenenado".into()))?.push(argv);
-        }
+    let Some(ea) = &s.config.ea else {
+        return Err(ErrorWeb::NoDisponible("no hay terminal configurada".into()));
+    };
+    if !ea.is_file() {
+        return Err(ErrorWeb::NoDisponible(format!("no está el binario {}", ea.display())));
     }
-    Ok(())
+    let mut argv = vec![ea.display().to_string()];
+    argv.extend(args.iter().cloned());
+    s.config.terminal.abrir(&argv).map_err(ErrorWeb::NoDisponible)
 }
 
 /// Abre una terminal con el comando que confirma en ella. Queda en el

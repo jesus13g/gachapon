@@ -3,7 +3,7 @@
 //! devuelve una vista de `crate::vistas`. Nada de HTTP aquí; los errores son
 //! de dominio y `http` decide el código de estado.
 
-use ea_acciones::{ErrorAccion, SistemaReal};
+use ea_acciones::{ErrorAccion, SistemaReal, SoloConsulta};
 use ea_bus::{Bus, ErrorBus};
 use ea_store::{ErrorFiltro, StoreError};
 
@@ -123,13 +123,25 @@ impl From<ea_boveda::ErrorBoveda> for ErrorWeb {
 use ea_store::rfc3339 as ts;
 
 /// El sistema real para las acciones que confirma el usuario desde esta
-/// página. `ea-web` no puede reiniciarse a sí mismo a mitad de la petición.
+/// página, con sus rutas, sus timers y su terminal. `ea-web` no puede
+/// reiniciarse a sí mismo a mitad de la petición. La biblioteca es la del
+/// entorno real salvo que la configuración traiga sus raíces (las pruebas).
 fn sistema(s: &AppState) -> SistemaReal {
+    sistema_con(s, s.config.biblioteca_raices.clone().map(|r| biblioteca::contexto_en(s, r)))
+}
+
+/// [`sistema`] con la biblioteca dada.
+fn sistema_con(s: &AppState, biblioteca: Option<ea_biblioteca::Contexto>) -> SistemaReal {
     SistemaReal {
-        rutinas_dir: s.config.rutinas_dir.clone(),
-        boveda: s.boveda.clone(),
+        consulta: SoloConsulta {
+            rutinas_dir: s.config.rutinas_dir.clone(),
+            boveda: s.boveda.clone(),
+            estado_dir: s.config.estado_dir.clone(),
+            temporizadores: s.config.temporizadores.clone(),
+            biblioteca,
+        },
         propio: Some("ea-web"),
-        temporizadores: s.config.temporizadores.clone(),
+        terminal: s.config.terminal.clone(),
     }
 }
 

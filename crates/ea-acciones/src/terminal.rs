@@ -9,7 +9,7 @@
 //! Sin shell: el comando va como argv. Las pruebas usan [`TerminalSimulada`];
 //! nunca abren una ventana de verdad.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub use ea_plataforma::escritorio::OrdenTerminal;
 use ea_plataforma::escritorio::{argv_lanzador, lanzar_en_terminal as lanzar_orden_del_sistema};
@@ -60,10 +60,11 @@ impl Terminal for TerminalSistema {
 }
 
 /// El doble de las pruebas: apunta cada argv que se habría abierto (en la
-/// forma de Linux, con `env -C` si la orden lleva directorio o entorno).
+/// forma de Linux, con `env -C` si la orden lleva directorio o entorno). El
+/// registro se comparte (`Arc`) para mirarlo después de entregar la terminal.
 #[derive(Debug, Default)]
 pub struct TerminalSimulada {
-    pub lanzadas: Mutex<Vec<Vec<String>>>,
+    pub lanzadas: Arc<Mutex<Vec<Vec<String>>>>,
     /// Si es `Some`, abrir falla con este mensaje.
     pub fallo: Mutex<Option<String>>,
 }
