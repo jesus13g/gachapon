@@ -238,6 +238,9 @@ async fn crear_sin_criterio_o_worktree_invalido_da_400_y_no_escribe() {
     std::fs::create_dir_all(&sin_repo).unwrap();
     let fichero = f._dir.path().join("fichero.txt");
     std::fs::write(&fichero, "x").unwrap();
+    // U-03: un subdirectorio del repo no es su raíz.
+    let sub = std::path::Path::new(wt).join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
     let con = |campo: &str, valor: Value| {
         let mut m = mision(wt);
         m[campo] = valor;
@@ -258,6 +261,7 @@ async fn crear_sin_criterio_o_worktree_invalido_da_400_y_no_escribe() {
         con("worktree", json!(concat!(tmp!(), "/no/existe/de/ninguna/manera"))),
         con("worktree", json!(sin_repo.to_str().unwrap())),
         con("worktree", json!(fichero.to_str().unwrap())),
+        con("worktree", json!(sub.to_str().unwrap())),
         sin("worktree"),
         con("titulo", json!("")),
         con("titulo", json!("dos\nlineas")),

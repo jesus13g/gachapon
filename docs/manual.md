@@ -974,7 +974,7 @@ aquí y el ecosistema no las relaja en silencio.
 | | Linux | macOS | Windows |
 |---|---|---|---|
 | Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree (salvo su `.git`), un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
-| `.git` del worktree | de solo lectura dentro de `bwrap` si existe (directorio o fichero del worktree propio); si el worktree es un subdirectorio del repo no hay `.git` que montar y el agente podría crear uno falso (límite conocido) | escritura denegada siempre, exista o no (tampoco se puede crear uno falso) | — |
+| `.git` del worktree | de solo lectura dentro de `bwrap` (directorio o fichero del worktree propio); el worktree de una orden tiene que ser la raíz de su repo, así que siempre hay un `.git` que montar | escritura denegada siempre, exista o no (tampoco se puede crear uno falso) | — |
 | Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`), y al acabar cada corrida muere lo que haya dejado de fondo | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
 | Criterio de éxito | fuera del sandbox del agente; con `sandbox = true`, en `bwrap` solo para taparle `$XDG_RUNTIME_DIR` | ídem con Seatbelt (directorio de ejecución ilegible) | sin sandbox: con `sandbox = true` el ejecutor no arranca |
 | Parada limpia | `SIGTERM` o Ctrl-C | ídem | Ctrl-C, cierre de la consola o apagado |
@@ -1061,8 +1061,12 @@ ea tui                                       # interfaz interactiva
 sueltas y `--orden`, que es lo que usan `/mision` y `/obra`), antes de escribir
 nada y con los mismos mensajes: el worktree es una ruta absoluta (en la forma
 corta, una relativa lo es al directorio actual: `--worktree .` desde el repo),
-existe, es un directorio y está en un repo git con algún commit; la orden lleva
-su forma canónica. Una obra numera sus fases `1, 2, …, N` en el orden en que
+existe, es un directorio, no es tu directorio personal ni lo contiene (`$HOME`,
+sus ancestros y `/` se rechazan) y es la **raíz** de un repo git con algún
+commit (la de `git rev-parse --show-toplevel`: la de un clon o la de un `git
+worktree add`; un subdirectorio del repo se rechaza, porque ahí el agente podría
+crear un `.git` falso que los `git` del sistema usarían); la orden lleva su forma
+canónica. Una obra numera sus fases `1, 2, …, N` en el orden en que
 van. El bus exige además, la cree quien la cree, el worktree absoluto, esa
 numeración, el criterio y las skills.
 
@@ -1617,8 +1621,8 @@ de rango o en una misión, 400 sin escribir nada—, `confirmar` `{"contexto": "
 `POST /api/trabajos` (crea una misión o una obra; misión: `{"modo"?: "mision", "titulo", "worktree",
 "objetivo", "criterio", "topes"?: {"iteraciones"?, "tiempo_s"?}}` → 201 `{id, estado}`;
 `creada_por` es `usuario` y no admite skills (la llave `pueden_elegir` es del rol planificador; 400 con ese motivo) ni otros campos; 400 si falta el
-criterio o el worktree no es una ruta absoluta existente dentro de un repo git
-con al menos un commit; los topes se recortan al techo; una obra es `{"modo":
+criterio o el worktree no es una ruta absoluta existente que sea la raíz de un
+repo git con al menos un commit, o es `$HOME` o un ancestro suyo; los topes se recortan al techo; una obra es `{"modo":
 "obra", "titulo", "worktree", "objetivo", "fases": [{"titulo", "instrucciones",
 "entregable", "criterio"}], "revisar_cada": n|null, "topes"?}`, sin `criterio`
 general, con 1-20 fases numeradas por su orden y `revisar_cada` obligatorio

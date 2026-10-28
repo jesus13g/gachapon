@@ -215,3 +215,27 @@ fn un_git_que_no_termina_se_corta_en_su_tope() {
     assert!(matches!(e, ErrorBus::GitSinRespuesta(1)), "{e}");
     assert!(t.elapsed() < Duration::from_secs(20), "tardó {:?}", t.elapsed());
 }
+
+/// U-03: el worktree de una orden es la raíz de su árbol de trabajo. Un
+/// subdirectorio del repo se rechaza (no tiene un `.git` que el sandbox
+/// pueda dejar de solo lectura); la raíz y un `git worktree add` valen, y lo
+/// que se devuelve es la ruta canónica.
+#[test]
+fn el_worktree_tiene_que_ser_la_raiz_de_su_repo() {
+    let r = repo(&[]);
+    let raiz = ea_plataforma::rutas::canonica(&r.wt).unwrap();
+    let validar = |p: &Path| ea_bus::validar_worktree(p.to_str().unwrap(), TOPE_LECTURA);
+    assert_eq!(validar(&r.wt).unwrap(), raiz.to_str().unwrap());
+
+    let sub = r.wt.join("sub dir");
+    let e = validar(&sub).unwrap_err();
+    assert!(matches!(&e, ErrorBus::Argumentos(m) if m.contains("no es la raíz de su repositorio") && m.contains(raiz.to_str().unwrap())), "{e}");
+
+    let enlazado = r.d.path().join("enlazado");
+    git_a_secas(&r.wt, &["worktree", "add", "-q", "--detach", enlazado.to_str().unwrap()], None);
+    let canon = ea_plataforma::rutas::canonica(&enlazado).unwrap();
+    assert_eq!(validar(&enlazado).unwrap(), canon.to_str().unwrap());
+    std::fs::create_dir(canon.join("otro")).unwrap();
+    let e = validar(&canon.join("otro")).unwrap_err();
+    assert!(e.to_string().contains("no es la raíz de su repositorio"), "tampoco un subdirectorio del worktree enlazado: {e}");
+}

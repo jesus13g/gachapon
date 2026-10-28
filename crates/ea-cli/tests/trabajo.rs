@@ -63,6 +63,34 @@ fn crear_con_orden_rechaza_un_worktree_relativo_sin_repo_o_sin_commits() {
     sin_trabajos(d);
 }
 
+/// U-03: ni el directorio personal (aquí el `HOME` temporal que pone
+/// `ea_pruebas::cli`) ni un ancestro suyo ni `/` valen como worktree, aunque
+/// sean un repo con commits; tampoco un subdirectorio del repo, por las dos
+/// formas de `ea trabajo crear`.
+#[test]
+fn crear_rechaza_el_home_sus_ancestros_y_un_subdirectorio_del_repo() {
+    let d = tempfile::tempdir().unwrap();
+    let d = d.path();
+    let home = d.join("home");
+    repo_git(&home, true);
+    repo_git(d, true);
+    let personal = "es tu directorio personal o lo contiene";
+    falla_con(&crear_con_orden(d, home.to_str().unwrap(), None), personal);
+    falla_con(&crear_con_orden(d, d.to_str().unwrap(), None), personal);
+    falla_con(&crear_con_orden(d, "/", None), personal);
+    let corta = ["trabajo", "crear", "--titulo", "t", "--worktree", ".", "--objetivo", "o", "--criterio", "true"];
+    falla_con(&ea(d, &home, &corta), personal);
+
+    let wt = d.join("proyecto");
+    repo_git(&wt, true);
+    std::fs::create_dir_all(wt.join("src")).unwrap();
+    falla_con(&crear_con_orden(d, wt.join("src").to_str().unwrap(), None), "no es la raíz de su repositorio");
+    falla_con(&ea(d, &wt.join("src"), &corta), "no es la raíz de su repositorio");
+    sin_trabajos(d);
+    let o = crear_con_orden(d, wt.to_str().unwrap(), None);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+}
+
 /// B-06 por la CLI: una obra con las fases mal numeradas no se crea.
 #[test]
 fn crear_con_orden_rechaza_las_fases_mal_numeradas() {

@@ -110,13 +110,18 @@ pub fn tiene_commits(wt: &Path, tope: Duration) -> Resultado<bool> {
 const WORKTREE_MAX: usize = 4_096;
 
 /// El worktree de una orden nueva: no vacío, de hasta 4096 bytes, ruta
-/// absoluta, que existe y es un directorio con ruta UTF-8, dentro de un repo
-/// git ([`es_repo`]) que tiene algún commit ([`tiene_commits`]; el ejecutor
-/// arranca con `rev-parse HEAD` y bloquearía un repo sin commits). Devuelve
-/// la forma canónica, que es la que va a la orden (y al semáforo). Lo llaman
-/// `ea trabajo crear` y la web antes de crear el trabajo, con los mismos
-/// mensajes ([`ErrorBus::Argumentos`]); solo un git que no responde en
-/// `tope` es [`ErrorBus::GitSinRespuesta`].
+/// absoluta, que existe y es un directorio con ruta UTF-8, que no es el
+/// directorio personal ni lo contiene (`$HOME`, sus ancestros y `/`), dentro
+/// de un repo git ([`es_repo`]) que tiene algún commit ([`tiene_commits`]; el
+/// ejecutor arranca con `rev-parse HEAD` y bloquearía un repo sin commits) y
+/// que es la raíz de su árbol de trabajo (`--show-toplevel`: el de un repo o
+/// el de un `git worktree add`). En un subdirectorio no hay `<wt>/.git` que
+/// el sandbox pueda dejar de solo lectura, y el agente podría crear uno falso
+/// que los `git` del sistema usarían. Devuelve la forma canónica, que es la
+/// que va a la orden (y al semáforo). Lo llaman `ea trabajo crear` y la web
+/// antes de crear el trabajo, con los mismos mensajes
+/// ([`ErrorBus::Argumentos`]); solo un git que no responde en `tope` es
+/// [`ErrorBus::GitSinRespuesta`].
 pub fn validar_worktree(wt: &str, tope: Duration) -> Resultado<String> {
     let invalido = |m: String| Err(ErrorBus::Argumentos(m));
     let wt = wt.trim();
@@ -139,11 +144,24 @@ pub fn validar_worktree(wt: &str, tope: Duration) -> Resultado<String> {
     let Some(canon) = canon.to_str().map(str::to_string) else {
         return invalido("la ruta del worktree no es UTF-8".into());
     };
+    let casa = ea_plataforma::usuario::home().and_then(|h| ea_plataforma::rutas::canonica(h).ok());
+    if casa.is_some_and(|h| h.starts_with(&canon)) {
+        return invalido(format!(
+            "el worktree '{canon}' es tu directorio personal o lo contiene: el ejecutor podría escribir en todo él; usa el repo de un proyecto"
+        ));
+    }
     if !es_repo(Path::new(&canon), tope)? {
         return invalido(format!("'{canon}' no está dentro de un repositorio git"));
     }
     if !tiene_commits(Path::new(&canon), tope)? {
         return invalido(format!("el repo no tiene ningún commit ('{canon}'): haz un commit inicial antes de encargarle trabajo"));
+    }
+    let raiz = git(Path::new(&canon), ["rev-parse", "--show-toplevel"], tope)?;
+    let raiz = raiz.trim();
+    if ea_plataforma::rutas::canonica(raiz).ok().as_deref() != Some(Path::new(&canon)) {
+        return invalido(format!(
+            "el worktree '{canon}' no es la raíz de su repositorio ('{raiz}'): usa la raíz del repo o un worktree propio (en un subdirectorio el agente podría crear un .git falso)"
+        ));
     }
     Ok(canon)
 }

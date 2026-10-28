@@ -180,11 +180,11 @@ pub struct Envoltorio {
 ///
 /// El `<wt>/.git`, si existe (directorio en un repo normal, fichero en un
 /// worktree propio), se vuelve a montar en solo lectura encima del worktree:
-/// ni su configuración ni sus *hooks*, ni a dónde apunta. Si no existe (el
-/// worktree es un subdirectorio del repo), bwrap no puede tapar la ruta sin
-/// crearla en el disco del usuario: el agente podría crear un `.git` falso
-/// (límite conocido). Un `.git` enlace simbólico protege su destino, no el
-/// propio enlace.
+/// ni su configuración ni sus *hooks*, ni a dónde apunta. Si no existe,
+/// bwrap no puede tapar la ruta sin crearla en el disco del usuario; por eso
+/// el worktree de una orden tiene que ser la raíz de su repo
+/// (`ea_bus::validar_worktree`), que siempre tiene `.git`. Un `.git` enlace
+/// simbólico protege su destino, no el propio enlace.
 pub fn argumentos_bwrap(worktree: &Path, ejecucion: Option<&Path>, estado: &[PathBuf]) -> Vec<String> {
     let wt = worktree.to_string_lossy().to_string();
     let mut args: Vec<String> =
