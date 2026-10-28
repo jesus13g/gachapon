@@ -7,7 +7,7 @@ use std::path::Path;
 
 use ea_acciones::servicios::Paso;
 use ea_ajustes::descargas::descarga_para;
-use ea_ajustes::{Ajustes, Rol};
+use ea_ajustes::{AgenteId, Ajustes, Rol};
 use ea_plataforma::Sistema;
 
 use super::{Contexto, Sonda};
@@ -369,15 +369,16 @@ fn texto(ruta: &Path) -> String {
     ruta.to_string_lossy().into_owned()
 }
 
-/// El id de dependencia de un agente del catálogo.
-fn id_agente(id: &str) -> &'static str {
-    match id {
-        "claude-code" => "agente:claude-code",
-        "qwen-code" => "agente:qwen-code",
-        "codex" => "agente:codex",
-        "opencode" => "agente:opencode",
-        "antigravity" => "agente:antigravity",
-        _ => "agente",
+/// El id de dependencia de un agente: `agente:<id>`, o `agente` si no es del
+/// catálogo.
+fn id_agente(agente: Option<AgenteId>) -> &'static str {
+    match agente {
+        Some(AgenteId::ClaudeCode) => "agente:claude-code",
+        Some(AgenteId::QwenCode) => "agente:qwen-code",
+        Some(AgenteId::Codex) => "agente:codex",
+        Some(AgenteId::OpenCode) => "agente:opencode",
+        Some(AgenteId::Antigravity) => "agente:antigravity",
+        None => "agente",
     }
 }
 
@@ -396,15 +397,16 @@ fn npm(sonda: &dyn Sonda, paquete: &str) -> (Option<Oferta>, Option<String>) {
 }
 
 fn agente(sistema: Sistema, sonda: &dyn Sonda, id: &str, bin: &str) -> Dependencia {
+    let agente = AgenteId::desde(id);
     let descripcion = format!("{id}: agente de un rol");
     match sonda.binario(bin) {
         Some(r) => Dependencia {
             nota: Some(format!("inicia sesión con `{bin}` si no lo has hecho")),
-            ..Dependencia { descripcion, ..dep(id_agente(id), "", Estado::Presente(r.display().to_string()), true) }
+            ..Dependencia { descripcion, ..dep(id_agente(agente), "", Estado::Presente(r.display().to_string()), true) }
         },
         None => {
-            let (oferta, nota) = match id {
-                "claude-code" if sistema == Sistema::Windows => (
+            let (oferta, nota) = match agente {
+                Some(AgenteId::ClaudeCode) if sistema == Sistema::Windows => (
                     Some(Oferta {
                         explicacion: "instalar Claude Code con su instalador oficial".into(),
                         pasos: vec![ejecutar(argv(&["powershell", "-NoProfile", "-Command", "irm https://claude.ai/install.ps1 | iex"]))],
@@ -412,7 +414,7 @@ fn agente(sistema: Sistema, sonda: &dyn Sonda, id: &str, bin: &str) -> Dependenc
                     }),
                     None,
                 ),
-                "claude-code" => (
+                Some(AgenteId::ClaudeCode) => (
                     Some(Oferta {
                         explicacion: "instalar Claude Code con su instalador oficial".into(),
                         pasos: vec![ejecutar(argv(&["sh", "-c", "curl -fsSL https://claude.ai/install.sh | bash"]))],
@@ -420,16 +422,16 @@ fn agente(sistema: Sistema, sonda: &dyn Sonda, id: &str, bin: &str) -> Dependenc
                     }),
                     None,
                 ),
-                "qwen-code" => npm(sonda, "@qwen-code/qwen-code"),
-                "codex" => npm(sonda, "@openai/codex"),
-                "opencode" => npm(sonda, "opencode-ai"),
-                _ => (None, Some(format!("instala {id} y deja `{bin}` en el PATH"))),
+                Some(AgenteId::QwenCode) => npm(sonda, "@qwen-code/qwen-code"),
+                Some(AgenteId::Codex) => npm(sonda, "@openai/codex"),
+                Some(AgenteId::OpenCode) => npm(sonda, "opencode-ai"),
+                Some(AgenteId::Antigravity) | None => (None, Some(format!("instala {id} y deja `{bin}` en el PATH"))),
             };
             let nota = Some(match nota {
                 Some(n) => format!("{n}; después inicia sesión con `{bin}`"),
                 None => format!("después inicia sesión con `{bin}`"),
             });
-            Dependencia { oferta, nota, ..Dependencia { descripcion, ..dep(id_agente(id), "", Estado::Falta, true) } }
+            Dependencia { oferta, nota, ..Dependencia { descripcion, ..dep(id_agente(agente), "", Estado::Falta, true) } }
         }
     }
 }
@@ -678,5 +680,22 @@ mod pruebas {
         assert!(c.nota.as_deref().unwrap().contains("inicia sesión con `claude`"));
         let v = detectar(Sistema::Windows, false, &Falsa::con(&[]));
         assert!(argv_de(buscar(&v, "agente:claude-code").oferta.as_ref().unwrap())[0].contains(&"powershell".to_string()));
+    }
+
+    #[test]
+    fn cada_agente_con_su_id_de_dependencia_y_su_oferta() {
+        let s = Falsa::con(&["npm"]);
+        let de = |id: &str, bin: &str| agente(Sistema::Linux, &s, id, bin);
+        let ids = ["claude-code", "qwen-code", "codex", "opencode", "antigravity", "gpt"].map(|id| de(id, "x").id);
+        assert_eq!(ids, ["agente:claude-code", "agente:qwen-code", "agente:codex", "agente:opencode", "agente:antigravity", "agente"]);
+        let orden = |id: &str| argv_de(de(id, "x").oferta.as_ref().unwrap())[0].clone();
+        assert_eq!(orden("codex"), argv(&["npm", "install", "-g", "@openai/codex"]));
+        assert_eq!(orden("opencode"), argv(&["npm", "install", "-g", "opencode-ai"]));
+        for id in ["antigravity", "gpt"] {
+            let d = de(id, "agy");
+            assert!(d.oferta.is_none(), "{id}");
+            assert_eq!(d.descripcion, format!("{id}: agente de un rol"));
+            assert_eq!(d.nota.unwrap(), format!("instala {id} y deja `agy` en el PATH; después inicia sesión con `agy`"));
+        }
     }
 }

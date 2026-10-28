@@ -25,7 +25,7 @@ use super::comun::{crear, frontmatter, leer_json, leer_texto, md_en, mcp as crea
 use crate::modelo::{Activado, Ambito, Elemento, Mecanismo, Tipo};
 use crate::raices::Raices;
 
-pub const AGENTE: &str = "qwen-code";
+pub const AGENTE: &str = ea_ajustes::AgenteId::QwenCode.as_str();
 pub const VERSION: &str = "0.25.1";
 
 pub fn leer(r: &Raices, a: &Ajustes, avisos: &mut Vec<String>) -> Vec<Elemento> {

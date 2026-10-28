@@ -7,7 +7,10 @@
 //!
 //! El catálogo de agentes vive en el código porque cada agente necesita su
 //! adaptador; `ajustes.toml` solo dice qué agente ocupa cada rol, con qué
-//! binario y con qué perfil de modelo.
+//! binario y con qué perfil de modelo. Cada agente es un [`AgenteId`] cerrado
+//! y su [`FichaAgente`] reúne lo estático (binario por defecto, carpeta,
+//! familia visual, sesión, adaptador de ejecutor); en disco, en la API y en
+//! los mensajes sigue yendo su id de texto.
 
 use serde::{Deserialize, Serialize};
 
@@ -63,14 +66,96 @@ pub const ACTOR_SIN_ROL: &str = "sin-rol";
 /// Un cliente MCP que no es ningún agente del catálogo: solo lee.
 pub const ACTOR_DESCONOCIDO: &str = "desconocido";
 
-/// Un agente del catálogo.
+/// Un agente del catálogo. Un `match` sobre él es exhaustivo: añadir uno
+/// obliga a decidir qué hace en cada sitio. Fuera del código va su id de
+/// texto (`as_str`), el de siempre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum AgenteId {
+    #[serde(rename = "claude-code")]
+    ClaudeCode,
+    #[serde(rename = "qwen-code")]
+    QwenCode,
+    #[serde(rename = "codex")]
+    Codex,
+    #[serde(rename = "opencode")]
+    OpenCode,
+    #[serde(rename = "antigravity")]
+    Antigravity,
+}
+
+impl AgenteId {
+    /// En el orden en que se muestran (el de [`CATALOGO`]).
+    pub const TODOS: [AgenteId; 5] = [Self::ClaudeCode, Self::QwenCode, Self::Codex, Self::OpenCode, Self::Antigravity];
+
+    /// El id en disco, en la API y en los mensajes.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "claude-code",
+            Self::QwenCode => "qwen-code",
+            Self::Codex => "codex",
+            Self::OpenCode => "opencode",
+            Self::Antigravity => "antigravity",
+        }
+    }
+
+    /// El agente con ese id, tal cual (sin recortar ni cambiar mayúsculas).
+    pub fn desde(id: &str) -> Option<Self> {
+        Self::TODOS.into_iter().find(|a| a.as_str() == id)
+    }
+
+    pub const fn ficha(self) -> &'static FichaAgente {
+        &CATALOGO[self as usize]
+    }
+}
+
+/// El adaptador de cada agente que puede ejecutar (spec 017): cada CLI tiene
+/// sus argumentos y su formato de salida. Es el `ejecutor` de su ficha.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TipoAgente {
+    QwenCode,
+    Codex,
+    OpenCode,
+}
+
+impl TipoAgente {
+    /// El tipo de un agente del catálogo que admite el rol de ejecutor.
+    pub fn desde(id: &str) -> Option<Self> {
+        AgenteId::desde(id)?.ficha().ejecutor
+    }
+
+    pub const fn agente(self) -> AgenteId {
+        match self {
+            Self::QwenCode => AgenteId::QwenCode,
+            Self::Codex => AgenteId::Codex,
+            Self::OpenCode => AgenteId::OpenCode,
+        }
+    }
+
+    pub const fn id(self) -> &'static str {
+        self.agente().as_str()
+    }
+}
+
+/// Lo estático de un agente del catálogo.
 #[derive(Debug)]
 pub struct FichaAgente {
-    pub id: &'static str,
+    pub id: AgenteId,
     /// Nombre para la interfaz.
     pub nombre: &'static str,
     /// Roles que puede ocupar.
     pub roles: &'static [Rol],
+    /// Su adaptador si puede ejecutar (si admite el rol de ejecutor).
+    pub ejecutor: Option<TipoAgente>,
+    /// El binario de `agentes.<id>.bin` por defecto.
+    pub bin_por_defecto: &'static str,
+    /// Su carpeta de configuración bajo el HOME, con `/`.
+    pub dir_config: &'static str,
+    /// La variante de su máquina en la escena del panel (`VARIANTES` en
+    /// `gashapon.js`).
+    pub familia: &'static str,
+    /// Admite una sesión con solo las herramientas elegidas (biblioteca,
+    /// spec 018).
+    pub admite_sesion: bool,
     /// Qué topes propios admite su CLI (además del `timeout` del sistema).
     pub topes: &'static str,
     /// Nombres con que se presenta como cliente MCP (`clientInfo.name` del
@@ -100,48 +185,102 @@ impl FichaAgente {
 const AMBOS: &[Rol] = &[Rol::Planificador, Rol::Ejecutor];
 const PLANIFICADOR: &[Rol] = &[Rol::Planificador];
 
-/// Ids del catálogo, en el orden en que se muestran.
-pub const IDS_AGENTES: &[&str] = &["claude-code", "qwen-code", "codex", "opencode", "antigravity"];
+/// Los ids de las fichas, todas o solo las que admiten sesión, en el orden
+/// del catálogo. `N` es cuántas son: si no casa, no compila.
+const fn ids<const N: usize>(solo_con_sesion: bool) -> [&'static str; N] {
+    let mut ids = [""; N];
+    let (mut i, mut n) = (0, 0);
+    while i < CATALOGO.len() {
+        if !solo_con_sesion || CATALOGO[i].admite_sesion {
+            ids[n] = CATALOGO[i].id.as_str();
+            n += 1;
+        }
+        i += 1;
+    }
+    assert!(n == N, "N no es el número de agentes");
+    ids
+}
 
+/// Ids del catálogo, en el orden en que se muestran.
+pub const IDS_AGENTES: &[&str] = &ids::<{ AgenteId::TODOS.len() }>(false);
+
+/// Los que admiten sesión ([`FichaAgente::admite_sesion`]), en el mismo orden.
+pub const IDS_CON_SESION: [&str; 4] = ids(true);
+
+/// Una ficha por agente, en el orden de [`AgenteId::TODOS`] (lo usa
+/// [`AgenteId::ficha`]).
 pub static CATALOGO: &[FichaAgente] = &[
     FichaAgente {
-        id: "claude-code",
+        id: AgenteId::ClaudeCode,
         nombre: "Claude Code",
         roles: PLANIFICADOR,
+        ejecutor: None,
+        bin_por_defecto: "claude",
+        dir_config: ".claude",
+        familia: "claude",
+        admite_sesion: true,
         topes: "—",
         clientes_mcp: &["claude-code"],
         opcion_prompt: None,
     },
     FichaAgente {
-        id: "qwen-code",
+        id: AgenteId::QwenCode,
         nombre: "Qwen Code",
         roles: AMBOS,
+        ejecutor: Some(TipoAgente::QwenCode),
+        bin_por_defecto: "qwen",
+        dir_config: ".qwen",
+        familia: "qwen",
+        admite_sesion: true,
         topes: "turnos, llamadas y tiempo",
         clientes_mcp: &["qwen-code-mcp-client", "qwen-code"],
         opcion_prompt: Some("-i"),
     },
-    FichaAgente { id: "codex", nombre: "Codex", roles: AMBOS, topes: "solo tiempo", clientes_mcp: &["codex-mcp-client"], opcion_prompt: None },
     FichaAgente {
-        id: "opencode",
+        id: AgenteId::Codex,
+        nombre: "Codex",
+        roles: AMBOS,
+        ejecutor: Some(TipoAgente::Codex),
+        bin_por_defecto: "codex",
+        dir_config: ".codex",
+        familia: "codex",
+        admite_sesion: true,
+        topes: "solo tiempo",
+        clientes_mcp: &["codex-mcp-client"],
+        opcion_prompt: None,
+    },
+    FichaAgente {
+        id: AgenteId::OpenCode,
         nombre: "OpenCode",
         roles: AMBOS,
+        ejecutor: Some(TipoAgente::OpenCode),
+        bin_por_defecto: "opencode",
+        dir_config: ".config/opencode",
+        familia: "opencode",
+        admite_sesion: true,
         topes: "solo tiempo",
         clientes_mcp: &["opencode"],
         opcion_prompt: Some("--prompt"),
     },
     // `agy` 1.4 se presenta como `antigravity-client` (capturado del `initialize`).
     FichaAgente {
-        id: "antigravity",
+        id: AgenteId::Antigravity,
         nombre: "Antigravity",
         roles: PLANIFICADOR,
+        ejecutor: None,
+        bin_por_defecto: "agy",
+        dir_config: ".gemini",
+        familia: "antigravity",
+        admite_sesion: false,
         topes: "—",
         clientes_mcp: &["antigravity-client"],
         opcion_prompt: Some("-i"),
     },
 ];
 
+/// La ficha del agente con ese id de texto, si es del catálogo.
 pub fn ficha(id: &str) -> Option<&'static FichaAgente> {
-    CATALOGO.iter().find(|f| f.id == id)
+    AgenteId::desde(id).map(AgenteId::ficha)
 }
 
 /// El agente del catálogo que se presenta con ese nombre de cliente MCP.
@@ -188,16 +327,17 @@ impl crate::Ajustes {
         CATALOGO
             .iter()
             .map(|f| {
-                let config = &self.agentes[f.id];
+                let id = f.id.as_str();
+                let config = &self.agentes[id];
                 VistaAgente {
-                    id: f.id,
+                    id,
                     nombre: f.nombre,
                     admite: f.roles.iter().map(|r| r.nombre()).collect(),
-                    rol: self.rol_de(f.id).map(Rol::nombre),
+                    rol: self.rol_de(id).map(Rol::nombre),
                     bin: config.bin.clone(),
                     ruta: buscar_binario(&config.bin, path).map(|p| p.display().to_string()),
                     perfil: config.modelo.clone(),
-                    modelo: self.modelo_de(f.id).cloned(),
+                    modelo: self.modelo_de(id).cloned(),
                     topes: f.topes,
                 }
             })
@@ -217,5 +357,38 @@ mod tests {
         assert_eq!(argv("opencode", "opencode"), ["opencode", "--prompt", "hola"]);
         assert_eq!(argv("antigravity", "agy"), ["agy", "-i", "hola"]);
         assert_eq!(argv("codex", "codex"), ["codex", "hola"]);
+    }
+
+    #[test]
+    fn cada_id_con_su_ficha_y_su_nombre_de_siempre() {
+        let ids = AgenteId::TODOS.map(AgenteId::as_str);
+        assert_eq!(ids, ["claude-code", "qwen-code", "codex", "opencode", "antigravity"]);
+        assert_eq!(CATALOGO.iter().map(|f| f.id).collect::<Vec<_>>(), AgenteId::TODOS, "fichas en el orden del enum");
+        for a in AgenteId::TODOS {
+            assert_eq!((AgenteId::desde(a.as_str()), a.ficha().id), (Some(a), a));
+            assert_eq!(serde_json::to_value(a).unwrap(), serde_json::json!(a.as_str()));
+            assert_eq!(serde_json::from_value::<AgenteId>(serde_json::json!(a.as_str())).unwrap(), a);
+        }
+        for otro in ["gpt", "", " codex", "Codex", "planificador", "modelo-local"] {
+            assert_eq!(AgenteId::desde(otro), None, "{otro:?}");
+            assert!(ficha(otro).is_none(), "{otro:?}");
+            assert!(serde_json::from_value::<AgenteId>(serde_json::json!(otro)).is_err(), "{otro:?}");
+        }
+    }
+
+    #[test]
+    fn las_tablas_que_salen_de_las_fichas() {
+        let de = |f: fn(&FichaAgente) -> &'static str| CATALOGO.iter().map(f).collect::<Vec<_>>();
+        assert_eq!(de(|f| f.bin_por_defecto), ["claude", "qwen", "codex", "opencode", "agy"]);
+        assert_eq!(de(|f| f.dir_config), [".claude", ".qwen", ".codex", ".config/opencode", ".gemini"]);
+        assert_eq!(de(|f| f.familia), ["claude", "qwen", "codex", "opencode", "antigravity"]);
+        assert_eq!(IDS_CON_SESION, ["claude-code", "qwen-code", "codex", "opencode"]);
+        let tipos = CATALOGO.iter().map(|f| f.ejecutor).collect::<Vec<_>>();
+        assert_eq!(tipos, [None, Some(TipoAgente::QwenCode), Some(TipoAgente::Codex), Some(TipoAgente::OpenCode), None]);
+        for f in CATALOGO {
+            // El adaptador de ejecutor es el del propio agente, y solo lo tiene quien puede ejecutar.
+            assert_eq!(f.ejecutor.is_some(), f.admite(Rol::Ejecutor), "{:?}", f.id);
+            assert!(f.ejecutor.is_none_or(|t| t.agente() == f.id), "{:?}", f.id);
+        }
     }
 }

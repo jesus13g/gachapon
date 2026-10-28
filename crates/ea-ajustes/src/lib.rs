@@ -28,7 +28,8 @@ mod fuentes;
 mod validar;
 mod vista;
 
-pub use agentes::{buscar_binario, ficha, id_perfil_valido, por_cliente_mcp, FichaAgente, Rol, VistaAgente, CATALOGO, IDS_AGENTES};
+pub use agentes::{buscar_binario, ficha, id_perfil_valido, por_cliente_mcp, AgenteId, FichaAgente, Rol, TipoAgente, VistaAgente};
+pub use agentes::{CATALOGO, IDS_AGENTES, IDS_CON_SESION};
 pub use agentes::{ACTOR_DESCONOCIDO, ACTOR_ORQUESTADOR, ACTOR_SIN_ROL, ACTOR_USUARIO};
 pub use cargar::{cargar, cargar_de, Efectivos, Origen};
 pub use claves::{clave, concretas, sin_alias, titulo, Aplica, Canal, Clave, Edicion, Tipo, ALIAS, CLAVES, SECCIONES};

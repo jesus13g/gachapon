@@ -31,6 +31,7 @@ mod qwen;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use ea_ajustes::AgenteId;
 use serde::Serialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -226,7 +227,7 @@ fn casa(e: &Elemento, tipo: Tipo, nombre: &str) -> bool {
 
 fn resolver<'a>(inv: &'a Inventario, agente: &str, tipo: Tipo, nombre: &str) -> Option<&'a Elemento> {
     let mut del_agente = inv.elementos.iter().filter(|e| e.agente == agente);
-    if agente == "opencode" && tipo == Tipo::Mcp {
+    if agente == AgenteId::OpenCode.as_str() && tipo == Tipo::Mcp {
         // OpenCode llama a las herramientas MCP `<servidor>_<herramienta>`: gana el prefijo más largo.
         return del_agente
             .filter(|e| e.tipo == Tipo::Mcp && nombre.starts_with(&format!("{}_", normalizar_mcp(&e.nombre))))
@@ -236,7 +237,7 @@ fn resolver<'a>(inv: &'a Inventario, agente: &str, tipo: Tipo, nombre: &str) -> 
 }
 
 /// (agente, directorio de proyectos, extractor de cada línea, fuente).
-type GrupoTranscripciones<'a> = (&'static str, &'a Path, fn(&str) -> Vec<Hallazgo>, &'static str);
+type GrupoTranscripciones<'a> = (AgenteId, &'a Path, fn(&str) -> Vec<Hallazgo>, &'static str);
 
 // --- Acumulación ---------------------------------------------------------------
 
@@ -300,25 +301,27 @@ pub fn calcular_uso(_raices: &Raices, inv: &Inventario, fuentes: &FuentesUso) ->
     let mut vivas: HashSet<String> = HashSet::new();
     let mut actividad: Vec<ActividadAgente> = Vec::new();
 
-    // 1. ~/.claude.json
+    // 1. ~/.claude.json (el agente es también quien lo usó)
+    let claude_code = AgenteId::ClaudeCode.as_str();
     if let Some(c) = claude::contadores(&fuentes.claude_json, &mut avisos) {
         for (n, u, t) in c.skills {
-            acum.anota(inv, "claude-code", Tipo::Skill, &n, "claude-code", "claude-json", u, t);
+            acum.anota(inv, claude_code, Tipo::Skill, &n, claude_code, "claude-json", u, t);
         }
         for (n, u, t) in c.plugins {
-            acum.anota(inv, "claude-code", Tipo::Plugin, &n, "claude-code", "claude-json", u, t);
+            acum.anota(inv, claude_code, Tipo::Plugin, &n, claude_code, "claude-json", u, t);
         }
         for (n, u, t) in c.subagentes {
-            acum.anota(inv, "claude-code", Tipo::Subagente, &n, "claude-code", "claude-json", u, t);
+            acum.anota(inv, claude_code, Tipo::Subagente, &n, claude_code, "claude-json", u, t);
         }
     }
 
     // 2. Transcripciones de Claude Code y de Qwen Code.
     let mut grupos: Vec<GrupoTranscripciones> = vec![
-        ("claude-code", &fuentes.claude_proyectos, claude::extraer, "transcripciones"),
-        ("qwen-code", &fuentes.qwen_proyectos, qwen::extraer, "transcripciones"),
+        (AgenteId::ClaudeCode, &fuentes.claude_proyectos, claude::extraer, "transcripciones"),
+        (AgenteId::QwenCode, &fuentes.qwen_proyectos, qwen::extraer, "transcripciones"),
     ];
     for (agente, dir, extraer, fuente) in grupos.drain(..) {
+        let agente = agente.as_str();
         let mut ficheros = Vec::new();
         ficheros_bajo(dir, &|n| n.ends_with(".jsonl"), &mut ficheros);
         ficheros.sort();
@@ -341,7 +344,8 @@ pub fn calcular_uso(_raices: &Raices, inv: &Inventario, fuentes: &FuentesUso) ->
 
     // 3. OpenCode (incremental por time_created).
     {
-        let clave = format!("opencode:{}", fuentes.opencode_db.display());
+        let id_opencode = AgenteId::OpenCode.as_str();
+        let clave = format!("{id_opencode}:{}", fuentes.opencode_db.display());
         vivas.insert(clave.clone());
         let previa = cache.fuentes.get(&clave).cloned().unwrap_or_default();
         let visto = opencode::Visto { marca: previa.offset as i64, ids: previa.vistos.clone() };
@@ -356,10 +360,10 @@ pub fn calcular_uso(_raices: &Raices, inv: &Inventario, fuentes: &FuentesUso) ->
         en.offset = visto.marca.max(0) as u64;
         en.vistos = visto.ids;
         acumular(&mut en.regs, nuevos);
-        acum.registros(inv, "opencode", "opencode", "opencode", &en.regs);
+        acum.registros(inv, id_opencode, id_opencode, "opencode", &en.regs);
         cache.fuentes.insert(clave, en);
         actividad.push(ActividadAgente {
-            agente: "opencode".into(),
+            agente: id_opencode.into(),
             ultima: opencode::actividad(&fuentes.opencode_db).and_then(formatear_ms),
             fuente: "última sesión de opencode.db".into(),
         });
@@ -367,12 +371,12 @@ pub fn calcular_uso(_raices: &Raices, inv: &Inventario, fuentes: &FuentesUso) ->
 
     // 4. Codex y Antigravity: solo actividad.
     actividad.push(ActividadAgente {
-        agente: "codex".into(),
+        agente: AgenteId::Codex.as_str().into(),
         ultima: codex::actividad_codex(&fuentes.codex_estado, &fuentes.codex_sesiones).and_then(formatear_ms),
         fuente: "hilos de state_5.sqlite y rollouts".into(),
     });
     actividad.push(ActividadAgente {
-        agente: "antigravity".into(),
+        agente: AgenteId::Antigravity.as_str().into(),
         ultima: codex::actividad_antigravity(&fuentes.antigravity_logs).and_then(formatear_ms),
         fuente: "mtime de log/cli-*.log".into(),
     });
@@ -384,7 +388,7 @@ pub fn calcular_uso(_raices: &Raices, inv: &Inventario, fuentes: &FuentesUso) ->
 
     // 6. Skills del ejecutor por trabajo.
     for (n, u, t) in ejecutor::leer(&fuentes.trabajos, &mut avisos) {
-        acum.anota(inv, "qwen-code", Tipo::Skill, &n, ACTOR_EJECUTOR, "bus", u, t);
+        acum.anota(inv, AgenteId::QwenCode.as_str(), Tipo::Skill, &n, ACTOR_EJECUTOR, "bus", u, t);
     }
 
     if let Some(ruta) = &fuentes.cache {

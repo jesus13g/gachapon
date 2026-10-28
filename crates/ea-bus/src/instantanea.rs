@@ -5,8 +5,8 @@
 
 use std::path::Path;
 
+use ea_ajustes::TipoAgente;
 use ea_store::FilaFase;
-use serde::Serialize;
 
 use crate::error::{ErrorBus, Resultado};
 use crate::tipos::EjecutadoPor;
@@ -68,36 +68,6 @@ pub const SKILLS_AGENTE: &str = "skills-agente.md";
 /// Lee la salida en bruto de un trabajo, con el nombre nuevo o el antiguo.
 pub fn leer_salida_agente(dir_trabajo: &Path) -> Option<String> {
     [SALIDA_AGENTE, SALIDA_ANTIGUA].iter().find_map(|n| std::fs::read_to_string(dir_trabajo.join(n)).ok())
-}
-
-/// El adaptador de cada agente que puede ejecutar (spec 017): cada CLI tiene
-/// sus argumentos y su formato de salida.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TipoAgente {
-    QwenCode,
-    Codex,
-    OpenCode,
-}
-
-impl TipoAgente {
-    /// El tipo de un agente del catálogo que admite el rol de ejecutor.
-    pub fn desde(id: &str) -> Option<Self> {
-        match id {
-            "qwen-code" => Some(Self::QwenCode),
-            "codex" => Some(Self::Codex),
-            "opencode" => Some(Self::OpenCode),
-            _ => None,
-        }
-    }
-
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::QwenCode => "qwen-code",
-            Self::Codex => "codex",
-            Self::OpenCode => "opencode",
-        }
-    }
 }
 
 /// El texto final del agente en su salida en bruto; vacío si no se puede
@@ -199,5 +169,15 @@ mod tests {
         assert_eq!(tipo_ejecutor(None), TipoAgente::QwenCode, "un trabajo de antes es de Qwen");
         let por = EjecutadoPor { agente: "codex".into(), modelo: "m".into() };
         assert_eq!(tipo_ejecutor(Some(&por)), TipoAgente::Codex);
+    }
+
+    #[test]
+    fn el_tipo_de_ejecutor_de_cada_agente() {
+        use TipoAgente::*;
+        let tipos = ["claude-code", "qwen-code", "codex", "opencode", "antigravity", "gpt", "", " codex", "Codex"].map(TipoAgente::desde);
+        assert_eq!(tipos, [None, Some(QwenCode), Some(Codex), Some(OpenCode), None, None, None, None, None]);
+        assert_eq!([QwenCode, Codex, OpenCode].map(TipoAgente::id), ["qwen-code", "codex", "opencode"]);
+        let otro = EjecutadoPor { agente: "gpt".into(), modelo: "m".into() };
+        assert_eq!(tipo_ejecutor(Some(&otro)), QwenCode, "un agente que no ejecuta se lee como Qwen");
     }
 }

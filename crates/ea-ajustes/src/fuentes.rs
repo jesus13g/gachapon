@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::agentes::{Rol, CATALOGO};
+use crate::agentes::{AgenteId, Rol, CATALOGO};
 use crate::validar::expandir_tilde;
 
 /// Cambia el directorio de configuración (`ajustes.toml`, los TOML heredados,
@@ -223,24 +223,19 @@ impl Ajustes {
             base_url: "http://127.0.0.1:8080/v1".into(),
             remoto: false,
         };
+        // Los que pueden ejecutar, con el perfil local (el del ejecutor tiene
+        // que serlo); los demás, con el modelo que tengan configurado.
         let agentes = CATALOGO
             .iter()
             .map(|a| {
-                let (bin, modelo) = match a.id {
-                    "claude-code" => ("claude", ""),
-                    "qwen-code" => ("qwen", "local"),
-                    "codex" => ("codex", "local"),
-                    "opencode" => ("opencode", "local"),
-                    "antigravity" => ("agy", ""),
-                    otro => (otro, ""),
-                };
-                (a.id.to_string(), ConfigAgente { bin: bin.into(), modelo: modelo.into() })
+                let modelo = if a.ejecutor.is_some() { "local" } else { "" };
+                (a.id.as_str().to_string(), ConfigAgente { bin: a.bin_por_defecto.into(), modelo: modelo.into() })
             })
             .collect();
         Self {
             modelos: BTreeMap::from([("local".to_string(), local)]),
             agentes,
-            roles: Roles { planificador: "claude-code".into(), ejecutor: "qwen-code".into() },
+            roles: Roles { planificador: AgenteId::ClaudeCode.as_str().into(), ejecutor: AgenteId::QwenCode.as_str().into() },
             agente: Agente {
                 sandbox: true,
                 avisos_escritorio: true,

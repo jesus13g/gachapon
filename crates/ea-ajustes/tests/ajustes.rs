@@ -330,9 +330,29 @@ fn el_resumen_lleva_todas_las_claves_por_seccion() {
 
 // ------------------------------------------------- 017: roles, agentes y modelos
 
+/// Los ids del catálogo y el binario y el perfil por defecto de cada agente,
+/// tal como están en disco y en la API.
+#[test]
+fn los_agentes_conservan_sus_nombres_y_sus_valores_por_defecto() {
+    assert_eq!(IDS_AGENTES, ["claude-code", "qwen-code", "codex", "opencode", "antigravity"]);
+    let (_d, f) = fuentes();
+    let a = Ajustes::por_defecto(&f);
+    let defecto: Vec<_> = a.agentes.iter().map(|(id, c)| (id.as_str(), c.bin.as_str(), c.modelo.as_str())).collect();
+    assert_eq!(
+        defecto,
+        [
+            ("antigravity", "agy", ""),
+            ("claude-code", "claude", ""),
+            ("codex", "codex", "local"),
+            ("opencode", "opencode", "local"),
+            ("qwen-code", "qwen", "local"),
+        ]
+    );
+}
+
 #[test]
 fn el_catalogo_y_los_roles() {
-    assert_eq!(CATALOGO.iter().map(|a| a.id).collect::<Vec<_>>(), IDS_AGENTES);
+    assert_eq!(CATALOGO.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), IDS_AGENTES);
     let admite = |id, r| ficha(id).unwrap().admite(r);
     for id in ["qwen-code", "codex", "opencode"] {
         assert!(admite(id, Rol::Ejecutor) && admite(id, Rol::Planificador), "{id}");

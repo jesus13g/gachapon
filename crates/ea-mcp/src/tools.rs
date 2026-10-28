@@ -56,8 +56,8 @@ pub fn actor_for(cliente: Option<&str>, ajustes: &ea_ajustes::Ajustes) -> Llaman
     }
     match cliente.and_then(ea_ajustes::por_cliente_mcp) {
         Some(f) => {
-            let actor = ajustes.rol_de(f.id).map_or(ACTOR_SIN_ROL, |r| r.as_str());
-            Llamante { actor, agente: Some(f.id), cliente: cliente_s }
+            let actor = ajustes.rol_de(f.id.as_str()).map_or(ACTOR_SIN_ROL, |r| r.as_str());
+            Llamante { actor, agente: Some(f.id.as_str()), cliente: cliente_s }
         }
         None => Llamante { actor: ACTOR_DESCONOCIDO, agente: None, cliente: cliente_s },
     }

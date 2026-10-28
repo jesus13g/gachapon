@@ -10,7 +10,7 @@ use crate::sesiones::Sesion;
 /// apagarse aunque haya durado menos que un sondeo.
 pub const GRACIA_MS: u64 = 15_000;
 
-const AGENTE: &str = "claude-code";
+const AGENTE: &str = ea_ajustes::AgenteId::ClaudeCode.as_str();
 
 /// `modelo` da el modelo de una sesión (de su transcripción); `rol`, el que
 /// ocupa Claude Code según los ajustes, si ocupa alguno.

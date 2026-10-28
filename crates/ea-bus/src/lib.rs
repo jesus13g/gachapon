@@ -40,9 +40,12 @@ pub use papelera::{
 /// escribe fuera del bus (el timer de una rutina, en `ea-acciones`).
 pub use fs_atomico::escribir_atomico;
 pub use instantanea::{
-    arbol_de_fase, diff_stat_de_fase, leer_salida_agente, rango_diff_fase, resumen_salida_agente, tipo_ejecutor, TipoAgente,
-    EXCLUIR_DIFF, SALIDA_AGENTE, SALIDA_ANTIGUA, SKILLS_AGENTE,
+    arbol_de_fase, diff_stat_de_fase, leer_salida_agente, rango_diff_fase, resumen_salida_agente, tipo_ejecutor, EXCLUIR_DIFF,
+    SALIDA_AGENTE, SALIDA_ANTIGUA, SKILLS_AGENTE,
 };
+/// El adaptador de cada agente ejecutor, con el que se lee su salida; es parte
+/// de la ficha del catálogo (`ea-ajustes`).
+pub use ea_ajustes::TipoAgente;
 pub use tipos::{
     EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Modo, Orden,
     ResultadoInforme, Rol, RutinaRef, Topes,

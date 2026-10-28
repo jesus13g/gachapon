@@ -314,6 +314,15 @@ fn plan_de_qwen_nombra_los_propios_y_escribe_los_ajenos() {
 }
 
 #[test]
+fn una_fuente_de_un_agente_sin_lector_no_se_lee() {
+    let m = mundo();
+    let mut plan = plan_sesion("claude-code", &ids(&m, &["claude-code/mcp/usuario/stdio-claude"]), &m.inv, &m.r).unwrap();
+    plan.mcp[0].agente = "gemini".into();
+    let e = materializar(&plan, &m.r).unwrap_err();
+    assert_eq!(e, ErrorBiblioteca::Sesion("claude-code/mcp/usuario/stdio-claude: agente de origen sin lector (gemini)".into()));
+}
+
+#[test]
 fn rechaza_lo_que_no_tiene_sentido() {
     let m = mundo();
     let un = |a: &str, s: &[&str]| plan_sesion(a, &ids(m_ref(&m), s), &m.inv, &m.r).unwrap_err().to_string();
@@ -323,6 +332,21 @@ fn rechaza_lo_que_no_tiene_sentido() {
     // Antigravity no admite sesiones.
     assert!(un("antigravity", &["claude-code/mcp/usuario/stdio-claude"]).contains("no admite sesiones en la v1"));
     assert!(un("gemini", &["claude-code/mcp/usuario/stdio-claude"]).contains("no es un agente con sesiones"));
+    // El texto exacto (también lo ven la CLI, el panel y el MCP).
+    let err = |a: &str| plan_sesion(a, &ids(m_ref(&m), &["claude-code/mcp/usuario/stdio-claude"]), &m.inv, &m.r).unwrap_err();
+    assert_eq!(err("antigravity"), ErrorBiblioteca::Sesion("Antigravity no admite sesiones en la v1".into()));
+    let no_es = |a: &str| ErrorBiblioteca::Sesion(format!("«{a}» no es un agente con sesiones (claude-code, qwen-code, codex, opencode)"));
+    for a in ["gemini", "Codex", " codex", "ecosistema", ""] {
+        assert_eq!(err(a), no_es(a), "{a:?}");
+    }
+    assert_eq!(AGENTES_CON_SESION, ["claude-code", "qwen-code", "codex", "opencode"]);
+    // Para un agente que no es del catálogo, solo los MCP tienen sentido.
+    let elemento = |id: &str| m.inv.buscar(id).unwrap();
+    assert_eq!(sesion::admite("gemini", elemento("claude-code/mcp/usuario/stdio-claude")), Ok(()));
+    assert_eq!(
+        sesion::admite("gemini", elemento("ecosistema/skill/ecosistema/mision")),
+        Err(ErrorBiblioteca::Sesion("ecosistema/skill/ecosistema/mision: una sesión de gemini no admite elementos de tipo skill".into()))
+    );
     // Un plugin o una skill de Claude no sirve en Codex, OpenCode ni Qwen.
     assert!(un("codex", &["claude-code/plugin/usuario/foo@mkt"]).contains("no tiene sentido"));
     assert!(un("opencode", &["claude-code/skill/usuario/propia"]).contains("no tiene sentido"));

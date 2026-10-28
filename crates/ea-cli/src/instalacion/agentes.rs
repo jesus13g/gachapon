@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use ea_acciones::servicios::Paso;
+use ea_ajustes::AgenteId;
 use serde_json::{json, Map, Value};
 
 use super::recursos::{self, reescribir_ruta_flujo, Recurso};
@@ -21,55 +22,62 @@ const MARCA_FIN: &str = "<!-- gachapon:fin -->";
 /// Nombre del servidor MCP en Claude Code.
 const NOMBRE_MCP: &str = "ea-ecosistema";
 
-/// Una carpeta del repo que se instala bajo una carpeta del HOME. La unidad
-/// que se enlaza es el primer componente bajo `prefijo` (la carpeta de la
-/// skill o el fichero suelto).
+/// Una carpeta del repo que se instala bajo la carpeta de configuración del
+/// agente. La unidad que se enlaza es el primer componente bajo `prefijo` (la
+/// carpeta de la skill o el fichero suelto).
 struct Montaje {
     prefijo: &'static str,
     destino: &'static str,
 }
 
-/// Un fragmento que se añade a un `AGENTS.md` del agente.
+/// Un fragmento que se añade a un `AGENTS.md` de la carpeta del agente.
 struct Fragmento {
     recurso: &'static str,
     destino: &'static str,
 }
 
 /// El adaptador de un agente del catálogo (tabla «Adaptadores del
-/// planificador» del manual).
+/// planificador» del manual). El binario y la carpeta salen de su ficha.
 struct Adaptador {
-    id: &'static str,
-    /// El binario por defecto (`ea-ajustes`, `Ajustes::por_defecto`).
-    bin: &'static str,
+    id: AgenteId,
+    /// Relativos a la carpeta de configuración del agente.
     montajes: &'static [Montaje],
     fragmentos: &'static [Fragmento],
 }
 
+impl Adaptador {
+    /// El binario por defecto: si está en el `PATH`, se instala el adaptador.
+    fn bin(&self) -> &'static str {
+        self.id.ficha().bin_por_defecto
+    }
+
+    /// Su carpeta de configuración en el HOME.
+    fn dir(&self, ctx: &Contexto) -> PathBuf {
+        unir(&ctx.home, self.id.ficha().dir_config)
+    }
+}
+
 const ADAPTADORES: &[Adaptador] = &[
     Adaptador {
-        id: "claude-code",
-        bin: "claude",
-        montajes: &[Montaje { prefijo: "claude/skills/", destino: ".claude/skills" }],
+        id: AgenteId::ClaudeCode,
+        montajes: &[Montaje { prefijo: "claude/skills/", destino: "skills" }],
         fragmentos: &[],
     },
     Adaptador {
-        id: "codex",
-        bin: "codex",
-        montajes: &[Montaje { prefijo: "agentes/codex/skills/", destino: ".codex/skills" }],
-        fragmentos: &[Fragmento { recurso: "agentes/codex/AGENTS.md", destino: ".codex/AGENTS.md" }],
+        id: AgenteId::Codex,
+        montajes: &[Montaje { prefijo: "agentes/codex/skills/", destino: "skills" }],
+        fragmentos: &[Fragmento { recurso: "agentes/codex/AGENTS.md", destino: "AGENTS.md" }],
     },
     Adaptador {
-        id: "opencode",
-        bin: "opencode",
-        montajes: &[Montaje { prefijo: "agentes/opencode/commands/", destino: ".config/opencode/commands" }],
-        fragmentos: &[Fragmento { recurso: "agentes/opencode/AGENTS.md", destino: ".config/opencode/AGENTS.md" }],
+        id: AgenteId::OpenCode,
+        montajes: &[Montaje { prefijo: "agentes/opencode/commands/", destino: "commands" }],
+        fragmentos: &[Fragmento { recurso: "agentes/opencode/AGENTS.md", destino: "AGENTS.md" }],
     },
     Adaptador {
-        id: "antigravity",
-        bin: "agy",
+        id: AgenteId::Antigravity,
         montajes: &[
-            Montaje { prefijo: "agentes/antigravity/skills/", destino: ".gemini/config/skills" },
-            Montaje { prefijo: "agentes/antigravity/rules/", destino: ".gemini/config/rules" },
+            Montaje { prefijo: "agentes/antigravity/skills/", destino: "config/skills" },
+            Montaje { prefijo: "agentes/antigravity/rules/", destino: "config/rules" },
         ],
         fragmentos: &[],
     },
@@ -294,13 +302,14 @@ pub fn quitar_hook(settings: &str) -> Result<Option<String>, String> {
 }
 
 fn ruta_settings(ctx: &Contexto) -> PathBuf {
-    ctx.home.join(".claude").join("settings.json")
+    unir(&ctx.home, AgenteId::ClaudeCode.ficha().dir_config).join("settings.json")
 }
 
 // ------------------------------------------------------------- planes
 
-fn plan_montaje(ctx: &Contexto, sonda: &dyn Sonda, m: &Montaje, p: &mut Vec<Paso>) {
-    let base = unir(&ctx.home, m.destino);
+/// `dir`: la carpeta de configuración del agente.
+fn plan_montaje(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, m: &Montaje, p: &mut Vec<Paso>) {
+    let base = unir(dir, m.destino);
     let repo = repo_enlazable(ctx);
     for (unidad, rs) in unidades(m) {
         let destino = base.join(unidad);
@@ -311,7 +320,7 @@ fn plan_montaje(ctx: &Contexto, sonda: &dyn Sonda, m: &Montaje, p: &mut Vec<Paso
             }
             // Una copia idéntica ya vale; una carpeta real ajena no se
             // sustituye por un enlace: se escribe solo nuestro fichero.
-            let identica = rs.iter().all(|r| sonda.leer(&unir(&ctx.home, m.destino).join(&r.ruta[m.prefijo.len()..])).as_deref() == Some(r.contenido));
+            let identica = rs.iter().all(|r| sonda.leer(&base.join(&r.ruta[m.prefijo.len()..])).as_deref() == Some(r.contenido));
             if identica {
                 continue;
             }
@@ -335,9 +344,9 @@ fn plan_montaje(ctx: &Contexto, sonda: &dyn Sonda, m: &Montaje, p: &mut Vec<Paso
     }
 }
 
-fn plan_fragmento(ctx: &Contexto, sonda: &dyn Sonda, f: &Fragmento, p: &mut Vec<Paso>) {
+fn plan_fragmento(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, f: &Fragmento, p: &mut Vec<Paso>) {
     let Some(r) = recursos::recurso(f.recurso) else { return };
-    let ruta = unir(&ctx.home, f.destino);
+    let ruta = unir(dir, f.destino);
     let Ok(actual) = super::leer_para_reescribir(sonda, &ruta) else { return };
     let fragmento = reescribir_ruta_flujo(r.contenido, &ctx.destinos.flujo);
     let nuevo = poner_fragmento_con(actual.as_deref(), &fragmento, &[r.contenido]);
@@ -382,14 +391,15 @@ fn plan_skills_ejecutor(ctx: &Contexto, sonda: &dyn Sonda, p: &mut Vec<Paso>) {
 /// no genera pasos (repetir es idempotente).
 pub fn plan_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Result<Vec<Paso>, String> {
     let mut p = Vec::new();
-    for a in ADAPTADORES.iter().filter(|a| binario_presente(sonda, a.bin)) {
+    for a in ADAPTADORES.iter().filter(|a| binario_presente(sonda, a.bin())) {
+        let dir = a.dir(ctx);
         for m in a.montajes {
-            plan_montaje(ctx, sonda, m, &mut p);
+            plan_montaje(ctx, sonda, &dir, m, &mut p);
         }
         for f in a.fragmentos {
-            plan_fragmento(ctx, sonda, f, &mut p);
+            plan_fragmento(ctx, sonda, &dir, f, &mut p);
         }
-        if a.id == "claude-code" {
+        if a.id == AgenteId::ClaudeCode {
             plan_claude(ctx, sonda, &mut p);
         }
     }
@@ -413,22 +423,22 @@ pub fn avisos_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Vec<String> {
             ));
         }
     }
-    for a in ADAPTADORES.iter().filter(|a| binario_presente(sonda, a.bin)) {
+    for a in ADAPTADORES.iter().filter(|a| binario_presente(sonda, a.bin())) {
         for f in a.fragmentos {
-            if let Err(e) = super::leer_para_reescribir(sonda, &unir(&ctx.home, f.destino)) {
+            if let Err(e) = super::leer_para_reescribir(sonda, &unir(&a.dir(ctx), f.destino)) {
                 v.push(format!("{e}; el fragmento de gachapon queda por poner"));
             }
         }
     }
-    let ausentes: Vec<&str> = ADAPTADORES.iter().filter(|a| !binario_presente(sonda, a.bin)).map(|a| a.id).collect();
+    let ausentes: Vec<&str> = ADAPTADORES.iter().filter(|a| !binario_presente(sonda, a.bin())).map(|a| a.id.as_str()).collect();
     if !ausentes.is_empty() {
         v.push(format!("sin adaptador (no están en el PATH): {}; vuelve a ejecutar `ea instalar` cuando los instales", ausentes.join(", ")));
     }
     v
 }
 
-fn quitar_montaje(ctx: &Contexto, sonda: &dyn Sonda, m: &Montaje, p: &mut Vec<Paso>) {
-    let base = unir(&ctx.home, m.destino);
+fn quitar_montaje(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, m: &Montaje, p: &mut Vec<Paso>) {
+    let base = unir(dir, m.destino);
     for (unidad, rs) in unidades(m) {
         let destino = base.join(unidad);
         let sufijo = Path::new(m.prefijo.trim_end_matches('/')).join(unidad);
@@ -455,11 +465,12 @@ fn quitar_montaje(ctx: &Contexto, sonda: &dyn Sonda, m: &Montaje, p: &mut Vec<Pa
 pub fn plan_quitar_agentes(ctx: &Contexto, sonda: &dyn Sonda) -> Result<Vec<Paso>, String> {
     let mut p = Vec::new();
     for a in ADAPTADORES {
+        let dir = a.dir(ctx);
         for m in a.montajes {
-            quitar_montaje(ctx, sonda, m, &mut p);
+            quitar_montaje(ctx, sonda, &dir, m, &mut p);
         }
         for f in a.fragmentos {
-            let ruta = unir(&ctx.home, f.destino);
+            let ruta = unir(&dir, f.destino);
             if let Some(nuevo) = super::leer_para_reescribir(sonda, &ruta).ok().flatten().as_deref().and_then(quitar_fragmento) {
                 p.push(if nuevo.trim().is_empty() { Paso::Borrar(ruta) } else { Paso::EditarPersonal { ruta, contenido: nuevo } });
             }
@@ -765,6 +776,28 @@ mod pruebas {
         assert!(q.iter().any(|x| matches!(x, Paso::Ejecutar { argv, tolerar: true, .. } if argv.join(" ") == "claude mcp remove --scope user ea-ecosistema")));
         // El AGENTS.md que solo tenía lo nuestro se borra entero.
         assert!(q.contains(&Paso::Borrar(c.home.join(".config/opencode/AGENTS.md"))));
+    }
+
+    #[test]
+    fn cada_adaptador_con_su_binario_y_sus_carpetas() {
+        let c = ctx(Origen::Paquete);
+        // Sin ninguno en el PATH, el aviso los nombra por su id.
+        let avisos = avisos_agentes(&c, &Falsa::default());
+        let esperado = "sin adaptador (no están en el PATH): claude-code, codex, opencode, antigravity; vuelve a ejecutar `ea instalar` cuando los instales";
+        assert!(avisos.iter().any(|a| a == esperado), "{avisos:?}");
+        // Con su binario, cada adaptador escribe en sus carpetas de siempre y solo en ellas.
+        for (bin, carpetas) in [
+            ("claude", &[".claude/skills", ".claude/settings.json"][..]),
+            ("codex", &[".codex/skills", ".codex/AGENTS.md"]),
+            ("opencode", &[".config/opencode/commands", ".config/opencode/AGENTS.md"]),
+            ("agy", &[".gemini/config/skills", ".gemini/config/rules"]),
+        ] {
+            let p = plan_agentes(&c, &Falsa { binarios: vec![bin], ..Default::default() }).unwrap();
+            let rutas: Vec<&Path> =
+                escrituras(&p).into_iter().filter(|r| !r.starts_with(&c.skills_dir)).map(|r| r.strip_prefix(&c.home).unwrap()).collect();
+            assert!(rutas.iter().all(|r| carpetas.iter().any(|c| r.starts_with(c))), "{bin}: {rutas:?}");
+            assert!(carpetas.iter().all(|c| rutas.iter().any(|r| r.starts_with(c))), "{bin}: {rutas:?}");
+        }
     }
 
     #[test]

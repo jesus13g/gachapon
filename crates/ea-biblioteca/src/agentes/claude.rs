@@ -22,7 +22,7 @@ use super::comun::{crear, mcp as crear_mcp, leer_json, md_en, skills_en};
 use crate::modelo::{Activado, Ambito, Elemento, Mecanismo, Tipo};
 use crate::raices::Raices;
 
-pub const AGENTE: &str = "claude-code";
+pub const AGENTE: &str = ea_ajustes::AgenteId::ClaudeCode.as_str();
 pub const VERSION: &str = "2.1.301";
 
 pub fn leer(r: &Raices, avisos: &mut Vec<String>) -> Vec<Elemento> {

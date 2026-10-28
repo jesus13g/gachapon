@@ -268,6 +268,8 @@ fn qwen_y_actividad_de_antigravity() {
     assert_eq!((u.total, u.por[0].actor.as_str()), (1, "qwen-code"));
     assert!(r.actividad.iter().any(|a| a.agente == "antigravity" && a.ultima.is_some()));
     assert!(r.actividad.iter().any(|a| a.agente == "codex" && a.ultima.is_none()));
+    let agentes: Vec<_> = r.actividad.iter().map(|a| a.agente.as_str()).collect();
+    assert_eq!(agentes, ["claude-code", "qwen-code", "codex", "opencode", "antigravity"]);
     assert!(!serde_json::to_string(&r).unwrap().contains(SECRETO));
 }
 

@@ -1,19 +1,12 @@
 //! La familia visual de un agente: qué variante de máquina le toca en la
-//! escena. Es la única tabla que la decide; el navegador solo traduce cada
-//! familia a colores y detalles (`VARIANTES` en `gashapon.js`).
+//! escena. La deciden la ficha del agente del catálogo
+//! (`ea_ajustes::FichaAgente::familia`) y, si el agente no se conoce, esta
+//! tabla por modelo; el navegador solo traduce cada familia a colores y
+//! detalles (`VARIANTES` en `gashapon.js`).
 //!
-//! Para un proveedor nuevo: una fila aquí (por id de agente o por un trozo
-//! del nombre del modelo) y su entrada en `VARIANTES`. Lo que no casa con
-//! nada es `local` (si su modelo es local) o `desconocida`.
-
-/// Por id de agente del catálogo (o de cualquier detector futuro).
-const POR_AGENTE: &[(&str, &str)] = &[
-    ("claude-code", "claude"),
-    ("qwen-code", "qwen"),
-    ("codex", "codex"),
-    ("opencode", "opencode"),
-    ("antigravity", "antigravity"),
-];
+//! Para un proveedor nuevo: su familia en la ficha (o una fila aquí, por un
+//! trozo del nombre del modelo) y su entrada en `VARIANTES`. Lo que no casa
+//! con nada es `local` (si su modelo es local) o `desconocida`.
 
 /// Por un trozo del nombre del modelo, en minúsculas, cuando el agente no se
 /// conoce. El orden importa: la primera que casa gana.
@@ -32,8 +25,8 @@ const POR_MODELO: &[(&str, &str)] = &[
 pub const DESCONOCIDA: &str = "desconocida";
 
 pub fn familia(agente: Option<&str>, modelo: Option<&str>, local: bool) -> &'static str {
-    if let Some(f) = agente.and_then(|a| POR_AGENTE.iter().find(|(id, _)| *id == a)) {
-        return f.1;
+    if let Some(f) = agente.and_then(ea_ajustes::ficha) {
+        return f.familia;
     }
     let modelo = modelo.unwrap_or_default().to_lowercase();
     if let Some(f) = POR_MODELO.iter().find(|(trozo, _)| modelo.contains(trozo)) {
@@ -52,6 +45,13 @@ mod tests {
         // OpenCode con un Qwen local sigue siendo una máquina de OpenCode.
         assert_eq!(familia(Some("opencode"), Some("qwen3-coder-30b"), true), "opencode");
         assert_eq!(familia(Some("qwen-code"), None, true), "qwen");
+    }
+
+    #[test]
+    fn cada_agente_del_catalogo_tiene_su_familia() {
+        let familias = ["claude-code", "qwen-code", "codex", "opencode", "antigravity"].map(|a| familia(Some(a), Some("llama-4"), true));
+        assert_eq!(familias, ["claude", "qwen", "codex", "opencode", "antigravity"]);
+        assert_eq!(familia(Some("Codex"), Some("llama-4"), true), "local", "el id se compara tal cual");
     }
 
     #[test]
