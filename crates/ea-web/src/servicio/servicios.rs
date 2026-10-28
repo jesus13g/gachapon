@@ -5,46 +5,11 @@
 
 use ea_acciones::servicios::{plan_instalar, Backend, Entorno};
 use ea_acciones::{Canal, GestorServicios, SERVICIOS_INSTALABLES};
-use serde::Serialize;
 use serde_json::json;
 
 use super::{sistema, ErrorWeb, Resultado, ACTOR};
-use crate::vistas::Hecho;
+use crate::vistas::{Hecho, PlanServicios, ServicioPlan};
 use crate::AppState;
-
-#[derive(Serialize)]
-pub struct ServicioPlan {
-    pub nombre: &'static str,
-    /// La unidad en el gestor (`ea-web.service`, `es.gachapon.ea-web.plist`
-    /// o la tarea `ecosistema-asistente\ea-web`).
-    pub unidad: String,
-    /// La ruta real del binario que arrancaría.
-    pub binario: String,
-    pub existe: bool,
-    /// `None` si no se pudo preguntar al gestor.
-    pub instalado: Option<bool>,
-    /// `active`, `inactive`, `failed`… o `desconocido`.
-    pub activo: String,
-}
-
-/// Lo que cuenta `ea servicios ver`, sin `PATH` ni secretos.
-#[derive(Serialize)]
-pub struct PlanServicios {
-    pub sistema: &'static str,
-    /// `systemd`, `launchd` o `schtasks`.
-    pub backend: &'static str,
-    /// El gestor, en una frase.
-    pub gestor: &'static str,
-    pub binarios: String,
-    pub unidades: String,
-    /// Los binarios que faltan junto a este (`ea` incluido).
-    pub faltan: Vec<String>,
-    pub servicios: Vec<ServicioPlan>,
-    /// Qué haría `instalar`, paso a paso.
-    pub pasos: Vec<String>,
-    /// launchd fija el `PATH` de quien instala (el valor no se enseña).
-    pub path_fijo: bool,
-}
 
 /// Solo lectura: no cambia nada. Si el gestor no responde (o no se consulta,
 /// en las pruebas), cada servicio sale `desconocido`.

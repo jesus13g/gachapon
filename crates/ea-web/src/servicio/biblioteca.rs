@@ -13,13 +13,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ea_acciones::SistemaReal;
-use ea_biblioteca::uso::{calcular_uso, FuentesUso, InformeUso, Uso};
+use ea_biblioteca::uso::{calcular_uso, FuentesUso, InformeUso};
 use ea_biblioteca::{Activado, Biblioteca, Contexto, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo, AGENTES_CON_SESION};
-use serde::Serialize;
 use serde_json::Value;
 
 use super::{ErrorWeb, Resultado};
-use crate::vistas::{ResultadoAccion, Simulacion};
+use crate::vistas::{BibliotecaVista, CambioPosible, ElementoVista, FichaVista, ResultadoAccion, Simulacion};
 use crate::AppState;
 
 /// Las únicas herramientas del catálogo que se simulan y ejecutan desde esta sección.
@@ -27,46 +26,6 @@ pub const HERRAMIENTAS: [&str; 3] = ["ea_activar_herramienta", "ea_desactivar_he
 
 /// Cuánto vale un informe de uso ya calculado (la página sondea cada pocos segundos).
 const VIGENCIA_USO: Duration = Duration::from_secs(20);
-
-// ------------------------------------------------------------------- vistas
-
-/// Si el elemento se puede activar o desactivar desde aquí, y si no, por qué.
-#[derive(Serialize)]
-pub struct CambioPosible {
-    pub posible: bool,
-    pub motivo: Option<String>,
-}
-
-/// Un elemento del inventario (ya redactado) con lo que la página necesita
-/// saber para ofrecer sus botones.
-#[derive(Serialize)]
-pub struct ElementoVista {
-    #[serde(flatten)]
-    pub elemento: Elemento,
-    pub cambio: CambioPosible,
-    /// Los agentes con sesión en cuyas sesiones tiene sentido este elemento.
-    pub sesion: Vec<&'static str>,
-}
-
-#[derive(Serialize)]
-pub struct BibliotecaVista {
-    pub elementos: Vec<ElementoVista>,
-    pub avisos: Vec<String>,
-    /// Las categorías presentes en TODO el inventario (no solo en lo filtrado).
-    pub categorias: Vec<String>,
-    /// Cuántos elementos hay sin filtrar.
-    pub total: usize,
-    /// Los agentes que admiten sesión (para «▶ sesión con…»).
-    pub agentes_sesion: Vec<&'static str>,
-}
-
-#[derive(Serialize)]
-pub struct FichaVista {
-    #[serde(flatten)]
-    pub elemento: ElementoVista,
-    /// `None`: sin ningún uso registrado.
-    pub uso: Option<Uso>,
-}
 
 /// Lo que pide `GET /api/biblioteca` (cada campo es opcional).
 #[derive(Default)]

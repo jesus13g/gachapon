@@ -13,9 +13,11 @@ use axum::Router;
 
 use crate::{clave, tema, AppState};
 
+mod cuerpo;
 mod error;
 mod rutas;
 
+pub use cuerpo::Cuerpo;
 pub use error::ApiError;
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -130,7 +132,8 @@ async fn sesion(State(s): State<Arc<AppState>>, headers: header::HeaderMap) -> R
 /// navegador: solo se atiende `Host: localhost|127.0.0.1` (un ataque de
 /// reenlace DNS llega con otro host) y toda escritura debe declarar
 /// `application/json`, lo que obliga a una petición previa (preflight) que
-/// este servidor nunca autoriza.
+/// este servidor nunca autoriza. Sin ese tipo, 400 `{error}`, como cualquier
+/// otro cuerpo inválido (ver `Cuerpo`).
 ///
 /// Frente a otros procesos locales (el agente local tiene la red abierta),
 /// todo lo que no sea GET/HEAD debe traer además la clave de sesión del
@@ -173,8 +176,7 @@ async fn guardia(State(s): State<Arc<AppState>>, req: Request, next: Next) -> Re
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("application/json"));
         if !es_json {
-            return ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, "se espera application/json")
-                .into_response();
+            return ApiError::new(StatusCode::BAD_REQUEST, "se espera un cuerpo application/json").into_response();
         }
     }
     next.run(req).await

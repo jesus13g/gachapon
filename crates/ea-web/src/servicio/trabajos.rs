@@ -4,13 +4,12 @@
 use std::collections::HashSet;
 
 use ea_bus::{Bus, Rol, Evento, Orden, Topes};
-use serde::Deserialize;
 use serde_json::Value;
 
 use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado, ACTOR};
 use crate::vistas::{
-    CatalogoSkills, ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, PruebaSkills, Semaforo, SkillVista,
-    TrabajoDetalle, TrabajoResumen,
+    CatalogoSkills, ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, NuevoTrabajo, PruebaSkills, Semaforo,
+    SkillVista, TrabajoDetalle, TrabajoResumen,
 };
 use crate::AppState;
 
@@ -152,72 +151,10 @@ const SUGERENCIAS_MAX: usize = 30;
 const FASES_MAX: usize = 20;
 const ENTREGABLE_MAX: usize = 2_000;
 
-/// Cuerpo de `POST /api/trabajos`. Cualquier otro campo (`skills`,
-/// `creada_por`…) se rechaza: desde la web no se eligen. La misión lleva
-/// `criterio`; la obra, `fases` (cada una con el suyo) y `revisar_cada`.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NuevoTrabajo {
-    #[serde(default)]
-    modo: Option<String>,
-    titulo: String,
-    worktree: String,
-    objetivo: String,
-    #[serde(default)]
-    criterio: Option<String>,
-    #[serde(default)]
-    topes: Option<TopesPedidos>,
-    #[serde(default)]
-    fases: Option<Vec<FasePedida>>,
-    /// Fuera: no se envió; `Some(None)`: `null`, solo al final;
-    /// `Some(Some(n))`: cada `n` fases. En la obra es obligatorio (art. IV.4).
-    #[serde(default, deserialize_with = "presente")]
-    revisar_cada: Option<Option<u32>>,
-    /// Equipo despierto para el que se crea (spec 019); el bus valida que
-    /// `asignado_a` sea su ejecutor y `revisor` su revisor o planificador.
-    #[serde(default)]
-    equipo: Option<String>,
-    #[serde(default)]
-    asignado_a: Option<String>,
-    #[serde(default)]
-    revisor: Option<String>,
-    /// El sistema crea un `git worktree` propio para el trabajo.
-    #[serde(default)]
-    worktree_propio: bool,
-}
-
 /// Vacío o solo espacios cuenta como «no enviado» (los selectores del
 /// formulario mandan `""`).
 fn opcional(v: &Option<String>) -> Option<String> {
     v.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_string)
-}
-
-/// Distingue un campo ausente (`None`, por el `default`) de uno a `null`.
-fn presente<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<u32>>, D::Error> {
-    Option::<u32>::deserialize(d)
-        .map(Some)
-        .map_err(|e| serde::de::Error::custom(format!("'revisar_cada' debe ser un entero positivo o null ({e})")))
-}
-
-/// Una fase de la obra tal como llega del formulario. El número lo pone el
-/// orden de la lista; las skills no se eligen desde la web.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FasePedida {
-    titulo: String,
-    instrucciones: String,
-    entregable: String,
-    /// Vacío llega al bus, que lo rechaza («la fase N no tiene criterio»).
-    #[serde(default)]
-    criterio: String,
-}
-
-/// Los topes que se pueden pedir desde el formulario; el resto, por defecto.
-#[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct TopesPedidos {
-    iteraciones: Option<u32>,
-    tiempo_s: Option<u64>,
 }
 
 /// El techo de los topes de los ajustes efectivos (se relee en cada petición).
@@ -342,14 +279,12 @@ fn fases_de_obra(n: &NuevoTrabajo) -> Resultado<(Vec<ea_bus::Fase>, Option<u32>)
 /// exigir el criterio y valida skills) la escribe, la encola en
 /// `modelo-local` y apunta `bus_crear` en el diario con actor `usuario`.
 /// El criterio no se ejecuta aquí: solo el ejecutor lo corre (arts. III y V).
-pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
-    if cuerpo.get("skills").is_some() {
+pub async fn crear(s: &AppState, n: NuevoTrabajo) -> Resultado<EstadoTrabajo> {
+    if n.skills.is_some() {
         return Err(ErrorWeb::Invalido(
             "las skills no se eligen desde la web: las elige quien tiene la llave (`pueden_elegir`, el rol planificador); prueba una selección con POST /api/skills/probar".into(),
         ));
     }
-    let n: NuevoTrabajo =
-        serde_json::from_value(cuerpo).map_err(|e| ErrorWeb::Invalido(format!("petición inválida: {e}")))?;
     let modo = n.modo.as_deref().unwrap_or("mision");
     if !MODOS_WEB.contains(&modo) {
         return Err(ErrorWeb::Invalido(format!("modo '{modo}': desde la web solo se crean misiones y obras")));

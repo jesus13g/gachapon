@@ -22,6 +22,7 @@ mod acciones;
 mod ajustes;
 mod biblioteca;
 mod boveda;
+mod contrato_errores;
 mod contrato_escritorio;
 mod diario;
 mod ecosistema;

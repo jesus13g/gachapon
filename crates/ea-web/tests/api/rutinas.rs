@@ -258,7 +258,7 @@ async fn validar_y_registrar_sin_clave_dan_403() {
         }
         // Con la clave pero sin JSON, tampoco.
         let (s, _) = enviar(&f, Method::POST, ruta, "localhost:8092", Some(json!({ "toml": v2 })), false).await;
-        assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{ruta}");
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{ruta}");
     }
     assert_eq!(registro(&f, "revision-diaria").await, antes);
     assert!(registros_en_el_diario(&f).await.is_empty());

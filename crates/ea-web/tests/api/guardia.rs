@@ -29,7 +29,7 @@ async fn las_escrituras_exigen_json() {
         false,
     )
     .await;
-    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 }
 
 /// Rutas de escritura representativas (una por zona de la API).
@@ -102,7 +102,7 @@ async fn con_la_clave_correcta_funcionan() {
         &f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "localhost:8092", Some(json!({})), false, Some(&clave),
     )
     .await;
-    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(s, StatusCode::BAD_REQUEST);
     let (s, _) = enviar_con_clave(
         &f, Method::POST, "/api/rutinas/revision-diaria/lanzar", "evil.example", Some(json!({})), true, Some(&clave),
     )

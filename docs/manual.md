@@ -1721,7 +1721,7 @@ worktrees propios (spec 019, anexo A): `GET /api/worktrees` (solo lectura: `[{tr
 409 si la versión ya no es la del disco), `POST …/<fichero>/eliminar` (`{"version": "..."}`),
 `POST …/<fichero>/renombrar` (`{"nuevo": "x.md", "version": "..."}`; 409 si ya existe) y
 `POST /api/memoria/<proyecto>/crear` (`{"fichero": "mi-nota", "titulo", "descripcion", "tipo": "user|feedback|project|reference", "cuerpo"?}` → 201 con la memoria; fichero en kebab-case, 400 si algo no vale, 404 si el proyecto no existe y 409 si el fichero ya existe, sin pisar nada; escribe la cabecera `name`/`description`/`metadata.type` y añade `- [Título](fichero.md) — descripción` a `MEMORY.md`; deja `memoria_creada` en el diario),
-`POST …/<fichero>/mostrar` (`{}`; abre el gestor de ficheros por D-Bus
+`POST …/<fichero>/mostrar` (sin cuerpo; abre el gestor de ficheros por D-Bus
 `FileManager1` o, si no, `xdg-open` sobre la carpeta); la bóveda, por
 `GET /api/boveda` (`?q=`, `region`, `limite`: lista o busca), `GET /api/boveda/nota?ruta=`
 (lectura paginada), `POST /api/boveda/promover` (`{"ruta": "..."}`) y el editor:
@@ -1788,6 +1788,21 @@ curl -X POST -H 'Content-Type: application/json' \
      -H "X-EA-Clave: $(cat "$XDG_RUNTIME_DIR/ea-web/clave")" \
      -d '{}' http://localhost:8092/api/rutinas/<slug>/lanzar
 ```
+
+Contrato de errores: los errores de la API son un JSON `{"error": "mensaje"}`
+con el código que corresponde (400 inválido, 403 sin clave o prohibido, 404 no
+existe, 409 conflicto de versión, 503 no disponible, 504 tiempo agotado); solo
+un parámetro de la URL que no encaja con su tipo (`?fase=abc`,
+`/api/propuestas/abc/…`) y una ruta que no existe responden todavía con el
+error de `axum` (400 en texto plano o 404/405 sin cuerpo). Los
+cuerpos de las escrituras se leen todos igual: el JSON mal formado, un tipo que
+no encaja, un campo que falta, **un campo que sobra** (ningún cuerpo admite
+campos de más) y una petición sin `Content-Type: application/json` son siempre
+un **400** `{"error": "…"}` sin escribir nada; nunca un 415, un 422 ni un error
+en texto plano. Un cuerpo vacío cuenta como `{}`: vale donde todos los campos
+son opcionales (`lanzar` y `previa` de una rutina) y, si no, el error dice qué
+falta. Las rutas que no leen cuerpo (`cerrar`, `cancelar`, `continuar`,
+`dormir`, `reindexar`, `reiniciar`, `mostrar` de la memoria) lo ignoran.
 
 Cabeceras de seguridad: toda respuesta (la página, sus ficheros, el tema, la
 API y los errores, también los 403 y 404) lleva

@@ -11,19 +11,11 @@
 
 use ea_acciones::{Canal, Riesgo};
 use ea_store::{EstadoPropuesta, EventOutcome, NewEvent};
-use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use super::{ErrorWeb, Resultado, ACTOR};
+use crate::vistas::{AbrirTerminal, TerminalAbierta};
 use crate::AppState;
-
-/// Lo que se ha abierto, para que la página lo diga.
-#[derive(Debug, Serialize)]
-pub struct TerminalAbierta {
-    pub ok: bool,
-    /// El comando tal como se vería escrito (solo para mostrarlo).
-    pub comando: String,
-}
 
 /// Uno de los comandos permitidos, ya validado contra su forma y, una
 /// herramienta, contra el catálogo (una propuesta se mira además contra el
@@ -88,28 +80,27 @@ fn invalido(m: impl Into<String>) -> ErrorWeb {
 
 /// El cuerpo es `{propuesta: <id>}`, `{servicios: "instalar"|"desinstalar"}`,
 /// `{herramienta, argumentos}` o `{boveda: "vaciar-papelera"}`, nada más: ni
-/// comandos ni texto libre.
-fn leer_cuerpo(cuerpo: &Value) -> Resultado<Orden> {
-    let obj = cuerpo
-        .as_object()
-        .ok_or_else(|| invalido("se espera {propuesta}, {servicios}, {herramienta, argumentos} o {boveda}"))?;
-    let claves: Vec<&str> = obj.keys().map(String::as_str).collect();
-    match claves.as_slice() {
-        ["boveda"] if obj["boveda"] == "vaciar-papelera" => Ok(Orden::VaciarPapeleraBoveda),
-        ["boveda"] => Err(invalido("de la bóveda solo se abre en la terminal {\"boveda\": \"vaciar-papelera\"}")),
-        ["propuesta"] => obj["propuesta"]
+/// comandos ni texto libre (un campo que no es ninguno de estos ya lo rechaza
+/// `Cuerpo`).
+fn leer_cuerpo(c: &AbrirTerminal) -> Resultado<Orden> {
+    match (&c.propuesta, &c.servicios, &c.herramienta, &c.argumentos, &c.boveda) {
+        (None, None, None, None, Some(b)) if b == "vaciar-papelera" => Ok(Orden::VaciarPapeleraBoveda),
+        (None, None, None, None, Some(_)) => {
+            Err(invalido("de la bóveda solo se abre en la terminal {\"boveda\": \"vaciar-papelera\"}"))
+        }
+        (Some(p), None, None, None, None) => p
             .as_i64()
             .filter(|&id| id > 0)
             .map(Orden::Propuesta)
             .ok_or_else(|| invalido("'propuesta' debe ser el número de una propuesta")),
-        ["servicios"] => match obj["servicios"].as_str() {
+        (None, Some(sv), None, None, None) => match sv.as_str() {
             Some("instalar") => Ok(Orden::Servicios("instalar")),
             Some("desinstalar") => Ok(Orden::Servicios("desinstalar")),
             _ => Err(invalido("'servicios' debe ser «instalar» o «desinstalar»")),
         },
-        ["argumentos", "herramienta"] | ["herramienta", "argumentos"] => {
-            let h = obj["herramienta"].as_str().ok_or_else(|| invalido("'herramienta' debe ser un nombre del catálogo"))?;
-            validar_herramienta(h, obj["argumentos"].clone())
+        (None, None, Some(h), Some(args), None) => {
+            let h = h.as_str().ok_or_else(|| invalido("'herramienta' debe ser un nombre del catálogo"))?;
+            validar_herramienta(h, args.clone())
         }
         _ => Err(invalido("solo se abre en la terminal {propuesta}, {servicios}, {herramienta, argumentos} o {boveda}")),
     }
@@ -168,7 +159,7 @@ pub fn lanzar_argv(s: &AppState, args: &[String]) -> Resultado<()> {
 
 /// Abre una terminal con el comando que confirma en ella. Queda en el
 /// diario como `accion_terminal_abierta` (abrir no decide nada).
-pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
+pub async fn abrir(s: &AppState, cuerpo: &AbrirTerminal) -> Resultado<TerminalAbierta> {
     let orden = leer_cuerpo(cuerpo)?;
     if let Orden::Propuesta(id) = orden {
         validar_propuesta(s, id).await?;
@@ -191,6 +182,12 @@ pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
 mod tests {
     use super::*;
 
+    /// Como llega por la ruta: lo que `Cuerpo` no deja pasar es un error.
+    fn leer_cuerpo(v: Value) -> Resultado<Orden> {
+        let c: AbrirTerminal = serde_json::from_value(v).map_err(|e| invalido(e.to_string()))?;
+        super::leer_cuerpo(&c)
+    }
+
     #[test]
     fn el_argv_es_cerrado_y_sin_frase() {
         let o = Orden::Herramienta { nombre: "ea_eliminar_rutina", argumentos: json!({ "slug": "x" }) };
@@ -204,18 +201,18 @@ mod tests {
 
     #[test]
     fn solo_acepta_las_formas_cerradas() {
-        assert!(leer_cuerpo(&json!({ "comando": "rm -rf /" })).is_err());
-        assert!(leer_cuerpo(&json!("ea propuestas decidir 1")).is_err());
-        assert!(leer_cuerpo(&json!({ "propuesta": "1; rm" })).is_err());
-        assert!(leer_cuerpo(&json!({ "propuesta": 1, "confirmo": "1" })).is_err());
-        assert_eq!(leer_cuerpo(&json!({ "propuesta": 3 })).unwrap(), Orden::Propuesta(3));
-        assert_eq!(leer_cuerpo(&json!({ "servicios": "instalar" })).unwrap(), Orden::Servicios("instalar"));
+        assert!(leer_cuerpo(json!({ "comando": "rm -rf /" })).is_err());
+        assert!(leer_cuerpo(json!("ea propuestas decidir 1")).is_err());
+        assert!(leer_cuerpo(json!({ "propuesta": "1; rm" })).is_err());
+        assert!(leer_cuerpo(json!({ "propuesta": 1, "confirmo": "1" })).is_err());
+        assert_eq!(leer_cuerpo(json!({ "propuesta": 3 })).unwrap(), Orden::Propuesta(3));
+        assert_eq!(leer_cuerpo(json!({ "servicios": "instalar" })).unwrap(), Orden::Servicios("instalar"));
         for malo in [json!({ "servicios": "reiniciar" }), json!({ "servicios": 1 }), json!({ "servicios": "instalar", "x": 1 }), json!({ "servicios": "instalar; rm" })] {
-            assert!(leer_cuerpo(&malo).is_err(), "{malo}");
+            assert!(leer_cuerpo(malo.clone()).is_err(), "{malo}");
         }
-        assert_eq!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera" })).unwrap(), Orden::VaciarPapeleraBoveda);
-        assert!(leer_cuerpo(&json!({ "boveda": "rm -rf" })).is_err());
-        assert!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera", "confirmo": "x" })).is_err());
+        assert_eq!(leer_cuerpo(json!({ "boveda": "vaciar-papelera" })).unwrap(), Orden::VaciarPapeleraBoveda);
+        assert!(leer_cuerpo(json!({ "boveda": "rm -rf" })).is_err());
+        assert!(leer_cuerpo(json!({ "boveda": "vaciar-papelera", "confirmo": "x" })).is_err());
         let v = Orden::VaciarPapeleraBoveda;
         assert_eq!(v.argv(), ["boveda", "vaciar-papelera", "--esperar"]);
         assert_eq!(v.texto(), "ea boveda vaciar-papelera");
@@ -225,8 +222,8 @@ mod tests {
         assert!(validar_herramienta("ea_leer_nota", json!({})).is_err());
         assert!(validar_herramienta("ea_eliminar_rutina", json!({ "slug": "x" })).is_ok());
         // El cuerpo de una herramienta sale ya validado contra el catálogo.
-        let h = leer_cuerpo(&json!({ "herramienta": "ea_eliminar_rutina", "argumentos": { "slug": "x" } })).unwrap();
+        let h = leer_cuerpo(json!({ "herramienta": "ea_eliminar_rutina", "argumentos": { "slug": "x" } })).unwrap();
         assert_eq!(h, Orden::Herramienta { nombre: "ea_eliminar_rutina", argumentos: json!({ "slug": "x" }) });
-        assert!(leer_cuerpo(&json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "x" } })).is_err());
+        assert!(leer_cuerpo(json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "x" } })).is_err());
     }
 }

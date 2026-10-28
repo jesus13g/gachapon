@@ -181,7 +181,7 @@ async fn crear_una_memoria_rechaza_lo_invalido() {
     let (s, _) = post(&f, "/api/memoria/-no-existe/crear", base.clone()).await;
     assert_eq!(s, StatusCode::NOT_FOUND);
     let (s, _) = enviar(&f, Method::POST, "/api/memoria/-home-u-proy/crear", "localhost:8092", Some(base), false).await;
-    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(s, StatusCode::BAD_REQUEST);
     assert_eq!(std::fs::read_to_string(mem.join("MEMORY.md")).unwrap(), "- [Refactor](refactor.md) — gancho\n");
     assert!(!mem.join("ok.md").exists());
     assert!(!f._dir.path().join("proyectos/fuera.md").exists());
@@ -192,7 +192,7 @@ async fn guardar_la_memoria_exige_json_y_un_tamano_razonable() {
     let f = montar();
     let mem = montar_memoria(&f);
     let (s, _) = enviar(&f, Method::POST, "/api/memoria/-home-u-proy/refactor.md", "localhost:8092", Some(json!({})), false).await;
-    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(s, StatusCode::BAD_REQUEST);
     let (_, v) = get(&f, "/api/memoria/-home-u-proy/refactor.md").await;
     let enorme = "a".repeat(256 * 1024 + 1);
     let (s, _) = post(&f, "/api/memoria/-home-u-proy/refactor.md", json!({ "contenido": enorme, "version": v["version"] })).await;
@@ -248,7 +248,7 @@ async fn eliminar_exige_la_version_y_no_toca_el_indice_ni_fuera() {
     assert!(fuera.exists() && mem.join("enlace.md").exists());
 
     let (s, _) = enviar(&f, Method::POST, "/api/memoria/-home-u-proy/refactor.md/eliminar", "localhost:8092", Some(json!({})), false).await;
-    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 }
 
 fn memoria_version(contenido: &str) -> String {

@@ -7,10 +7,10 @@
 use ea_ajustes::ficha;
 use ea_bus::{comprobar_disponibles, parse_miembro, repartir_todos, Miembro, NuevoEquipo, ResumenEquipo, RolEquipo, VistaEquipo};
 use ea_store::{EventOutcome, NewEvent};
-use serde::{Deserialize, Serialize};
 
 use super::terminal::lanzar_argv;
 use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado, ACTOR};
+use crate::vistas::{Despierto, DespertarEquipo, SesionEquipo};
 use crate::AppState;
 
 /// Cuántos trabajos del equipo enseña la ficha (como `ea equipo ver`).
@@ -26,53 +26,8 @@ pub fn ver(s: &AppState, id: &str) -> Resultado<VistaEquipo> {
     Ok(bus_lectura(s)?.vista_equipo(id, TRABAJOS_VISTOS)?)
 }
 
-/// Un miembro tal como lo manda el formulario: `{agente, rol}`.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MiembroPedido {
-    agente: String,
-    rol: String,
-}
-
-/// Cuerpo de `POST /api/equipos`: `miembros` o `todos`, no las dos cosas.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Despertar {
-    titulo: String,
-    objetivo: String,
-    worktree: String,
-    #[serde(default)]
-    miembros: Vec<MiembroPedido>,
-    #[serde(default)]
-    todos: bool,
-    /// Abrir una terminal con la sesión de cada planificador y revisor.
-    #[serde(default)]
-    terminal: bool,
-}
-
-/// Qué pasó con la sesión de un planificador o revisor.
-#[derive(Serialize)]
-pub struct SesionEquipo {
-    pub agente: String,
-    pub abierta: bool,
-    /// El comando que abre (o abriría) la sesión a mano.
-    pub comando: String,
-    /// Por qué no se abrió, si se pidió y falló.
-    pub error: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct Despierto {
-    pub equipo: VistaEquipo,
-    /// Agentes que «todos» dejó fuera (sin binario) y por qué.
-    pub omitidos: Vec<String>,
-    pub sesiones: Vec<SesionEquipo>,
-}
-
 /// Despierta un equipo con el mismo flujo que `ea equipo despertar`.
-pub async fn despertar(s: &AppState, cuerpo: serde_json::Value) -> Resultado<Despierto> {
-    let p: Despertar =
-        serde_json::from_value(cuerpo).map_err(|e| ErrorWeb::Invalido(format!("petición inválida: {e}")))?;
+pub async fn despertar(s: &AppState, p: DespertarEquipo) -> Resultado<Despierto> {
     if p.todos == !p.miembros.is_empty() {
         return Err(ErrorWeb::Invalido("indica 'todos' o una lista de 'miembros' (no las dos cosas)".into()));
     }

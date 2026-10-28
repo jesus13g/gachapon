@@ -86,7 +86,7 @@ async fn la_web_no_afloja_ni_toca_lo_de_terminal() {
     assert_eq!(s, StatusCode::BAD_REQUEST, "{v}");
     let cuerpo = json!({ "version": version, "cambios": { "web.sondeo_ms": 5000 } });
     let (s, _) = enviar(&f, Method::POST, "/api/ajustes", "localhost:8092", Some(cuerpo.clone()), false).await;
-    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(s, StatusCode::BAD_REQUEST);
     let (s, _) = enviar(&f, Method::POST, "/api/ajustes", "evil.example", Some(cuerpo), true).await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     let (_, v) = get(&f, "/api/ajustes").await;

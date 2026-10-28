@@ -220,7 +220,7 @@ async fn el_editor_de_la_boveda_rechaza_rutas_maliciosas_y_exige_json() {
     let (s, _) = post(&f, "/api/boveda/papelera/restaurar", json!({ "id": "../../etc" })).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
     let (s, _) = enviar(&f, Method::POST, "/api/boveda/crear", "localhost:8092", Some(json!({ "ruta": "compartida/x" })), false).await;
-    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(s, StatusCode::BAD_REQUEST);
     assert!(!f.state.boveda.raiz().join("compartida/x.md").exists());
     let (s, _) = post(&f, "/api/boveda/mostrar", json!({ "ruta": "compartida/no-esta.md" })).await;
     assert_eq!(s, StatusCode::NOT_FOUND);

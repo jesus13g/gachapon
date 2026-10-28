@@ -305,10 +305,10 @@ async fn crear_exige_json_host_local_y_clave() {
         let (s, t) = enviar_con_clave(&f, Method::POST, "/api/trabajos", "localhost", Some(cuerpo.clone()), true, c).await;
         assert_eq!(s, StatusCode::FORBIDDEN, "{c:?}: {t}");
     }
-    // Con la clave pero sin JSON: 415.
+    // Con la clave pero sin JSON: 400.
     let (s, _) =
         enviar_con_clave(&f, Method::POST, "/api/trabajos", "localhost", Some(cuerpo.clone()), false, Some(&clave)).await;
-    assert_eq!(s, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(s, StatusCode::BAD_REQUEST);
     // Con la clave desde otro host: 403.
     let (s, _) =
         enviar_con_clave(&f, Method::POST, "/api/trabajos", "evil.example", Some(cuerpo.clone()), true, Some(&clave)).await;
@@ -404,7 +404,7 @@ async fn crear_una_obra_valida_cada_fase() {
         // Ni skills ni número por fase: no se eligen desde la web.
         (fase_con("skills", json!(["git"])), "skills"),
         (fase_con("numero", json!(7)), "numero"),
-        (con("fases", json!("no es una lista")), "petición inválida"),
+        (con("fases", json!("no es una lista")), "cuerpo inválido"),
         (con("skills", json!(["git"])), "skills"),
         // Una misión no lleva fases ni revisar_cada.
         (con("modo", json!("mision")), "modo 'obra'"),
