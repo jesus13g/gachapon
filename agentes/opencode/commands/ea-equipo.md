@@ -2,7 +2,7 @@
 description: "Trabaja dentro de un equipo de agentes despertado por el usuario: el planificador parte el objetivo en misiones u obras y las reparte entre los ejecutores del equipo con `ea trabajo crear --equipo --asignar`; el revisor revisa las entregas y propone cerrar o reformular. Úsala cuando el prompt o el usuario mencione un equipo (`ea equipo ver`)."
 ---
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/equipo.md` (en la raíz del repo, `agentes/flujo/equipo.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores y revisores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/equipo.md` (en la raíz del repo, `agentes/flujo/equipo.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores y revisores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 

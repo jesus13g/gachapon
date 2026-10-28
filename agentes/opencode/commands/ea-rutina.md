@@ -2,7 +2,7 @@
 description: "Formaliza un proceso repetible como rutina versionada (TOML), la registra con `ea rutina registrar`, la lanza o la programa con un timer de systemd. También corrige una rutina cuando llega un paquete de corrección tras un fallo. Úsala para procesos que se repetirán."
 ---
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/rutina.md` (en la raíz del repo, `agentes/flujo/rutina.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/rutina.md` (en la raíz del repo, `agentes/flujo/rutina.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 

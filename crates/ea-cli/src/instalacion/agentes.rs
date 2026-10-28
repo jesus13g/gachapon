@@ -2,9 +2,12 @@
 //! skills del ejecutor (spec 023, decisiones 4 a 6).
 //!
 //! Solo se instala el adaptador de los agentes que están en el `PATH`; al
-//! desinstalar se mira el de todos. Nada ajeno se pisa: los fragmentos de
-//! `AGENTS.md` van entre marcas, el `settings.json` se fusiona (con copia
-//! `.bak`) y solo se borra lo que es nuestro (un enlace a nuestro repo o un
+//! desinstalar se mira el de todos. Los adaptadores se copian siempre, con
+//! la ruta real de las guías en lugar de [`recursos::MARCA_FLUJO`] (también
+//! desde un clon: un enlace al repo dejaría el marcador sin sustituir). Nada
+//! ajeno se pisa: los fragmentos de `AGENTS.md` van entre marcas, el
+//! `settings.json` se fusiona (con copia `.bak`) y solo se borra lo que es
+//! nuestro (un enlace a nuestro repo, de una instalación anterior, o un
 //! fichero con nuestro contenido).
 
 use std::path::{Path, PathBuf};
@@ -13,10 +16,13 @@ use ea_acciones::servicios::Paso;
 use ea_ajustes::AgenteId;
 use serde_json::{json, Map, Value};
 
-use super::recursos::{self, reescribir_ruta_flujo, Recurso};
+use super::recursos::{self, reescribir_ruta_flujo, Recurso, MARCA_FLUJO};
 use super::{Contexto, Origen, Sonda};
 
 const MARCA_INICIO: &str = "<!-- gachapon:inicio -->";
+/// La ruta de las guías que nombraban los adaptadores antes del marcador: un
+/// fragmento añadido a mano con `cat >>` la lleva y se reconoce por ella.
+const RUTA_FLUJO_HEREDADA: &str = "~/Proyectos/ecosistema-asistente/agentes/flujo/";
 const MARCA_FIN: &str = "<!-- gachapon:fin -->";
 
 /// Nombre del servidor MCP en Claude Code.
@@ -95,19 +101,6 @@ fn es_enlace(ruta: &Path) -> bool {
 /// Adónde apunta un enlace, si lo es.
 fn destino_enlace(ruta: &Path) -> Option<PathBuf> {
     if es_enlace(ruta) { std::fs::read_link(ruta).ok() } else { None }
-}
-
-fn canonica(p: &Path) -> PathBuf {
-    ea_plataforma::rutas::canonica(p).unwrap_or_else(|_| p.to_path_buf())
-}
-
-/// El repo del clon, si está justo en la ruta fija que nombran los
-/// adaptadores: entonces se enlaza (las skills siguen vivas).
-fn repo_enlazable(ctx: &Contexto) -> Option<&Path> {
-    match &ctx.origen {
-        Origen::Clon { repo } if canonica(repo) == canonica(&ctx.home.join("Proyectos/ecosistema-asistente")) => Some(repo),
-        _ => None,
-    }
 }
 
 /// Une una ruta relativa con `/` a una base.
@@ -312,30 +305,15 @@ fn ruta_settings(ctx: &Contexto) -> PathBuf {
 
 // ------------------------------------------------------------- planes
 
-/// `dir`: la carpeta de configuración del agente.
+/// `dir`: la carpeta de configuración del agente. Una carpeta real ajena
+/// no se toca: se escribe dentro solo nuestro fichero.
 fn plan_montaje(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, m: &Montaje, p: &mut Vec<Paso>) {
     let base = unir(dir, m.destino);
-    let repo = repo_enlazable(ctx);
     for (unidad, rs) in unidades(m) {
         let destino = base.join(unidad);
-        if let Some(repo) = repo {
-            let origen = unir(repo, m.prefijo).join(unidad);
-            if destino_enlace(&destino).is_some_and(|d| canonica(&d) == canonica(&origen)) {
-                continue;
-            }
-            // Una copia idéntica ya vale; una carpeta real ajena no se
-            // sustituye por un enlace: se escribe solo nuestro fichero.
-            let identica = rs.iter().all(|r| sonda.leer(&base.join(&r.ruta[m.prefijo.len()..])).as_deref() == Some(r.contenido));
-            if identica {
-                continue;
-            }
-            if !sonda.existe(&destino) || es_enlace(&destino) {
-                p.push(Paso::Enlazar { origen, destino });
-                continue;
-            }
-        }
-        // Un enlace (a otro sitio) se quita antes de escribir: si no, se
-        // escribiría a través de él, dentro del repo enlazado.
+        // Un enlace (el de una instalación anterior desde un clon, o a otro
+        // sitio) se quita antes de escribir: si no, se escribiría a través
+        // de él, dentro del repo enlazado.
         if es_enlace(&destino) {
             p.push(Paso::Borrar(destino.clone()));
         }
@@ -354,7 +332,8 @@ fn plan_fragmento(ctx: &Contexto, sonda: &dyn Sonda, dir: &Path, f: &Fragmento, 
     let ruta = unir(dir, f.destino);
     let Ok(actual) = super::leer_para_reescribir(sonda, &ruta) else { return };
     let fragmento = reescribir_ruta_flujo(r.contenido, &ctx.destinos.flujo);
-    let nuevo = poner_fragmento_con(actual.as_deref(), &fragmento, &[r.contenido]);
+    let heredado = r.contenido.replace(MARCA_FLUJO, RUTA_FLUJO_HEREDADA);
+    let nuevo = poner_fragmento_con(actual.as_deref(), &fragmento, &[r.contenido, &heredado]);
     if actual.as_deref() != Some(nuevo.as_str()) {
         p.push(Paso::EditarPersonal { ruta, contenido: nuevo });
     }
@@ -605,7 +584,7 @@ mod pruebas {
             _ => None,
         });
         let contenido = contenido.expect("escribe la skill");
-        assert!(!contenido.contains(recursos::RUTA_FLUJO_FIJA));
+        assert!(!contenido.contains(MARCA_FLUJO));
         assert!(contenido.contains(&format!("{HOME}/.local/share/ea/flujo/mision.md")));
         // El MCP se registra con el `headersHelper` que entrega la
         // credencial del planificador (U-02); la credencial no va en la orden.
@@ -747,40 +726,74 @@ mod pruebas {
     #[test]
     fn fragmento_a_mano_con_la_ruta_fija_se_sustituye_por_el_reescrito() {
         let c = ctx(Origen::Paquete);
-        let mut s = Falsa { binarios: vec!["codex"], ..Default::default() };
         let r = recursos::recurso("agentes/codex/AGENTS.md").unwrap();
         let ruta = c.home.join(".codex/AGENTS.md");
-        s.ficheros.insert(ruta.clone(), format!("# Reglas mías\n{}", r.contenido));
-        let p = plan_agentes(&c, &s).unwrap();
-        let nuevo = p.iter().find_map(|x| match x {
-            Paso::Escribir { ruta: q, contenido } | Paso::EditarPersonal { ruta: q, contenido } if *q == ruta => Some(contenido.clone()),
-            _ => None,
-        });
-        let nuevo = nuevo.unwrap();
-        assert!(nuevo.starts_with("# Reglas mías\n"));
-        assert!(!nuevo.contains(recursos::RUTA_FLUJO_FIJA));
-        assert_eq!(nuevo.matches(MARCA_INICIO).count(), 1);
+        // Añadido a mano con `cat >>`: tal cual (con el marcador) o como lo
+        // daban las versiones anteriores (con la ruta fija de entonces).
+        for a_mano in [r.contenido.to_string(), r.contenido.replace(MARCA_FLUJO, RUTA_FLUJO_HEREDADA)] {
+            let mut s = Falsa { binarios: vec!["codex"], ..Default::default() };
+            s.ficheros.insert(ruta.clone(), format!("# Reglas mías\n{a_mano}"));
+            let p = plan_agentes(&c, &s).unwrap();
+            let nuevo = p.iter().find_map(|x| match x {
+                Paso::Escribir { ruta: q, contenido } | Paso::EditarPersonal { ruta: q, contenido } if *q == ruta => Some(contenido.clone()),
+                _ => None,
+            });
+            let nuevo = nuevo.unwrap();
+            assert!(nuevo.starts_with("# Reglas mías\n"));
+            assert!(!nuevo.contains(MARCA_FLUJO) && !nuevo.contains(RUTA_FLUJO_HEREDADA));
+            assert_eq!(nuevo.matches(MARCA_INICIO).count(), 1);
+            assert_eq!(nuevo.matches("## Ecosistema asistente").count(), 1, "{nuevo}");
+        }
     }
 
+    #[cfg(unix)] // enlaces simbólicos de verdad
     #[test]
-    fn clon_en_la_ruta_fija_enlaza_carpetas() {
-        let repo = PathBuf::from(HOME).join("Proyectos/ecosistema-asistente");
-        let c = ctx(Origen::Clon { repo: repo.clone() });
+    fn un_clon_copia_los_adaptadores_y_sustituye_los_enlaces_de_antes() {
+        // HOME y clon de verdad (temporales): el enlace de una instalación
+        // anterior al repo se quita y en su lugar va la copia con la ruta
+        // real de las guías, sin el marcador.
+        let d = tempfile::tempdir().unwrap();
+        let repo = d.path().join("clon");
+        let mut c = ctx(Origen::Clon { repo: repo.clone() });
+        c.home = d.path().join("home");
+        c.destinos.flujo = repo.join("agentes/flujo");
+        c.skills_dir = c.home.join(".config/ea/qwen-skills");
+        std::fs::create_dir_all(repo.join("claude/skills/mision")).unwrap();
+        std::fs::create_dir_all(c.home.join(".claude/skills")).unwrap();
+        let enlace = c.home.join(".claude/skills/mision");
+        ea_plataforma::fs::enlazar(&repo.join("claude/skills/mision"), &enlace).unwrap();
         let s = Falsa { binarios: vec!["claude", "opencode"], ..Default::default() };
         let p = plan_agentes(&c, &s).unwrap();
-        assert!(p.contains(&Paso::Enlazar { origen: repo.join("claude/skills/mision"), destino: c.home.join(".claude/skills/mision") }));
-        assert!(p.contains(&Paso::Enlazar {
-            origen: repo.join("agentes/opencode/commands/ea-obra.md"),
-            destino: c.home.join(".config/opencode/commands/ea-obra.md")
-        }));
-        // Skills del ejecutor: una carpeta enlazada.
+        let borrar = p.iter().position(|x| *x == Paso::Borrar(enlace.clone())).expect("quita el enlace");
+        let skill = enlace.join("SKILL.md");
+        let escribir = p.iter().position(|x| matches!(x, Paso::Escribir { ruta, .. } if *ruta == skill)).expect("copia la skill");
+        assert!(borrar < escribir);
+        assert!(!p.iter().any(|x| matches!(x, Paso::Enlazar { destino, .. } if destino.starts_with(c.home.join(".claude")))));
+        let comando = c.home.join(".config/opencode/commands/ea-obra.md");
+        let obra = p.iter().find_map(|x| match x {
+            Paso::Escribir { ruta, contenido } if *ruta == comando => Some(contenido),
+            _ => None,
+        });
+        let obra = obra.expect("copia el comando de OpenCode");
+        assert!(obra.contains(&format!("{}/obra.md", repo.join("agentes/flujo").display())) && !obra.contains(MARCA_FLUJO));
+        // Las skills del ejecutor no llevan marcador: siguen enlazadas al repo.
         assert!(p.contains(&Paso::Enlazar { origen: repo.join("qwen/skills"), destino: c.skills_dir.clone() }));
-        assert!(!escrituras(&p).iter().any(|r| r.starts_with(c.home.join(".claude/skills"))));
+        // Aplicado de verdad, el enlace es ahora una carpeta con la copia.
+        let mut registro = Vec::new();
+        ea_acciones::servicios::aplicar(&p, &mut |argv| {
+            registro.push(argv.join(" "));
+            Ok(())
+        })
+        .unwrap();
+        assert!(!es_enlace(&enlace) && enlace.is_dir());
+        let copia = std::fs::read_to_string(&skill).unwrap();
+        assert!(copia.starts_with("---\nname: mision\n") && !copia.contains(MARCA_FLUJO), "{copia}");
+        assert!(std::fs::read_dir(repo.join("claude/skills/mision")).unwrap().next().is_none(), "no escribe dentro del repo");
     }
 
     #[test]
     fn clon_con_carpeta_real_ajena_escribe_dentro() {
-        let repo = PathBuf::from(HOME).join("Proyectos/ecosistema-asistente");
+        let repo = PathBuf::from("/srv/gachapon");
         let c = ctx(Origen::Clon { repo });
         let mut s = Falsa { binarios: vec!["claude"], ..Default::default() };
         s.ficheros.insert(c.home.join(".claude/skills/mision/notas.md"), "mías".into());

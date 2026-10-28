@@ -58,11 +58,13 @@ pub const RECURSOS: &[Recurso] = &[
 /// El icono de la app de escritorio (entrada de menú).
 pub const ICONO_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../escritorio/iconos/icono.png"));
 
-/// La ruta fija que nombran los adaptadores; al instalar se cambia por la
-/// carpeta real de las guías.
-pub const RUTA_FLUJO_FIJA: &str = "~/Proyectos/ecosistema-asistente/agentes/flujo/";
+/// El marcador que llevan los adaptadores donde va la carpeta de las guías;
+/// al instalar se cambia siempre por la carpeta real (la del repo o la
+/// copiada desde el paquete). Sin sustituir, el adaptador sigue siendo
+/// válido: dice además dónde está la guía dentro del repo.
+pub const MARCA_FLUJO: &str = "{{flujo}}/";
 
-/// Cambia [`RUTA_FLUJO_FIJA`] por `flujo`, con `/` final y barras `/`
+/// Cambia [`MARCA_FLUJO`] por `flujo`, con `/` final y barras `/`
 /// también en Windows (los agentes las entienden y el Markdown no las
 /// escapa).
 pub fn reescribir_ruta_flujo(texto: &str, flujo: &Path) -> String {
@@ -70,7 +72,7 @@ pub fn reescribir_ruta_flujo(texto: &str, flujo: &Path) -> String {
     if !real.ends_with('/') {
         real.push('/');
     }
-    texto.replace(RUTA_FLUJO_FIJA, &real)
+    texto.replace(MARCA_FLUJO, &real)
 }
 
 /// El recurso de esa ruta (relativa a la raíz del repo).
@@ -127,10 +129,27 @@ mod pruebas {
 
     #[test]
     fn reescribe_la_ruta_de_las_guias() {
-        let t = "lee `~/Proyectos/ecosistema-asistente/agentes/flujo/mision.md` y síguelo";
+        let t = "lee `{{flujo}}/mision.md` y síguelo";
         assert_eq!(reescribir_ruta_flujo(t, Path::new("/opt/g/flujo")), "lee `/opt/g/flujo/mision.md` y síguelo");
         assert_eq!(reescribir_ruta_flujo(t, Path::new("C:\\g\\flujo\\")), "lee `C:/g/flujo/mision.md` y síguelo");
-        assert!(recurso("claude/skills/mision/SKILL.md").unwrap().contenido.contains(RUTA_FLUJO_FIJA));
+        assert!(recurso("claude/skills/mision/SKILL.md").unwrap().contenido.contains(MARCA_FLUJO));
+    }
+
+    #[test]
+    fn lo_embebido_no_lleva_rutas_personales() {
+        // Cada adaptador nombra las guías con el marcador, que el instalador
+        // sustituye; ninguno con la carpeta de una persona ni de un HOME.
+        for r in RECURSOS {
+            for personal in ["Proyectos/", "/home/", "/Users/", "C:\\Users"] {
+                assert!(!r.contenido.contains(personal), "{}: {personal}", r.ruta);
+            }
+            let adaptador = !r.ruta.starts_with("agentes/flujo/") && !r.ruta.starts_with("qwen/");
+            if adaptador {
+                assert!(r.contenido.contains(MARCA_FLUJO), "{} sin el marcador de las guías", r.ruta);
+                let flujo = Path::new("/srv/clon/agentes/flujo");
+                assert!(!reescribir_ruta_flujo(r.contenido, flujo).contains("{{"), "{}", r.ruta);
+            }
+        }
     }
 
     #[test]

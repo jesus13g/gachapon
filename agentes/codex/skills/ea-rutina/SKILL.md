@@ -5,7 +5,7 @@ description: "Formaliza un proceso repetible como rutina versionada (TOML), la r
 
 # ea-rutina
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/rutina.md` (en la raíz del repo, `agentes/flujo/rutina.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/rutina.md` (en la raíz del repo, `agentes/flujo/rutina.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 

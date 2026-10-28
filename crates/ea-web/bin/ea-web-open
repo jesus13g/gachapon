@@ -7,6 +7,8 @@
 # host (localhost → chrome-localhost__-Default); no usar 127.0.0.1, que ya es
 # la clase del tutor de Hyprland (regla en ~/.config/hypr/hyprland.lua).
 # El puerto: EA_WEB_PORT o red.puerto_web de los ajustes (8092 si no hay `ea`).
+# El `ea`: $EA_BIN; si no, el que esté junto a este script (siguiendo el
+# enlace) o el `target/release/ea` del repo en que vive; si no, el del PATH.
 # La clave de sesión que ea-web deja al arrancar en $XDG_RUNTIME_DIR/ea-web/clave
 # viaja en el fragmento (#clave=…), que no llega al servidor ni cambia la clase
 # de la ventana; la página la guarda y la quita de la barra de direcciones.
@@ -14,7 +16,14 @@
 # va en el mismo fragmento, delante de la clave. Con él se abre siempre una
 # ventana nueva en esa vista (a una ventana ya abierta no se le puede cambiar
 # el hash desde fuera); sin él, se enfoca la que haya.
-PORT="${EA_WEB_PORT:-$("$HOME/Proyectos/ecosistema-asistente/target/release/ea" ajustes obtener red.puerto_web 2>/dev/null || echo 8092)}"
+if [ -z "${EA_BIN:-}" ]; then
+  DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+  EA_BIN=ea
+  for c in "$DIR/ea" "$DIR/../../../target/release/ea"; do
+    if [ -x "$c" ]; then EA_BIN="$c"; break; fi
+  done
+fi
+PORT="${EA_WEB_PORT:-$("$EA_BIN" ajustes obtener red.puerto_web 2>/dev/null || echo 8092)}"
 URL="http://localhost:${PORT}/"
 CLAVE_FICHERO="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ea-web/clave"
 CLASS="chrome-localhost__-Default"

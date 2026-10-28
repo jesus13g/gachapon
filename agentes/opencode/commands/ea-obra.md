@@ -2,7 +2,7 @@
 description: "Lanza una obra al ejecutor: un plan dividido en fases pequeñas, cada una con instrucciones, entregable y criterio de comando, que se implementa fase a fase con revisión del planificador cada N fases. Úsala cuando el usuario tenga un plan o una tarea grande que implementar. El planificador solo formaliza."
 ---
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/obra.md` (en la raíz del repo, `agentes/flujo/obra.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/obra.md` (en la raíz del repo, `agentes/flujo/obra.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 

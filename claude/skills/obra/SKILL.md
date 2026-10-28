@@ -5,7 +5,7 @@ description: "Lanza una obra al ejecutor: un plan dividido en fases pequeñas, c
 
 # /obra
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/obra.md` (en la raíz del repo, `agentes/flujo/obra.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/obra.md` (en la raíz del repo, `agentes/flujo/obra.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 

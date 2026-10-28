@@ -187,9 +187,10 @@ cd gachapon
 
 Compila en release (también la app, si están sus dependencias) y ejecuta
 `target/release/ea instalar`. En este modo los servicios usan `target/release`:
-tras un `cargo build --release` basta reiniciarlos. Si el clon está en
-`~/Proyectos/ecosistema-asistente`, las skills de Claude Code quedan enlazadas al
-repo. La instalación paso a paso está en el manual
+tras un `cargo build --release` basta reiniciarlos. Las skills de Claude Code
+y los adaptadores de los otros planificadores se copian con la ruta real de las
+guías del clon (`agentes/flujo/`); si cambias un adaptador, vuelve a ejecutar
+`ea instalar`. La instalación paso a paso está en el manual
 ([Instalación por sistema](docs/manual.md#instalación-por-sistema)).
 
 ### 3. Comprueba

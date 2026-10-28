@@ -2,7 +2,7 @@
 description: "Lanza una misión al ejecutor para alcanzar un objetivo iterando hasta que un comando de shell pase. Úsala cuando el usuario pida «una misión» o un trabajo que se pueda describir en pasos verificables (crear o arreglar código, buscar, leer, resumir). El planificador solo formaliza; no lo implementa."
 ---
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/mision.md` (en la raíz del repo, `agentes/flujo/mision.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/mision.md` (en la raíz del repo, `agentes/flujo/mision.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 

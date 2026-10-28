@@ -5,7 +5,7 @@ description: "Revisa los trabajos que el ejecutor ha entregado al planificador (
 
 # /revisar
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/revisar.md` (en la raíz del repo, `agentes/flujo/revisar.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/revisar.md` (en la raíz del repo, `agentes/flujo/revisar.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 

@@ -9,9 +9,17 @@ use std::process::{Command, Stdio};
 use crate::config::ConfigOrquestador;
 
 /// El lanzador del panel web del checkout con que se compiló el ejecutor:
-/// abre `ea-web` en un enlace profundo (`ea-web-open '#trabajos/<id>'`).
+/// abre `ea-web` en un enlace profundo (`ea-web-open '#trabajos/<id>'`). Solo
+/// se usa si no hay uno junto a los binarios ([`lanzador_web`]).
 #[cfg(target_os = "linux")]
-const EA_WEB_OPEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../ea-web/bin/ea-web-open");
+const EA_WEB_OPEN_COMPILADO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../ea-web/bin/ea-web-open");
+
+/// `ea-web-open`: el que esté junto a los binarios (`hermano`) y, si no hay,
+/// el del checkout con que se compiló.
+#[cfg(any(target_os = "linux", test))]
+fn lanzador_web(hermano: Option<std::path::PathBuf>, compilado: &Path) -> std::path::PathBuf {
+    hermano.unwrap_or_else(|| compilado.to_path_buf())
+}
 
 /// La orden del aviso de escritorio con la acción «abrir» (solo Linux): lanza
 /// `abrir '#trabajos/<id>'`. `notify-send --action` espera a que se pulse o se
@@ -79,7 +87,8 @@ pub(super) fn avisar(config: &ConfigOrquestador, titulo: &str, resultado: &str, 
     #[cfg(target_os = "linux")]
     {
         // `ea-escritorio` junto a los demás binarios, si existe.
-        if let Some(abrir) = elegir_lanzador(ea_plataforma::rutas::binario_hermano("ea-escritorio"), Path::new(EA_WEB_OPEN)) {
+        let web_open = lanzador_web(ea_plataforma::rutas::binario_hermano("ea-web-open"), Path::new(EA_WEB_OPEN_COMPILADO));
+        if let Some(abrir) = elegir_lanzador(ea_plataforma::rutas::binario_hermano("ea-escritorio"), &web_open) {
             let mut c = orden_aviso(titulo, resultado, id, &abrir);
             c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
             let (t, r) = (format!("ea: {titulo}"), resultado.to_string());
@@ -171,6 +180,14 @@ mod tests {
         assert_eq!(elegir_lanzador(Some(escritorio.clone()), &d.path().join("no-existe")), Some(escritorio));
     }
 
+    #[test]
+    fn el_lanzador_del_panel_junto_a_los_binarios_manda_sobre_el_compilado() {
+        let compilado = Path::new("/clon/crates/ea-web/bin/ea-web-open");
+        let junto = std::path::PathBuf::from("/opt/ea/bin/ea-web-open");
+        assert_eq!(lanzador_web(Some(junto.clone()), compilado), junto);
+        assert_eq!(lanzador_web(None, compilado), compilado);
+    }
+
     #[cfg(target_os = "linux")]
     fn argumentos(c: &Command) -> Vec<String> {
         c.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
@@ -180,7 +197,7 @@ mod tests {
     #[test]
     fn el_aviso_lleva_la_accion_abrir_con_el_enlace_al_trabajo() {
         // El lanzador existe en el checkout (si se mueve, que falle aquí).
-        assert!(Path::new(EA_WEB_OPEN).is_file(), "{EA_WEB_OPEN}");
+        assert!(Path::new(EA_WEB_OPEN_COMPILADO).is_file(), "{EA_WEB_OPEN_COMPILADO}");
         let c = orden_aviso("misión $(rm -rf ~)", "terminado", "20261020-101500-ab12", Path::new("/x/ea-web-open"));
         assert_eq!(c.get_program(), "sh");
         let a = argumentos(&c);

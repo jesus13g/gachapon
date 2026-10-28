@@ -431,7 +431,7 @@ volver a arrancar los servicios.
   dentro los binarios y lanza `ea instalar`; también fuera del workspace.
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
   rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
-- `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).
+- `claude/skills/`: las skills de Claude Code (adaptador del flujo; `ea instalar` las copia con la ruta real de las guías).
 - `claude/hooks/`: el envoltorio del hook de subagentes de Claude Code que usa `ea-web` (el trabajo lo hace `ea hook subagentes`).
 - `qwen/skills/`: las skills propias del agente local.
 
@@ -524,8 +524,7 @@ Las instrucciones del planificador son una **guía neutral común** más un
 | equipo | Dentro de un equipo despierto: el planificador parte el objetivo y reparte con `ea trabajo crear --equipo --asignar … --worktree-propio`; el revisor revisa su cola y solo propone |
 
 `ea instalar` instala el adaptador de cada agente que esté en el `PATH` (ver
-[Instalación en un paso](#instalación-en-un-paso)). A mano, se instalan con
-enlaces simbólicos (los comandos se ejecutan desde la raíz del repo). Un agente solo necesita
+[Instalación en un paso](#instalación-en-un-paso)). Un agente solo necesita
 el suyo, y solo si va a ser planificador.
 
 | Agente | Adaptador | Formato | Destino |
@@ -535,37 +534,26 @@ el suyo, y solo si va a ser planificador.
 | OpenCode | `agentes/opencode/commands/ea-<x>.md` y `agentes/opencode/AGENTS.md` | comandos (`/ea-mision`…, con `$ARGUMENTS`) y un fragmento de `AGENTS.md` | `~/.config/opencode/commands/`, `~/.config/opencode/AGENTS.md` |
 | Antigravity | `agentes/antigravity/skills/ea-<x>/` y `agentes/antigravity/rules/ea-planificador.md` | skills (los workflows están obsoletos en favor de ellas) y una regla `model_decision` | `~/.gemini/config/skills/`, `~/.gemini/config/rules/` |
 
+Los adaptadores nombran la carpeta de las guías con el marcador `{{flujo}}/`,
+sin ninguna ruta personal. `ea instalar` los **copia** (también desde un clon) y
+cambia el marcador por la carpeta real: la `agentes/flujo/` del clon o la copia
+que deja el paquete. Por eso un adaptador instalado ya no es un enlace al repo:
+editar `agentes/flujo/*.md` en el clon cambia el procedimiento en uso al momento,
+pero un cambio en el propio adaptador se instala volviendo a ejecutar
+`ea instalar`. Los enlaces de las instalaciones anteriores (`~/.claude/skills/<x>`
+apuntando al repo) los sustituye `ea instalar` por la copia; hasta entonces
+siguen siendo skills válidas, con el marcador sin sustituir (la frase dice
+también dónde está la guía dentro del repo). A mano, copia el adaptador y
+sustituye el marcador (desde la raíz del repo):
+
 ```bash
-# Claude Code (las skills vivas: editarlas cambia las skills en uso)
 for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
+  mkdir -p ~/.claude/skills/$s
+  sed "s#{{flujo}}/#$PWD/agentes/flujo/#" claude/skills/$s/SKILL.md > ~/.claude/skills/$s/SKILL.md
 done
-
-# Codex: skills y reglas (el fragmento se añade una sola vez)
-mkdir -p ~/.codex/skills
-for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/agentes/codex/skills/ea-$s" ~/.codex/skills/ea-$s
-done
-cat agentes/codex/AGENTS.md >> ~/.codex/AGENTS.md
-
-# OpenCode: comandos y reglas
-mkdir -p ~/.config/opencode/commands
-for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/agentes/opencode/commands/ea-$s.md" ~/.config/opencode/commands/ea-$s.md
-done
-cat agentes/opencode/AGENTS.md >> ~/.config/opencode/AGENTS.md
-
-# Antigravity: skills y regla
-mkdir -p ~/.gemini/config/skills ~/.gemini/config/rules
-for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/agentes/antigravity/skills/ea-$s" ~/.gemini/config/skills/ea-$s
-done
-ln -sfn "$PWD/agentes/antigravity/rules/ea-planificador.md" ~/.gemini/config/rules/ea-planificador.md
 ```
 
-Los adaptadores nombran la ruta `~/Proyectos/ecosistema-asistente/agentes/flujo/`
-(es un ejemplo, vale cualquier sitio y cualquier sistema); si el repo está en otro sitio, el resumen de cada adaptador basta para arrancar y
-`agentes/flujo/` en la raíz del repo es la referencia. Los formatos salen de lo
+Los formatos salen de lo
 instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
 Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
@@ -792,7 +780,7 @@ ea desinstalar [--esperar]
 |---|---|---|
 | Binarios | Se copian a `~/.local/share/ecosistema-asistente/bin` (Linux), `~/Library/Application Support/ecosistema-asistente/bin` (macOS) o `%LOCALAPPDATA%\Programs\gachapon` (Windows) | Se quedan en `target/release`: recompilar y reiniciar los servicios basta |
 | `ea` en el `PATH` | Enlace en `~/.local/bin/ea` (si esa carpeta no está en el `PATH`, añade un bloque marcado a `~/.profile` o `~/.zprofile`); en Windows, el `PATH` del usuario | Igual, apuntando al `ea` del clon |
-| Guías y adaptadores | Copiados, con la ruta real de las guías | Enlazados al repo si el clon está en `~/Proyectos/ecosistema-asistente`; si no, copiados con la ruta del clon |
+| Guías y adaptadores | Copiados, con la ruta real de las guías | Las guías, las del repo; los adaptadores, copiados con la ruta de `agentes/flujo/` del clon (vuelve a ejecutar `ea instalar` si cambias un adaptador) |
 
 **Entrada de la app en el menú:**
 
@@ -1868,8 +1856,14 @@ systemctl --user enable --now ea-web.service
 -- ~/.config/hypr/hyprland.lua
 o.window("^chrome-localhost__-Default$", { workspace = "4 silent" })
 -- ~/.config/hypr/autostart.lua
-o.exec_on_start(os.getenv("HOME") .. "/Proyectos/ecosistema-asistente/crates/ea-web/bin/ea-web-open")
+o.exec_on_start("/ruta/al/clon/crates/ea-web/bin/ea-web-open")
 ```
+
+El `ea` al que pregunta el puerto (`red.puerto_web`, si no hay `EA_WEB_PORT`) es
+`$EA_BIN` o, si no, el que esté junto al script (siguiendo el enlace) o el
+`target/release/ea` del repo en que vive; si tampoco, el del `PATH`. La acción
+«abrir» del aviso del orquestador usa el `ea-web-open` que haya junto a los
+binarios y, si no hay, el del clon con que se compiló.
 
 La máquina arranca con la hora desajustada tras Windows hasta que NTP la
 corrige, así que el panel mide el tiempo activo de los servicios con el reloj
