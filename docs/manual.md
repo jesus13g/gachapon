@@ -1081,6 +1081,14 @@ ea mcp cabeceras                             # {"X-EA-Credencial": …} para el 
 ea tui                                       # interfaz interactiva
 ```
 
+Los argumentos con una lista cerrada de valores (`--modo` de `ea trabajo
+crear`, `--region` de `ea boveda listar|buscar`, el rol de `ea cola` y de `ea
+agentes rol` y el agente de `ea agentes rol`) los valida `clap` al leer la
+orden, antes de abrir nada: un valor que no está en la lista sale con su error
+(`invalid value … [possible values: …]`, código 2) y `--help` enumera los
+valores. El rol admite también su nombre en disco (`claude-code` o
+`modelo-local`).
+
 `ea trabajo crear` valida la orden como la web, por sus dos formas (opciones
 sueltas y `--orden`, que es lo que usan `/mision` y `/obra`), antes de escribir
 nada y con los mismos mensajes: el worktree es una ruta absoluta (en la forma

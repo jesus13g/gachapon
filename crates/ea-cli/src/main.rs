@@ -25,7 +25,7 @@ fn main() -> Result<()> {
         },
         Command::Agentes { accion, json } => match accion {
             None => commands::agentes::listar(json)?,
-            Some(AgentesAccion::Rol { rol, agente }) => commands::agentes::rol(&rol, &agente)?,
+            Some(AgentesAccion::Rol { rol, agente }) => commands::agentes::rol(rol.0, &agente)?,
         },
         Command::Hook { accion: HookAccion::Subagentes { accion } } => commands::hook::subagentes(&accion)?,
         Command::Mcp { accion: McpAccion::Cabeceras } => commands::mcp::cabeceras()?,
@@ -137,7 +137,7 @@ fn main() -> Result<()> {
         Command::Trabajo { accion } => match accion {
             TrabajoAccion::Crear { orden, modo, titulo, worktree, objetivo, criterio, skills, por, equipo, asignar, revisor, worktree_propio } => {
                 ctx.store()?;
-                commands::trabajo::crear(&mut ctx, orden, &modo, titulo, worktree, objetivo, criterio, skills, por, commands::trabajo::DeEquipo { equipo, asignar, revisor, worktree_propio })?
+                commands::trabajo::crear(&mut ctx, orden, modo.0, titulo, worktree, objetivo, criterio, skills, por, commands::trabajo::DeEquipo { equipo, asignar, revisor, worktree_propio })?
             }
             TrabajoAccion::Listar => commands::trabajo::listar()?,
             TrabajoAccion::Ver { id, json } => commands::trabajo::ver(&id, json)?,
@@ -149,7 +149,7 @@ fn main() -> Result<()> {
             TrabajoAccion::Reformular { id, nota, fase } => commands::trabajo::reformular(&mut ctx, &id, &nota, fase)?,
             TrabajoAccion::Cancelar { id } => commands::trabajo::evento(&mut ctx, &id, ea_bus::Evento::Cancelar)?,
         },
-        Command::Cola { agente, json } => commands::trabajo::cola(agente.as_deref(), json)?,
+        Command::Cola { agente, json } => commands::trabajo::cola(agente.map(|r| r.0), json)?,
         Command::Semaforos => commands::trabajo::semaforos(),
         // La biblioteca lee el disco; solo proponer necesita la base.
         Command::Biblioteca { accion } => match accion {

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use ea_bus::{Bus, Rol, Evento, Modo, Orden};
 
 use super::{limpio, Contexto};
@@ -30,7 +30,7 @@ pub struct DeEquipo {
 pub fn crear(
     ctx: &mut Contexto,
     fichero: Option<PathBuf>,
-    modo: &str,
+    modo: Modo,
     titulo: Option<String>,
     worktree: Option<String>,
     objetivo: Option<String>,
@@ -42,12 +42,6 @@ pub fn crear(
     let mut orden: Orden = if let Some(f) = fichero {
         serde_json::from_str(&std::fs::read_to_string(&f)?).map_err(|e| anyhow!("orden inválida ({}): {e}", f.display()))?
     } else {
-        let modo = match modo {
-            "mision" => Modo::Mision,
-            "obra" => Modo::Obra,
-            "rutina" => Modo::Rutina,
-            otro => bail!("modo desconocido: {otro} (mision, obra o rutina)"),
-        };
         let worktree = worktree.ok_or_else(|| anyhow!("falta --worktree (o --orden)"))?;
         // Aquí una ruta relativa lo es al directorio actual (`--worktree .`
         // desde el repo): se hace absoluta antes de validarla.
@@ -222,15 +216,9 @@ pub fn confirmar(ctx: &mut Contexto, id: &str, contexto: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
+pub fn cola(rol: Option<Rol>, json: bool) -> Result<()> {
     let b = Bus::abrir()?;
-    let agentes = match agente {
-        None => Rol::TODOS.to_vec(),
-        Some(nombre) => match Rol::desde(nombre) {
-            Some(rol) => vec![rol],
-            None => bail!("rol desconocido: {nombre} (planificador o ejecutor; también claude-code o modelo-local)"),
-        },
-    };
+    let agentes = rol.map_or(Rol::TODOS.to_vec(), |r| vec![r]);
     if json {
         let mut m = serde_json::Map::new();
         for a in agentes {

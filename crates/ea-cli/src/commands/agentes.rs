@@ -6,10 +6,10 @@
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use comfy_table::Table;
 use ea_acciones::salud::{disponibilidad, AgenteDisponible};
-use ea_ajustes::{Rol, IDS_AGENTES};
+use ea_ajustes::Rol;
 
 const LIMITE_VERSION: Duration = Duration::from_secs(5);
 
@@ -122,12 +122,7 @@ fn version(bin: &str) -> Option<String> {
     texto.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
 }
 
-pub fn rol(rol: &str, agente: &str) -> Result<()> {
-    let Some(rol) = Rol::desde(rol) else {
-        bail!("rol desconocido {rol:?}: planificador o ejecutor");
-    };
-    if !IDS_AGENTES.contains(&agente) {
-        bail!("agente desconocido {agente:?}: {}", IDS_AGENTES.join(", "));
-    }
+/// `rol` y `agente` ya los valida `clap` (`cli::ArgRol` y `IDS_AGENTES`).
+pub fn rol(rol: Rol, agente: &str) -> Result<()> {
     super::ajustes::establecer(&[format!("roles.{}={agente}", rol.nombre())], &[])
 }
