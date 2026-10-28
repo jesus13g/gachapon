@@ -239,11 +239,17 @@ fn serializar(v: &Value) -> Result<String, String> {
     serde_json::to_string_pretty(v).map(|t| t + "\n").map_err(|e| e.to_string())
 }
 
+/// El envoltorio de shell que registraban las instalaciones antiguas
+/// (`claude/hooks/ea-subagentes.sh`, ya retirado del repo).
+const HOOK_HEREDADO: &str = "ea-subagentes.sh";
+
 /// Añade a `hooks.SubagentStart` y `hooks.SubagentStop` la orden
-/// `<ea> hook subagentes start|stop` si no hay ya una (o el envoltorio
-/// antiguo `ea-subagentes.sh`). Conserva todo lo demás; `serde_json` sin
-/// `preserve_order` deja las claves en orden alfabético. `None`: no cambia
-/// nada; `Err`: el JSON no es válido y no se toca.
+/// `<ea> hook subagentes start|stop` si no hay ya una. Una orden del
+/// envoltorio antiguo `ea-subagentes.sh` se cambia por la nuestra (o se
+/// quita, si ya estaba también la nuestra), con su entrada y su `timeout`.
+/// Conserva todo lo demás; `serde_json` sin `preserve_order` deja las claves
+/// en orden alfabético. `None`: no cambia nada; `Err`: el JSON no es válido
+/// y no se toca.
 pub fn fusionar_hook(settings: Option<&str>, ea: &Path) -> Result<Option<String>, String> {
     let mut v = analizar(settings)?;
     let raiz = objeto(&mut v, "settings.json")?;
@@ -254,7 +260,23 @@ pub fn fusionar_hook(settings: Option<&str>, ea: &Path) -> Result<Option<String>
         let lista = hooks.entry(evento).or_insert_with(|| json!([]));
         let lista = lista.as_array_mut().ok_or_else(|| format!("hooks.{evento} no es una lista"))?;
         let buscada = format!("hook subagentes {accion}");
-        let ya = lista.iter().any(|e| ordenes(e).any(|o| o.contains(&buscada) || o.contains("ea-subagentes.sh")));
+        let mut ya = lista.iter().any(|e| ordenes(e).any(|o| o.contains(&buscada)));
+        for e in lista.iter_mut() {
+            let Some(hs) = e.get_mut("hooks").and_then(Value::as_array_mut) else { continue };
+            hs.retain_mut(|h| {
+                if !h.get("command").and_then(Value::as_str).is_some_and(|o| o.contains(HOOK_HEREDADO)) {
+                    return true;
+                }
+                cambia = true;
+                if ya {
+                    return false;
+                }
+                h["command"] = json!(orden_hook(ea, accion));
+                ya = true;
+                true
+            });
+        }
+        lista.retain(|e| e.get("hooks").and_then(Value::as_array).is_none_or(|hs| !hs.is_empty()));
         if !ya {
             lista.push(json!({"matcher": "*", "hooks": [{"type": "command", "command": orden_hook(ea, accion), "timeout": 5}]}));
             cambia = true;
@@ -301,6 +323,14 @@ pub fn quitar_hook(settings: &str) -> Result<Option<String>, String> {
 
 fn ruta_settings(ctx: &Contexto) -> PathBuf {
     unir(&ctx.home, AgenteId::ClaudeCode.ficha().dir_config).join("settings.json")
+}
+
+/// El enlace `~/.claude/hooks/ea-subagentes.sh` que ponían las
+/// instalaciones antiguas, si apunta a nuestro envoltorio (ya no existe en el
+/// repo: el enlace quedaría roto).
+fn enlace_hook_heredado(ctx: &Contexto) -> Option<PathBuf> {
+    let enlace = unir(&ctx.home, AgenteId::ClaudeCode.ficha().dir_config).join("hooks").join(HOOK_HEREDADO);
+    destino_enlace(&enlace).is_some_and(|d| d.ends_with(Path::new("claude").join("hooks").join(HOOK_HEREDADO))).then_some(enlace)
 }
 
 // ------------------------------------------------------------- planes
@@ -380,6 +410,9 @@ fn plan_claude(ctx: &Contexto, sonda: &dyn Sonda, p: &mut Vec<Paso>) {
             p.push(Paso::Copiar { origen: ruta.clone(), destino: ruta.with_extension("json.gachapon.bak") });
         }
         p.push(Paso::EditarPersonal { ruta, contenido: nuevo });
+    }
+    if let Some(enlace) = enlace_hook_heredado(ctx) {
+        p.push(Paso::Borrar(enlace));
     }
 }
 
@@ -647,8 +680,19 @@ mod pruebas {
         assert_eq!(v["hooks"]["SubagentStart"].as_array().unwrap().len(), 2);
         assert!(v["hooks"]["Stop"].is_array());
 
-        let antiguo = r#"{"hooks":{"SubagentStart":[{"hooks":[{"command":"~/.claude/hooks/ea-subagentes.sh start"}]}],"SubagentStop":[{"hooks":[{"command":"~/.claude/hooks/ea-subagentes.sh stop"}]}]}}"#;
-        assert_eq!(fusionar_hook(Some(antiguo), Path::new("/b/ea")).unwrap(), None);
+        // El envoltorio antiguo se cambia por la orden de `ea`, en su sitio.
+        let antiguo = r#"{"hooks":{"SubagentStart":[{"matcher":"*","hooks":[{"type":"command","command":"sh \"$HOME/.claude/hooks/ea-subagentes.sh\" start","timeout":5}]}],"SubagentStop":[{"hooks":[{"command":"~/.claude/hooks/ea-subagentes.sh stop"}]}]}}"#;
+        let n = fusionar_hook(Some(antiguo), Path::new("/b/ea")).unwrap().unwrap();
+        let v: Value = serde_json::from_str(&n).unwrap();
+        assert_eq!(v["hooks"]["SubagentStart"], json!([{"matcher": "*", "hooks": [{"type": "command", "command": "/b/ea hook subagentes start", "timeout": 5}]}]));
+        assert_eq!(v["hooks"]["SubagentStop"], json!([{"hooks": [{"command": "/b/ea hook subagentes stop"}]}]));
+        assert!(!n.contains("ea-subagentes.sh"));
+        assert_eq!(fusionar_hook(Some(&n), Path::new("/b/ea")).unwrap(), None, "migrar dos veces es lo mismo que una");
+        // Con la nuestra ya puesta, el envoltorio sobra y se quita (con su
+        // entrada si se queda vacía); lo ajeno de la misma entrada, no.
+        let los_dos = r#"{"hooks":{"SubagentStart":[{"hooks":[{"command":"/b/ea hook subagentes start"}]},{"hooks":[{"command":"x/ea-subagentes.sh start"}]},{"hooks":[{"command":"x/ea-subagentes.sh start"},{"command":"mio.sh"}]}],"SubagentStop":[{"hooks":[{"command":"/b/ea hook subagentes stop"}]}]}}"#;
+        let v: Value = serde_json::from_str(&fusionar_hook(Some(los_dos), Path::new("/b/ea")).unwrap().unwrap()).unwrap();
+        assert_eq!(v["hooks"]["SubagentStart"], json!([{"hooks": [{"command": "/b/ea hook subagentes start"}]}, {"hooks": [{"command": "mio.sh"}]}]));
 
         assert!(fusionar_hook(Some("{ no"), Path::new("/b/ea")).is_err());
         assert!(fusionar_hook(Some("[1]"), Path::new("/b/ea")).is_err());
@@ -867,6 +911,46 @@ mod pruebas {
             assert!(rutas.iter().all(|r| carpetas.iter().any(|c| r.starts_with(c))), "{bin}: {rutas:?}");
             assert!(carpetas.iter().all(|c| rutas.iter().any(|r| r.starts_with(c))), "{bin}: {rutas:?}");
         }
+    }
+
+    #[cfg(unix)] // enlaces simbólicos de verdad
+    #[test]
+    fn instalar_migra_el_hook_de_shell_en_un_home_de_verdad() {
+        // HOME temporal con lo que dejaba la instalación a mano de antes: el
+        // enlace `~/.claude/hooks/ea-subagentes.sh` al envoltorio del repo
+        // (ya roto) y el settings.json que lo llama.
+        let d = tempfile::tempdir().unwrap();
+        let mut c = ctx(Origen::Paquete);
+        c.home = d.path().join("home");
+        let hooks = c.home.join(".claude/hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        let enlace = hooks.join("ea-subagentes.sh");
+        ea_plataforma::fs::enlazar(&d.path().join("clon/claude/hooks/ea-subagentes.sh"), &enlace).unwrap();
+        let ajeno = hooks.join("otro.sh");
+        ea_plataforma::fs::enlazar(&d.path().join("x/otro.sh"), &ajeno).unwrap();
+        let settings = c.home.join(".claude/settings.json");
+        let antes = r#"{"model":"opus","hooks":{"SubagentStart":[{"matcher":"*","hooks":[{"type":"command","command":"sh \"$HOME/.claude/hooks/ea-subagentes.sh\" start","timeout":5}]}],"SubagentStop":[{"matcher":"*","hooks":[{"type":"command","command":"sh \"$HOME/.claude/hooks/ea-subagentes.sh\" stop","timeout":5}]}]}}"#;
+        std::fs::write(&settings, antes).unwrap();
+        let mut s = Falsa { binarios: vec!["claude"], ..Default::default() };
+        s.ficheros.insert(settings.clone(), antes.into());
+        let p = plan_agentes(&c, &s).unwrap();
+        assert!(p.contains(&Paso::Borrar(enlace.clone())));
+        assert!(!p.contains(&Paso::Borrar(ajeno.clone())), "un enlace ajeno de ~/.claude/hooks se queda");
+        ea_acciones::servicios::aplicar(&p, &mut |_| Ok(())).unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        let ea = c.destinos.bin.join("ea");
+        for (evento, accion) in [("SubagentStart", "start"), ("SubagentStop", "stop")] {
+            let orden = format!("{} hook subagentes {accion}", ea.display());
+            assert_eq!(v["hooks"][evento], json!([{"matcher": "*", "hooks": [{"type": "command", "command": orden, "timeout": 5}]}]));
+        }
+        assert_eq!(v["model"], "opus");
+        assert!(std::fs::symlink_metadata(&enlace).is_err(), "el enlace roto se quita");
+        assert!(std::fs::symlink_metadata(&ajeno).is_ok());
+        assert!(c.home.join(".claude/settings.json.gachapon.bak").is_file());
+        // Repetir no cambia nada más del hook.
+        s.ficheros.insert(settings.clone(), std::fs::read_to_string(&settings).unwrap());
+        let p = plan_agentes(&c, &s).unwrap();
+        assert!(!p.iter().any(|x| matches!(x, Paso::EditarPersonal { ruta, .. } | Paso::Borrar(ruta) if ruta.starts_with(c.home.join(".claude/settings.json")) || ruta.starts_with(&hooks))));
     }
 
     #[test]

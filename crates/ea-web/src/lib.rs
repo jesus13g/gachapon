@@ -43,7 +43,7 @@ pub struct WebConfig {
     /// Dónde Claude Code deja un fichero por sesión abierta. `None` = no se
     /// leen sesiones (tests).
     pub sesiones_dir: Option<PathBuf>,
-    /// Dónde el hook `claude/hooks/ea-subagentes.sh` apunta los subagentes de
+    /// Dónde el hook `ea hook subagentes` apunta los subagentes de
     /// cada sesión. `None` = no se leen (tests).
     pub subagentes_dir: Option<PathBuf>,
     /// Dónde guarda Claude Code cada proyecto con su memoria

@@ -383,8 +383,8 @@ pub fn cita_systemd(t: &str) -> String {
     s
 }
 
-/// La unidad `systemd --user` de un servicio, con la ruta real del binario.
-/// Equivale a las plantillas de `crates/*/systemd/*.service`.
+/// La unidad `systemd --user` de un servicio, con la ruta real del binario
+/// (no hay plantillas en el repo: `ea servicios ver` dice qué escribe).
 pub fn unidad_systemd(nombre: &str, exe: &Path) -> Option<String> {
     let d = DEFS.iter().find(|d| d.nombre == nombre)?;
     let wants = d.quiere.map(|w| format!("Wants={w}\n")).unwrap_or_default();
@@ -946,15 +946,55 @@ mod pruebas {
     }
 
     #[test]
-    fn las_unidades_equivalen_a_las_plantillas_del_repo() {
-        // Mismas líneas que `crates/*/systemd/*.service`, salvo la ruta.
-        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        for (n, plantilla) in [("ea-web", "ea-web/systemd/ea-web.service"), ("ea-mcp", "ea-mcp/systemd/ea-mcp.service"), ("ea-orchestrator", "ea-orchestrator/systemd/ea-orchestrator.service")] {
-            let esperado = std::fs::read_to_string(repo.join(plantilla)).unwrap();
-            let generado = unidad_systemd(n, Path::new("/x/y")).unwrap();
-            let limpio = |t: &str| t.lines().filter(|l| !l.starts_with("ExecStart=") && !l.starts_with('#')).collect::<Vec<_>>().join("\n");
-            assert_eq!(limpio(&generado).trim(), limpio(&esperado).trim(), "{n}");
-        }
+    fn las_unidades_son_las_de_siempre() {
+        // Las líneas que tenían las plantillas estáticas que se retiraron
+        // (`crates/*/systemd/*.service`), con la ruta real.
+        let cuerpo = |descripcion: &str, despues: &str, exe: &str| {
+            format!(
+                "# Generado por `ea servicios instalar`; se quita con `ea servicios desinstalar`.\n[Unit]\nDescription={descripcion}\n{despues}\n[Service]\nType=simple\nExecStart=\"{exe}\"\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n"
+            )
+        };
+        let con_mcp = "After=network.target ea-mcp.service\nWants=ea-mcp.service\n";
+        assert_eq!(unidad_systemd("ea-mcp", Path::new("/x/ea-mcp")).unwrap(), cuerpo("Servidor de herramientas MCP del ecosistema de asistente", "After=network.target\n", "/x/ea-mcp"));
+        assert_eq!(unidad_systemd("ea-web", Path::new("/x/ea-web")).unwrap(), cuerpo("Interfaz web del ecosistema de asistente", con_mcp, "/x/ea-web"));
+        assert_eq!(
+            unidad_systemd("ea-orchestrator", Path::new("/x/ea-orchestrator")).unwrap(),
+            cuerpo("Orquestador de rutinas del ecosistema de asistente", con_mcp, "/x/ea-orchestrator")
+        );
+    }
+
+    #[cfg(unix)] // enlaces simbólicos rotos de verdad
+    #[test]
+    fn instalar_sustituye_una_unidad_enlazada_a_mano() {
+        // Las instrucciones de antes enlazaban la plantilla del repo en
+        // `~/.config/systemd/user/`; retirada la plantilla, el enlace queda
+        // roto y `ea servicios instalar` (también `ea instalar`) lo cambia por
+        // la unidad generada.
+        let d = tempfile::tempdir().unwrap();
+        let unidades = d.path().join("home/.config/systemd/user");
+        std::fs::create_dir_all(&unidades).unwrap();
+        let enlace = unidades.join("ea-web.service");
+        ea_plataforma::fs::enlazar(&d.path().join("clon/crates/ea-web/systemd/ea-web.service"), &enlace).unwrap();
+        let env = Entorno {
+            backend: Backend::Systemd,
+            exes_dir: d.path().join("bin"),
+            unidades_dir: unidades.clone(),
+            logs_dir: d.path().join("logs"),
+            uid: None,
+            path: None,
+            usuario: None,
+        };
+        let mut ordenes = Vec::new();
+        aplicar(&plan_instalar(&env).unwrap(), &mut |argv| {
+            ordenes.push(argv.join(" "));
+            Ok(())
+        })
+        .unwrap();
+        let m = std::fs::symlink_metadata(&enlace).unwrap();
+        assert!(m.is_file() && !m.file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&enlace).unwrap(), unidad_systemd("ea-web", &env.exe("ea-web")).unwrap());
+        assert!(ordenes.contains(&"systemctl --user daemon-reload".to_string()));
+        assert!(!d.path().join("clon").exists(), "no escribe a través del enlace");
     }
 
     #[test]

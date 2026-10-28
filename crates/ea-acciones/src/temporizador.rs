@@ -131,9 +131,8 @@ pub fn parsear_analisis(salida: &str) -> Option<Calendario> {
     Some(Calendario { normalizado: normalizado?, proximas })
 }
 
-/// El servicio de instancia `ea-rutina@.service` con la ruta real de `ea`
-/// (la plantilla de `crates/ea-orchestrator/systemd/` tiene una fija). No
-/// ejecuta la rutina: solo crea el trabajo en el bus (art. V).
+/// El servicio de instancia `ea-rutina@.service` con la ruta real de `ea`.
+/// No ejecuta la rutina: solo crea el trabajo en el bus (art. V).
 pub fn unidad_servicio_rutina(ea: &Path) -> String {
     format!(
         "# Generado por el ecosistema; apunta al `ea` real de este equipo.\n\

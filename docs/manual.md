@@ -432,7 +432,6 @@ volver a arrancar los servicios.
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
   rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
 - `claude/skills/`: las skills de Claude Code (adaptador del flujo; `ea instalar` las copia con la ruta real de las guías).
-- `claude/hooks/`: el envoltorio del hook de subagentes de Claude Code que usa `ea-web` (el trabajo lo hace `ea hook subagentes`).
 - `qwen/skills/`: las skills propias del agente local.
 
 Los crates forman capas y cada uno solo depende de los de debajo:
@@ -651,12 +650,14 @@ con código 0, para no estorbar nunca a Claude Code.
 ```
 
 En Windows usa barras normales o `\\` dobles en el JSON
-(`C:/ruta/target/release/ea.exe hook subagentes start`). Las instalaciones
-anteriores con `claude/hooks/ea-subagentes.sh` siguen funcionando: ahora es un
-envoltorio que busca el binario en este orden (`$EA_BIN`; si no, el
-`target/release/ea` del repo donde vive el script, siguiendo el enlace de
-`~/.claude/hooks`; si no, el `ea` del `PATH`) y **siempre sale con 0**, sin
-estorbar a Claude Code. Para que el hook haga algo hay que **recompilar en
+(`C:/ruta/target/release/ea.exe hook subagentes start`). El envoltorio de
+shell de las instalaciones anteriores (`claude/hooks/ea-subagentes.sh`) ya no
+está en el repo: **vuelve a ejecutar `ea instalar`**, que cambia en
+`settings.json` cada orden que lo llamaba por la de `ea hook subagentes` (con
+copia `.gachapon.bak`; si ya estaban las dos, quita la del envoltorio) y borra el
+enlace `~/.claude/hooks/ea-subagentes.sh` si apunta al envoltorio del repo.
+Hasta entonces la orden vieja falla en cada subagente (Claude Code sigue
+funcionando, pero la portada no los pinta). Para que el hook haga algo hay que **recompilar en
 release** (`cargo build --release`): un `ea` anterior no tiene el subcomando
 `hook`.
 
@@ -907,9 +908,11 @@ Notas por sistema:
   `ea rutina lanzar`, que es corto), sin condición de batería y recuperando el
   disparo perdido si el equipo estaba apagado.
 
-Las plantillas `crates/*/systemd/*.service` siguen ahí como referencia (y para
-quien prefiera enlazarlas a mano en Linux, como en las secciones de `ea-mcp` y
-`ea-web`). El estado y el reinicio de los servicios (`ea servicios ver`, el
+Ya no hay unidades estáticas en el repo (`crates/*/systemd/*.service`): la
+unidad que se escribe es la que enseña `ea servicios ver`. Si enlazaste una
+plantilla a mano en `~/.config/systemd/user/`, el enlace ha quedado roto:
+`ea servicios instalar` (o `ea instalar`) lo sustituye por la unidad generada.
+El estado y el reinicio de los servicios (`ea servicios ver`, el
 panel y `ea_reiniciar_servicio`) pasan por el mismo gestor de cada sistema.
 En el panel, ▦ Sistema trae el bloque «servicios residentes» con lo mismo que
 `ea servicios ver` (sistema y gestor, unidad y ruta del binario de cada
@@ -1263,16 +1266,8 @@ planificador no exige reconectar: los roles se releen en cada llamada.
 Code se conecta sin la cabecera y queda como `desconocido`, que solo lee.
 
 Instalación como servicio de sesión: `ea servicios instalar` (ver
-[Instalación por sistema](#instalación-por-sistema)) o, a mano en Linux
-(`systemd --user`):
-
-```bash
-mkdir -p ~/.config/systemd/user
-ln -sf ~/Proyectos/ecosistema-asistente/crates/ea-mcp/systemd/ea-mcp.service \
-    ~/.config/systemd/user/ea-mcp.service
-systemctl --user daemon-reload
-systemctl --user enable --now ea-mcp.service
-```
+[Instalación por sistema](#instalación-por-sistema)), que escribe la unidad con
+la ruta real del binario (`ea servicios ver` la enseña antes).
 
 Registro en Claude Code (disponible en cualquier sesión, no solo en este
 directorio; es lo que hace `ea instalar`):
@@ -1840,14 +1835,8 @@ cualquier otra cosa, texto libre incluido, da 400. Queda en el diario como
 `accion_terminal_abierta`.
 
 Instalación como servicio de sesión: `ea servicios instalar` (ver
-[Instalación por sistema](#instalación-por-sistema)) o, a mano en Linux:
-
-```bash
-ln -sf ~/Proyectos/ecosistema-asistente/crates/ea-web/systemd/ea-web.service \
-    ~/.config/systemd/user/ea-web.service
-systemctl --user daemon-reload
-systemctl --user enable --now ea-web.service
-```
+[Instalación por sistema](#instalación-por-sistema)), que escribe la unidad con
+la ruta real del binario (`ea servicios ver` la enseña antes).
 
 `ea-web-open` es solo de Linux (Hyprland/Omarchy). Se abre en el escritorio 4 al iniciar sesión (Hyprland) como `localhost`, no
 `127.0.0.1`, porque esa clase de ventana ya la usa el tutor:
