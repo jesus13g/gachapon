@@ -16,6 +16,8 @@ mod papelera;
 mod presencia;
 mod rutina;
 pub mod skills;
+/// Las marcas del hook de subagentes de Claude Code, bajo la raíz del bus.
+pub mod subagentes;
 mod tipos;
 mod vista;
 mod worktree;
@@ -23,9 +25,9 @@ mod worktree;
 pub use worktree::InfoWorktree;
 pub use git::validar_worktree;
 pub use bus::{comprobar_registro, Bus, Entrega, EntradaCola, ENV_ESTADO, raiz_estado};
-pub use equipo::NuevoEquipo;
+pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo, Miembro, NuevoEquipo, RolEquipo};
 pub use vista::{LineaInforme, MiembroResumen, ResumenEquipo, ResumenTrabajo, VistaEquipo, VistaMiembro, VistaTrabajoEquipo};
-pub use presencia::{Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};
+pub use presencia::{Latido, Presencia, CADUCIDAD_LATIDO_S, INTERVALO_LATIDO_S};
 pub use candado::{CandadoWorktree, Ocupante, listar_semaforos, listar_semaforos_en};
 pub use config::{ConfigOrquestador, PerfilEjecutor, TipoAgente};
 pub use skills::{bloque_prompt, ConfigSkills, Skill};
@@ -44,7 +46,7 @@ pub use instantanea::{
     SALIDA_AGENTE, SALIDA_ANTIGUA, SKILLS_AGENTE,
 };
 pub use tipos::{
-    EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Miembro, Modo, Orden,
-    ResultadoInforme, Rol, RolEquipo, RutinaRef, Topes,
+    EjecutadoPor, Equipo, Estado, EstadoEquipo, EstadoTrabajo, Evento, Fase, FaseInforme, Informe, Modo, Orden,
+    ResultadoInforme, Rol, RutinaRef, Topes,
     transicion,
 };

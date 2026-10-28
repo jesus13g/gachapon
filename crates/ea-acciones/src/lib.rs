@@ -12,6 +12,7 @@
 //! la propuesta desde una interfaz del usuario ([`flujo::aceptar_propuesta`]),
 //! con el nivel de riesgo limitando qué canal puede confirmar.
 
+pub mod ajustes;
 pub mod calendario;
 pub mod catalogo;
 mod diff;

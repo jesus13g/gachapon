@@ -10,12 +10,13 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::config::ConfigOrquestador;
+use crate::equipo::RolEquipo;
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::{escribir_atomico, escribir_json};
 use crate::rutina::{Rutina, MAX_DEFINICION};
 use crate::skills::{pide_skills, ConfigSkills};
 use crate::tipos::{
-    transicion, EjecutadoPor, Estado, EstadoTrabajo, Evento, FaseInforme, Informe, Modo, Orden, ResultadoInforme, Rol, RolEquipo,
+    transicion, EjecutadoPor, Estado, EstadoTrabajo, Evento, FaseInforme, Informe, Modo, Orden, ResultadoInforme, Rol,
 };
 
 pub const ENV_ESTADO: &str = "EA_ESTADO_DIR";

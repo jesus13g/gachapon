@@ -61,11 +61,24 @@ pub struct FichaAgente {
     /// Nombres con que se presenta como cliente MCP (`clientInfo.name` del
     /// `initialize`), comprobados con cada CLI (spec 017, T-009).
     pub clientes_mcp: &'static [&'static str],
+    /// La opción que pasa el prompt inicial a una sesión interactiva; `None`:
+    /// el prompt va solo, tras el binario.
+    pub opcion_prompt: Option<&'static str>,
 }
 
 impl FichaAgente {
     pub fn admite(&self, rol: Rol) -> bool {
         self.roles.contains(&rol)
+    }
+
+    /// El argv que abre una sesión del agente con un prompt inicial;
+    /// interactivo (el prompt no cierra la sesión). Sin herramientas ni
+    /// opciones extra: es la configuración habitual del agente.
+    pub fn argv_interactivo(&self, bin: &str, prompt: &str) -> Vec<String> {
+        let mut argv = vec![bin.to_string()];
+        argv.extend(self.opcion_prompt.map(String::from));
+        argv.push(prompt.to_string());
+        argv
     }
 }
 
@@ -76,18 +89,40 @@ const PLANIFICADOR: &[Rol] = &[Rol::Planificador];
 pub const IDS_AGENTES: &[&str] = &["claude-code", "qwen-code", "codex", "opencode", "antigravity"];
 
 pub static CATALOGO: &[FichaAgente] = &[
-    FichaAgente { id: "claude-code", nombre: "Claude Code", roles: PLANIFICADOR, topes: "—", clientes_mcp: &["claude-code"] },
+    FichaAgente {
+        id: "claude-code",
+        nombre: "Claude Code",
+        roles: PLANIFICADOR,
+        topes: "—",
+        clientes_mcp: &["claude-code"],
+        opcion_prompt: None,
+    },
     FichaAgente {
         id: "qwen-code",
         nombre: "Qwen Code",
         roles: AMBOS,
         topes: "turnos, llamadas y tiempo",
         clientes_mcp: &["qwen-code-mcp-client", "qwen-code"],
+        opcion_prompt: Some("-i"),
     },
-    FichaAgente { id: "codex", nombre: "Codex", roles: AMBOS, topes: "solo tiempo", clientes_mcp: &["codex-mcp-client"] },
-    FichaAgente { id: "opencode", nombre: "OpenCode", roles: AMBOS, topes: "solo tiempo", clientes_mcp: &["opencode"] },
+    FichaAgente { id: "codex", nombre: "Codex", roles: AMBOS, topes: "solo tiempo", clientes_mcp: &["codex-mcp-client"], opcion_prompt: None },
+    FichaAgente {
+        id: "opencode",
+        nombre: "OpenCode",
+        roles: AMBOS,
+        topes: "solo tiempo",
+        clientes_mcp: &["opencode"],
+        opcion_prompt: Some("--prompt"),
+    },
     // `agy` 1.4 se presenta como `antigravity-client` (capturado del `initialize`).
-    FichaAgente { id: "antigravity", nombre: "Antigravity", roles: PLANIFICADOR, topes: "—", clientes_mcp: &["antigravity-client"] },
+    FichaAgente {
+        id: "antigravity",
+        nombre: "Antigravity",
+        roles: PLANIFICADOR,
+        topes: "—",
+        clientes_mcp: &["antigravity-client"],
+        opcion_prompt: Some("-i"),
+    },
 ];
 
 pub fn ficha(id: &str) -> Option<&'static FichaAgente> {
@@ -152,5 +187,20 @@ impl crate::Ajustes {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn el_argv_de_cada_agente_lleva_el_prompt_interactivo() {
+        let argv = |id: &str, bin: &str| ficha(id).unwrap().argv_interactivo(bin, "hola");
+        assert_eq!(argv("claude-code", "claude"), ["claude", "hola"]);
+        assert_eq!(argv("qwen-code", "qwen"), ["qwen", "-i", "hola"]);
+        assert_eq!(argv("opencode", "opencode"), ["opencode", "--prompt", "hola"]);
+        assert_eq!(argv("antigravity", "agy"), ["agy", "-i", "hola"]);
+        assert_eq!(argv("codex", "codex"), ["codex", "hola"]);
     }
 }

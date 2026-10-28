@@ -10,7 +10,8 @@ use time::OffsetDateTime;
 use crate::bus::Bus;
 use crate::error::Resultado;
 use crate::presencia::Presencia;
-use crate::tipos::{EjecutadoPor, Equipo, EstadoEquipo, EstadoTrabajo, Informe, Modo, ResultadoInforme, RolEquipo, RutinaRef};
+use crate::equipo::RolEquipo;
+use crate::tipos::{EjecutadoPor, Equipo, EstadoEquipo, EstadoTrabajo, Informe, Modo, ResultadoInforme, RutinaRef};
 
 /// Un miembro del equipo y si está despierto ahora.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

@@ -176,7 +176,8 @@ fn ofrecer_dependencias(ctx: &Contexto, sonda: &dyn Sonda, solo: Option<&[&str]>
 }
 
 /// Fija ajustes como `ea ajustes establecer` (canal terminal) y lo apunta
-/// en el diario.
+/// en el diario, sin sus efectos: el autoarranque lo aplica quien llama, con
+/// el binario instalado.
 fn fijar_ajustes(cambios: &[(&str, Value)]) -> Result<()> {
     let f = Fuentes::sistema();
     let lote: Vec<(String, Option<Value>)> = cambios.iter().map(|(k, v)| ((*k).to_string(), Some(v.clone()))).collect();
@@ -297,14 +298,14 @@ pub fn instalar(op: Opciones) -> Result<()> {
         cambios.push(("agente.sandbox", Value::Bool(false)));
     }
     if ctx.con_escritorio {
-        cambios.push((ea_ajustes::CLAVE_AL_INICIAR, Value::Bool(true)));
+        cambios.push((ea_acciones::ajustes::CLAVE_AL_INICIAR, Value::Bool(true)));
     }
     if !cambios.is_empty() {
         fijar_ajustes(&cambios)?;
     }
     if ctx.con_escritorio {
         // Con el binario instalado, no con el del paquete temporal.
-        if let Err(e) = ea_ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
+        if let Err(e) = ea_acciones::ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
             eprintln!("aviso: {e}");
         }
     }
@@ -407,9 +408,9 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
     if !confirmar_y_aplicar(&pasos, &extra)? {
         return Ok(());
     }
-    fijar_ajustes(&[("escritorio.wsl", Value::String(distro.clone())), (ea_ajustes::CLAVE_AL_INICIAR, Value::Bool(true))])?;
+    fijar_ajustes(&[("escritorio.wsl", Value::String(distro.clone())), (ea_acciones::ajustes::CLAVE_AL_INICIAR, Value::Bool(true))])?;
     let escritorio = ctx.destinos.bin.join(nombre_binario(ctx.sistema, BINARIO_ESCRITORIO));
-    if let Err(e) = ea_ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
+    if let Err(e) = ea_acciones::ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
         eprintln!("aviso: {e}");
     }
     // Los agentes de la vía WSL están dentro: su resumen ya lo dio el
@@ -466,10 +467,10 @@ pub fn desinstalar() -> Result<()> {
         return Ok(());
     }
     // Primero el autoarranque: después ya no estaría el binario.
-    if let Err(e) = fijar_ajustes(&[(ea_ajustes::CLAVE_AL_INICIAR, Value::Bool(false))]) {
+    if let Err(e) = fijar_ajustes(&[(ea_acciones::ajustes::CLAVE_AL_INICIAR, Value::Bool(false))]) {
         eprintln!("aviso: {e:#}");
     }
-    if let Err(e) = ea_ajustes::aplicar_al_iniciar(false, None) {
+    if let Err(e) = ea_acciones::ajustes::aplicar_al_iniciar(false, None) {
         eprintln!("aviso: {e}");
     }
     let hecho = aplicar(&pasos, &mut |argv| correr_orden(argv)).map_err(anyhow::Error::msg)?;

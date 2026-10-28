@@ -2,15 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::equipo::{Miembro, RolEquipo};
 use crate::error::{ErrorBus, Resultado};
 
 /// El rol de una cola: el planificador (`claude-code` en disco) o el
 /// ejecutor (`modelo-local`). Lo define `ea-ajustes` (spec 017, RF-001).
 pub use ea_ajustes::Rol;
-
-/// Miembro de un equipo y su rol dentro de él (spec 019). Los define
-/// `ea-ajustes`, que valida los equipos.
-pub use ea_ajustes::{Miembro, RolEquipo};
 
 /// Quién ejecutó una iteración: el agente (id del catálogo) y el nombre del
 /// modelo con el que se tomó el trabajo (spec 017, RF-008). Opcional en todo

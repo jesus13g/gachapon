@@ -89,7 +89,7 @@ impl WebConfig {
             systemctl: true,
             sesiones_dir: ea_plataforma::usuario::home().map(|h| h.join(".claude/sessions")),
             // Junto al estado del bus, como el hook (que lee EA_ESTADO_DIR).
-            subagentes_dir: Some(a.rutas.estado.join("subagentes")),
+            subagentes_dir: Some(ea_bus::subagentes::dir(&a.rutas.estado)),
             proyectos_claude_dir: ea_plataforma::usuario::home().map(|h| h.join(".claude/projects")),
             estado_dir: a.rutas.estado,
             ajustes: fuentes,

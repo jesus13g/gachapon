@@ -70,7 +70,8 @@ fn ms(rfc3339: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ea_ajustes::{Fuentes, RolEquipo};
+    use ea_ajustes::Fuentes;
+    use ea_bus::RolEquipo;
 
     #[test]
     fn solo_las_presencias_vivas_y_los_semaforos_sin_presencia() {

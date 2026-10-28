@@ -377,8 +377,8 @@ volver a arrancar los servicios.
   (rutas, procesos, ficheros privados, terminal, servicios); no depende de
   ningún otro crate del workspace.
 - `crates/ea-ajustes`: los ajustes (`ajustes.toml` y los TOML heredados), con
-  su registro de claves, validación y escritura atómica; solo depende de
-  `ea-plataforma`.
+  su registro de claves, validación y escritura atómica, y el catálogo estático
+  (agentes y roles); solo depende de `ea-plataforma`.
 - `crates/ea-biblioteca`: la biblioteca de herramientas (spec 018): inventario de
   solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de
   los agentes, su uso, los planes de activar y desactivar y de sesión efímera;
@@ -386,13 +386,15 @@ volver a arrancar los servicios.
 - `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
   propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
-  del worktree, rutinas versionadas y la configuración del ejecutor.
+  del worktree, rutinas versionadas, equipos y presencia de los agentes, las
+  marcas del hook de subagentes y la configuración del ejecutor.
 - `crates/ea-orchestrator`: binario `ea-orchestrator`, el ejecutor del agente
   local y el heartbeat.
 - `crates/ea-acciones`: catálogo único de herramientas con riesgo, simulación,
-  revalidación y el flujo propuesta → aceptación → ejecución; también la salud
-  de los servicios residentes y de los agentes (`salud`), que leen el panel,
-  `ea agentes` y la TUI.
+  revalidación y el flujo propuesta → aceptación → ejecución; también cambiar
+  los ajustes con sus efectos y su evento en el diario (`ajustes`, para
+  `ea ajustes` y el panel) y la salud de los servicios residentes y de los
+  agentes (`salud`), que leen el panel, `ea agentes` y la TUI.
 - `crates/ea-boveda`: la bóveda de notas; único código que escribe en ella.
 - `crates/ea-cli`: binario `ea`, CLI y TUI; también el instalador (`ea instalar`,
   `ea desinstalar`, módulo `instalacion`), que lleva embebidos `claude/skills`,

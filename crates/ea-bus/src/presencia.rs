@@ -1,9 +1,15 @@
 //! Presencia de los agentes (spec 019, RF-010): `agentes/<agente-id>/presencia.json`,
 //! escrito con `fs_atomico`. Dice quién está despierto, en qué trabaja y desde
 //! cuándo. Caduca si el proceso ya no vive o si el último latido es viejo.
+//! Quien la sostiene (un trabajador del orquestador o una sesión de equipo)
+//! la mantiene con un [`Latido`].
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
@@ -12,7 +18,7 @@ use time::OffsetDateTime;
 use crate::bus::{ahora_rfc3339, Bus};
 use crate::error::{ErrorBus, Resultado};
 use crate::fs_atomico::escribir_json;
-use crate::tipos::RolEquipo;
+use crate::equipo::RolEquipo;
 
 /// Una presencia sin latido en estos segundos está caducada.
 pub const CADUCIDAD_LATIDO_S: i64 = 90;
@@ -111,5 +117,88 @@ impl Bus {
             .collect();
         v.sort_by(|a, b| a.agente.cmp(&b.agente));
         v.into_iter().map(|p| { let viva = p.viva_en(ahora); (p, viva) }).collect()
+    }
+}
+
+/// Una presencia que late mientras vive el valor. [`Latido::anotar`] la
+/// escribe y un hilo aparte la renueva cada `cada` con el trabajo actual
+/// ([`Latido::fijar`]); al soltarlo, deja de latir y la quita si sigue siendo
+/// suya (el mismo pid). El hilo deja de latir antes, y la presencia caduca
+/// sola, si ya no es suya o si `sigue` dice que no. Su `Bus` (sin historial:
+/// solo toca ficheros) y el trabajo actual van bajo un mismo `Mutex`, que
+/// además ordena las escrituras de `presencia.json`.
+pub struct Latido {
+    comun: Arc<Comun>,
+    parar: Option<mpsc::Sender<()>>,
+    hilo: Option<JoinHandle<()>>,
+}
+
+struct Comun {
+    agente: String,
+    pid: u32,
+    estado: Mutex<(Bus, Option<String>)>,
+}
+
+impl Comun {
+    fn es_suya(&self, bus: &Bus) -> bool {
+        bus.presencia_de(&self.agente).ok().flatten().is_some_and(|p| p.pid == self.pid)
+    }
+}
+
+impl Latido {
+    /// Anota `presencia` y empieza a latir. `sigue` se mira (con el `Bus` del
+    /// hilo) antes de cada latido.
+    pub fn anotar(bus: &Bus, presencia: &Presencia, cada: Duration, sigue: impl Fn(&Bus) -> bool + Send + 'static) -> Resultado<Self> {
+        let propio = Bus::abrir_en(bus.raiz())?;
+        bus.anotar_presencia(presencia)?;
+        let comun = Arc::new(Comun { agente: presencia.agente.clone(), pid: presencia.pid, estado: Mutex::new((propio, None)) });
+        let (tx, rx) = mpsc::channel::<()>();
+        let c = Arc::clone(&comun);
+        let hilo = std::thread::spawn(move || {
+            while let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(cada) {
+                let g = c.estado.lock().unwrap_or_else(|e| e.into_inner());
+                if !sigue(&g.0) || !c.es_suya(&g.0) {
+                    return;
+                }
+                if let Err(e) = g.0.latir(&c.agente, g.1.as_deref()) {
+                    tracing::debug!(agente = %c.agente, error = %e, "no se pudo latir");
+                }
+            }
+        });
+        Ok(Self { comun, parar: Some(tx), hilo: Some(hilo) })
+    }
+
+    /// Cambia el trabajo actual y late ya.
+    pub fn fijar(&self, trabajo: Option<&str>) {
+        let mut g = self.comun.estado.lock().unwrap_or_else(|e| e.into_inner());
+        g.1 = trabajo.map(Into::into);
+        if let Err(e) = g.0.latir(&self.comun.agente, trabajo) {
+            tracing::debug!(agente = %self.comun.agente, error = %e, "no se pudo latir");
+        }
+    }
+
+    /// Como soltarlo, pero con el error de quitar la presencia.
+    pub fn soltar(mut self) -> Resultado<()> {
+        self.detener()
+    }
+
+    fn detener(&mut self) -> Resultado<()> {
+        let Some(hilo) = self.hilo.take() else { return Ok(()) };
+        drop(self.parar.take());
+        let _ = hilo.join();
+        let g = self.comun.estado.lock().unwrap_or_else(|e| e.into_inner());
+        // Solo la propia: otra sesión del mismo agente no se pisa.
+        if g.0.presencia_de(&self.comun.agente)?.is_some_and(|p| p.pid == self.comun.pid) {
+            g.0.quitar_presencia(&self.comun.agente)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Latido {
+    fn drop(&mut self) {
+        if let Err(e) = self.detener() {
+            tracing::warn!(agente = %self.comun.agente, error = %e, "no se pudo quitar la presencia");
+        }
     }
 }

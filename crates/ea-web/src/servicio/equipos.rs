@@ -4,8 +4,8 @@
 //! `validar_equipo`, disponibilidad de los binarios, tope `orquestador.paralelo`
 //! y un agente en un solo equipo despierto, todo dentro de `Bus::crear_equipo`.
 
-use ea_ajustes::{comprobar_disponibles, ficha, parse_miembro, repartir_todos, Miembro, RolEquipo};
-use ea_bus::{NuevoEquipo, ResumenEquipo, VistaEquipo};
+use ea_ajustes::ficha;
+use ea_bus::{comprobar_disponibles, parse_miembro, repartir_todos, Miembro, NuevoEquipo, ResumenEquipo, RolEquipo, VistaEquipo};
 use ea_store::{EventOutcome, NewEvent};
 use serde::{Deserialize, Serialize};
 
@@ -82,17 +82,16 @@ pub async fn despertar(s: &AppState, cuerpo: serde_json::Value) -> Resultado<Des
     let ajustes = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
     let path = std::env::var_os("PATH");
     let (lista, omitidos): (Vec<Miembro>, Vec<String>) = if p.todos {
-        repartir_todos(&ajustes, path.as_deref()).map_err(ErrorWeb::Invalido)?
+        repartir_todos(&ajustes, path.as_deref())?
     } else {
         let lista = p
             .miembros
             .iter()
             .map(|m| parse_miembro(&format!("{}:{}", m.agente, m.rol)))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(ErrorWeb::Invalido)?;
+            .collect::<Result<Vec<_>, _>>()?;
         (lista, vec![])
     };
-    comprobar_disponibles(&lista, &ajustes, path.as_deref()).map_err(ErrorWeb::Invalido)?;
+    comprobar_disponibles(&lista, &ajustes, path.as_deref())?;
     let equipo = bus_con_store(s)
         .await?
         .crear_equipo(NuevoEquipo { titulo, objetivo, worktree_base: worktree, miembros: lista, creado_por: ACTOR.into() }, &ajustes)?;

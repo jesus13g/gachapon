@@ -2152,6 +2152,12 @@ async fn cambiar_un_ajuste_escribe_el_fichero_y_lo_apunta() {
     let (_, d) = get(&f, "/api/diario").await;
     let ev = d.as_array().unwrap().iter().find(|e| e["accion"] == "ajustes_cambiados").expect("evento");
     assert_eq!(ev["actor"], "usuario");
+    // El detalle, byte a byte (es el mismo que deja la terminal, con su canal).
+    let detalle = format!(
+        r#"{{"canal":"web","fichero":{},"cambios":[{{"clave":"web.sondeo_ms","antes":3000,"despues":5000}}]}}"#,
+        json!(fichero.display().to_string())
+    );
+    assert_eq!(ev["detalle"], detalle);
     // versión vieja: 409 y el fichero no cambia
     let (s, _) = post(&f, "/api/ajustes", json!({ "version": "", "cambios": { "web.sondeo_ms": 6000 } })).await;
     assert_eq!(s, StatusCode::CONFLICT);

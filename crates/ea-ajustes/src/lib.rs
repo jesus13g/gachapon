@@ -12,14 +12,16 @@
 //! perfil de modelo también vive aquí (spec 017), con el catálogo cerrado de
 //! agentes (`agentes`). Ni ea-mcp ni el orquestador tienen
 //! forma de escribir aquí.
+//!
+//! Solo ajustes y catálogo estático: los equipos, la presencia y las marcas
+//! de los subagentes son del bus (`ea-bus`), y aplicar un cambio de ajustes
+//! con sus efectos y su evento en el diario, de `ea_acciones::ajustes`.
 
 mod agentes;
 mod cargar;
 pub mod descargas;
 pub mod claves;
 mod ejecucion;
-mod equipo;
-mod efectos;
 mod error;
 mod escribir;
 mod fuentes;
@@ -29,12 +31,10 @@ mod vista;
 pub use agentes::{buscar_binario, ficha, id_perfil_valido, por_cliente_mcp, FichaAgente, Rol, VistaAgente, CATALOGO, IDS_AGENTES};
 pub use cargar::{cargar, cargar_de, Efectivos, Origen};
 pub use claves::{clave, concretas, sin_alias, titulo, Aplica, Canal, Clave, Edicion, Tipo, ALIAS, CLAVES, SECCIONES};
-pub use equipo::{comprobar_disponibles, parse_miembro, repartir_todos, validar_equipo, Miembro, RolEquipo};
 pub use ejecucion::{
     clave_web_valida, dir_ejecucion, fichero_clave_web, fichero_presencia_escritorio, DIR_ESCRITORIO, DIR_WEB, FICHERO_CLAVE,
     FICHERO_PRESENCIA,
 };
-pub use efectos::{aplicar_al_iniciar, aplicar_efectos, binario_escritorio, CLAVE_AL_INICIAR};
 pub use error::ErrorAjustes;
 pub use escribir::{escribir_atomico, establecer, huella, interpretar, Aplicado};
 pub use fuentes::{

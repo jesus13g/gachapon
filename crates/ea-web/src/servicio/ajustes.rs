@@ -6,11 +6,10 @@
 
 use std::collections::BTreeMap;
 
-use ea_ajustes::{cargar_de, establecer, Canal, ErrorAjustes};
-use ea_store::{EventOutcome, NewEvent};
-use serde_json::{json, Value};
+use ea_ajustes::{cargar_de, Canal, ErrorAjustes};
+use serde_json::Value;
 
-use super::{ErrorWeb, Resultado, ACTOR};
+use super::{ErrorWeb, Resultado};
 use crate::vistas::{AjusteAplicado, AjustesCambiados, AjustesVista};
 use crate::AppState;
 
@@ -38,38 +37,24 @@ pub fn ver(s: &AppState) -> AjustesVista {
 pub async fn cambiar(s: &AppState, version: &str, cambios: BTreeMap<String, Option<Value>>) -> Resultado<AjustesCambiados> {
     let _turno = s.ajustes_escritura.lock().await;
     let lote: Vec<(String, Option<Value>)> = cambios.into_iter().collect();
-    let aplicados = establecer(&s.config.ajustes, Canal::Web, Some(version), &lote)?;
-
-    // El efecto de `escritorio.al_iniciar` (autoarranque); si falla, el ajuste
-    // ya está guardado y queda en el log.
-    // E/S bloqueante (ficheros, `reg` en Windows): fuera del ejecutor async.
-    let copia = aplicados.clone();
-    let avisos = tokio::task::spawn_blocking(move || ea_ajustes::aplicar_efectos(&copia))
+    // El caso de uso entero (el fichero, el diario y el autoarranque de
+    // `escritorio.al_iniciar`) es E/S bloqueante (ficheros, `reg` en Windows):
+    // fuera del ejecutor async, con su propia conexión al diario.
+    let diario = s.store.lock().await.duplicar();
+    let (fuentes, version) = (s.config.ajustes.clone(), version.to_string());
+    let c = tokio::task::spawn_blocking(move || ea_acciones::ajustes::cambiar(&fuentes, Canal::Web, Some(&version), &lote, || diario))
         .await
-        .unwrap_or_else(|e| vec![format!("no se pudo aplicar el efecto del ajuste: {e}")]);
-    for aviso in &avisos {
+        .map_err(|e| ErrorWeb::Interno(format!("no se pudo aplicar el cambio de ajustes: {e}")))??;
+    // La escritura ya está hecha: si el diario o un efecto fallan, se avisa en el log.
+    if let Some(e) = &c.sin_diario {
+        tracing::warn!(error = %e, "no se pudo apuntar el cambio de ajustes en el diario");
+    }
+    for aviso in &c.avisos {
         tracing::warn!("{aviso}");
     }
 
-    let detalle = json!({
-        "canal": "web",
-        "fichero": s.config.ajustes.fichero().display().to_string(),
-        "cambios": aplicados.iter().map(|a| json!({ "clave": a.clave, "antes": a.antes, "despues": a.despues })).collect::<Vec<_>>(),
-    });
-    let evento = NewEvent {
-        actor: ACTOR.into(),
-        action: "ajustes_cambiados".into(),
-        outcome: Some(EventOutcome::Ok),
-        detail: Some(detalle.to_string()),
-        ..Default::default()
-    };
-    // La escritura ya está hecha: si el diario falla, se avisa en el log.
-    if let Err(e) = s.store.lock().await.append_event(evento) {
-        tracing::warn!(error = %e, "no se pudo apuntar el cambio de ajustes en el diario");
-    }
-
     Ok(AjustesCambiados {
-        aplicados: aplicados
+        aplicados: c.aplicados
             .into_iter()
             .map(|a| AjusteAplicado {
                 clave: a.clave,
@@ -80,6 +65,6 @@ pub async fn cambiar(s: &AppState, version: &str, cambios: BTreeMap<String, Opti
             })
             .collect(),
         ajustes: ver(s),
-        avisos,
+        avisos: c.avisos,
     })
 }

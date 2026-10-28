@@ -348,8 +348,7 @@ pub fn categoria(id: &str, categoria: Option<&str>, quitar: bool) -> Result<()> 
         _ => bail!("indica una categoría o --quitar"),
     }
     let valor = if mapa.is_empty() { None } else { Some(serde_json::to_value(&mapa)?) };
-    let aplicados = ea_ajustes::establecer(&f, ea_ajustes::Canal::Terminal, None, &[(CLAVE_CATEGORIAS.to_string(), valor)])?;
-    super::ajustes::apuntar(&f, &aplicados);
+    super::ajustes::cambiar(&f, &[(CLAVE_CATEGORIAS.to_string(), valor)])?;
     match categoria {
         Some(c) => println!("{id}: categoría «{c}»."),
         None => println!("{id}: vuelve a su categoría por defecto (el origen)."),
