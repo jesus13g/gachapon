@@ -335,8 +335,7 @@ impl Sistema for SistemaReal {
         let r = self
             .consulta
             .bus()?
-            .con_store(store.duplicar().map_err(|e| e.to_string())?)
-            .con_actor(actor)
+            .con_store(store.duplicar().map_err(|e| e.to_string())?, actor)
             .registrar_rutina(texto, &self.consulta.rutinas_dir)
             .map_err(|e| e.to_string())?;
         Ok((r.rutina.slug, r.rutina.version))

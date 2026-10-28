@@ -315,7 +315,7 @@ fn cada_trayectoria_deja_en_disco_lo_mismo_que_siempre() {
     fs::write(skills.join("tests.md"), "---\ndescripcion: tests\n---\nPrueba primero.\n").unwrap();
     let mut cfg = ConfigOrquestador { avisos_escritorio: false, sandbox: false, ..Default::default() };
     cfg.skills.dir = skills.to_string_lossy().into();
-    let bus = Bus::abrir_en(&d.join("estado")).unwrap().con_store(Store::open_at(&db).unwrap()).con_skills(cfg.skills.clone());
+    let bus = Bus::abrir_en(&d.join("estado")).unwrap().con_store(Store::open_at(&db).unwrap(), ea_ajustes::ACTOR_ORQUESTADOR).con_skills(cfg.skills.clone());
     let mut out = String::new();
 
     // Misión que pasa a la primera, con skills.

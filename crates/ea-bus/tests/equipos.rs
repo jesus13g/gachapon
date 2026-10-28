@@ -90,7 +90,7 @@ fn sin_equipo_la_orden_se_serializa_como_antes() {
 fn despertar_y_dormir_un_equipo_deja_rastro_en_el_diario() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store).con_actor("ea-cli");
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, "usuario");
     let mut a = ajustes(d.path());
     a.orquestador.paralelo = 4;
     let eq = bus.crear_equipo(nuevo(miembros()), &a).unwrap();

@@ -517,7 +517,7 @@ async fn diff_de_una_fase_usa_las_instantaneas() {
     o.criterio_exito = None;
     o.fases = vec![fase(1), fase(2), fase(3)];
     let store = f.state.store.lock().await.duplicar().unwrap();
-    let bus = bus(&f).con_store(store);
+    let bus = bus(&f).con_store(store, "orquestador");
     let id = bus.crear_trabajo(o).unwrap();
 
     // La obra cierra las fases 1 y 2 con su instantánea; la 3 sigue pendiente.

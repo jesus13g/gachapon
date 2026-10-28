@@ -66,7 +66,7 @@ fn el_diff_es_el_de_git_mas_los_ficheros_nuevos() {
     let wt = d.path().join("repo");
     let inicio = repo(&wt);
     let store = ea_store::Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, "orquestador");
     let id = bus.crear_trabajo(orden(&wt)).unwrap();
     bus.escribir_informe(&id, &Informe { commit_inicio: Some(inicio.clone()), ..Informe::nuevo(ResultadoInforme::Terminado) })
         .unwrap();

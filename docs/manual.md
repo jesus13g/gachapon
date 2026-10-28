@@ -1093,6 +1093,16 @@ canónica. Una obra numera sus fases `1, 2, …, N` en el orden en que
 van. El bus exige además, la cree quien la cree, el worktree absoluto, esa
 numeración, el criterio y las skills.
 
+Lo que la CLI hace en el bus (crear, cancelar, cerrar o reformular trabajos,
+registrar y lanzar rutinas, despertar equipos) y `ea boveda reindexar` quedan en
+el diario a nombre de `usuario` si `ea` corre en una terminal interactiva (stdin
+y stdout son un TTY) y, si no, a nombre de `claude-code`, el rol del
+planificador en disco: sin terminal lo lanza un agente con Bash, y el MCP le da
+ese mismo actor. Los eventos de antes siguen como estaban, con el actor
+`ea-cli`, y el filtro «quién» del diario los sigue encontrando. Un timer de
+rutina, que lanza `ea rutina lanzar` sin terminal, también firma como
+`claude-code`.
+
 Lo que viene de fuera (lo que escriben los agentes y la salida de los
 criterios: títulos, motivos, avisos, evidencias, descripciones de propuestas,
 el trabajo o el actor de un evento) llega a la terminal sin caracteres de

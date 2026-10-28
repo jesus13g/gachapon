@@ -309,7 +309,7 @@ fn trabajo_confirmar_hoy_no_exige_terminal_u04() {
     let o = m.ea(&["rutina", "lanzar", "informe"], "");
     assert!(o.status.success(), "{}", salida(&o));
     let id = String::from_utf8_lossy(&o.stdout).trim().to_string();
-    let bus = Bus::abrir_en(&m.ruta("estado")).unwrap().con_store(Store::open_at(&m.ruta("ea.db")).unwrap());
+    let bus = Bus::abrir_en(&m.ruta("estado")).unwrap().con_store(Store::open_at(&m.ruta("ea.db")).unwrap(), "orquestador");
     bus.retirar_de_colas(&id).unwrap();
     bus.aplicar(&id, ea_bus::Evento::Tomar).unwrap();
     let informe = serde_json::from_value(json!({ "resultado": "bloqueado", "motivo": "no pasa", "duracion_s": 1 })).unwrap();

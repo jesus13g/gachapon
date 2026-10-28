@@ -215,7 +215,7 @@ fn huella(texto: &str) -> String {
 /// El bus de la raíz `estado` ([`Consulta::estado_dir`]), con historial.
 pub(crate) fn bus_de(estado: &Path, store: &Store, actor: &str) -> Result<ea_bus::Bus, ErrorAccion> {
     let bus = ea_bus::Bus::abrir_en(estado).map_err(|e| ErrorAccion::Sistema(e.to_string()))?;
-    Ok(bus.con_store(store.duplicar()?).con_actor(actor))
+    Ok(bus.con_store(store.duplicar()?, actor))
 }
 
 fn comprobar_slug(slug: &str) -> Result<(), ErrorAccion> {

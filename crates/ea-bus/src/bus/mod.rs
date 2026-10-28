@@ -67,6 +67,9 @@ pub fn id_valido(id: &str) -> bool {
 pub struct Bus {
     pub(crate) raiz: PathBuf,
     pub(crate) store: Option<Store>,
+    /// Quien firma en el diario lo que hace este bus. Llega con el store
+    /// ([`Bus::con_store`]): sin base no se firma nada, y con ella no hay
+    /// actor por defecto (U-06).
     pub(crate) actor: String,
     /// Configuración de skills con la que se validan las órdenes al crear.
     /// `None`: la de los ajustes efectivos, leída solo si la orden pide skills.
@@ -86,17 +89,13 @@ impl Bus {
         for d in ["trabajos", "semaforos", "equipos", "colas/agentes", "colas/revision"] {
             fs::create_dir_all(raiz.join(d))?;
         }
-        Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: ea_ajustes::ACTOR_ORQUESTADOR.into(), skills: None })
+        Ok(Self { raiz: raiz.to_path_buf(), store: None, actor: String::new(), skills: None })
     }
 
-    /// Con historial y diario en SQLite.
-    pub fn con_store(mut self, store: Store) -> Self {
+    /// Con historial y diario en SQLite, a nombre de `actor`: quien llama dice
+    /// siempre quién es (el orquestador, el usuario, el planificador…).
+    pub fn con_store(mut self, store: Store, actor: &str) -> Self {
         self.store = Some(store);
-        self
-    }
-
-    /// Actor con el que se registran los eventos del diario.
-    pub fn con_actor(mut self, actor: &str) -> Self {
         self.actor = actor.into();
         self
     }

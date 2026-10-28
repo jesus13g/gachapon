@@ -60,7 +60,7 @@ pub(super) fn inf_obra_completa(bus: &Bus, id: &str) -> bool {
 
 pub(super) fn con_store(e: &Path) -> Bus {
     let s = ea_store::Store::open_at(&e.join("ea.db")).unwrap();
-    Bus::abrir_en(&e.join("estado")).unwrap().con_store(s)
+    Bus::abrir_en(&e.join("estado")).unwrap().con_store(s, ea_ajustes::ACTOR_ORQUESTADOR)
 }
 
 pub(super) fn fases3(wt: &Path, revisar_cada: Option<u32>) -> Orden {

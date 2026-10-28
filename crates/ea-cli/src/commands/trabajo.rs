@@ -10,9 +10,9 @@ use super::{limpio, Contexto};
 /// El bus con historial si la base abre (sin ella, sigue): el de `ea equipo`.
 pub(super) fn bus() -> Result<Bus> {
     let rutas = ea_ajustes::cargar().rutas;
-    let b = Bus::abrir_en(&rutas.estado)?.con_actor("ea-cli");
+    let b = Bus::abrir_en(&rutas.estado)?;
     Ok(match ea_store::Store::open_at(&rutas.db) {
-        Ok(s) => b.con_store(s),
+        Ok(s) => b.con_store(s, super::actor()),
         Err(_) => b,
     })
 }

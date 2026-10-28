@@ -155,7 +155,7 @@ fn bus_lectura(s: &AppState) -> Resultado<Bus> {
 /// Bus con el historial y el diario de SQLite, para las acciones del usuario.
 async fn bus_con_store(s: &AppState) -> Resultado<Bus> {
     let store = s.acciones.lock().await.duplicar()?;
-    Ok(bus_lectura(s)?.con_actor(ACTOR).con_store(store))
+    Ok(bus_lectura(s)?.con_store(store, ACTOR))
 }
 
 // --------------------------------------------------------------- validación

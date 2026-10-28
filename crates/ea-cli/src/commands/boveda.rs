@@ -100,7 +100,7 @@ pub fn leer(ruta: &str, desde: usize) -> Result<()> {
 }
 
 pub fn reindexar(store: &mut Store) -> Result<()> {
-    let r = Boveda::configurada().reindexar(store, ea_ajustes::ACTOR_USUARIO)?;
+    let r = Boveda::configurada().reindexar(store, super::actor())?;
     println!(
         "Índice reconstruido: {} nuevas, {} actualizadas, {} eliminadas, {} omitidas por tamaño",
         r.indexadas, r.actualizadas, r.eliminadas, r.omitidas

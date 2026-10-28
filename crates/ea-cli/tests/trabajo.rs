@@ -135,6 +135,28 @@ fn el_worktree_queda_canonico_por_las_dos_formas() {
     falla_con(&ea(d, &sin_repo, &corta), "no está dentro de un repositorio git");
 }
 
+/// U-06: sin terminal, quien lanza `ea` es un agente con Bash (el
+/// planificador), y lo que hace en el bus queda firmado con su rol en disco,
+/// el mismo actor que le da el MCP; ya no como `ea-cli`.
+#[test]
+fn sin_terminal_la_cli_firma_en_el_diario_como_el_planificador() {
+    let d = tempfile::tempdir().unwrap();
+    let d = d.path();
+    let wt = d.join("repo");
+    repo_git(&wt, true);
+    let o = crear_con_orden(d, wt.to_str().unwrap(), None);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let id = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    let o = ea(d, d, &["trabajo", "cancelar", &id]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let store = ea_store::Store::open_at(&d.join("ea.db")).unwrap();
+    let eventos = store.list_events_by_trabajo(&id).unwrap();
+    assert!(eventos.len() >= 2, "{eventos:?}");
+    for e in &eventos {
+        assert_eq!(e.actor, ea_ajustes::Rol::Planificador.as_str(), "{e:?}");
+    }
+}
+
 /// Lo que puede dejar un agente en su texto o en la salida de su criterio: un
 /// OSC 52 (escribe en el portapapeles de la terminal), un borrado de pantalla,
 /// un color, el CSI de 8 bits y un retorno de carro (para pisar la línea).

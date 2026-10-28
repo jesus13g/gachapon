@@ -14,7 +14,7 @@ fn abrir_bus() -> anyhow::Result<Bus> {
     let rutas = ea_ajustes::cargar().rutas;
     let bus = Bus::abrir_en(&rutas.estado)?;
     Ok(match Store::open_at(&rutas.db) {
-        Ok(s) => bus.con_store(s),
+        Ok(s) => bus.con_store(s, ACTOR),
         Err(e) => {
             tracing::warn!(error = %e, "bus sin historial SQLite");
             bus

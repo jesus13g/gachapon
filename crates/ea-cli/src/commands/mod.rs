@@ -24,6 +24,18 @@ use ea_store::{AccionPropuesta, Propuesta, Store};
 use time::macros::format_description;
 use time::OffsetDateTime;
 
+/// Quién firma en el diario lo que esta CLI hace en el bus (U-06): el usuario
+/// si stdin y stdout son una terminal interactiva; sin ella, quien lanza `ea`
+/// es un agente con Bash, el planificador, con el mismo actor que le da el MCP
+/// (su rol en disco). Los eventos viejos siguen firmados como `ea-cli`.
+pub fn actor() -> &'static str {
+    actor_segun(ea_acciones::terminal_interactiva().is_ok())
+}
+
+fn actor_segun(con_terminal: bool) -> &'static str {
+    if con_terminal { ea_ajustes::ACTOR_USUARIO } else { ea_ajustes::Rol::Planificador.as_str() }
+}
+
 /// Lo que comparten las órdenes de un `ea`: los ajustes, cargados una vez, y
 /// la base de datos y los timers de las rutinas, que se abren la primera vez
 /// que una orden los pide (una que no los usa no los abre).
@@ -52,14 +64,14 @@ impl Contexto {
         self.temporizadores.get_or_insert_with(Temporizadores::usuario)
     }
 
-    /// El bus del usuario (actor `ea-cli`) con el historial en la base, que
-    /// pasa al bus: para lo que crea o mueve trabajos y rutinas.
+    /// El bus con el historial en la base, que pasa al bus, firmado con
+    /// [`actor`]: para lo que crea o mueve trabajos y rutinas.
     pub fn bus(&mut self) -> Result<Bus> {
         let store = match self.store.take() {
             Some(s) => s,
             None => Store::open_at(&self.ajustes().rutas.db)?,
         };
-        Ok(Bus::abrir_en(&self.ajustes().rutas.estado)?.con_actor("ea-cli").con_store(store))
+        Ok(Bus::abrir_en(&self.ajustes().rutas.estado)?.con_store(store, actor()))
     }
 
     /// El sistema real para lo que el usuario confirma desde esta terminal.
@@ -174,7 +186,14 @@ pub fn confirmar_en_terminal(
 
 #[cfg(test)]
 mod tests {
-    use super::{limpio, respuesta_confirma};
+    use super::{actor_segun, limpio, respuesta_confirma};
+
+    #[test]
+    fn la_cli_firma_como_usuario_con_terminal_y_como_planificador_sin_ella() {
+        assert_eq!(actor_segun(true), ea_ajustes::ACTOR_USUARIO);
+        // El mismo actor que el MCP da al planificador con credencial.
+        assert_eq!(actor_segun(false), ea_ajustes::Rol::Planificador.as_str());
+    }
 
     #[test]
     fn lo_que_se_imprime_no_lleva_secuencias_de_escape() {

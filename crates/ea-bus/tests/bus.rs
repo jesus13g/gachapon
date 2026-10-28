@@ -23,6 +23,9 @@ use ea_bus::{
 };
 use ea_store::Store;
 
+/// Quien firma en el diario lo que hacen estas pruebas (el bus del orquestador).
+const ORQ: &str = ea_ajustes::ACTOR_ORQUESTADOR;
+
 fn orden(wt: &Path) -> Orden {
     let fase = Fase { numero: 1, titulo: "uno".into(), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
     Orden::obra("prueba", wt.to_string_lossy(), "haz algo", vec![fase], None, "claude-code")
@@ -40,7 +43,7 @@ fn yo(trabajo: &str) -> Ocupante {
 fn crear_tomar_entregar_y_cerrar_con_historial_en_sqlite() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let id = bus.crear_trabajo(orden(d.path())).unwrap();
     assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
     assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap().len(), 1);
@@ -237,7 +240,7 @@ fn reformular_anade_notas_y_vuelve_a_encolar() {
 /// `fases-informe.json` como lo deja el ejecutor y las fases hechas en SQLite.
 fn obra_completa_en_revision(d: &Path) -> (Bus, String) {
     let store = Store::open_at(&d.join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.join("estado")).unwrap().con_store(store, ORQ);
     let fase = |n: u32| Fase {
         numero: n,
         titulo: format!("f{n}"),
@@ -381,7 +384,7 @@ fn recuperar_devuelve_a_la_cola_lo_reclamado_que_no_se_llego_a_tomar() {
 fn recuperar_deja_en_espera_y_con_paquete_una_rutina_interrumpida() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     bus.registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
     let id = bus.lanzar_rutina("prueba", &[]).unwrap();
     bus.tomar(Rol::Ejecutor).unwrap();
@@ -410,7 +413,7 @@ fn un_fallo_del_espejo_sqlite_no_hace_fallar_al_bus() {
                 .unwrap();
         }
     }
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let id = bus.crear_trabajo(orden(d.path())).unwrap();
     assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap()[0].trabajo, id);
     assert_eq!(bus.tomar(Rol::Ejecutor).unwrap(), Some(id.clone()));
@@ -641,7 +644,7 @@ texto = "crea {fichero}"
 fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let dir = d.path().join("rutinas");
     bus.registrar_rutina(RUTINA, &dir).unwrap();
     assert!(dir.join("prueba.toml").exists());
@@ -666,7 +669,7 @@ fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
 fn una_rutina_no_se_lanza_dos_veces_mientras_la_anterior_sigue_activa() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let dir = d.path().join("rutinas");
     bus.registrar_rutina(RUTINA, &dir).unwrap();
     let id = bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap();
@@ -693,13 +696,13 @@ fn varios_lanzamientos_a_la_vez_de_una_rutina_crean_un_solo_trabajo() {
     let d = tempfile::tempdir().unwrap();
     let db = d.path().join("ea.db");
     let raiz = d.path().join("estado");
-    Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap()).registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
+    Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap(), ORQ).registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
     let barrera = Arc::new(Barrier::new(8));
     let hilos: Vec<_> = (0..8)
         .map(|_| {
             let (raiz, db, barrera) = (raiz.clone(), db.clone(), barrera.clone());
             std::thread::spawn(move || {
-                let bus = Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap());
+                let bus = Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap(), ORQ);
                 barrera.wait();
                 bus.lanzar_rutina("prueba", &[]).is_ok()
             })
@@ -717,7 +720,7 @@ fn una_rutina_retirada_no_se_lanza_y_registrarla_la_restaura() {
     use ea_bus::Ubicacion;
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let dir = d.path().join("rutinas");
     bus.registrar_rutina(RUTINA, &dir).unwrap();
     assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Activa);
@@ -789,7 +792,7 @@ fn anotar_iteracion_no_resucita_un_cancelado() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
     let raiz = d.path().join("estado");
-    let bus = Bus::abrir_en(&raiz).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&raiz).unwrap().con_store(store, ORQ);
     let id = bus.crear_trabajo(orden(d.path())).unwrap();
     bus.aplicar(&id, Evento::Tomar).unwrap();
     assert_eq!(bus.anotar_iteracion(&id).unwrap(), Some(1));
@@ -843,7 +846,7 @@ fn comprobar_registro_no_escribe_y_aplica_la_misma_politica_que_registrar() {
     assert!(anterior.is_none());
     assert!(store.ultima_rutina("prueba").unwrap().is_none(), "comprobar no registra");
 
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap());
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), ORQ);
     bus.registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
     let e = ea_bus::comprobar_registro(&store, RUTINA).unwrap_err().to_string();
     assert!(e.contains("la nueva debe ser mayor"), "{e}");

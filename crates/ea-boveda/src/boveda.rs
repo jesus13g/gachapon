@@ -806,8 +806,8 @@ mod tests {
 
     /// Solo `usuario`, el actor con que firman la CLI y la web, hace lo que
     /// es del usuario. Ningún otro actor del sistema pasa: los de los roles,
-    /// el orquestador, los del MCP sin rol o desconocido, el bus de `ea
-    /// trabajo` (`ea-cli`) ni la cadena vacía.
+    /// el orquestador, los del MCP sin rol o desconocido, el `ea-cli` con que
+    /// firmaba antes el bus de la CLI ni la cadena vacía.
     #[test]
     fn exigir_usuario_es_una_lista_blanca() {
         assert!(exigir_usuario("usuario", "x").is_ok());
