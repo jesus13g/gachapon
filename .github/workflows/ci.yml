@@ -69,6 +69,19 @@ jobs:
         env:
           EA_EXIGIR_NODE: "1"
 
+  # El formato de rustfmt (`rustfmt.toml`) en los tres manifiestos.
+  formato:
+    name: formato (rustfmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo fmt --manifest-path escritorio/Cargo.toml --all -- --check
+      - run: cargo fmt --manifest-path instalador/Cargo.toml --all -- --check
+
   # Licencias, avisos de RustSec, crates vetados y fuentes (deny.toml) de los
   # tres manifiestos. Un aviso nuevo de RustSec puede ponerlo en rojo sin que
   # cambie el código: la salida suele ser `cargo update -p <crate>`.

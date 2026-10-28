@@ -1920,6 +1920,20 @@ sqlite3 ~/.local/share/ecosistema-asistente/ecosistema.db \
 # -> error del trigger ABORT
 ```
 
+### Formato
+
+Todo el código Rust pasa `rustfmt` con el `rustfmt.toml` de la raíz (también
+`escritorio/` e `instalador/`), y el CI lo comprueba:
+
+```bash
+cargo fmt --all
+cargo fmt --manifest-path escritorio/Cargo.toml --all
+cargo fmt --manifest-path instalador/Cargo.toml --all
+```
+
+El commit que formateó todo el código está en `.git-blame-ignore-revs`; para que
+`git blame` lo salte en local: `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+
 ### Versión de Rust, perfil de release y lockfiles
 
 El repo compila con el `stable` de `rust-toolchain.toml`, pero cada manifiesto declara
