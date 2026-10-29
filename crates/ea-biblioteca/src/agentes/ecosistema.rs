@@ -11,7 +11,7 @@
 use ea_ajustes::Ajustes;
 
 use super::comun::{crear, frontmatter, leer_texto, recortar, skills_en};
-use crate::modelo::{Activado, Ambito, DefMcp, Elemento, Mecanismo, Tipo, AGENTE_ECOSISTEMA as AGENTE};
+use crate::modelo::{AGENTE_ECOSISTEMA as AGENTE, Activado, Ambito, DefMcp, Elemento, Mecanismo, Tipo};
 use crate::raices::Raices;
 
 /// El ecosistema no tiene versión de formato de un agente externo.
@@ -24,11 +24,7 @@ pub fn leer(r: &Raices, a: &Ajustes, avisos: &mut Vec<String>) -> Vec<Elemento> 
     let sitio = r.repo_efectivo().unwrap_or_default();
     if let Some(mut e) = crear(avisos, AGENTE, Tipo::Mcp, Ambito::Ecosistema, NOMBRE_MCP, sitio.clone(), VERSION) {
         e.descripcion = "Servidor MCP del ecosistema (solo consulta y propuestas)".into();
-        e.def_mcp = Some(DefMcp {
-            transporte: "http".into(),
-            url: Some(format!("http://127.0.0.1:{}", a.red.puerto_mcp)),
-            ..DefMcp::default()
-        });
+        e.def_mcp = Some(DefMcp { transporte: "http".into(), url: Some(format!("http://127.0.0.1:{}", a.red.puerto_mcp)), ..DefMcp::default() });
         sal.push(e);
     }
     if let Some(repo) = r.repo_efectivo() {

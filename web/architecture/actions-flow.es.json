@@ -43,7 +43,7 @@
       "tag": "MCP",
       "sources": [
         {
-          "path": "crates/ea-mcp/src/tools.rs",
+          "path": "crates/ea-mcp/src/tools/mod.rs",
           "line": 53,
           "end_line": 65,
           "label": "actor_for"
@@ -78,13 +78,13 @@
       "tag": "SoloConsulta",
       "sources": [
         {
-          "path": "crates/ea-mcp/src/tools.rs",
+          "path": "crates/ea-mcp/src/tools/mod.rs",
           "line": 67,
           "end_line": 80,
           "label": "EaTools"
         },
         {
-          "path": "crates/ea-mcp/src/tools.rs",
+          "path": "crates/ea-mcp/src/tools/mutantes.rs",
           "line": 290,
           "end_line": 335,
           "label": "proponer"
@@ -218,7 +218,7 @@
           "label": "aceptar"
         },
         {
-          "path": "crates/ea-acciones/src/herramientas.rs",
+          "path": "crates/ea-acciones/src/herramientas/mod.rs",
           "line": 825,
           "end_line": 849,
           "label": "revalidar_con"
@@ -419,10 +419,10 @@
       "tag": "aplicado",
       "sources": [
         {
-          "path": "crates/ea-acciones/src/herramientas.rs",
+          "path": "crates/ea-acciones/src/herramientas/mod.rs",
           "line": 881,
           "end_line": 900,
-          "label": "aplicar_en_sistema"
+          "label": "aplicar"
         },
         {
           "path": "crates/ea-acciones/src/sistema.rs",
@@ -443,7 +443,7 @@
       "tag": "lectura",
       "sources": [
         {
-          "path": "crates/ea-mcp/src/tools.rs",
+          "path": "crates/ea-mcp/src/tools/boveda.rs",
           "line": 682,
           "end_line": 710,
           "label": "ea_buscar_notas"
@@ -461,7 +461,7 @@
       "tag": "solo lectura",
       "sources": [
         {
-          "path": "crates/ea-bus/src/config.rs",
+          "path": "crates/ea-orchestrator/src/config.rs",
           "line": 91,
           "end_line": 131,
           "label": "ConfigOrquestador"

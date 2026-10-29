@@ -4,23 +4,13 @@
 
 use std::sync::Arc;
 
-use ea_acciones::{Riesgo, CATALOGO};
-use ea_mcp::EaTools;
+use ea_acciones::{CATALOGO, Riesgo};
 use ea_boveda::Boveda;
+use ea_mcp::EaTools;
+use ea_pruebas::mcp::{conectar, llamar};
 use ea_store::{EstadoPropuesta, EventFilter, PropuestaFilter, Store};
-use rmcp::model::{
-    CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams,
-    ProtocolVersion,
-};
-use rmcp::transport::StreamableHttpClientTransport;
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-};
-use rmcp::{ClientLifecycleMode, ClientServiceExt};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::Mutex;
-
-type Client = rmcp::service::RunningService<rmcp::RoleClient, InitializeRequestParams>;
 
 struct Entorno {
     url: String,
@@ -34,8 +24,7 @@ struct Entorno {
 async fn entorno() -> Entorno {
     // Estado del bus y bóveda en directorios temporales, nunca los reales.
     static ESTADO: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap());
-    unsafe { std::env::set_var("EA_ESTADO_DIR", estado.path()) };
+    let estado = ESTADO.get_or_init(|| tempfile::tempdir().unwrap()).path();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("t.db");
     let rutinas = dir.path().join("rutinas");
@@ -49,44 +38,13 @@ async fn entorno() -> Entorno {
     let boveda = dir.path().join("boveda");
     let ajustes = ea_ajustes::Fuentes::aislada(&dir.path().join("ajustes"));
     let f = ajustes.clone();
-    let service = StreamableHttpService::new(
-        move || Ok(EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone())).con_ajustes(f.clone())),
-        LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default(),
+    let router = ea_mcp::router(
+        move || {
+            EaTools::con_entorno(store.clone(), r.clone(), Boveda::en(boveda.clone()), estado.to_path_buf()).con_ajustes(f.clone()).con_credencial(credencial())
+        },
+        Default::default(),
     );
-    let router = axum::Router::new().nest_service("/mcp", service);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, router).await;
-    });
-    Entorno { url: format!("http://{addr}/mcp"), db, rutinas, ajustes, _dir: dir }
-}
-
-async fn conectar(url: &str, nombre: &str) -> Client {
-    InitializeRequestParams::new(ClientCapabilities::default(), Implementation::new(nombre, "0.0.1"))
-        .serve_with_lifecycle(
-            StreamableHttpClientTransport::from_uri(url.to_string()),
-            ClientLifecycleMode::Auto {
-                preferred_versions: vec![ProtocolVersion::V_2025_11_25],
-                legacy_version: None,
-            },
-        )
-        .await
-        .unwrap()
-}
-
-/// Devuelve `Ok(json)` o `Err(mensaje)` si la herramienta se rechazó.
-async fn llamar(c: &Client, nombre: &str, args: Value) -> Result<Value, String> {
-    let r = c
-        .call_tool(
-            CallToolRequestParams::new(nombre.to_string())
-                .with_arguments(args.as_object().cloned().unwrap_or_default()),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    let t = &r.content[0].as_text().unwrap().text;
-    Ok(serde_json::from_str(t).unwrap_or(Value::String(t.clone())))
+    Entorno { url: ea_pruebas::mcp::servidor(router).await, db, rutinas, ajustes, _dir: dir }
 }
 
 fn propuestas(e: &Entorno) -> Vec<ea_store::Propuesta> {
@@ -144,13 +102,7 @@ async fn un_agente_que_pide_ejecutar_solo_consigue_una_propuesta_pendiente() {
     let e = entorno().await;
     let c = conectar(&e.url, "claude-code").await;
     // Aunque el agente intente "confirmarse" con argumentos de su cosecha.
-    let r = llamar(
-        &c,
-        "ea_eliminar_rutina",
-        json!({ "slug": "retirada", "confirmar": true, "confirmacion": "si", "token": "x" }),
-    )
-    .await
-    .unwrap();
+    let r = llamar(&c, "ea_eliminar_rutina", json!({ "slug": "retirada", "confirmar": true, "confirmacion": "si", "token": "x" })).await.unwrap();
     assert_eq!(r["ejecutado"], false);
     assert_eq!(r["propuesta"]["estado"], "pendiente");
     assert_eq!(r["riesgo"], "irreversible");
@@ -277,11 +229,7 @@ fn diario(e: &Entorno) -> Vec<ea_store::Event> {
 
 fn roles(e: &Entorno, planificador: &str, ejecutor: &str) {
     std::fs::create_dir_all(&e.ajustes.dir_config).unwrap();
-    std::fs::write(
-        e.ajustes.dir_config.join("ajustes.toml"),
-        format!("[roles]\nplanificador = \"{planificador}\"\nejecutor = \"{ejecutor}\"\n"),
-    )
-    .unwrap();
+    std::fs::write(e.ajustes.dir_config.join("ajustes.toml"), format!("[roles]\nplanificador = \"{planificador}\"\nejecutor = \"{ejecutor}\"\n")).unwrap();
 }
 
 #[tokio::test]
@@ -336,4 +284,9 @@ async fn los_permisos_salen_del_rol_que_ocupa_el_agente_ahora() {
     assert!(llamar(&oc, "ea_status", json!({})).await.is_ok());
     let r = llamar(&oc, "ea_eliminar_rutina", json!({ "slug": "retirada", "simular": true })).await;
     assert!(r.is_err_and(|m| m.contains("modelo-local")));
+}
+
+/// La credencial de las pruebas, la que manda `conectar`.
+fn credencial() -> ea_mcp::Credencial {
+    ea_mcp::Credencial::de_texto(ea_pruebas::mcp::CREDENCIAL).unwrap()
 }

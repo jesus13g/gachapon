@@ -3,13 +3,11 @@
 //! único canal que puede tocar lo que afecta a la seguridad del agente local
 //! (sandbox, binario de Qwen, rutas, quién elige skills) y subir los techos.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use comfy_table::Table;
-use ea_ajustes::{cargar_de, clave, establecer as escribir, interpretar, sin_alias, Canal, Fuentes, SECCIONES};
-use ea_store::{EventOutcome, NewEvent, Store};
-use serde_json::{json, Value};
-
-const ACTOR: &str = "usuario";
+use ea_ajustes::{Aplicado, Canal, Fuentes, SECCIONES, cargar_de, clave, interpretar, sin_alias};
+use ea_store::Store;
+use serde_json::Value;
 
 /// Un valor tal como se escribiría en la terminal.
 fn mostrar(v: &Value) -> String {
@@ -77,7 +75,7 @@ pub fn ruta() -> Result<()> {
 pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
     // Lo primero: una persona delante de un teclado, no un agente con `ea`
     // como subproceso.
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     if cambios.is_empty() && quitar.is_empty() {
         bail!("nada que cambiar: `ea ajustes establecer clave=valor ...` o `--quitar clave`");
     }
@@ -92,12 +90,7 @@ pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
         lote.push((k.trim().to_string(), None));
     }
     let f = Fuentes::sistema();
-    let aplicados = escribir(&f, Canal::Terminal, None, &lote)?;
-    // Antes de imprimir: si la salida se corta, el diario ya lo tiene.
-    apuntar(&f, &aplicados);
-    for aviso in ea_ajustes::aplicar_efectos(&aplicados) {
-        eprintln!("aviso: {aviso}");
-    }
+    let aplicados = cambiar(&f, &lote)?;
     let mut reiniciar: Vec<&str> = Vec::new();
     for a in &aplicados {
         println!("  {}: {} → {}", a.clave, mostrar(&a.antes), mostrar(&a.despues));
@@ -114,20 +107,29 @@ pub fn establecer(cambios: &[String], quitar: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Al diario, si la base abre (mejor esfuerzo: el cambio ya está escrito).
-pub(super) fn apuntar(f: &Fuentes, aplicados: &[ea_ajustes::Aplicado]) {
-    let cambios: Vec<Value> =
-        aplicados.iter().map(|a| json!({ "clave": a.clave, "antes": a.antes, "despues": a.despues })).collect();
-    let detalle = json!({ "canal": "terminal", "fichero": f.fichero().display().to_string(), "cambios": cambios });
-    let evento = NewEvent {
-        actor: ACTOR.into(),
-        action: "ajustes_cambiados".into(),
-        trabajo: None,
-        outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
-        detail: Some(detalle.to_string()),
-    };
-    if let Err(e) = Store::open().map_err(anyhow::Error::from).and_then(|s| Ok(s.append_event(evento)?)) {
-        eprintln!("aviso: no se pudo apuntar el cambio en el diario: {e}");
+/// Escribe el lote desde la terminal ([`ea_acciones::ajustes::cambiar`]: el
+/// fichero, el diario y los efectos) y avisa en la salida de errores de lo que
+/// no llegó al diario y de los efectos que fallaron. Antes de imprimir nada
+/// más: si la salida se corta, el diario ya lo tiene.
+pub(super) fn cambiar(f: &Fuentes, lote: &[(String, Option<Value>)]) -> Result<Vec<Aplicado>> {
+    let c = ea_acciones::ajustes::cambiar(f, Canal::Terminal, None, lote, || Store::open_at(&ea_ajustes::cargar().rutas.db))?;
+    if let Some(e) = &c.sin_diario {
+        aviso_diario(e);
     }
+    for aviso in &c.avisos {
+        eprintln!("aviso: {aviso}");
+    }
+    Ok(c.aplicados)
+}
+
+/// Al diario un lote que ya escribió quien llama, si la base abre (mejor
+/// esfuerzo: el cambio ya está escrito).
+pub(super) fn apuntar(f: &Fuentes, aplicados: &[Aplicado]) {
+    if let Err(e) = Store::open_at(&ea_ajustes::cargar().rutas.db).and_then(|s| ea_acciones::ajustes::apuntar(&s, Canal::Terminal, f, aplicados)) {
+        aviso_diario(&e);
+    }
+}
+
+fn aviso_diario(e: &ea_store::StoreError) {
+    eprintln!("aviso: no se pudo apuntar el cambio en el diario: {e}");
 }

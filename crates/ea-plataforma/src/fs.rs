@@ -1,8 +1,10 @@
-//! Ficheros: permisos privados, enlaces, renombrado sin pisar, ejecutables.
+//! Ficheros: permisos privados, enlaces, renombrado sin pisar, ejecutables,
+//! escritura atómica y huella del contenido.
 
-use std::fs::{self, Metadata, OpenOptions};
-use std::io;
+use std::fs::{self, File, Metadata, OpenOptions};
+use std::io::{self, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Crea el directorio (y los padres) y, en Unix, lo deja en 0700. Los
 /// directorios nuevos nacen ya con 0700 (sin ventana con la máscara por
@@ -209,9 +211,9 @@ pub fn renombrar_sin_pisar(origen: &Path, destino: &Path) -> Result<(), ErrorRen
         Err(match e.raw_os_error() {
             Some(libc::EXDEV) => ErrorRenombrar::OtroDispositivo,
             Some(libc::EEXIST | libc::ENOTEMPTY) => ErrorRenombrar::Existe,
-            Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => ErrorRenombrar::NoSoportado(format!(
-                "el sistema de ficheros no admite mover sin riesgo de pisar algo (RENAME_NOREPLACE/RENAME_EXCL): {e}"
-            )),
+            Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => {
+                ErrorRenombrar::NoSoportado(format!("el sistema de ficheros no admite mover sin riesgo de pisar algo (RENAME_NOREPLACE/RENAME_EXCL): {e}"))
+            }
             _ => ErrorRenombrar::Io(e),
         })
     }
@@ -284,6 +286,98 @@ pub fn sincronizar_dir(ruta: &Path) {
     {
         let _ = ruta;
     }
+}
+
+/// Con qué permisos queda el fichero que escribe [`escribir_atomico`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Permisos {
+    /// Los de un fichero nuevo cualquiera (en Unix, 0666 menos la máscara).
+    Heredados,
+    /// Solo para el usuario: en Unix nace con 0600, sin ventana.
+    Privados,
+    /// Los del fichero que se sustituye, que tiene que existir: los bits de
+    /// modo en Unix, el atributo de solo lectura en Windows. El temporal nace
+    /// con 0600 y los toma antes de escribir nada.
+    ComoOriginal,
+}
+
+static CONTADOR_TEMPORAL: AtomicU64 = AtomicU64::new(0);
+/// Nombres de temporal que se prueban si ya hay algo con ese nombre (el
+/// huérfano de un proceso anterior con el mismo pid, o un enlace plantado):
+/// lo que hay no se abre ni se sigue, se pasa al siguiente.
+const INTENTOS_TEMPORAL: u32 = 16;
+
+/// Escribe `bytes` en `destino` de forma atómica: un lector ve el fichero
+/// anterior o el nuevo entero, nunca una mitad. Temporal oculto
+/// `.{nombre}.{pid}.{n}.tmp` en el mismo directorio, creado con
+/// `create_new` (no sigue un enlace plantado con ese nombre), `fsync`,
+/// renombrado sobre `destino` y `fsync` del directorio. Si algo falla, el
+/// temporal se borra y `destino` queda como estaba. No crea el directorio
+/// padre.
+pub fn escribir_atomico(destino: &Path, bytes: &[u8], permisos: Permisos) -> io::Result<()> {
+    let dir = destino.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "ruta sin directorio"))?;
+    let original = match permisos {
+        Permisos::ComoOriginal => Some(fs::metadata(destino)?),
+        Permisos::Heredados | Permisos::Privados => None,
+    };
+    let nombre = destino.file_name().and_then(|n| n.to_str()).unwrap_or("fichero");
+    let mut intento = 0;
+    let (temporal, mut f) = loop {
+        let n = CONTADOR_TEMPORAL.fetch_add(1, Ordering::Relaxed);
+        let temporal = dir.join(format!(".{nombre}.{}.{n}.tmp", std::process::id()));
+        let mut o = if permisos == Permisos::Heredados { OpenOptions::new() } else { opciones_privadas() };
+        match o.write(true).create_new(true).open(&temporal) {
+            Ok(f) => break (temporal, f),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists && intento + 1 < INTENTOS_TEMPORAL => intento += 1,
+            Err(e) => return Err(e),
+        }
+    };
+    let resultado = (|| -> io::Result<()> {
+        if let Some(meta) = &original {
+            copiar_permisos(&f, meta)?;
+        }
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        fs::rename(&temporal, destino)
+    })();
+    if let Err(e) = resultado {
+        let _ = fs::remove_file(&temporal);
+        return Err(e);
+    }
+    sincronizar_dir(dir);
+    Ok(())
+}
+
+/// Pone en `f` los permisos de `meta`: los bits de modo en Unix, el atributo
+/// de solo lectura en Windows.
+fn copiar_permisos(f: &File, meta: &Metadata) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        f.set_permissions(fs::Permissions::from_mode(meta.permissions().mode() & 0o7777))
+    }
+    #[cfg(not(unix))]
+    {
+        f.set_permissions(meta.permissions())
+    }
+}
+
+/// FNV-1a de 64 bits: estable entre procesos, sistemas y versiones de Rust
+/// (lo que no garantiza `std::hash`). Sirve para versiones de contenido y
+/// nombres cortos derivados de una ruta, no para nada criptográfico.
+pub fn fnv64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// [`fnv64`] en 16 cifras hexadecimales.
+pub fn huella(bytes: &[u8]) -> String {
+    format!("{:016x}", fnv64(bytes))
 }
 
 #[cfg(test)]
@@ -395,6 +489,173 @@ mod tests {
             fs::write(&a, "").unwrap();
             fs::write(&b, "").unwrap();
             assert!(es_ejecutable(&a) && !es_ejecutable(&b));
+        }
+    }
+
+    #[test]
+    fn escribir_atomico_sustituye_sin_dejar_temporales_ni_crear_el_padre() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("f.json");
+        escribir_atomico(&f, b"uno", Permisos::Heredados).unwrap();
+        escribir_atomico(&f, b"dos", Permisos::Heredados).unwrap();
+        assert_eq!(fs::read(&f).unwrap(), b"dos");
+        assert_eq!(fs::read_dir(d.path()).unwrap().count(), 1, "sin temporales");
+        let e = escribir_atomico(&d.path().join("falta/f"), b"x", Permisos::Heredados).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+        assert!(!d.path().join("falta").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn escribir_atomico_con_cada_permiso() {
+        let d = tempfile::tempdir().unwrap();
+        let modo = |p: &Path| permisos_unix(&fs::metadata(p).unwrap()).unwrap();
+        // Heredados: los de cualquier fichero nuevo del proceso.
+        let normal = d.path().join("normal");
+        fs::write(&normal, "x").unwrap();
+        let h = d.path().join("heredados");
+        escribir_atomico(&h, b"h", Permisos::Heredados).unwrap();
+        assert_eq!(modo(&h), modo(&normal));
+        // Privados: 0600 aunque el fichero sustituido fuera 0644.
+        let p = d.path().join("privados");
+        fs::write(&p, "viejo").unwrap();
+        poner_permisos_unix(&p, 0o644).unwrap();
+        escribir_atomico(&p, b"p", Permisos::Privados).unwrap();
+        assert_eq!(modo(&p), 0o600);
+        // ComoOriginal: los del fichero sustituido, también los de ejecución.
+        for m in [0o640, 0o755] {
+            let c = d.path().join(format!("como-{m:o}"));
+            fs::write(&c, "viejo").unwrap();
+            poner_permisos_unix(&c, m).unwrap();
+            escribir_atomico(&c, b"c", Permisos::ComoOriginal).unwrap();
+            assert_eq!((modo(&c), fs::read(&c).unwrap()), (m, b"c".to_vec()));
+        }
+        // ComoOriginal exige que el original exista.
+        let e = escribir_atomico(&d.path().join("no-existe"), b"x", Permisos::ComoOriginal).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+        assert_eq!(fs::read_dir(d.path()).unwrap().count(), 5, "sin temporales");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_enlace_plantado_con_el_nombre_del_temporal_no_se_sigue() {
+        let d = tempfile::tempdir().unwrap();
+        let victima = d.path().join("victima");
+        fs::write(&victima, "intacta").unwrap();
+        let dir = d.path().join("dir");
+        fs::create_dir(&dir).unwrap();
+        let destino = dir.join("f");
+        fs::write(&destino, "viejo").unwrap();
+        let plantar = |cuantos: u64| {
+            let desde = CONTADOR_TEMPORAL.load(Ordering::Relaxed);
+            for n in desde..desde + cuantos {
+                std::os::unix::fs::symlink(&victima, dir.join(format!(".f.{}.{n}.tmp", std::process::id()))).unwrap();
+            }
+        };
+        // Los próximos nombres de temporal ya son enlaces: se saltan.
+        plantar(8);
+        escribir_atomico(&destino, b"nuevo", Permisos::Heredados).unwrap();
+        assert_eq!(fs::read_to_string(&destino).unwrap(), "nuevo");
+        assert_eq!(fs::read_to_string(&victima).unwrap(), "intacta");
+        // Si chocan todos los intentos, falla sin tocar nada.
+        plantar(1000);
+        let e = escribir_atomico(&destino, b"otro", Permisos::Privados).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&destino).unwrap(), "nuevo");
+        assert_eq!(fs::read_to_string(&victima).unwrap(), "intacta");
+    }
+
+    /// Prueba dorada: las copias de FNV-1a que había repartidas por el
+    /// workspace antes de unificarlas aquí, copiadas tal cual, dan lo mismo
+    /// que [`fnv64`] y [`huella`]. La de `ea-ajustes` (vacío si no hay
+    /// fichero) tiene la suya en ese crate.
+    mod huella_dorada {
+        use super::super::{fnv64, huella};
+
+        // ea-bus/src/fs_atomico.rs (`fnv`, para `nuevo_id` y el `.lock` del semáforo).
+        fn bus(texto: &str) -> u64 {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in texto.bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            h
+        }
+
+        // ea-boveda/src/boveda.rs (`huella`).
+        fn boveda(texto: &str) -> String {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in texto.bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            format!("{h:016x}")
+        }
+
+        // ea-web/src/memoria.rs (`version`).
+        fn memoria(contenido: &[u8]) -> String {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in contenido {
+                h ^= u64::from(*b);
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            format!("{h:016x}")
+        }
+
+        // ea-acciones/src/herramientas/mod.rs (`huella`).
+        fn herramientas(texto: &str) -> String {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in texto.bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            format!("{h:016x}")
+        }
+
+        // ea-biblioteca/src/sesion.rs (`huella`).
+        fn sesion(texto: &str) -> String {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in texto.bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            format!("{h:016x}")
+        }
+
+        // ea-biblioteca/src/uso/cache.rs (dentro de `cabeza_de`).
+        fn cabeza(buf: &[u8]) -> u64 {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in buf {
+                h ^= u64::from(*b);
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            h
+        }
+
+        const TEXTOS: [&str; 6] = ["", "a", "foobar", "/home/u/proy\0-1234-7", "ñandú, cigüeña — 漢字 🦀", "línea\r\n\tcon\u{0}nul"];
+
+        #[test]
+        fn las_copias_antiguas_dan_lo_mismo() {
+            for t in TEXTOS {
+                let b = t.as_bytes();
+                assert_eq!(bus(t), fnv64(b), "{t:?}");
+                assert_eq!(cabeza(b), fnv64(b), "{t:?}");
+                for vieja in [boveda(t), memoria(b), herramientas(t), sesion(t)] {
+                    assert_eq!(vieja, huella(b), "{t:?}");
+                }
+            }
+            // Bytes que no son UTF-8 (cabeceras de fichero, contenido de una memoria).
+            let raros = [0xff, 0x00, 0xfe, 0x80, 0x7f];
+            assert_eq!((cabeza(&raros), memoria(&raros)), (fnv64(&raros), huella(&raros)));
+        }
+
+        #[test]
+        fn valores_de_referencia_de_fnv1a_64() {
+            assert_eq!(fnv64(b""), 0xcbf29ce484222325);
+            assert_eq!(fnv64(b"a"), 0xaf63dc4c8601ec8c);
+            assert_eq!(fnv64(b"foobar"), 0x85944171f73967e8);
+            assert_eq!(huella(b""), "cbf29ce484222325");
+            assert_eq!(huella(b"a").len(), 16);
         }
     }
 }

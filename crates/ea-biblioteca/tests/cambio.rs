@@ -6,18 +6,13 @@ use std::path::{Path, PathBuf};
 
 use ea_ajustes::{Canal, Fuentes};
 use ea_biblioteca::*;
+use ea_pruebas::escribe;
 
 struct Mundo {
     _d: tempfile::TempDir,
     home: PathBuf,
     proyecto: PathBuf,
     ctx: Contexto,
-}
-
-fn escribe(ruta: impl AsRef<Path>, texto: &str) {
-    let ruta = ruta.as_ref();
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
 }
 
 fn lee(ruta: impl AsRef<Path>) -> String {
@@ -200,7 +195,10 @@ fn mover_skill_enlace_subagente_y_comando_ida_y_vuelta() {
     assert!(!propia.exists());
     assert_eq!(lee(almacen.join("claude-code/skill/propia/extra.txt")), "extra");
     let idx = lee(almacen.join("indice.json"));
-    assert!(idx.contains("claude-code/skill/usuario/propia") && idx.contains(serde_json::to_string(&*propia.to_string_lossy()).unwrap().trim_matches('"')), "{idx}");
+    assert!(
+        idx.contains("claude-code/skill/usuario/propia") && idx.contains(serde_json::to_string(&*propia.to_string_lossy()).unwrap().trim_matches('"')),
+        "{idx}"
+    );
     // Ya no está en el inventario, pero sí entre las desactivadas.
     let d = desactivadas(&m.ctx.raices);
     assert_eq!(d.len(), 1);

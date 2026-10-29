@@ -2,56 +2,18 @@
 //! directorios temporales.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-use ea_bus::{Bus, Modo, Orden, Presencia, RolEquipo, Topes, CADUCIDAD_LATIDO_S};
+use ea_bus::{Bus, CADUCIDAD_LATIDO_S, Orden, Presencia, RolEquipo};
+use ea_pruebas::git;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
-fn git(dir: &Path, args: &[&str]) -> String {
-    let s = Command::new("git")
-        .args(["-c", "user.email=a@b", "-c", "user.name=x", "-C"])
-        .arg(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(s.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&s.stderr));
-    String::from_utf8_lossy(&s.stdout).trim().to_string()
-}
-
 fn repo(d: &Path, commit: bool) -> PathBuf {
-    let r = d.join("repo");
-    std::fs::create_dir_all(&r).unwrap();
-    git(&r, &["init", "-q", "-b", "main"]);
-    std::fs::write(r.join("a.txt"), "hola\n").unwrap();
-    if commit {
-        git(&r, &["add", "."]);
-        git(&r, &["commit", "-q", "-m", "inicial"]);
-    }
-    r
+    ea_pruebas::repo_git(&d.join("repo"), commit)
 }
 
 fn orden(wt: &Path, propio: bool) -> Orden {
-    Orden {
-        id: String::new(),
-        modo: Modo::Mision,
-        titulo: "prueba".into(),
-        worktree: wt.to_string_lossy().into(),
-        objetivo: "haz algo".into(),
-        criterio_exito: Some("true".into()),
-        fases: vec![],
-        revisar_cada: None,
-        topes: Topes::default(),
-        rutina: None,
-        notas_revision: vec![],
-        skills: vec![],
-        equipo: None,
-        asignado_a: None,
-        revisor: None,
-        worktree_propio: propio,
-        creada_en: String::new(),
-        creada_por: "claude-code".into(),
-    }
+    Orden { worktree_propio: propio, ..ea_pruebas::orden(wt) }
 }
 
 fn bus(d: &Path) -> Bus {
@@ -204,10 +166,7 @@ fn la_presencia_caduca_por_pid_muerto_o_latido_viejo() {
     ilegible.latido = "ayer".into();
     b.anotar_presencia(&ilegible).unwrap();
     let vivas: Vec<(String, bool)> = b.presencias().into_iter().map(|(p, v)| (p.agente, v)).collect();
-    assert_eq!(
-        vivas,
-        vec![("antigravity".into(), false), ("codex".into(), true), ("opencode".into(), false), ("qwen-code".into(), false)]
-    );
+    assert_eq!(vivas, vec![("antigravity".into(), false), ("codex".into(), true), ("opencode".into(), false), ("qwen-code".into(), false)]);
     // sin dormir: con la hora corrida, la viva caduca
     let luego = OffsetDateTime::now_utc() + Duration::seconds(CADUCIDAD_LATIDO_S + 5);
     assert!(b.presencias_en(luego).iter().all(|(_, v)| !v));
@@ -245,7 +204,7 @@ fn listar_worktrees_ve_rama_y_distingue_limpio_de_sucio_y_limpiar_no_fuerza() {
     assert_eq!(v[0].trabajo, id);
     assert_eq!(v[0].rama, format!("ea/{id}"));
     assert_eq!(v[0].limpio, Some(true));
-    assert_eq!(v[0].estado_trabajo, Some("en_cola"));
+    assert_eq!(v[0].estado_trabajo, Some(ea_bus::EstadoTrabajo::EnCola));
     assert!(!v[0].ocupado && !v[0].trabajo_terminado());
     // un fichero nuevo lo ensucia, y git se niega a quitarlo sin --force
     std::fs::write(ruta.join("nuevo.txt"), "x").unwrap();

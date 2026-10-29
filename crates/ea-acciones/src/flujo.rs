@@ -2,19 +2,18 @@
 //! testigo. Cada paso que cambia algo deja un evento: `propuesta_encolada`,
 //! `propuesta_decidida`, `accion_ejecutada` / `accion_fallida`.
 
-use ea_store::{
-    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventOutcome, NewEvent, NuevaPropuesta,
-    Propuesta, PropuestaFilter, Store,
-};
-use serde_json::{json, Value};
+use ea_store::{AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventOutcome, NewEvent, NuevaPropuesta, Propuesta, PropuestaFilter, Store};
+use serde_json::{Value, json};
 
-use crate::catalogo::{Canal, Riesgo};
+use crate::catalogo::{Canal, Riesgo, puede_confirmar};
 use crate::error::ErrorAccion;
-use crate::herramientas::{self, supervisada, Hechos};
+use crate::herramientas::{self, Hechos, supervisada};
 use crate::sistema::{Consulta, Sistema};
 
-/// Tope de propuestas con acción pendientes: un agente que insiste no puede
-/// inundar la cola del usuario.
+/// Tope de propuestas con acción pendientes **por proponente**: un agente que
+/// insiste no puede inundar la cola del usuario, ni llenarla para que no
+/// quepan las de otro (U-08). El proponente es el actor verificado (en el MCP,
+/// por la credencial del planificador).
 pub const MAX_PENDIENTES_CON_ACCION: usize = 30;
 
 #[derive(Debug, Clone)]
@@ -30,16 +29,17 @@ pub struct Resultado {
 /// Deja el evento en el diario y devuelve su id. Un diario que no se puede
 /// escribir no deshace la acción: el id es `None`.
 fn evento(store: &Store, actor: &str, action: &str, trabajo: Option<&str>, ok: bool, detalle: Value) -> Option<i64> {
-    store.append_event(NewEvent {
-        actor: actor.to_string(),
-        action: action.to_string(),
-        trabajo: trabajo.map(str::to_string),
-        outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
-        duration_ms: None,
-        detail: Some(detalle.to_string()),
-    })
-    .ok()
-    .map(|e| e.id)
+    store
+        .append_event(NewEvent {
+            actor: actor.to_string(),
+            action: action.to_string(),
+            trabajo: trabajo.map(str::to_string),
+            outcome: Some(if ok { EventOutcome::Ok } else { EventOutcome::Error }),
+            detail: Some(detalle.to_string()),
+            ..Default::default()
+        })
+        .ok()
+        .map(|e| e.id)
 }
 
 /// Encola una propuesta con acción estructurada. La simulación se hace aquí
@@ -58,21 +58,15 @@ pub fn proponer<C: Consulta>(
 ) -> Result<(Propuesta, bool), ErrorAccion> {
     let sim = herramientas::simular_con(store, consulta, hechos, herramienta, args)?;
 
-    let pendientes = store.list_propuestas(&PropuestaFilter {
-        estado: Some(EstadoPropuesta::Pendiente),
-        limit: None,
-    })?;
-    if let Some(igual) = pendientes.iter().find(|p| {
-        p.accion
-            .as_ref()
-            .is_some_and(|a| a.herramienta == herramienta && a.argumentos == sim.argumentos)
-    }) {
+    let pendientes = store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?;
+    if let Some(igual) = pendientes.iter().find(|p| p.accion.as_ref().is_some_and(|a| a.herramienta == herramienta && a.argumentos == sim.argumentos)) {
         return Ok((igual.clone(), false));
     }
-    if pendientes.iter().filter(|p| p.accion.is_some()).count() >= MAX_PENDIENTES_CON_ACCION {
+    let propias = pendientes.iter().filter(|p| p.accion.is_some() && p.proponente.as_deref() == Some(proponente)).count();
+    if propias >= MAX_PENDIENTES_CON_ACCION {
         return Err(ErrorAccion::NoAplica(format!(
-            "hay {MAX_PENDIENTES_CON_ACCION} propuestas con acción pendientes; el usuario debe \
-             decidir algunas antes de encolar más"
+            "{proponente} ya tiene {MAX_PENDIENTES_CON_ACCION} propuestas con acción pendientes; el \
+             usuario debe decidir algunas antes de que encole más"
         )));
     }
 
@@ -120,7 +114,8 @@ pub async fn ejecutar<S: Sistema>(
     precondicion: &Value,
     propuesta: Option<&Propuesta>,
 ) -> Result<Resultado, ErrorAccion> {
-    let h = supervisada(herramienta)?;
+    let s = supervisada(herramienta)?;
+    let h = s.ficha();
     let contexto = |extra: Value| {
         let mut v = json!({
             "herramienta": herramienta, "riesgo": h.riesgo.as_str(), "canal": canal.nombre(),
@@ -135,39 +130,20 @@ pub async fn ejecutar<S: Sistema>(
     };
 
     let intento: Result<herramientas::Aplicada, ErrorAccion> = async {
-        canal.puede_confirmar(h.riesgo)?;
+        puede_confirmar(canal, h.riesgo)?;
         let hechos = herramientas::observar(sistema, herramienta, args).await?;
         herramientas::revalidar_con(store, sistema, &hechos, herramienta, args, precondicion)?;
-        match herramientas::aplicar_en_store(store, actor, canal, herramienta, args)? {
-            Some(a) => Ok(a),
-            None => {
-                herramientas::aplicar_en_sistema(sistema, store, actor, canal, herramienta, args, precondicion).await
-            }
-        }
+        herramientas::aplicar(s, sistema, store, actor, canal, args, precondicion).await
     }
     .await;
 
     match intento {
         Ok(a) => {
-            let ev = evento(
-                store,
-                actor,
-                "accion_ejecutada",
-                a.trabajo.as_deref(),
-                true,
-                contexto(json!({ "resultado": a.datos, "texto": a.texto })),
-            );
+            let ev = evento(store, actor, "accion_ejecutada", a.trabajo.as_deref(), true, contexto(json!({ "resultado": a.datos, "texto": a.texto })));
             Ok(Resultado { texto: a.texto, trabajo: a.trabajo, datos: a.datos, evento: ev })
         }
         Err(e) => {
-            evento(
-                store,
-                actor,
-                "accion_fallida",
-                None,
-                false,
-                contexto(json!({ "error": e.to_string() })),
-            );
+            evento(store, actor, "accion_fallida", None, false, contexto(json!({ "error": e.to_string() })));
             Err(e)
         }
     }
@@ -184,8 +160,8 @@ pub async fn ejecutar_directo<S: Sistema>(
     herramienta: &str,
     args: &Value,
 ) -> Result<Resultado, ErrorAccion> {
-    let h = supervisada(herramienta)?;
-    if let Err(e) = canal.puede_confirmar(h.riesgo) {
+    let h = supervisada(herramienta)?.ficha();
+    if let Err(e) = puede_confirmar(canal, h.riesgo) {
         evento(
             store,
             actor,
@@ -221,9 +197,7 @@ pub async fn ejecutar_directo<S: Sistema>(
 }
 
 fn riesgo_de(p: &Propuesta, a: &AccionPropuesta) -> Result<Riesgo, ErrorAccion> {
-    Riesgo::parse(&a.riesgo)
-        .filter(|r| r.es_mutante())
-        .ok_or_else(|| ErrorAccion::NoAplica(format!("propuesta #{} con riesgo inválido '{}'", p.id, a.riesgo)))
+    Riesgo::parse(&a.riesgo).filter(|r| r.es_mutante()).ok_or_else(|| ErrorAccion::NoAplica(format!("propuesta #{} con riesgo inválido '{}'", p.id, a.riesgo)))
 }
 
 /// El usuario acepta una propuesta. Sin acción (de texto libre): solo constancia. Con acción: se reclama de forma atómica (aceptar
@@ -232,13 +206,7 @@ fn riesgo_de(p: &Propuesta, a: &AccionPropuesta) -> Result<Riesgo, ErrorAccion> 
 /// falla no es un `Err`: la propuesta queda aceptada con ejecución
 /// `fallida` y el detalle. `Err` significa que nada se reclamó (propuesta
 /// inexistente, ya decidida, o canal no autorizado para ese riesgo).
-pub async fn aceptar_propuesta<S: Sistema>(
-    store: &mut Store,
-    sistema: &S,
-    id: i64,
-    actor: &str,
-    canal: Canal,
-) -> Result<Propuesta, ErrorAccion> {
+pub async fn aceptar_propuesta<S: Sistema>(store: &mut Store, sistema: &S, id: i64, actor: &str, canal: Canal) -> Result<Propuesta, ErrorAccion> {
     Ok(aceptar_propuesta_con_resultado(store, sistema, id, actor, canal).await?.0)
 }
 
@@ -255,20 +223,13 @@ pub async fn aceptar_propuesta_con_resultado<S: Sistema>(
     let previa = store.get_propuesta(id)?;
     let Some(accion) = previa.accion.clone() else {
         let p = store.decidir_propuesta(id, EstadoPropuesta::Aceptada)?;
-        evento(
-            store,
-            actor,
-            "propuesta_decidida",
-            None,
-            true,
-            json!({ "propuesta": id, "estado": "aceptada", "canal": canal.nombre() }),
-        );
+        evento(store, actor, "propuesta_decidida", None, true, json!({ "propuesta": id, "estado": "aceptada", "canal": canal.nombre() }));
         return Ok((p, None));
     };
 
     // La política de canal se comprueba antes de reclamar: una web que
     // intenta aceptar un irreversible no consume la propuesta.
-    if let Err(e) = canal.puede_confirmar(riesgo_de(&previa, &accion)?) {
+    if let Err(e) = puede_confirmar(canal, riesgo_de(&previa, &accion)?) {
         evento(
             store,
             actor,
@@ -295,43 +256,16 @@ pub async fn aceptar_propuesta_con_resultado<S: Sistema>(
         }),
     );
 
-    let (estado, detalle, resultado) = match ejecutar(
-        store,
-        sistema,
-        actor,
-        canal,
-        &accion.herramienta,
-        &accion.argumentos,
-        &accion.precondicion,
-        Some(&reclamada),
-    )
-    .await
-    {
-        Ok(r) => (EstadoEjecucion::Ejecutada, r.texto.clone(), Some(r)),
-        Err(e) => (EstadoEjecucion::Fallida, e.to_string(), None),
-    };
+    let (estado, detalle, resultado) =
+        match ejecutar(store, sistema, actor, canal, &accion.herramienta, &accion.argumentos, &accion.precondicion, Some(&reclamada)).await {
+            Ok(r) => (EstadoEjecucion::Ejecutada, r.texto.clone(), Some(r)),
+            Err(e) => (EstadoEjecucion::Fallida, e.to_string(), None),
+        };
     Ok((store.registrar_ejecucion_propuesta(id, estado, &detalle)?, resultado))
 }
 
-pub fn rechazar_propuesta(
-    store: &Store,
-    id: i64,
-    actor: &str,
-    canal: Canal,
-) -> Result<Propuesta, ErrorAccion> {
+pub fn rechazar_propuesta(store: &Store, id: i64, actor: &str, canal: Canal) -> Result<Propuesta, ErrorAccion> {
     let p = store.decidir_propuesta(id, EstadoPropuesta::Rechazada)?;
-    evento(
-        store,
-        actor,
-        "propuesta_decidida",
-        None,
-        true,
-        json!({ "propuesta": id, "estado": "rechazada", "canal": canal.nombre() }),
-    );
+    evento(store, actor, "propuesta_decidida", None, true, json!({ "propuesta": id, "estado": "rechazada", "canal": canal.nombre() }));
     Ok(p)
-}
-
-/// Útil para las interfaces: la simulación guardada, sin recalcular.
-pub fn simulacion_guardada(p: &Propuesta) -> Option<&str> {
-    p.accion.as_ref().map(|a| a.simulacion.as_str())
 }

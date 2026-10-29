@@ -2,10 +2,10 @@
 //! y menú. Si no hay bandeja (algunos Wayland sin StatusNotifierItem), el
 //! shell lo dice y cerrar la ventana lo termina.
 
+use tauri::AppHandle;
 use tauri::image::Image;
 use tauri::menu::{MenuBuilder, MenuEvent};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::AppHandle;
 
 use crate::vigia::Estado;
 

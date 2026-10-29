@@ -6,18 +6,15 @@ use ea_ajustes::Rol;
 use ea_store::EventFilter;
 
 use super::bus_lectura;
-use crate::ecosistema::{self, Ecosistema, EventoBus, Roles, SemaforoBus, TrabajoBus};
 use crate::AppState;
+use crate::ecosistema::{self, Ecosistema, EventoBus, Roles, SemaforoBus, TrabajoBus};
 
 /// Cuántos eventos recientes del diario viajan como señales.
 const SENALES: i64 = 12;
 
 pub async fn vista(s: &AppState) -> Ecosistema {
     let ajustes = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
-    let roles = Roles {
-        planificador: ajustes.agente_de(Rol::Planificador).0.to_string(),
-        ejecutor: ajustes.agente_de(Rol::Ejecutor).0.to_string(),
-    };
+    let roles = Roles { planificador: ajustes.agente_de(Rol::Planificador).0.to_string(), ejecutor: ajustes.agente_de(Rol::Ejecutor).0.to_string() };
     let ahora_ms = time::OffsetDateTime::now_utc().unix_timestamp_nanos() as u64 / 1_000_000;
 
     // Los semáforos de antes de la 017 llevan el rol en disco: su agente es el del rol.
@@ -58,13 +55,7 @@ pub async fn vista(s: &AppState) -> Ecosistema {
         .into_iter()
         // Los cambios de estado del bus ya los cuentan las cápsulas.
         .filter(|e| !e.action.starts_with("bus_"))
-        .map(|e| EventoBus {
-            id: e.id,
-            error: e.outcome.is_some_and(|o| o.as_str() == "error"),
-            actor: e.actor,
-            accion: e.action,
-            trabajo: e.trabajo,
-        })
+        .map(|e| EventoBus { id: e.id, error: e.outcome.is_some_and(|o| o.as_str() == "error"), actor: e.actor, accion: e.action, trabajo: e.trabajo })
         .collect();
 
     ecosistema::componer(agentes, &trabajos, &semaforos, &eventos, &roles)

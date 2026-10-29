@@ -16,8 +16,30 @@ use super::Hallazgo;
 use crate::modelo::Tipo;
 
 const PROPIAS: &[&str] = &[
-    "read", "write", "edit", "multiedit", "bash", "glob", "grep", "list", "ls", "patch", "apply_patch", "todowrite", "todoread", "webfetch",
-    "websearch", "codesearch", "lsp", "question", "invalid", "batch", "plan_enter", "plan_exit", "execute", "shell",
+    "read",
+    "write",
+    "edit",
+    "multiedit",
+    "bash",
+    "glob",
+    "grep",
+    "list",
+    "ls",
+    "patch",
+    "apply_patch",
+    "todowrite",
+    "todoread",
+    "webfetch",
+    "websearch",
+    "codesearch",
+    "lsp",
+    "question",
+    "invalid",
+    "batch",
+    "plan_enter",
+    "plan_exit",
+    "execute",
+    "shell",
 ];
 
 /// Lo que se lleva visto de la base: la marca (`time_created` más alto) y los
@@ -38,7 +60,8 @@ pub fn leer(ruta: &Path, desde: &Visto, avisos: &mut Vec<String>) -> (Vec<Hallaz
     let r = (|| -> rusqlite::Result<(Vec<Hallazgo>, Visto)> {
         let c = Connection::open_with_flags(ruta, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
         c.busy_timeout(std::time::Duration::from_millis(500))?;
-        let mut st = c.prepare("SELECT id, data, time_created FROM session_message WHERE type = 'assistant' AND time_created >= ?1 ORDER BY time_created, id")?;
+        let mut st =
+            c.prepare("SELECT id, data, time_created FROM session_message WHERE type = 'assistant' AND time_created >= ?1 ORDER BY time_created, id")?;
         let mut filas = st.query([desde.marca])?;
         let mut sal = Vec::new();
         let mut visto = desde.clone();

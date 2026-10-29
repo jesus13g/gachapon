@@ -44,7 +44,11 @@ pocos ficheros.
    - `topes`: `iteraciones` 3-5 (por defecto 5); `tiempo_s` 900 por iteración;
      `turnos` 30; `llamadas_herramienta` 60. Sube solo con motivo: el sistema
      recorta lo que pase del techo de los ajustes (`ea ajustes ver`, sección
-     agente). Algunos ejecutores solo respetan el tiempo.
+     agente). Algunos ejecutores solo respetan el tiempo. El criterio tiene su
+     propio tope por corrida, `tiempo_criterio_s` (120 por defecto), y corre en
+     el sandbox: solo escribe en el worktree, su `/tmp` y las rutas de
+     `agente.criterio.escribibles` (si necesita una caché fuera, como
+     `~/.cargo`, díselo al usuario: esa clave solo se cambia desde la terminal).
 3. **Escribe la orden** en un temporal (`mktemp`), con `id` y `creada_en`
    vacíos (se rellenan solos):
 

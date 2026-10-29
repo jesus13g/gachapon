@@ -2,10 +2,10 @@
 //! `SubagentStart` / `SubagentStop` (portable: sin `sh`, `jq` ni `date`).
 //!
 //! Lee el JSON del hook por la entrada estándar y deja un fichero por
-//! subagente en `<estado>/subagentes/<sesión>/<agente>.json`, donde ea-web
-//! sabe qué subagentes siguen en marcha. `<estado>` es el mismo que usa el
-//! resto del ecosistema (`ea_bus::raiz_estado`: `$EA_ESTADO_DIR` o
-//! `rutas.estado` de los ajustes).
+//! subagente en `<estado>/subagentes/<sesión>/<agente>.json`
+//! (`ea_bus::subagentes`), donde ea-web sabe qué subagentes siguen en marcha.
+//! `<estado>` es el mismo que usa el resto del ecosistema
+//! (`ea_bus::raiz_estado`: `$EA_ESTADO_DIR` o `rutas.estado` de los ajustes).
 //!
 //!   start → {"agente","tipo","transcript","desde"}
 //!   stop  → añade "hasta" (crea el fichero si faltaba)
@@ -15,12 +15,10 @@
 
 use std::io::Read;
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::{json, Value};
-
-/// Las carpetas de sesión más viejas que esto se borran al arrancar un subagente.
-const ANTIGUEDAD_MAXIMA: Duration = Duration::from_secs(3 * 24 * 3600);
+use ea_bus::subagentes::{self, MarcaSubagente};
+use serde_json::Value;
 
 pub fn subagentes(accion: &str) -> anyhow::Result<()> {
     let mut entrada = String::new();
@@ -28,75 +26,27 @@ pub fn subagentes(accion: &str) -> anyhow::Result<()> {
         return Ok(());
     }
     let ahora = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-    registrar(&ea_bus::raiz_estado().join("subagentes"), accion, &entrada, ahora);
+    registrar(&subagentes::dir(&ea_bus::raiz_estado()), accion, &entrada, ahora);
     Ok(())
 }
 
-/// El identificador sirve de nombre de directorio o de fichero: nada de rutas.
-fn id_seguro(s: &str) -> bool {
-    !s.is_empty() && !s.contains(['/', '\\', '\0', ':']) && !s.contains("..")
-}
-
-/// Hace el trabajo del hook; los errores se ignoran a propósito.
+/// Traduce el JSON del hook a una marca; los errores se ignoran a propósito.
 pub(crate) fn registrar(raiz: &Path, accion: &str, entrada: &str, ahora: u64) {
     let Ok(v) = serde_json::from_str::<Value>(entrada) else { return };
-    let texto = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("");
-    let (sesion, agente) = (texto("session_id"), texto("agent_id"));
-    if !id_seguro(sesion) || !id_seguro(agente) {
-        return;
-    }
-    let fichero = raiz.join(sesion).join(format!("{agente}.json"));
-    let nuevo = |desde: u64, hasta: Option<u64>| {
-        let mut m = json!({
-            "agente": agente,
-            "tipo": texto("agent_type"),
-            "transcript": texto("transcript_path"),
-            "desde": desde,
-        });
-        if let Some(h) = hasta {
-            m["hasta"] = json!(h);
-        }
-        m
-    };
-    let marca = match accion {
-        "start" => {
-            limpiar_antiguos(raiz);
-            nuevo(ahora, None)
-        }
-        "stop" => match std::fs::read(&fichero).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
-            Some(mut previa) if previa.is_object() => {
-                previa["hasta"] = json!(ahora);
-                previa
-            }
-            _ => nuevo(ahora, Some(ahora)),
-        },
+    let texto = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let hasta = match accion {
+        "start" => None,
+        "stop" => Some(ahora),
         _ => return,
     };
-    if let Ok(bytes) = serde_json::to_vec(&marca) {
-        let _ = ea_bus::escribir_atomico(&fichero, &bytes);
-    }
-}
-
-/// Borra las carpetas de sesión sin cambios desde hace más de tres días.
-fn limpiar_antiguos(raiz: &Path) {
-    let Ok(entradas) = std::fs::read_dir(raiz) else { return };
-    for e in entradas.flatten() {
-        let vieja = e
-            .metadata()
-            .ok()
-            .filter(|m| m.is_dir())
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.elapsed().ok())
-            .is_some_and(|d| d > ANTIGUEDAD_MAXIMA);
-        if vieja {
-            let _ = std::fs::remove_dir_all(e.path());
-        }
-    }
+    let marca = MarcaSubagente { agente: texto("agent_id"), tipo: texto("agent_type"), transcript: texto("transcript_path"), desde: ahora, hasta };
+    subagentes::registrar(raiz, &texto("session_id"), marca);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn entrada(sesion: &str, agente: &str) -> String {
         json!({"session_id": sesion, "agent_id": agente, "agent_type": "Explore", "transcript_path": "/t/s.jsonl"}).to_string()
@@ -114,6 +64,20 @@ mod tests {
         registrar(d.path(), "stop", &entrada("s1", "a1"), 2000);
         assert_eq!(leer(d.path(), "s1", "a1")["hasta"], 2000);
         assert_eq!(leer(d.path(), "s1", "a1")["desde"], 1000);
+    }
+
+    #[test]
+    fn la_marca_en_disco_es_siempre_la_misma_byte_a_byte() {
+        let d = tempfile::tempdir().unwrap();
+        let bytes = |a: &str| std::fs::read_to_string(d.path().join("s1").join(format!("{a}.json"))).unwrap();
+        registrar(d.path(), "start", &entrada("s1", "a1"), 1000);
+        assert_eq!(bytes("a1"), r#"{"agente":"a1","tipo":"Explore","transcript":"/t/s.jsonl","desde":1000}"#);
+        registrar(d.path(), "stop", &entrada("s1", "a1"), 2000);
+        assert_eq!(bytes("a1"), r#"{"agente":"a1","tipo":"Explore","transcript":"/t/s.jsonl","desde":1000,"hasta":2000}"#);
+        registrar(d.path(), "stop", &entrada("s1", "a1"), 3000);
+        assert_eq!(bytes("a1"), r#"{"agente":"a1","tipo":"Explore","transcript":"/t/s.jsonl","desde":1000,"hasta":3000}"#);
+        registrar(d.path(), "stop", &entrada("s1", "a2"), 5000);
+        assert_eq!(bytes("a2"), r#"{"agente":"a2","tipo":"Explore","transcript":"/t/s.jsonl","desde":5000,"hasta":5000}"#);
     }
 
     #[test]

@@ -1,36 +1,13 @@
 use anyhow::Result;
 use comfy_table::Table;
-use ea_store::{EventFilter, EventOutcome, NuevaNota, Store};
+use ea_store::{FiltroDiario, NuevaNota, Store};
 
-use super::{fmt_ts, parse_flexible_date};
+use super::{fmt_ts, limpio};
 
-/// Los filtros de `ea diario listar`, tal como llegan de la línea de órdenes.
-pub struct Filtro {
-    pub trabajo: Option<String>,
-    pub actor: Option<String>,
-    pub desde: Option<String>,
-    pub hasta: Option<String>,
-    /// `ok` o `error` (clap ya lo ha validado).
-    pub resultado: Option<String>,
-    /// Prefijo de la acción (clap ya lo ha validado como `[a-z_]+`).
-    pub accion: Option<String>,
-    /// Cursor: solo los eventos anteriores al de este id.
-    pub antes_de: Option<i64>,
-}
-
-pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
-    let filter = EventFilter {
-        trabajo: f.trabajo,
-        actor: f.actor,
-        since: f.desde.as_deref().map(parse_flexible_date).transpose()?,
-        until: f.hasta.as_deref().map(parse_flexible_date).transpose()?,
-        outcome: f.resultado.as_deref().map(str::parse::<EventOutcome>).transpose()?,
-        action_prefix: f.accion,
-        before_id: f.antes_de,
-        limit: Some(limite),
-        ..Default::default()
-    };
-
+/// `ea diario listar`, con los filtros tal como llegan de la línea de órdenes
+/// (clap ya ha validado el resultado, el prefijo de la acción y el cursor).
+pub fn listar(store: &Store, f: FiltroDiario) -> Result<()> {
+    let filter = f.a_filtro(None)?;
     let events = store.list_events(&filter)?;
     if events.is_empty() {
         println!("No hay eventos que coincidan con el filtro.");
@@ -38,7 +15,7 @@ pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
     }
 
     // Si la página va llena puede haber más: el cursor de la siguiente.
-    let siguiente = (events.len() as i64 >= limite).then(|| events.last().map(|e| e.id)).flatten();
+    let siguiente = filter.limit.is_some_and(|l| events.len() as i64 >= l).then(|| events.last().map(|e| e.id)).flatten();
 
     let mut table = Table::new();
     table.set_header(vec!["ID", "Cuándo", "Actor", "Acción", "Trabajo", "Resultado"]);
@@ -46,9 +23,9 @@ pub fn listar(store: &Store, f: Filtro, limite: i64) -> Result<()> {
         table.add_row(vec![
             e.id.to_string(),
             fmt_ts(e.ts),
-            e.actor,
-            e.action,
-            e.trabajo.unwrap_or_default(),
+            limpio(&e.actor),
+            limpio(&e.action),
+            limpio(&e.trabajo.unwrap_or_default()),
             e.outcome.map(|o| o.as_str().to_string()).unwrap_or_default(),
         ]);
     }
@@ -63,10 +40,12 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
     let e = store.get_event(id)?;
     println!("Evento #{}", e.id);
     println!("  Cuándo:    {}", fmt_ts(e.ts));
-    println!("  Actor:     {}", e.actor);
-    println!("  Acción:    {}", e.action);
+    // El actor, la acción y el trabajo de un evento de `ea-mcp` son los que
+    // declaró o pidió el agente: sin secuencias de control en la terminal.
+    println!("  Actor:     {}", limpio(&e.actor));
+    println!("  Acción:    {}", limpio(&e.action));
     if let Some(trabajo) = &e.trabajo {
-        println!("  Trabajo:   {trabajo}");
+        println!("  Trabajo:   {}", limpio(trabajo));
     }
     if let Some(outcome) = e.outcome {
         println!("  Resultado: {}", outcome.as_str());
@@ -75,7 +54,7 @@ pub fn ver(store: &Store, id: i64) -> Result<()> {
         println!("  Duración:  {duration} ms");
     }
     if let Some(detail) = &e.detail {
-        println!("  Detalle:   {detail}");
+        println!("  Detalle:   {}", limpio(detail));
     }
     if let Some(notas) = store.correcciones_diario(&[e.id])?.get(&e.id) {
         let lista: Vec<String> = notas.iter().map(|n| format!("#{n}")).collect();

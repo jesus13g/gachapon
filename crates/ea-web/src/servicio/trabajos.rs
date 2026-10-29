@@ -3,16 +3,15 @@
 
 use std::collections::HashSet;
 
-use ea_bus::{Bus, Rol, Evento, Modo, Orden, Topes};
-use serde::Deserialize;
+use ea_bus::{Bus, Evento, Orden, Rol, Topes};
 use serde_json::Value;
 
-use super::{bus_con_store, bus_lectura, texto_no_vacio, ErrorWeb, Resultado, ACTOR};
-use crate::vistas::{
-    CatalogoSkills, ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, PruebaSkills, Semaforo, SkillVista,
-    TrabajoDetalle, TrabajoResumen,
-};
+use super::{ACTOR, ErrorWeb, Resultado, bus_con_store, bus_lectura, texto_no_vacio};
 use crate::AppState;
+use crate::vistas::{
+    CatalogoSkills, ColaEntrada, Colas, Diff, EstadoTrabajo, FaseVista, FormularioTrabajo, NuevoTrabajo, PruebaSkills, Semaforo, SkillVista, TrabajoDetalle,
+    TrabajoResumen,
+};
 
 fn a_valor<T: serde::Serialize>(v: T) -> Resultado<Value> {
     serde_json::to_value(v).map_err(|e| ErrorWeb::Interno(e.to_string()))
@@ -20,29 +19,24 @@ fn a_valor<T: serde::Serialize>(v: T) -> Resultado<Value> {
 
 /// `en_curso`: trabajos cuyo worktree tiene cogido el agente local.
 fn resumen(bus: &Bus, id: &str, en_curso: &HashSet<String>) -> Option<TrabajoResumen> {
-    let orden = bus.leer_orden(id).ok()?;
-    let estado = bus.leer_estado(id).ok()?;
-    let informe = bus.leer_informe(id).ok().flatten();
+    let r = bus.resumen_trabajo(id)?;
     Some(TrabajoResumen {
-        cancelando: estado.estado == ea_bus::EstadoTrabajo::Cancelado && en_curso.contains(id),
-        id: id.into(),
-        modo: orden.modo.as_str(),
-        estado: estado.estado.as_str(),
-        fase_actual: estado.fase_actual,
-        fases_total: orden.fases.len(),
-        iteracion: estado.iteracion,
-        detalle: estado.detalle,
-        ejecutado_por: estado.ejecutado_por,
-        resultado: informe.as_ref().map(|i| match i.resultado {
-            ea_bus::ResultadoInforme::Terminado => "terminado",
-            ea_bus::ResultadoInforme::Bloqueado => "bloqueado",
-        }),
-        obra_completa: informe.as_ref().map(|i| i.obra_completa),
-        rutina: a_valor(&orden.rutina).ok()?,
-        titulo: orden.titulo,
-        worktree: orden.worktree,
-        creado: orden.creada_en,
-        actualizado: estado.actualizado_en,
+        cancelando: r.estado == ea_bus::EstadoTrabajo::Cancelado && en_curso.contains(id),
+        modo: r.modo.as_str(),
+        estado: r.estado.as_str(),
+        fase_actual: r.fase_actual,
+        fases_total: r.fases_total,
+        iteracion: r.iteracion,
+        detalle: r.detalle,
+        ejecutado_por: r.ejecutado_por,
+        resultado: r.informe.as_ref().map(|i| i.resultado.as_str()),
+        obra_completa: r.informe.as_ref().map(|i| i.obra_completa),
+        rutina: a_valor(&r.rutina).ok()?,
+        id: r.id,
+        titulo: r.titulo,
+        worktree: r.worktree,
+        creado: r.creada_en,
+        actualizado: r.actualizado_en,
     })
 }
 
@@ -51,11 +45,7 @@ pub fn listar(s: &AppState) -> Resultado<Vec<TrabajoResumen>> {
     let bus = bus_lectura(s)?;
     // Un trabajo cancelado cuyo semáforo sigue cogido es que el ejecutor aún
     // no se ha enterado (sondea cada 2 s y espera al agente): «cancelando…».
-    let en_curso: HashSet<String> = ea_bus::listar_semaforos_en(bus.raiz())
-        .into_iter()
-        .filter(|(_, o)| o.es_ejecutor())
-        .map(|(_, o)| o.trabajo)
-        .collect();
+    let en_curso: HashSet<String> = ea_bus::listar_semaforos_en(bus.raiz()).into_iter().filter(|(_, o)| o.es_ejecutor()).map(|(_, o)| o.trabajo).collect();
     let mut v: Vec<_> = bus.listar_trabajos()?.iter().filter_map(|id| resumen(&bus, id, &en_curso)).collect();
     v.reverse();
     Ok(v)
@@ -93,30 +83,17 @@ fn ver_bus(s: &AppState, id: &str) -> Resultado<TrabajoDetalle> {
     if let Some(o) = informe.as_object_mut() {
         o.remove("diff"); // el diff va aparte, bajo demanda
     }
-    let dir = bus.raiz().join("trabajos").join(id);
-    let historial = std::fs::read_to_string(dir.join("historial.jsonl"))
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect();
-    let paquete = std::fs::read_to_string(dir.join("paquete-correccion.md")).ok();
+    let artefactos = bus.artefactos(id)?;
+    let historial = artefactos.historial();
+    let paquete = artefactos.paquete_correccion();
     let tipo = ea_bus::tipo_ejecutor(estado.ejecutado_por.as_ref());
-    let resumen_agente = ea_bus::leer_salida_agente(&dir)
+    let resumen_agente = artefactos
+        .salida_agente()
         .map(|b| ea_bus::resumen_salida_agente(tipo, &b))
         .map(|r| r.trim().chars().take(RESUMEN_MAX).collect::<String>())
         .filter(|r| !r.is_empty());
     let worktree = if orden.worktree_propio { bus.info_worktree(id).ok().flatten() } else { None };
-    Ok(TrabajoDetalle {
-        id: id.into(),
-        orden: a_valor(orden)?,
-        estado: a_valor(estado)?,
-        informe,
-        historial,
-        paquete,
-        fases: vec![],
-        resumen_agente,
-        worktree,
-    })
+    Ok(TrabajoDetalle { id: id.into(), orden: a_valor(orden)?, estado: a_valor(estado)?, informe, historial, paquete, fases: vec![], resumen_agente, worktree })
 }
 
 /// Los worktrees propios vivos (`ea worktree listar`). Solo lectura; quitarlos
@@ -142,8 +119,7 @@ pub async fn diff(s: &AppState, id: &str, fase: Option<u32>) -> Resultado<Diff> 
         let (texto, truncado) = crate::git::diff_entre(&orden.worktree, &base, &fin, DIFF_MAX).await?;
         return Ok(Diff { id: id.into(), fase: Some(n), commit_inicio: inicio, diff: texto, truncado });
     }
-    let inicio =
-        inicio.ok_or_else(|| ErrorWeb::Conflicto("el trabajo aún no tiene informe con commit_inicio".into()))?;
+    let inicio = inicio.ok_or_else(|| ErrorWeb::Conflicto("el trabajo aún no tiene informe con commit_inicio".into()))?;
     let (texto, truncado) = crate::git::diff_desde(&orden.worktree, &inicio, DIFF_MAX).await?;
     Ok(Diff { id: id.into(), fase: None, commit_inicio: Some(inicio), diff: texto, truncado })
 }
@@ -156,44 +132,9 @@ const MODOS_WEB: [&str; 2] = ["mision", "obra"];
 const TITULO_MAX: usize = 200;
 const OBJETIVO_MAX: usize = 20_000;
 const CRITERIO_MAX: usize = 2_000;
-const WORKTREE_MAX: usize = 4_096;
 const SUGERENCIAS_MAX: usize = 30;
 const FASES_MAX: usize = 20;
 const ENTREGABLE_MAX: usize = 2_000;
-
-/// Cuerpo de `POST /api/trabajos`. Cualquier otro campo (`skills`,
-/// `creada_por`…) se rechaza: desde la web no se eligen. La misión lleva
-/// `criterio`; la obra, `fases` (cada una con el suyo) y `revisar_cada`.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NuevoTrabajo {
-    #[serde(default)]
-    modo: Option<String>,
-    titulo: String,
-    worktree: String,
-    objetivo: String,
-    #[serde(default)]
-    criterio: Option<String>,
-    #[serde(default)]
-    topes: Option<TopesPedidos>,
-    #[serde(default)]
-    fases: Option<Vec<FasePedida>>,
-    /// Fuera: no se envió; `Some(None)`: `null`, solo al final;
-    /// `Some(Some(n))`: cada `n` fases. En la obra es obligatorio (art. IV.4).
-    #[serde(default, deserialize_with = "presente")]
-    revisar_cada: Option<Option<u32>>,
-    /// Equipo despierto para el que se crea (spec 019); el bus valida que
-    /// `asignado_a` sea su ejecutor y `revisor` su revisor o planificador.
-    #[serde(default)]
-    equipo: Option<String>,
-    #[serde(default)]
-    asignado_a: Option<String>,
-    #[serde(default)]
-    revisor: Option<String>,
-    /// El sistema crea un `git worktree` propio para el trabajo.
-    #[serde(default)]
-    worktree_propio: bool,
-}
 
 /// Vacío o solo espacios cuenta como «no enviado» (los selectores del
 /// formulario mandan `""`).
@@ -201,37 +142,9 @@ fn opcional(v: &Option<String>) -> Option<String> {
     v.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_string)
 }
 
-/// Distingue un campo ausente (`None`, por el `default`) de uno a `null`.
-fn presente<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<u32>>, D::Error> {
-    Option::<u32>::deserialize(d)
-        .map(Some)
-        .map_err(|e| serde::de::Error::custom(format!("'revisar_cada' debe ser un entero positivo o null ({e})")))
-}
-
-/// Una fase de la obra tal como llega del formulario. El número lo pone el
-/// orden de la lista; las skills no se eligen desde la web.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FasePedida {
-    titulo: String,
-    instrucciones: String,
-    entregable: String,
-    /// Vacío llega al bus, que lo rechaza («la fase N no tiene criterio»).
-    #[serde(default)]
-    criterio: String,
-}
-
-/// Los topes que se pueden pedir desde el formulario; el resto, por defecto.
-#[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct TopesPedidos {
-    iteraciones: Option<u32>,
-    tiempo_s: Option<u64>,
-}
-
 /// El techo de los topes de los ajustes efectivos (se relee en cada petición).
 fn techo(s: &AppState) -> Topes {
-    ea_bus::ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes).techo_topes
+    Topes::from(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes.agente.techo_topes)
 }
 
 /// Lo que el formulario necesita: techo, topes por defecto y los worktrees
@@ -250,7 +163,7 @@ pub fn formulario(s: &AppState) -> Resultado<FormularioTrabajo> {
 /// La configuración de skills de los ajustes efectivos; el catálogo por
 /// defecto cuelga del directorio de configuración de los ajustes del panel.
 fn config_skills(s: &AppState) -> ea_bus::ConfigSkills {
-    let mut c = ea_bus::ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes).skills;
+    let mut c = ea_bus::ConfigSkills::desde_ajustes(&ea_ajustes::cargar_de(&s.config.ajustes).ajustes);
     if c.dir.is_empty() {
         c.dir = s.config.ajustes.dir_config.join("qwen-skills").to_string_lossy().into_owned();
     }
@@ -263,12 +176,7 @@ pub fn catalogo_skills(s: &AppState) -> Resultado<CatalogoSkills> {
     let skills = c
         .catalogo()?
         .into_iter()
-        .map(|k| SkillVista {
-            caracteres: k.cuerpo.chars().count(),
-            nombre: k.nombre,
-            descripcion: k.descripcion,
-            habilitada: k.habilitada,
-        })
+        .map(|k| SkillVista { caracteres: k.cuerpo.chars().count(), nombre: k.nombre, descripcion: k.descripcion, habilitada: k.habilitada })
         .collect();
     Ok(CatalogoSkills {
         skills,
@@ -290,40 +198,6 @@ pub fn probar_skills(s: &AppState, skills: &[String], por: Option<&str>) -> Resu
         caracteres: elegidas.iter().map(|k| k.cuerpo.chars().count()).sum(),
         skills: elegidas.into_iter().map(|k| k.nombre).collect(),
     })
-}
-
-/// Ruta absoluta, existente, directorio y dentro de un repo git; devuelve
-/// la forma canónica, que es la que va a la orden (y al semáforo).
-pub(super) async fn validar_worktree(wt: &str) -> Resultado<String> {
-    let wt = wt.trim();
-    if wt.is_empty() {
-        return Err(ErrorWeb::Invalido("'worktree' no puede estar vacío".into()));
-    }
-    if wt.len() > WORKTREE_MAX {
-        return Err(ErrorWeb::Invalido(format!("'worktree' supera {WORKTREE_MAX} bytes")));
-    }
-    let ruta = std::path::Path::new(wt);
-    if !ruta.is_absolute() {
-        return Err(ErrorWeb::Invalido("'worktree' debe ser una ruta absoluta".into()));
-    }
-    let canon = ea_plataforma::rutas::canonica(ruta)
-        .map_err(|_| ErrorWeb::Invalido(format!("el worktree '{wt}' no existe")))?;
-    if !canon.is_dir() {
-        return Err(ErrorWeb::Invalido(format!("el worktree '{wt}' no es un directorio")));
-    }
-    let canon = canon
-        .to_str()
-        .ok_or_else(|| ErrorWeb::Invalido("la ruta del worktree no es UTF-8".into()))?
-        .to_string();
-    if !crate::git::es_repo(&canon).await? {
-        return Err(ErrorWeb::Invalido(format!("'{canon}' no está dentro de un repositorio git")));
-    }
-    if !crate::git::tiene_commits(&canon).await? {
-        return Err(ErrorWeb::Invalido(format!(
-            "el repo no tiene ningún commit ('{canon}'): haz un commit inicial antes de encargarle trabajo"
-        )));
-    }
-    Ok(canon)
 }
 
 /// Texto no vacío de una sola línea, de hasta `TITULO_MAX` caracteres.
@@ -350,16 +224,12 @@ fn fases_de_obra(n: &NuevoTrabajo) -> Resultado<(Vec<ea_bus::Fase>, Option<u32>)
     if pedidas.len() > FASES_MAX {
         return Err(ErrorWeb::Invalido(format!("una obra tiene como mucho {FASES_MAX} fases")));
     }
-    let revisar_cada = n.revisar_cada.ok_or_else(|| {
-        ErrorWeb::Invalido("elige 'revisar_cada': cada cuántas fases revisa Claude Code (null: solo al final)".into())
-    })?;
+    let revisar_cada =
+        n.revisar_cada.ok_or_else(|| ErrorWeb::Invalido("elige 'revisar_cada': cada cuántas fases revisa Claude Code (null: solo al final)".into()))?;
     if let Some(k) = revisar_cada
         && (k == 0 || k as usize > pedidas.len())
     {
-        return Err(ErrorWeb::Invalido(format!(
-            "'revisar_cada' debe estar entre 1 y {} (o null: solo al final)",
-            pedidas.len()
-        )));
+        return Err(ErrorWeb::Invalido(format!("'revisar_cada' debe estar entre 1 y {} (o null: solo al final)", pedidas.len())));
     }
     let mut fases = Vec::with_capacity(pedidas.len());
     for (i, f) in pedidas.iter().enumerate() {
@@ -385,61 +255,44 @@ fn fases_de_obra(n: &NuevoTrabajo) -> Resultado<(Vec<ea_bus::Fase>, Option<u32>)
 /// exigir el criterio y valida skills) la escribe, la encola en
 /// `modelo-local` y apunta `bus_crear` en el diario con actor `usuario`.
 /// El criterio no se ejecuta aquí: solo el ejecutor lo corre (arts. III y V).
-pub async fn crear(s: &AppState, cuerpo: Value) -> Resultado<EstadoTrabajo> {
-    if cuerpo.get("skills").is_some() {
+pub async fn crear(s: &AppState, n: NuevoTrabajo) -> Resultado<EstadoTrabajo> {
+    if n.skills.is_some() {
         return Err(ErrorWeb::Invalido(
             "las skills no se eligen desde la web: las elige quien tiene la llave (`pueden_elegir`, el rol planificador); prueba una selección con POST /api/skills/probar".into(),
         ));
     }
-    let n: NuevoTrabajo =
-        serde_json::from_value(cuerpo).map_err(|e| ErrorWeb::Invalido(format!("petición inválida: {e}")))?;
     let modo = n.modo.as_deref().unwrap_or("mision");
     if !MODOS_WEB.contains(&modo) {
         return Err(ErrorWeb::Invalido(format!("modo '{modo}': desde la web solo se crean misiones y obras")));
     }
     let titulo = una_linea(&n.titulo, "titulo")?;
     let objetivo = texto_no_vacio(&n.objetivo, "objetivo", OBJETIVO_MAX)?;
-    let (modo, criterio, fases, revisar_cada) = if modo == "obra" {
+    // Misión u obra, sin el worktree todavía (se valida después, con git).
+    let base = if modo == "obra" {
         let (fases, revisar_cada) = fases_de_obra(&n)?;
-        (Modo::Obra, None, fases, revisar_cada)
+        Orden::obra(titulo, String::new(), objetivo, fases, revisar_cada, ACTOR)
     } else {
         if n.fases.is_some() || n.revisar_cada.is_some() {
             return Err(ErrorWeb::Invalido("'fases' y 'revisar_cada' son de las obras: usa modo 'obra'".into()));
         }
         let criterio = texto_no_vacio(n.criterio.as_deref().unwrap_or(""), "criterio", CRITERIO_MAX)?;
-        (Modo::Mision, Some(criterio), vec![], None)
+        Orden::mision(titulo, String::new(), objetivo, criterio, ACTOR)
     };
     let pedidos = n.topes.unwrap_or_default();
     if pedidos.iteraciones == Some(0) || pedidos.tiempo_s == Some(0) {
         return Err(ErrorWeb::Invalido("los topes deben ser al menos 1".into()));
     }
-    let worktree = validar_worktree(&n.worktree).await?;
+    let worktree = crate::git::validar_worktree(&n.worktree).await?;
     let d = Topes::default();
-    let topes = Topes {
-        iteraciones: pedidos.iteraciones.unwrap_or(d.iteraciones),
-        tiempo_s: pedidos.tiempo_s.unwrap_or(d.tiempo_s),
-        ..d
-    }
-    .acotar(&techo(s));
+    let topes = Topes { iteraciones: pedidos.iteraciones.unwrap_or(d.iteraciones), tiempo_s: pedidos.tiempo_s.unwrap_or(d.tiempo_s), ..d }.acotar(&techo(s));
     let orden = Orden {
-        id: String::new(),
-        modo,
-        titulo,
         worktree,
-        objetivo,
-        criterio_exito: criterio,
-        fases,
-        revisar_cada,
         topes,
-        rutina: None,
-        notas_revision: vec![],
-        skills: vec![],
         equipo: opcional(&n.equipo),
         asignado_a: opcional(&n.asignado_a),
         revisor: opcional(&n.revisor),
         worktree_propio: n.worktree_propio,
-        creada_en: String::new(),
-        creada_por: ACTOR.into(),
+        ..base
     };
     let id = bus_con_store(s).await?.crear_trabajo(orden)?;
     Ok(EstadoTrabajo { id, estado: ea_bus::EstadoTrabajo::EnCola.as_str() })
@@ -452,9 +305,14 @@ pub enum Decision<'a> {
     /// Aprueba una revisión intermedia: reformular sin nota (como `ea trabajo continuar`).
     Continuar,
     /// `fase`: en una obra, la fase desde la que se rehace (por defecto, la pendiente).
-    Reformular { nota: &'a str, fase: Option<u32> },
+    Reformular {
+        nota: &'a str,
+        fase: Option<u32>,
+    },
     /// Confirma el paquete de corrección de una rutina en espera.
-    Confirmar { contexto: &'a str },
+    Confirmar {
+        contexto: &'a str,
+    },
 }
 
 pub async fn decidir(s: &AppState, id: &str, d: Decision<'_>) -> Resultado<EstadoTrabajo> {

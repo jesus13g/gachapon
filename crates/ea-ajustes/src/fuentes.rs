@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::agentes::{Rol, CATALOGO};
+use crate::agentes::{AgenteId, CATALOGO, Rol};
 use crate::validar::expandir_tilde;
 
 /// Cambia el directorio de configuración (`ajustes.toml`, los TOML heredados,
@@ -54,22 +54,14 @@ impl Fuentes {
             None => dirs.as_ref().map(|d| d.config_dir().to_path_buf()).unwrap_or_else(|| PathBuf::from("config")),
         };
         let dir_datos = dirs.as_ref().map(|d| d.data_dir().to_path_buf()).unwrap_or_default();
-        let dir_estado = dirs
-            .as_ref()
-            .map(|d| d.state_dir().unwrap_or_else(|| d.data_local_dir()).to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("estado"));
+        let dir_estado = dirs.as_ref().map(|d| d.state_dir().unwrap_or_else(|| d.data_local_dir()).to_path_buf()).unwrap_or_else(|| PathBuf::from("estado"));
         Self { dir_config, dir_datos, dir_estado, entorno }
     }
 
     /// Todo bajo `raiz` (`config/`, `datos/`, `estado/`) y sin variables de
     /// entorno: para pruebas.
     pub fn aislada(raiz: &Path) -> Self {
-        Self {
-            dir_config: raiz.join("config"),
-            dir_datos: raiz.join("datos"),
-            dir_estado: raiz.join("estado"),
-            entorno: Entorno::Fijo(BTreeMap::new()),
-        }
+        Self { dir_config: raiz.join("config"), dir_datos: raiz.join("datos"), dir_estado: raiz.join("estado"), entorno: Entorno::Fijo(BTreeMap::new()) }
     }
 
     /// Añade una variable al entorno fijo (en el del proceso no hace nada:
@@ -144,6 +136,17 @@ pub struct Agente {
     pub avisos_escritorio: bool,
     pub techo_topes: TechoTopes,
     pub skills: Skills,
+    pub criterio: Criterio,
+}
+
+/// El criterio de éxito, que corre en el sandbox del agente.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+pub struct Criterio {
+    /// Rutas que el criterio puede escribir además del worktree y su `/tmp`
+    /// (cachés como `~/.cargo`), ya expandidas. Se cambian solo desde la
+    /// terminal; al cargar se comprueba que existen y no abren el directorio
+    /// personal ni los del ecosistema (`validar_escribibles`).
+    pub escribibles: Vec<PathBuf>,
 }
 
 /// Techo de los topes de cualquier orden: el ejecutor recorta cada tope de la
@@ -154,10 +157,12 @@ pub struct TechoTopes {
     pub tiempo_s: u64,
     pub llamadas_herramienta: u32,
     pub iteraciones: u32,
+    /// Segundos de cada corrida del criterio de éxito.
+    pub tiempo_criterio_s: u64,
 }
 
 /// Lo máximo que puede valer el techo, también desde la terminal.
-pub const TECHO_DURO: TechoTopes = TechoTopes { turnos: 100, tiempo_s: 3600, llamadas_herramienta: 200, iteraciones: 10 };
+pub const TECHO_DURO: TechoTopes = TechoTopes { turnos: 100, tiempo_s: 3600, llamadas_herramienta: 200, iteraciones: 10, tiempo_criterio_s: 3600 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Skills {
@@ -218,29 +223,20 @@ impl Ajustes {
     /// Los valores por defecto. Es el único sitio del código donde se nombran
     /// el modelo y su endpoint (art. VII).
     pub fn por_defecto(f: &Fuentes) -> Self {
-        let local = PerfilModelo {
-            nombre: "qwen3-coder-30b".into(),
-            base_url: "http://127.0.0.1:8080/v1".into(),
-            remoto: false,
-        };
+        let local = PerfilModelo { nombre: "qwen3-coder-30b".into(), base_url: "http://127.0.0.1:8080/v1".into(), remoto: false };
+        // Los que pueden ejecutar, con el perfil local (el del ejecutor tiene
+        // que serlo); los demás, con el modelo que tengan configurado.
         let agentes = CATALOGO
             .iter()
             .map(|a| {
-                let (bin, modelo) = match a.id {
-                    "claude-code" => ("claude", ""),
-                    "qwen-code" => ("qwen", "local"),
-                    "codex" => ("codex", "local"),
-                    "opencode" => ("opencode", "local"),
-                    "antigravity" => ("agy", ""),
-                    otro => (otro, ""),
-                };
-                (a.id.to_string(), ConfigAgente { bin: bin.into(), modelo: modelo.into() })
+                let modelo = if a.ejecutor.is_some() { "local" } else { "" };
+                (a.id.as_str().to_string(), ConfigAgente { bin: a.bin_por_defecto.into(), modelo: modelo.into() })
             })
             .collect();
         Self {
             modelos: BTreeMap::from([("local".to_string(), local)]),
             agentes,
-            roles: Roles { planificador: "claude-code".into(), ejecutor: "qwen-code".into() },
+            roles: Roles { planificador: AgenteId::ClaudeCode.as_str().into(), ejecutor: AgenteId::QwenCode.as_str().into() },
             agente: Agente {
                 sandbox: true,
                 avisos_escritorio: true,
@@ -252,19 +248,11 @@ impl Ajustes {
                     max_caracteres: 6000,
                     pueden_elegir: vec!["claude-code".into()],
                 },
+                criterio: Criterio::default(),
             },
-            orquestador: Orquestador {
-                intervalo_sondeo_s: 5,
-                intervalo_heartbeat_s: 30,
-                paralelo: 1,
-                rutinas_dir: f.dir_config.join("rutinas"),
-            },
+            orquestador: Orquestador { intervalo_sondeo_s: 5, intervalo_heartbeat_s: 30, paralelo: 1, rutinas_dir: f.dir_config.join("rutinas") },
             red: Red { puerto_web: 8092, puerto_mcp: 8765 },
-            rutas: Rutas {
-                db: f.dir_datos.join("ecosistema.db"),
-                estado: f.dir_estado.clone(),
-                boveda: f.dir_datos.join("boveda"),
-            },
+            rutas: Rutas { db: f.dir_datos.join("ecosistema.db"), estado: f.dir_estado.clone(), boveda: f.dir_datos.join("boveda") },
             web: Web { sondeo_ms: 3000, diario_limite: 300 },
             escritorio: Escritorio { al_iniciar: false, wsl: String::new() },
             biblioteca: AjustesBiblioteca::default(),

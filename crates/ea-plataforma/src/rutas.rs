@@ -15,6 +15,19 @@ pub fn nombre_exe(base: &str) -> String {
     if cfg!(windows) { format!("{base}.exe") } else { base.to_string() }
 }
 
+/// La ruta del ejecutable `base` ([`nombre_exe`]) junto al que corre (los
+/// binarios del ecosistema viven juntos), exista o no. `None` si no se sabe
+/// dónde está el ejecutable actual.
+pub fn ruta_hermana(base: &str) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.parent()?.join(nombre_exe(base)))
+}
+
+/// [`ruta_hermana`], solo si es un fichero.
+pub fn binario_hermano(base: &str) -> Option<PathBuf> {
+    ruta_hermana(base).filter(|b| b.is_file())
+}
+
 /// Directorio de ejecución del usuario (efímero, privado), donde vive p. ej.
 /// la clave de sesión del panel. No crea nada. `var` lee variables de entorno.
 ///
@@ -195,6 +208,17 @@ mod tests {
     fn nombre_exe_y_separador() {
         assert_eq!(nombre_exe("ea"), if cfg!(windows) { "ea.exe" } else { "ea" });
         assert_eq!(SEPARADOR_PATH, if cfg!(windows) { ';' } else { ':' });
+    }
+
+    #[test]
+    fn el_hermano_esta_junto_al_ejecutable_y_solo_vale_si_existe() {
+        let exe = std::env::current_exe().unwrap();
+        let dir = exe.parent().unwrap();
+        assert_eq!(ruta_hermana("no-existe-ea"), Some(dir.join(nombre_exe("no-existe-ea"))));
+        assert_eq!(binario_hermano("no-existe-ea"), None);
+        // El ejecutable de las pruebas es hermano de sí mismo.
+        let propio = exe.file_stem().unwrap().to_str().unwrap();
+        assert_eq!(binario_hermano(propio), Some(exe.clone()));
     }
 
     #[test]

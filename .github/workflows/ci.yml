@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [multisistema, desarrollo, main]
+    branches: [desarrollo, main]
   pull_request:
 
 env:
@@ -37,6 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           key: workspace
@@ -50,13 +52,69 @@ jobs:
       - name: Comprobar que sh existe
         shell: bash
         run: command -v sh && sh -c 'echo sh ok'
-      # Compilación de todo el workspace, pruebas incluidas. Clippy con
-      # -D warnings solo se exige a ea-plataforma (job anterior): el resto
-      # del workspace arrastra avisos antiguos ajenos a esta spec.
+      # Las pruebas de JavaScript del panel (`node --test`, sin dependencias):
+      # con EA_EXIGIR_NODE=1 fallan si no hay node, en vez de saltarse.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Compilación de todo el workspace, pruebas incluidas.
       - name: Compilar
         run: cargo build --workspace --all-targets --keep-going
+      # Clippy sin avisos en todo el workspace y en los tres sistemas: cada
+      # uno ve sus propias ramas por sistema (sobre todo, en las pruebas).
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Pruebas
         run: cargo test --workspace --no-fail-fast
+        env:
+          EA_EXIGIR_NODE: "1"
+
+  # El formato de rustfmt (`rustfmt.toml`) en los tres manifiestos.
+  formato:
+    name: formato (rustfmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo fmt --manifest-path escritorio/Cargo.toml --all -- --check
+      - run: cargo fmt --manifest-path instalador/Cargo.toml --all -- --check
+
+  # Licencias, avisos de RustSec, crates vetados y fuentes (deny.toml) de los
+  # tres manifiestos. Un aviso nuevo de RustSec puede ponerlo en rojo sin que
+  # cambie el código: la salida suele ser `cargo update -p <crate>`.
+  dependencias:
+    name: cargo deny (${{ matrix.manifiesto }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        manifiesto: [Cargo.toml, escritorio/Cargo.toml, instalador/Cargo.toml]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: ${{ matrix.manifiesto }}
+          arguments: --all-features --config deny.toml
+
+  web:
+    name: web (página del proyecto)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      # La misma versión de Node que pages.yml (Astro pide >= 22.23.4).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Compilar (astro check + build)
+        run: npm ci && npm run build
 
   escritorio:
     name: escritorio (${{ matrix.os }})
@@ -68,6 +126,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: escritorio
@@ -79,6 +139,8 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Compilar
         run: cargo build --manifest-path escritorio/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --manifest-path escritorio/Cargo.toml --all-targets -- -D warnings
       - name: Pruebas
         run: cargo test --manifest-path escritorio/Cargo.toml
 
@@ -92,10 +154,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: instalador
           key: instalador
+      - name: Clippy del instalador
+        run: cargo clippy --manifest-path instalador/Cargo.toml --all-targets -- -D warnings
       - name: Pruebas del instalador
         run: cargo test --manifest-path instalador/Cargo.toml
       - name: Compilar con binarios de prueba
@@ -109,6 +175,27 @@ jobs:
         run: |
           sh -n instalar.sh
           if command -v shellcheck >/dev/null; then shellcheck instalar.sh; else echo "sin shellcheck"; fi
+      # Humo de instalar.sh como se usa (`curl … | sh`) contra una Release
+      # local (GACHAPON_URL_BASE=file://…) con un `ea` falso: comprueba la suma,
+      # descomprime y le pasa el control con /dev/tty (lo da `script`). Con
+      # una suma que no cuadra no lanza nada.
+      - name: instalar.sh (humo con un paquete falso)
+        if: runner.os == 'Linux'
+        run: |
+          d=$(mktemp -d)
+          p=gachapon-x86_64-unknown-linux-gnu.tar.gz
+          mkdir "$d/paquete"
+          printf '#!/bin/sh\necho "$*" > %s/argumentos\n' "$d" > "$d/paquete/ea"
+          chmod +x "$d/paquete/ea"
+          tar -czf "$d/$p" -C "$d/paquete" ea
+          (cd "$d" && sha256sum "$p" > SHA256SUMS)
+          instalar() { GACHAPON_URL_BASE="file://$d" script -qec "curl -fsSL file://$PWD/instalar.sh | sh -s -- --sin-escritorio" /dev/null; }
+          instalar
+          test "$(cat "$d/argumentos")" = "instalar --sin-escritorio"
+          rm "$d/argumentos"
+          echo "0000  $p" > "$d/SHA256SUMS"
+          if instalar; then echo "instaló con una suma que no cuadra"; exit 1; fi
+          test ! -e "$d/argumentos"
       - name: instalar.ps1 (sintaxis)
         if: runner.os == 'Windows'
         shell: pwsh

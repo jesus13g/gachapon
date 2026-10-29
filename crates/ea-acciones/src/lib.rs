@@ -12,28 +12,32 @@
 //! la propuesta desde una interfaz del usuario ([`flujo::aceptar_propuesta`]),
 //! con el nivel de riesgo limitando qué canal puede confirmar.
 
+pub mod ajustes;
 pub mod calendario;
 pub mod catalogo;
 mod diff;
 pub mod error;
 pub mod flujo;
 pub mod herramientas;
-pub mod instalacion;
 mod plist;
+pub mod salud;
 pub mod servicios;
 pub mod sesion;
 pub mod sistema;
 pub mod temporizador;
 pub mod terminal;
 
-pub use ea_boveda::Boveda;
-pub use catalogo::{autorizar_mcp, buscar, Canal, Ejecucion, Herramienta, Riesgo, CATALOGO};
+pub use catalogo::{CATALOGO, Canal, Ejecucion, Herramienta, Riesgo, autorizar_mcp, buscar, puede_confirmar, terminal_interactiva};
 pub use diff::diff_lineas;
 pub use error::ErrorAccion;
-pub use flujo::{aceptar_propuesta, aceptar_propuesta_con_resultado, ejecutar, ejecutar_directo, proponer, rechazar_propuesta, Resultado};
-pub use herramientas::{campos, observar, simular_con, validar_argumentos, Campo, Hechos, Simulacion};
-pub use sistema::{canal_de_ajustes, Consulta, EstadoServicio, Sistema, SistemaReal, SistemaSimulado, SoloConsulta};
-pub use temporizador::{Calendario, EstadoTimer, Temporizadores};
+pub use flujo::{Resultado, aceptar_propuesta, aceptar_propuesta_con_resultado, ejecutar, ejecutar_directo, proponer, rechazar_propuesta};
+pub use herramientas::{Campo, Hechos, Simulacion, Supervisada, campos, observar, simular_con, validar_argumentos};
 pub use servicios::{Backend, GestorServicios, InfoServicio, SERVICIOS_INSTALABLES};
-pub use terminal::{lanzar_en_terminal, OrdenTerminal, Terminal, TerminalSimulada, TerminalSistema};
 pub use sesion::lanzar_sesion;
+#[cfg(feature = "dobles")]
+pub use sistema::SistemaSimulado;
+pub use sistema::{Consulta, EstadoServicio, Sistema, SistemaReal, SoloConsulta};
+pub use temporizador::{Calendario, EstadoTimer, Temporizadores};
+#[cfg(any(test, feature = "dobles"))]
+pub use terminal::TerminalSimulada;
+pub use terminal::{OrdenTerminal, Terminal, TerminalSistema, lanzar_en_terminal};

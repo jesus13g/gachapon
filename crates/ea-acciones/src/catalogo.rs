@@ -4,6 +4,8 @@
 
 use std::io::IsTerminal;
 
+use ea_ajustes::Rol;
+
 use crate::error::ErrorAccion;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,13 +65,7 @@ pub struct Herramienta {
 }
 
 pub const CATALOGO: &[Herramienta] = &[
-    Herramienta {
-        nombre: "ea_status",
-        riesgo: Riesgo::Lectura,
-        ejecucion: Ejecucion::Directa,
-        local: true,
-        resumen: "Resumen del estado del ecosistema",
-    },
+    Herramienta { nombre: "ea_status", riesgo: Riesgo::Lectura, ejecucion: Ejecucion::Directa, local: true, resumen: "Resumen del estado del ecosistema" },
     Herramienta {
         nombre: "ea_listar_trabajos",
         riesgo: Riesgo::Lectura,
@@ -100,13 +96,7 @@ pub const CATALOGO: &[Herramienta] = &[
         local: true,
         resumen: "Un equipo: miembros con presencia, colas y últimos trabajos con su informe",
     },
-    Herramienta {
-        nombre: "ea_listar_diario",
-        riesgo: Riesgo::Lectura,
-        ejecucion: Ejecucion::Directa,
-        local: true,
-        resumen: "Lista eventos del diario",
-    },
+    Herramienta { nombre: "ea_listar_diario", riesgo: Riesgo::Lectura, ejecucion: Ejecucion::Directa, local: true, resumen: "Lista eventos del diario" },
     Herramienta {
         nombre: "ea_encolar_rutina",
         riesgo: Riesgo::Reversible,
@@ -281,46 +271,30 @@ pub fn proyeccion_local() -> impl Iterator<Item = &'static Herramienta> {
     CATALOGO.iter().filter(|h| h.local)
 }
 
-/// Por dónde da el usuario su confirmación (§11.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Canal {
-    Terminal,
-    Web,
+/// Por dónde da el usuario su confirmación (§11.1): el mismo canal con el
+/// que se cambian los ajustes. Nunca por voz ni por MCP: esos canales ni
+/// siquiera existen como variantes.
+pub use ea_ajustes::Canal;
+
+/// Terminal interactiva real: stdin y stdout deben ser un TTY. Es lo que
+/// distingue a una persona delante de un teclado de un agente que lanza
+/// `ea` como subproceso sin terminal.
+pub fn terminal_interactiva() -> Result<Canal, ErrorAccion> {
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        Ok(Canal::Terminal)
+    } else {
+        Err(ErrorAccion::Prohibida("la confirmación debe darse en una terminal interactiva (sin TTY no se confirma)".into()))
+    }
 }
 
-impl Canal {
-    /// Terminal interactiva real: stdin y stdout deben ser un TTY. Es lo que
-    /// distingue a una persona delante de un teclado de un agente que lanza
-    /// `ea` como subproceso sin terminal.
-    pub fn terminal_interactiva() -> Result<Canal, ErrorAccion> {
-        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-            Ok(Canal::Terminal)
-        } else {
-            Err(ErrorAccion::Prohibida(
-                "la confirmación debe darse en una terminal interactiva (sin TTY no se confirma)"
-                    .into(),
-            ))
+/// §11.1: reversible requiere confirmación (terminal o web); irreversible,
+/// solo terminal.
+pub fn puede_confirmar(canal: Canal, riesgo: Riesgo) -> Result<(), ErrorAccion> {
+    match (canal, riesgo) {
+        (Canal::Web, Riesgo::Irreversible) => {
+            Err(ErrorAccion::Prohibida("una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)".into()))
         }
-    }
-
-    pub fn nombre(self) -> &'static str {
-        match self {
-            Canal::Terminal => "terminal",
-            Canal::Web => "web",
-        }
-    }
-
-    /// §11.1: reversible requiere confirmación (terminal o web);
-    /// irreversible, solo terminal. Nunca por voz ni por MCP: esos canales
-    /// ni siquiera existen como variantes.
-    pub fn puede_confirmar(self, riesgo: Riesgo) -> Result<(), ErrorAccion> {
-        match (self, riesgo) {
-            (Canal::Web, Riesgo::Irreversible) => Err(ErrorAccion::Prohibida(
-                "una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)"
-                    .into(),
-            )),
-            _ => Ok(()),
-        }
+        _ => Ok(()),
     }
 }
 
@@ -335,18 +309,12 @@ impl Canal {
 /// - Cualquier otro (`orquestador`, lo desatendido, §11.2; un cliente
 ///   desconocido; un agente que no ocupa ningún rol): solo lectura.
 pub fn autorizar_mcp(actor: &str, h: &Herramienta) -> Result<(), String> {
+    const PLANIFICADOR: &str = Rol::Planificador.as_str();
+    const EJECUTOR: &str = Rol::Ejecutor.as_str();
     let permitido = match actor {
-        "claude-code" => true,
-        "modelo-local" => h.local && h.riesgo != Riesgo::Irreversible,
+        PLANIFICADOR => true,
+        EJECUTOR => h.local && h.riesgo != Riesgo::Irreversible,
         _ => h.riesgo == Riesgo::Lectura,
     };
-    if permitido {
-        Ok(())
-    } else {
-        Err(format!(
-            "'{}' ({}) no está disponible para el actor '{actor}'",
-            h.nombre,
-            h.riesgo.as_str()
-        ))
-    }
+    if permitido { Ok(()) } else { Err(format!("'{}' ({}) no está disponible para el actor '{actor}'", h.nombre, h.riesgo.as_str())) }
 }

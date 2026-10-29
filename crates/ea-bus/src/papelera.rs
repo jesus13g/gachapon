@@ -11,6 +11,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ea_store::FilaRutina;
+
 use crate::error::{ErrorBus, Resultado};
 use crate::rutina::slug_valido;
 
@@ -58,11 +60,7 @@ impl Ubicacion {
 }
 
 fn comprobar(slug: &str) -> Resultado<()> {
-    if slug_valido(slug) {
-        Ok(())
-    } else {
-        Err(ErrorBus::Argumentos(format!("slug de rutina inválido: '{slug}'")))
-    }
+    if slug_valido(slug) { Ok(()) } else { Err(ErrorBus::Argumentos(format!("slug de rutina inválido: '{slug}'"))) }
 }
 
 /// `rutinas_dir/<slug>.toml`, con el slug validado.
@@ -88,6 +86,19 @@ pub fn ubicacion_rutina(dir: &Path, slug: &str) -> Resultado<Ubicacion> {
     } else {
         Ok(Ubicacion::SinFichero)
     }
+}
+
+/// Las rutinas registradas cruzadas con su fichero en `dir` (un error de
+/// lectura cuenta como sin fichero): las activas o, con `retiradas`, las que
+/// están en la papelera o sin fichero. Lo que listan la CLI, la TUI y la web.
+pub fn rutinas_por_ubicacion(filas: Vec<FilaRutina>, dir: &Path, retiradas: bool) -> Vec<(FilaRutina, Ubicacion)> {
+    filas
+        .into_iter()
+        .filter_map(|f| {
+            let u = ubicacion_rutina(dir, &f.slug).unwrap_or(Ubicacion::SinFichero);
+            ((u == Ubicacion::Activa) != retiradas).then_some((f, u))
+        })
+        .collect()
 }
 
 /// Error si la rutina no se puede lanzar ahora (retirada o sin fichero).

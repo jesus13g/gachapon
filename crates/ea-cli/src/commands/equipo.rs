@@ -12,46 +12,18 @@
 //! esos miembros no tienen presencia hasta que alguien abra la sesión con ese
 //! mismo comando.
 
-use std::ffi::OsStr;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use comfy_table::Table;
-use ea_ajustes::{ficha, Ajustes};
-use ea_bus::{Bus, EstadoEquipo, Miembro, NuevoEquipo, Presencia, RolEquipo, VistaEquipo, INTERVALO_LATIDO_S};
+use ea_ajustes::ficha;
+use ea_bus::{Bus, EstadoEquipo, INTERVALO_LATIDO_S, Latido, Miembro, NuevoEquipo, Presencia, RolEquipo, VistaEquipo};
+
+use super::limpio;
 
 /// Cuántos trabajos del equipo enseña `ver`.
 const TRABAJOS_VISTOS: usize = 20;
-
-fn bus() -> Result<Bus> {
-    super::trabajo::bus()
-}
-
-/// `agente:rol` → miembro. El rol es `planificador`, `ejecutor` o `revisor`.
-pub fn parse_miembro(texto: &str) -> Result<Miembro> {
-    ea_ajustes::parse_miembro(texto).map_err(|e| anyhow!(e))
-}
-
-/// «Despertar a todos»: el reparto compartido con la web
-/// ([`ea_ajustes::repartir_todos`]).
-pub fn repartir_todos(a: &Ajustes, path: Option<&OsStr>) -> Result<(Vec<Miembro>, Vec<String>)> {
-    ea_ajustes::repartir_todos(a, path).map_err(|e| anyhow!(e))
-}
-
-/// El argv que abre la sesión de un agente con un prompt inicial; interactivo
-/// (el prompt no cierra la sesión). Sin herramientas ni opciones extra: es la
-/// configuración habitual del agente.
-pub fn argv_agente(agente: &str, bin: &str, prompt: &str) -> Vec<String> {
-    let (b, p) = (bin.to_string(), prompt.to_string());
-    match agente {
-        "qwen-code" | "antigravity" => vec![b, "-i".into(), p],
-        "opencode" => vec![b, "--prompt".into(), p],
-        _ => vec![b, p],
-    }
-}
 
 /// El prompt inicial de una sesión de equipo: corto, apunta al equipo y a su
 /// cola.
@@ -76,10 +48,8 @@ pub fn prompt_sesion(equipo: &ea_bus::Equipo, miembro: &Miembro) -> String {
 pub fn despertar(miembros: &[String], todos: bool, titulo: &str, objetivo: &str, worktree: &str, sin_terminal: bool) -> Result<()> {
     // Lo primero: una persona delante de un teclado, no un agente con `ea`
     // como subproceso.
-    ea_acciones::Canal::terminal_interactiva()?;
-    despertar_sin_tty(miembros, todos, titulo, objetivo, worktree, sin_terminal, &mut |argv| {
-        ea_acciones::terminal::lanzar_en_terminal(argv)
-    })
+    ea_acciones::terminal_interactiva()?;
+    despertar_sin_tty(miembros, todos, titulo, objetivo, worktree, sin_terminal, &mut |argv| ea_acciones::terminal::lanzar_en_terminal(argv))
 }
 
 /// [`despertar`] sin la comprobación de TTY y con el lanzador de terminal
@@ -103,12 +73,12 @@ pub fn despertar_sin_tty(
     let ajustes = ea_ajustes::cargar();
     let path = std::env::var_os("PATH");
     let (lista, omitidos) = if todos {
-        repartir_todos(&ajustes, path.as_deref())?
+        ea_bus::repartir_todos(&ajustes, path.as_deref())?
     } else {
-        (miembros.iter().map(|m| parse_miembro(m)).collect::<Result<Vec<_>>>()?, vec![])
+        (miembros.iter().map(|m| ea_bus::parse_miembro(m)).collect::<Result<Vec<_>, _>>()?, vec![])
     };
-    ea_ajustes::comprobar_disponibles(&lista, &ajustes, path.as_deref()).map_err(|e| anyhow!(e))?;
-    let equipo = bus()?.crear_equipo(
+    ea_bus::comprobar_disponibles(&lista, &ajustes, path.as_deref())?;
+    let equipo = super::trabajo::bus()?.crear_equipo(
         NuevoEquipo {
             titulo: titulo.into(),
             objetivo: objetivo.into(),
@@ -142,8 +112,8 @@ pub fn despertar_sin_tty(
 }
 
 pub fn dormir(id: &str) -> Result<()> {
-    ea_acciones::Canal::terminal_interactiva()?;
-    let e = bus()?.dormir_equipo(id)?;
+    ea_acciones::terminal_interactiva()?;
+    let e = super::trabajo::bus()?.dormir_equipo(id)?;
     println!("Equipo {} dormido: lo pendiente de sus ejecutores vuelve a la cola de modelo-local.", e.id);
     Ok(())
 }
@@ -161,16 +131,11 @@ pub fn listar(json: bool) -> Result<()> {
     let mut t = Table::new();
     t.set_header(vec!["Equipo", "Estado", "Título", "Miembros (* despierto)", "Trabajos"]);
     for e in &v {
-        let miembros: Vec<String> =
-            e.miembros.iter().map(|m| format!("{}:{}{}", m.agente, m.rol.as_str(), if m.viva { "*" } else { "" })).collect();
-        t.add_row(vec![e.id.clone(), estado_equipo(e.estado).into(), e.titulo.clone(), miembros.join(", "), e.trabajos.to_string()]);
+        let miembros: Vec<String> = e.miembros.iter().map(|m| format!("{}:{}{}", m.agente, m.rol.as_str(), if m.viva { "*" } else { "" })).collect();
+        t.add_row(vec![e.id.clone(), e.estado.as_str().into(), limpio(&e.titulo), miembros.join(", "), e.trabajos.to_string()]);
     }
     println!("{t}");
     Ok(())
-}
-
-fn estado_equipo(e: EstadoEquipo) -> &'static str {
-    e.as_str()
 }
 
 pub fn ver(id: &str, json: bool) -> Result<()> {
@@ -179,20 +144,15 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
-    print!("{}", texto_equipo(&v));
+    // Los títulos, informes y avisos de los trabajos los escriben los agentes.
+    print!("{}", limpio(&texto_equipo(&v)));
     Ok(())
 }
 
 /// La ficha de un equipo para la terminal.
 pub fn texto_equipo(v: &VistaEquipo) -> String {
-    let mut s = format!(
-        "equipo    {} ({})\ntitulo    {}\nobjetivo  {}\nworktree  {}\n\nmiembros\n",
-        v.id,
-        v.estado.as_str(),
-        v.titulo,
-        v.objetivo,
-        v.worktree_base
-    );
+    let mut s =
+        format!("equipo    {} ({})\ntitulo    {}\nobjetivo  {}\nworktree  {}\n\nmiembros\n", v.id, v.estado.as_str(), v.titulo, v.objetivo, v.worktree_base);
     for m in &v.miembros {
         let presencia = match (&m.presencia, m.viva) {
             (Some(_), true) => match &m.trabajo_actual {
@@ -236,11 +196,12 @@ pub fn texto_equipo(v: &VistaEquipo) -> String {
 }
 
 /// `ea equipo sesion <equipo> <agente>` (oculto): lo que corre dentro de la
-/// terminal que abre `despertar`. Anota la presencia con su pid, late en un
-/// hilo, ejecuta el agente con su prompt y quita la presencia al terminar.
+/// terminal que abre `despertar`. Anota la presencia con su pid y la mantiene
+/// con un [`Latido`] (deja de latir si el equipo duerme), ejecuta el agente con
+/// su prompt y quita la presencia al terminar.
 pub fn sesion(id: &str, agente: &str) -> Result<()> {
-    ea_acciones::Canal::terminal_interactiva()?;
-    let bus = bus()?;
+    ea_acciones::terminal_interactiva()?;
+    let bus = super::trabajo::bus()?;
     let equipo = bus.leer_equipo(id)?;
     if equipo.estado != EstadoEquipo::Despierto {
         bail!("el equipo {id} está dormido");
@@ -252,40 +213,17 @@ pub fn sesion(id: &str, agente: &str) -> Result<()> {
     if let Some((p, true)) = bus.presencias().into_iter().find(|(p, _)| p.agente == agente) {
         bail!("{agente} ya está despierto (pid {}, equipo {})", p.pid, p.equipo.as_deref().unwrap_or("—"));
     }
-    let pid = std::process::id();
-    bus.anotar_presencia(&Presencia::nueva(agente, miembro.rol, Some(id), pid))?;
-    let parar = Arc::new(AtomicBool::new(false));
-    let latidos = {
-        let (parar, id, agente) = (Arc::clone(&parar), id.to_string(), agente.to_string());
-        std::thread::spawn(move || {
-            while !parar.load(Ordering::Relaxed) {
-                for _ in 0..INTERVALO_LATIDO_S * 10 {
-                    if parar.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                let Ok(b) = Bus::abrir() else { continue };
-                // Si el equipo durmió (o la presencia ya no es de esta sesión), deja de latir.
-                let sigue = b.leer_equipo(&id).is_ok_and(|e| e.estado == EstadoEquipo::Despierto)
-                    && b.presencia_de(&agente).ok().flatten().is_some_and(|p| p.pid == pid);
-                if !sigue {
-                    return;
-                }
-                let _ = b.latir(&agente, None);
-            }
-        })
-    };
+    let presencia = Presencia::nueva(agente, miembro.rol, Some(id), std::process::id());
+    let equipo_id = id.to_string();
+    let latido = Latido::anotar(&bus, &presencia, Duration::from_secs(INTERVALO_LATIDO_S), move |b| {
+        b.leer_equipo(&equipo_id).is_ok_and(|e| e.estado == EstadoEquipo::Despierto)
+    })?;
     let ajustes = ea_ajustes::cargar();
     let bin = ajustes.agentes.get(agente).map(|g| g.bin.clone()).unwrap_or_default();
-    let argv = argv_agente(agente, &bin, &prompt_sesion(&equipo, &miembro));
+    let ficha = ficha(agente).expect("con la presencia anotada, es del catálogo");
+    let argv = ficha.argv_interactivo(&bin, &prompt_sesion(&equipo, &miembro));
     let estado = Command::new(&argv[0]).args(&argv[1..]).current_dir(&equipo.worktree_base).status();
-    parar.store(true, Ordering::Relaxed);
-    let _ = latidos.join();
-    // Solo se quita la presencia propia: otra sesión no se pisa.
-    if bus.presencia_de(agente)?.is_some_and(|p| p.pid == pid) {
-        bus.quitar_presencia(agente)?;
-    }
+    latido.soltar()?;
     estado.with_context(|| format!("no se pudo lanzar {}", argv[0]))?;
     Ok(())
 }
@@ -293,84 +231,6 @@ pub fn sesion(id: &str, agente: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ea_ajustes::{Fuentes, IDS_AGENTES};
-
-    fn ajustes() -> (tempfile::TempDir, Ajustes) {
-        let d = tempfile::tempdir().unwrap();
-        let a = Ajustes::por_defecto(&Fuentes::aislada(d.path()));
-        (d, a)
-    }
-
-    /// Un directorio con binarios de mentira para los ids dados.
-    fn bin(ids: &[&str], a: &Ajustes) -> (tempfile::TempDir, std::ffi::OsString) {
-        let d = tempfile::tempdir().unwrap();
-        for id in ids {
-            let p = d.path().join(ea_plataforma::rutas::nombre_exe(&a.agentes[*id].bin));
-            std::fs::write(&p, "#!/bin/sh\n").unwrap();
-            ea_plataforma::fs::poner_permisos_unix(&p, 0o755).unwrap();
-        }
-        let path = d.path().as_os_str().to_owned();
-        (d, path)
-    }
-
-    #[test]
-    fn parsea_agente_y_rol() {
-        assert_eq!(parse_miembro("codex:ejecutor").unwrap(), Miembro { agente: "codex".into(), rol: RolEquipo::Ejecutor });
-        assert_eq!(parse_miembro(" antigravity : revisor ").unwrap().rol, RolEquipo::Revisor);
-        assert!(parse_miembro("codex").unwrap_err().to_string().contains("agente:rol"));
-        assert!(parse_miembro("nadie:ejecutor").unwrap_err().to_string().contains("catálogo"));
-        assert!(parse_miembro("codex:jefe").unwrap_err().to_string().contains("rol de equipo"));
-    }
-
-    #[test]
-    fn todos_reparte_segun_lo_que_admite_cada_agente() {
-        let (_d, a) = ajustes();
-        let (_b, path) = bin(&IDS_AGENTES.to_vec(), &a);
-        let (m, omitidos) = repartir_todos(&a, Some(&path)).unwrap();
-        let rol = |id: &str| m.iter().find(|x| x.agente == id).map(|x| x.rol);
-        assert_eq!(rol("claude-code"), Some(RolEquipo::Planificador));
-        assert_eq!(rol("antigravity"), Some(RolEquipo::Planificador));
-        assert_eq!(rol("qwen-code"), Some(RolEquipo::Ejecutor));
-        assert_eq!(rol("codex"), Some(RolEquipo::Ejecutor));
-        assert_eq!(rol("opencode"), Some(RolEquipo::Ejecutor));
-        assert!(omitidos.is_empty());
-        // El que ocupa roles.planificador va a planificador aunque admita ejecutor.
-        let mut b = a.clone();
-        b.roles.planificador = "codex".into();
-        let (m, _) = repartir_todos(&b, Some(&path)).unwrap();
-        assert_eq!(m.iter().find(|x| x.agente == "codex").unwrap().rol, RolEquipo::Planificador);
-    }
-
-    #[test]
-    fn todos_omite_lo_que_no_esta_y_dice_lo_imposible() {
-        let (_d, a) = ajustes();
-        let (_b, path) = bin(&["claude-code", "qwen-code"], &a);
-        let (m, omitidos) = repartir_todos(&a, Some(&path)).unwrap();
-        assert_eq!(m.len(), 2);
-        assert_eq!(omitidos.len(), 3);
-        assert!(omitidos.iter().any(|o| o.contains("Codex") && o.contains("no está disponible")));
-        // sin el planificador de los roles
-        let (_b2, path) = bin(&["qwen-code"], &a);
-        assert!(repartir_todos(&a, Some(&path)).unwrap_err().to_string().contains("planificador"));
-        // un ejecutor con modelo remoto es imposible
-        let (_b3, path) = bin(&["claude-code", "qwen-code", "codex"], &a);
-        let mut r = a.clone();
-        let mut remoto = r.modelos[&r.agentes["codex"].modelo].clone();
-        remoto.remoto = true;
-        r.modelos.insert("remoto".into(), remoto);
-        r.agentes.get_mut("codex").unwrap().modelo = "remoto".into();
-        let e = repartir_todos(&r, Some(&path)).unwrap_err().to_string();
-        assert!(e.contains("codex") && e.contains("remoto") && e.contains("--miembro"), "{e}");
-    }
-
-    #[test]
-    fn el_argv_de_cada_agente_lleva_el_prompt_interactivo() {
-        assert_eq!(argv_agente("claude-code", "claude", "hola"), ["claude", "hola"]);
-        assert_eq!(argv_agente("qwen-code", "qwen", "hola"), ["qwen", "-i", "hola"]);
-        assert_eq!(argv_agente("opencode", "opencode", "hola"), ["opencode", "--prompt", "hola"]);
-        assert_eq!(argv_agente("antigravity", "agy", "hola"), ["agy", "-i", "hola"]);
-        assert_eq!(argv_agente("codex", "codex", "hola"), ["codex", "hola"]);
-    }
 
     #[test]
     fn el_prompt_apunta_al_equipo_y_a_la_cola() {

@@ -3,54 +3,18 @@ use std::path::Path;
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
-/// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
-#[cfg(windows)]
-macro_rules! tmp {
-    () => {
-        "C:/Windows"
-    };
-}
-#[cfg(not(windows))]
-macro_rules! tmp {
-    () => {
-        "/tmp"
-    };
-}
-
 use ea_bus::{
-    transicion, Bus, CandadoWorktree, ConfigOrquestador, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoTrabajo, Evento, Fase,
-    Informe, Modo, Ocupante, Orden, ResultadoInforme, Rol, TipoAgente, Topes,
+    Bus, CandadoWorktree, ConfigSkills, EjecutadoPor, ErrorBus, Estado, EstadoFase, EstadoTrabajo, Evento, Fase, Informe, Modo, Ocupante, Orden,
+    ResultadoInforme, Rol, TipoAgente, Topes, transicion,
 };
 use ea_store::Store;
 
+/// Quien firma en el diario lo que hacen estas pruebas (el bus del orquestador).
+const ORQ: &str = ea_ajustes::ACTOR_ORQUESTADOR;
+
 fn orden(wt: &Path) -> Orden {
-    Orden {
-        id: String::new(),
-        modo: Modo::Obra,
-        titulo: "prueba".into(),
-        worktree: wt.to_string_lossy().into(),
-        objetivo: "haz algo".into(),
-        criterio_exito: None,
-        fases: vec![Fase {
-            numero: 1,
-            titulo: "uno".into(),
-            instrucciones: "i".into(),
-            entregable: "e".into(),
-            criterio: "true".into(),
-            skills: vec![],
-        }],
-        revisar_cada: None,
-        topes: Topes::default(),
-        rutina: None,
-        notas_revision: vec![],
-        skills: vec![],
-        equipo: None,
-        asignado_a: None,
-        revisor: None,
-        worktree_propio: false,
-        creada_en: String::new(),
-        creada_por: "claude-code".into(),
-    }
+    let fase = Fase { numero: 1, titulo: "uno".into(), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
+    Orden::obra("prueba", wt.to_string_lossy(), "haz algo", vec![fase], None, "claude-code")
 }
 
 fn informe() -> Informe {
@@ -65,7 +29,7 @@ fn yo(trabajo: &str) -> Ocupante {
 fn crear_tomar_entregar_y_cerrar_con_historial_en_sqlite() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let id = bus.crear_trabajo(orden(d.path())).unwrap();
     assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
     assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap().len(), 1);
@@ -181,38 +145,6 @@ fn la_escritura_es_atomica_y_no_quedan_temporales() {
 }
 
 #[test]
-fn la_configuracion_del_ejecutor_sale_de_los_roles() {
-    let d = tempfile::tempdir().unwrap();
-    let f = ea_ajustes::Fuentes::aislada(d.path());
-    let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
-    assert_eq!(c, ConfigOrquestador::desde_ajustes(&ea_ajustes::Ajustes::por_defecto(&f)));
-    assert_eq!(ConfigOrquestador::default().ejecutor.id, "qwen-code");
-    assert_eq!((c.ejecutor.id.as_str(), c.ejecutor.tipo, c.ejecutor.bin.as_str()), ("qwen-code", TipoAgente::QwenCode, "qwen"));
-    assert_eq!((c.ejecutor.modelo.nombre.as_str(), c.ejecutor.modelo.base_url.as_str()), ("qwen3-coder-30b", "http://127.0.0.1:8080/v1"));
-    assert_eq!(c.techo_topes.turnos, 100);
-    assert_eq!(c.skills.planificador, "claude-code");
-    assert!(c.avisos_escritorio);
-
-    // Otro ejecutor y otro planificador: el perfil sigue al agente.
-    std::fs::create_dir_all(&f.dir_config).unwrap();
-    std::fs::write(
-        f.dir_config.join("ajustes.toml"),
-        "[roles]\nplanificador = \"opencode\"\nejecutor = \"codex\"\n[modelos.otro]\nnombre = \"otro-7b\"\nbase_url = \"http://127.0.0.1:8081/v1\"\n[agentes.codex]\nmodelo = \"otro\"\n",
-    )
-    .unwrap();
-    let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
-    assert_eq!((c.ejecutor.id.as_str(), c.ejecutor.tipo, c.ejecutor.bin.as_str()), ("codex", TipoAgente::Codex, "codex"));
-    assert_eq!(c.ejecutor.ejecutado_por(), EjecutadoPor { agente: "codex".into(), modelo: "otro-7b".into() });
-    assert_eq!(c.skills.planificador, "opencode");
-
-    // El `orquestador.toml` heredado sigue valiendo (lo lee `ea-ajustes`).
-    std::fs::remove_file(f.dir_config.join("ajustes.toml")).unwrap();
-    std::fs::write(f.dir_config.join("orquestador.toml"), "modelo = \"otro\"\n[topes]\nturnos = 5\n").unwrap();
-    let c = ConfigOrquestador::desde_ajustes(&ea_ajustes::cargar_de(&f).ajustes);
-    assert_eq!((c.ejecutor.modelo.nombre.as_str(), c.techo_topes.turnos, c.techo_topes.tiempo_s), ("otro", 5, 3600));
-}
-
-#[test]
 fn el_trabajo_anota_quien_lo_ejecuta() {
     let d = tempfile::tempdir().unwrap();
     let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
@@ -253,7 +185,11 @@ fn un_trabajo_de_antes_sin_ejecutado_por_se_sigue_leyendo() {
     let id = bus.crear_trabajo(orden(d.path())).unwrap();
     let dir = bus.raiz().join("trabajos").join(&id);
     // `estado.json` e `informe.json` tal y como los escribía la versión anterior.
-    std::fs::write(dir.join("estado.json"), r#"{"estado":"en_revision","fase_actual":null,"iteracion":1,"actualizado_en":"2026-10-01T10:00:00Z","detalle":null}"#).unwrap();
+    std::fs::write(
+        dir.join("estado.json"),
+        r#"{"estado":"en_revision","fase_actual":null,"iteracion":1,"actualizado_en":"2026-10-01T10:00:00Z","detalle":null}"#,
+    )
+    .unwrap();
     std::fs::write(
         dir.join("informe.json"),
         r#"{"resultado":"terminado","evidencia":"ok","fases":[{"numero":1,"titulo":"f","resultado":"hecha","diff_stat":""}]}"#,
@@ -294,24 +230,18 @@ fn reformular_anade_notas_y_vuelve_a_encolar() {
 /// `fases-informe.json` como lo deja el ejecutor y las fases hechas en SQLite.
 fn obra_completa_en_revision(d: &Path) -> (Bus, String) {
     let store = Store::open_at(&d.join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.join("estado")).unwrap().con_store(store);
-    let fase = |n: u32| Fase {
-        numero: n,
-        titulo: format!("f{n}"),
-        instrucciones: "i".into(),
-        entregable: "e".into(),
-        criterio: "true".into(),
-        skills: vec![],
-    };
+    let bus = Bus::abrir_en(&d.join("estado")).unwrap().con_store(store, ORQ);
+    let fase = |n: u32| Fase { numero: n, titulo: format!("f{n}"), instrucciones: "i".into(), entregable: "e".into(), criterio: "true".into(), skills: vec![] };
     let id = bus.crear_trabajo(Orden { fases: vec![fase(1), fase(2), fase(3)], ..orden(d) }).unwrap();
     bus.tomar(Rol::Ejecutor).unwrap();
     bus.aplicar(&id, Evento::Tomar).unwrap();
     let fases: Vec<ea_bus::FaseInforme> = (1..=3)
-        .map(|n| ea_bus::FaseInforme { numero: n, titulo: format!("f{n}"), resultado: "hecha".into(), diff_stat: String::new(), ejecutado_por: None })
+        .map(|n| ea_bus::FaseInforme { numero: n, titulo: format!("f{n}"), resultado: EstadoFase::Hecha, diff_stat: String::new(), ejecutado_por: None })
         .collect();
     std::fs::write(bus.raiz().join("trabajos").join(&id).join("fases-informe.json"), serde_json::to_vec(&fases).unwrap()).unwrap();
     for n in 1..=3 {
-        bus.registrar_fase(&id, n, "hecha", &serde_json::json!({ "arbol": format!("arbol{n}") })).unwrap();
+        let informe = ea_bus::InformeFase { arbol: Some(format!("arbol{n}")), ..Default::default() };
+        bus.registrar_fase(&id, n, EstadoFase::Hecha, &informe).unwrap();
     }
     let inf = Informe { fases_hechas: 3, obra_completa: true, fases, ..informe() };
     let e = bus.aplicar(&id, Evento::Entregar(inf)).unwrap();
@@ -374,9 +304,7 @@ fn reformular_con_fase_fuera_de_rango_o_en_mision_no_escribe_nada() {
     assert!(bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
 
     // Una misión no tiene fases.
-    let m = bus
-        .crear_trabajo(Orden { modo: Modo::Mision, fases: vec![], criterio_exito: Some("true".into()), ..orden(d.path()) })
-        .unwrap();
+    let m = bus.crear_trabajo(Orden { modo: Modo::Mision, fases: vec![], criterio_exito: Some("true".into()), ..orden(d.path()) }).unwrap();
     bus.tomar(Rol::Ejecutor).unwrap();
     bus.aplicar(&m, Evento::Tomar).unwrap();
     bus.aplicar(&m, Evento::Entregar(informe())).unwrap();
@@ -411,6 +339,113 @@ fn recuperar_devuelve_huerfanos_y_bloquea_lo_interrumpido() {
     assert!(bus.recuperar().unwrap().is_empty());
 }
 
+/// B-04: un trabajo reclamado (su entrada ya no está en la cola) que no se
+/// llegó a tomar, porque el proceso cayó entre medias, vuelve a su cola al
+/// recuperar, una sola vez.
+#[test]
+fn recuperar_devuelve_a_la_cola_lo_reclamado_que_no_se_llego_a_tomar() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    let id = bus.crear_trabajo(orden(d.path())).unwrap();
+    assert_eq!(bus.tomar_para("qwen-code").unwrap(), Some(id.clone()));
+    assert!(bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
+    assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnCola);
+    assert_eq!(bus.recuperar().unwrap(), vec![id.clone()]);
+    let cola = bus.listar_cola(Rol::Ejecutor).unwrap();
+    assert_eq!((cola.len(), cola[0].trabajo.as_str(), cola[0].motivo.as_str()), (1, id.as_str(), "recuperado"));
+    // Con su entrada ya en la cola no se repite.
+    assert!(bus.recuperar().unwrap().is_empty());
+    assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap().len(), 1);
+}
+
+/// B-05: una rutina interrumpida queda en espera con su paquete de
+/// corrección (motivo «interrumpido»), como una que falla, y no en revisión
+/// sin paquete ni cola.
+#[test]
+fn recuperar_deja_en_espera_y_con_paquete_una_rutina_interrumpida() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
+    bus.registrar_rutina(&rutina(), &d.path().join("rutinas")).unwrap();
+    let id = bus.lanzar_rutina("prueba", &[]).unwrap();
+    bus.tomar(Rol::Ejecutor).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    assert_eq!(bus.recuperar().unwrap(), vec![id.clone()]);
+    assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnEspera);
+    assert!(bus.listar_cola(Rol::Planificador).unwrap().is_empty());
+    let p = std::fs::read_to_string(d.path().join("estado/trabajos").join(&id).join("paquete-correccion.md")).unwrap();
+    assert!(p.contains("Motivo: interrumpido") && p.contains("slug = \"prueba\""), "{p}");
+    let inf = bus.leer_informe(&id).unwrap().unwrap();
+    assert_eq!((inf.resultado, inf.motivo.as_deref()), (ResultadoInforme::Bloqueado, Some("interrumpido")));
+}
+
+/// B-09: el espejo de SQLite es secundario, como el diario. Con una base que
+/// no acepta escrituras en `trabajos` ni en `trabajo_fases`, crear y aplicar
+/// salen bien y el bus (estado, historial y colas) queda escrito.
+#[test]
+fn un_fallo_del_espejo_sqlite_no_hace_fallar_al_bus() {
+    let d = tempfile::tempdir().unwrap();
+    let db = d.path().join("ea.db");
+    let store = Store::open_at(&db).unwrap();
+    let c = rusqlite::Connection::open(&db).unwrap();
+    for tabla in ["trabajos", "trabajo_fases"] {
+        for op in ["INSERT", "UPDATE"] {
+            c.execute_batch(&format!("CREATE TRIGGER no_{op}_{tabla} BEFORE {op} ON {tabla} BEGIN SELECT RAISE(ABORT, 'solo lectura'); END;")).unwrap();
+        }
+    }
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
+    let id = bus.crear_trabajo(orden(d.path())).unwrap();
+    assert_eq!(bus.listar_cola(Rol::Ejecutor).unwrap()[0].trabajo, id);
+    assert_eq!(bus.tomar(Rol::Ejecutor).unwrap(), Some(id.clone()));
+    assert_eq!(bus.aplicar(&id, Evento::Tomar).unwrap().estado, EstadoTrabajo::Ejecutando);
+    assert_eq!(bus.aplicar(&id, Evento::Entregar(informe())).unwrap().estado, EstadoTrabajo::EnRevision);
+    assert_eq!(bus.leer_estado(&id).unwrap().estado, EstadoTrabajo::EnRevision);
+    assert_eq!(bus.listar_cola(Rol::Planificador).unwrap()[0].trabajo, id);
+    assert_eq!(bus.reformular(&id, "otra", None).unwrap().estado, EstadoTrabajo::EnCola);
+    // Sin fila en el espejo, pero con el diario.
+    let s = Store::open_at(&db).unwrap();
+    assert!(s.obtener_trabajo(&id).unwrap().is_none());
+    let acciones: Vec<String> = s.list_events_by_trabajo(&id).unwrap().into_iter().map(|e| e.action).collect();
+    for a in ["bus_crear", "bus_tomar", "bus_entregar", "bus_reformular"] {
+        assert!(acciones.iter().any(|x| x == a), "{a}: {acciones:?}");
+    }
+}
+
+/// F-21: dos confirmaciones a la vez del mismo paquete dejan el contexto una
+/// sola vez: validar y añadir van bajo el bloqueo del trabajo.
+#[test]
+fn dos_confirmar_a_la_vez_anaden_el_contexto_una_sola_vez() {
+    let d = tempfile::tempdir().unwrap();
+    let raiz = d.path().join("estado");
+    let bus = Bus::abrir_en(&raiz).unwrap();
+    let mut o = orden(d.path());
+    o.modo = Modo::Rutina;
+    o.fases.clear();
+    o.criterio_exito = Some("true".into());
+    let id = bus.crear_trabajo(o).unwrap();
+    bus.tomar(Rol::Ejecutor).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    bus.aplicar(&id, Evento::PonerEnEspera).unwrap();
+    let dir = raiz.join("trabajos").join(&id);
+    std::fs::write(dir.join("paquete-correccion.md"), "# paquete\n").unwrap();
+    // Otro proceso tiene el bloqueo del trabajo mientras llegan las dos.
+    let bloqueo = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".estado.lock")).unwrap();
+    bloqueo.lock().unwrap();
+    let hilos: Vec<_> = (0..2)
+        .map(|_| {
+            let (raiz, id) = (raiz.clone(), id.clone());
+            std::thread::spawn(move || Bus::abrir_en(&raiz).unwrap().confirmar(&id, "ojo con el disco").is_ok())
+        })
+        .collect();
+    std::thread::sleep(Duration::from_millis(300));
+    bloqueo.unlock().unwrap();
+    let ok: Vec<bool> = hilos.into_iter().map(|h| h.join().unwrap()).collect();
+    assert_eq!(ok.iter().filter(|b| **b).count(), 1, "{ok:?}");
+    let p = std::fs::read_to_string(dir.join("paquete-correccion.md")).unwrap();
+    assert_eq!(p.matches("ojo con el disco").count(), 1, "{p}");
+    assert_eq!(bus.listar_cola(Rol::Planificador).unwrap().len(), 1);
+}
+
 #[test]
 fn cerrar_y_cancelar_retiran_el_trabajo_de_todas_las_colas() {
     let d = tempfile::tempdir().unwrap();
@@ -429,6 +464,54 @@ fn cerrar_y_cancelar_retiran_el_trabajo_de_todas_las_colas() {
     bus.aplicar(&b, Evento::Cancelar).unwrap();
     assert!(bus.listar_cola(Rol::Planificador).unwrap().is_empty());
     assert!(bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
+}
+
+/// B-06: una obra numera sus fases 1, 2, …, N en el orden en que van. Con
+/// 10/20/30 (o repetidas, o desordenadas) el ejecutor confundía la cuenta de
+/// fases hechas con su número y se saltaba fases; ahora no se crea.
+#[test]
+fn una_obra_con_las_fases_mal_numeradas_no_se_crea() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    let fase = |n: u32| Fase { numero: n, ..orden(d.path()).fases[0].clone() };
+    let obra = |numeros: &[u32]| Orden { fases: numeros.iter().map(|n| fase(*n)).collect(), ..orden(d.path()) };
+    for malos in [&[10, 20, 30][..], &[1, 1, 2], &[0, 1, 2], &[2, 1, 3], &[1, 3]] {
+        let e = bus.crear_trabajo(obra(malos)).unwrap_err();
+        assert!(matches!(&e, ErrorBus::Argumentos(m) if m.contains("las fases deben numerarse 1, 2, …, N")), "{malos:?}: {e}");
+    }
+    sin_rastro(&bus);
+    let id = bus.crear_trabajo(obra(&[1, 2, 3])).unwrap();
+    assert_eq!(bus.leer_orden(&id).unwrap().fases.iter().map(|f| f.numero).collect::<Vec<_>>(), [1, 2, 3]);
+}
+
+/// El worktree de una orden es una ruta absoluta, la cree quien la cree: una
+/// relativa se resolvería contra el directorio del proceso que la ejecuta.
+#[test]
+fn una_orden_con_el_worktree_relativo_no_se_crea() {
+    let d = tempfile::tempdir().unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    for malo in [".", "repo", "~/repo", ""] {
+        let e = bus.crear_trabajo(Orden { worktree: malo.into(), ..orden(d.path()) }).unwrap_err();
+        assert!(matches!(&e, ErrorBus::Argumentos(m) if m.contains("ruta absoluta")), "{malo:?}: {e}");
+    }
+    sin_rastro(&bus);
+}
+
+/// Los constructores dejan una misión y una obra válidas con el resto de
+/// campos por defecto.
+#[test]
+fn orden_mision_y_obra_rellenan_lo_demas_por_defecto() {
+    let d = tempfile::tempdir().unwrap();
+    let wt = d.path().to_string_lossy().into_owned();
+    let m = Orden::mision("t", &wt, "o", "true", "claude-code");
+    assert_eq!((m.modo, m.criterio_exito.as_deref(), m.fases.len(), m.topes), (Modo::Mision, Some("true"), 0, Topes::default()));
+    assert!(m.id.is_empty() && m.creada_en.is_empty() && m.equipo.is_none() && !m.worktree_propio);
+    let fases = orden(d.path()).fases;
+    let o = Orden::obra("t", &wt, "o", fases.clone(), Some(1), "claude-code");
+    assert_eq!((o.modo, o.criterio_exito.as_deref(), &o.fases, o.revisar_cada), (Modo::Obra, None, &fases, Some(1)));
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap();
+    bus.crear_trabajo(m).unwrap();
+    bus.crear_trabajo(o).unwrap();
 }
 
 #[test]
@@ -453,7 +536,8 @@ fn skills_de_prueba() -> (tempfile::TempDir, ConfigSkills) {
     let d = tempfile::tempdir().unwrap();
     std::fs::write(d.path().join("rust.md"), "---\ndescripcion: Rust\n---\nUsa cargo test.\n").unwrap();
     std::fs::write(d.path().join("tests.md"), "---\ndescripcion: tests\n---\nPrueba primero.\n").unwrap();
-    let cfg = ConfigSkills { dir: d.path().to_string_lossy().into(), ..Default::default() };
+    let a = ea_ajustes::Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(d.path()));
+    let cfg = ConfigSkills { dir: d.path().to_string_lossy().into(), ..ConfigSkills::desde_ajustes(&a) };
     (d, cfg)
 }
 
@@ -522,31 +606,37 @@ fn crear_trabajo_rechaza_skills_que_exceden_los_topes() {
     sin_rastro(&bus);
 }
 
-const RUTINA: &str = concat!(r#"
+/// La rutina de estas pruebas; su worktree, el repo común (U-05: la raíz de
+/// un repo con commits).
+fn rutina() -> String {
+    RUTINA.replace("@REPO@", ea_pruebas::repo_comun())
+}
+
+const RUTINA: &str = r#"
 [rutina]
 slug = "prueba"
 version = 1
 descripcion = "d"
-worktree = ""#, tmp!(), r#""
+worktree = "@REPO@"
 criterio_exito = "test -f {fichero}"
 salida_esperada = "nada"
 [entradas]
 fichero = "a.txt"
 [[pasos]]
 texto = "crea {fichero}"
-"#);
+"#;
 
 #[test]
 fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let dir = d.path().join("rutinas");
-    bus.registrar_rutina(RUTINA, &dir).unwrap();
+    bus.registrar_rutina(&rutina(), &dir).unwrap();
     assert!(dir.join("prueba.toml").exists());
-    assert!(bus.registrar_rutina(RUTINA, &dir).is_err()); // misma versión
-    assert!(bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 0"), &dir).is_err());
-    bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 2"), &dir).unwrap();
+    assert!(bus.registrar_rutina(&rutina(), &dir).is_err()); // misma versión
+    assert!(bus.registrar_rutina(&rutina().replace("version = 1", "version = 0"), &dir).is_err());
+    bus.registrar_rutina(&rutina().replace("version = 1", "version = 2"), &dir).unwrap();
     let id = bus.lanzar_rutina("prueba", &[("fichero".into(), "b.txt".into())]).unwrap();
     let o = bus.leer_orden(&id).unwrap();
     assert_eq!(o.modo, Modo::Rutina);
@@ -557,6 +647,58 @@ fn registrar_rutina_exige_version_mayor_y_lanzar_sustituye_entradas() {
     assert!(bus.lanzar_rutina("no-existe", &[]).is_err());
 }
 
+/// B-07: una rutina tiene como mucho una ejecución activa (en cola o
+/// ejecutándose), la lance quien la lance: la CLI y su timer, la web o
+/// `ea_encolar_rutina`. La siguiente se rechaza con `EnCurso` hasta que la
+/// anterior termine; las entradas se validan antes.
+#[test]
+fn una_rutina_no_se_lanza_dos_veces_mientras_la_anterior_sigue_activa() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
+    let dir = d.path().join("rutinas");
+    bus.registrar_rutina(&rutina(), &dir).unwrap();
+    let id = bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap();
+    let e = bus.lanzar_rutina_en(&dir, "prueba", &[]).unwrap_err();
+    assert!(matches!(&e, ErrorBus::EnCurso(s) if s == "prueba"), "{e}");
+    assert_eq!(e.to_string(), "la rutina 'prueba' ya tiene una ejecución en curso");
+    assert!(matches!(bus.lanzar_rutina("prueba", &[]), Err(ErrorBus::EnCurso(_))));
+    // Las entradas que no valen se rechazan antes, con su propio error.
+    assert!(matches!(bus.lanzar_rutina("prueba", &[("otra".into(), "x".into())]), Err(ErrorBus::Argumentos(_))));
+    // Ejecutándose, también; terminada, ya se puede.
+    bus.tomar(Rol::Ejecutor).unwrap();
+    bus.aplicar(&id, Evento::Tomar).unwrap();
+    assert!(matches!(bus.lanzar_rutina("prueba", &[]), Err(ErrorBus::EnCurso(_))));
+    bus.aplicar(&id, Evento::Entregar(informe())).unwrap();
+    bus.aplicar(&id, Evento::Cerrar).unwrap();
+    bus.lanzar_rutina("prueba", &[]).unwrap();
+    assert_eq!(bus.trabajos_activos_de_rutina("prueba").unwrap().len(), 1);
+}
+
+/// B-07 entre procesos: de varios lanzamientos a la vez solo uno crea el
+/// trabajo (la comprobación y la creación van bajo el mismo `flock`).
+#[test]
+fn varios_lanzamientos_a_la_vez_de_una_rutina_crean_un_solo_trabajo() {
+    let d = tempfile::tempdir().unwrap();
+    let db = d.path().join("ea.db");
+    let raiz = d.path().join("estado");
+    Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap(), ORQ).registrar_rutina(&rutina(), &d.path().join("rutinas")).unwrap();
+    let barrera = Arc::new(Barrier::new(8));
+    let hilos: Vec<_> = (0..8)
+        .map(|_| {
+            let (raiz, db, barrera) = (raiz.clone(), db.clone(), barrera.clone());
+            std::thread::spawn(move || {
+                let bus = Bus::abrir_en(&raiz).unwrap().con_store(Store::open_at(&db).unwrap(), ORQ);
+                barrera.wait();
+                bus.lanzar_rutina("prueba", &[]).is_ok()
+            })
+        })
+        .collect();
+    let creados = hilos.into_iter().map(|h| h.join().unwrap()).filter(|ok| *ok).count();
+    assert_eq!(creados, 1);
+    assert_eq!(Bus::abrir_en(&raiz).unwrap().listar_trabajos().unwrap().len(), 1);
+}
+
 /// La papelera de rutinas (spec 004, RF-011): el fichero decide si una
 /// rutina registrada está activa, retirada o sin fichero; SQLite no cambia.
 #[test]
@@ -564,9 +706,9 @@ fn una_rutina_retirada_no_se_lanza_y_registrarla_la_restaura() {
     use ea_bus::Ubicacion;
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store, ORQ);
     let dir = d.path().join("rutinas");
-    bus.registrar_rutina(RUTINA, &dir).unwrap();
+    bus.registrar_rutina(&rutina(), &dir).unwrap();
     assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Activa);
     assert!(ea_bus::restaurar_rutina(&dir, "prueba").is_err(), "no está retirada");
 
@@ -584,7 +726,7 @@ fn una_rutina_retirada_no_se_lanza_y_registrarla_la_restaura() {
 
     // Registrar una versión nueva de una retirada la vuelve a poner en uso.
     ea_bus::retirar_rutina(&dir, "prueba").unwrap();
-    bus.registrar_rutina(&RUTINA.replace("version = 1", "version = 2"), &dir).unwrap();
+    bus.registrar_rutina(&rutina().replace("version = 1", "version = 2"), &dir).unwrap();
     assert_eq!(ea_bus::ubicacion_rutina(&dir, "prueba").unwrap(), Ubicacion::Activa);
     assert!(!dir.join(".papelera/prueba.toml").exists());
 
@@ -597,7 +739,7 @@ fn una_rutina_retirada_no_se_lanza_y_registrarla_la_restaura() {
 
 #[test]
 fn las_entradas_tienen_limites_y_no_admiten_caracteres_de_control() {
-    let r = ea_bus::Rutina::parsear(RUTINA).unwrap();
+    let r = ea_bus::Rutina::parsear(&rutina()).unwrap();
     let e = |v: &str| vec![("fichero".to_string(), v.to_string())];
     assert!(r.a_orden(&e("b.txt")).is_ok());
     for malo in ["a\nrm -rf x", "a\rb", "a\tb", "a\u{0}b"] {
@@ -636,7 +778,7 @@ fn anotar_iteracion_no_resucita_un_cancelado() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
     let raiz = d.path().join("estado");
-    let bus = Bus::abrir_en(&raiz).unwrap().con_store(store);
+    let bus = Bus::abrir_en(&raiz).unwrap().con_store(store, ORQ);
     let id = bus.crear_trabajo(orden(d.path())).unwrap();
     bus.aplicar(&id, Evento::Tomar).unwrap();
     assert_eq!(bus.anotar_iteracion(&id).unwrap(), Some(1));
@@ -685,19 +827,93 @@ fn anotar_iteracion_no_resucita_un_cancelado() {
 fn comprobar_registro_no_escribe_y_aplica_la_misma_politica_que_registrar() {
     let d = tempfile::tempdir().unwrap();
     let store = Store::open_at(&d.path().join("ea.db")).unwrap();
-    let (r, anterior) = ea_bus::comprobar_registro(&store, RUTINA).unwrap();
+    let (r, anterior) = ea_bus::comprobar_registro(&store, &rutina()).unwrap();
     assert_eq!((r.rutina.slug.as_str(), r.rutina.version), ("prueba", 1));
     assert!(anterior.is_none());
     assert!(store.ultima_rutina("prueba").unwrap().is_none(), "comprobar no registra");
 
-    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap());
-    bus.registrar_rutina(RUTINA, &d.path().join("rutinas")).unwrap();
-    let e = ea_bus::comprobar_registro(&store, RUTINA).unwrap_err().to_string();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), ORQ);
+    bus.registrar_rutina(&rutina(), &d.path().join("rutinas")).unwrap();
+    let e = ea_bus::comprobar_registro(&store, &rutina()).unwrap_err().to_string();
     assert!(e.contains("la nueva debe ser mayor"), "{e}");
-    let (_, anterior) = ea_bus::comprobar_registro(&store, &RUTINA.replace("version = 1", "version = 2")).unwrap();
+    let (_, anterior) = ea_bus::comprobar_registro(&store, &rutina().replace("version = 1", "version = 2")).unwrap();
     assert_eq!(anterior.map(|f| f.version), Some(1));
     // Demasiado larga: ni se interpreta, y registrar la rechaza igual.
-    let largo = format!("{}\n#{}", RUTINA.replace("version = 1", "version = 3"), "x".repeat(ea_bus::MAX_DEFINICION));
+    let largo = format!("{}\n#{}", rutina().replace("version = 1", "version = 3"), "x".repeat(ea_bus::MAX_DEFINICION));
     assert!(ea_bus::comprobar_registro(&store, &largo).unwrap_err().to_string().contains("demasiado larga"));
     assert!(bus.registrar_rutina(&largo, &d.path().join("rutinas")).is_err());
+}
+
+/// U-05: registrar una rutina deja `rutina_registrada` en el diario (con la
+/// versión anterior), sea quien sea quien llame al bus, y firmado por él.
+#[test]
+fn registrar_una_rutina_deja_evento_en_el_diario() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), "claude-code");
+    bus.registrar_rutina(&rutina(), &d.path().join("rutinas")).unwrap();
+    bus.registrar_rutina(&rutina().replace("version = 1", "version = 2"), &d.path().join("rutinas")).unwrap();
+    let mut eventos = store.list_events(&Default::default()).unwrap();
+    eventos.reverse();
+    let detalles: Vec<serde_json::Value> = eventos
+        .iter()
+        .filter(|e| e.action == "rutina_registrada" && e.actor == "claude-code")
+        .map(|e| serde_json::from_str(e.detail.as_deref().unwrap()).unwrap())
+        .collect();
+    assert_eq!(detalles.len(), 2, "{eventos:?}");
+    assert_eq!((&detalles[0]["version"], &detalles[0]["anterior"]), (&serde_json::json!(1), &serde_json::Value::Null));
+    assert_eq!((&detalles[1]["version"], &detalles[1]["anterior"]), (&serde_json::json!(2), &serde_json::json!(1)));
+    assert_eq!(store.ultima_rutina("prueba").unwrap().unwrap().creada_por, "claude-code");
+}
+
+/// U-05: el worktree de una rutina tiene que ser la raíz de un repo con
+/// commits (como el de una orden) al registrarla; uno que no es un repo o un
+/// subdirectorio del repo se rechazan sin escribir nada.
+#[test]
+fn registrar_una_rutina_valida_su_worktree() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open_at(&d.path().join("ea.db")).unwrap();
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), ORQ);
+    let sin_repo = d.path().join("sin-repo");
+    std::fs::create_dir_all(&sin_repo).unwrap();
+    let sub = ea_pruebas::repo_git(&d.path().join("repo"), true).join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    for (wt, motivo) in [(sin_repo.as_path(), "no está dentro de un repositorio git"), (sub.as_path(), "no es la raíz de su repositorio")] {
+        let toml = RUTINA.replace("@REPO@", &wt.to_string_lossy().replace('\\', "/"));
+        let e = ea_bus::comprobar_registro(&store, &toml).unwrap_err().to_string();
+        assert!(e.contains(motivo), "{e}");
+        assert!(bus.registrar_rutina(&toml, &d.path().join("rutinas")).is_err());
+    }
+    assert!(store.ultima_rutina("prueba").unwrap().is_none());
+    assert!(!d.path().join("rutinas/prueba.toml").exists());
+    assert!(store.list_events(&Default::default()).unwrap().is_empty());
+}
+
+/// U-05: una rutina registrada antes de que se exigiera (aquí, guardada a
+/// mano en la base) con un worktree que no vale no se lanza, y el motivo
+/// queda en el diario como `rutina_no_lanzada`. El trabajo de una que sí
+/// vale lleva el worktree canónico.
+#[test]
+fn una_rutina_con_un_worktree_invalido_no_se_lanza_y_lo_dice_el_diario() {
+    let d = tempfile::tempdir().unwrap();
+    let sin_repo = d.path().join("sin-repo");
+    std::fs::create_dir_all(&sin_repo).unwrap();
+    let mala = RUTINA.replace("@REPO@", &sin_repo.to_string_lossy().replace('\\', "/"));
+    let (store, _db) = ea_pruebas::store(&[("prueba", 1, &mala)]);
+    let bus = Bus::abrir_en(&d.path().join("estado")).unwrap().con_store(store.duplicar().unwrap(), "usuario");
+    let e = bus.lanzar_rutina("prueba", &[]).unwrap_err().to_string();
+    assert!(e.contains("no está dentro de un repositorio git"), "{e}");
+    assert!(bus.listar_trabajos().unwrap().is_empty());
+    let eventos = store.list_events(&Default::default()).unwrap();
+    assert_eq!(eventos.len(), 1, "{eventos:?}");
+    assert_eq!((eventos[0].action.as_str(), eventos[0].actor.as_str()), ("rutina_no_lanzada", "usuario"));
+    let det: serde_json::Value = serde_json::from_str(eventos[0].detail.as_deref().unwrap()).unwrap();
+    assert_eq!(det["rutina"], "prueba");
+    assert!(det["motivo"].as_str().unwrap().contains("no está dentro de un repositorio git"), "{det}");
+
+    // Una versión con un worktree que vale (registrarla ya lo exige) sí.
+    bus.registrar_rutina(&rutina().replace("version = 1", "version = 2"), &d.path().join("rutinas")).unwrap();
+    let id = bus.lanzar_rutina("prueba", &[]).unwrap();
+    let canonico = ea_bus::validar_worktree(ea_pruebas::repo_comun(), ea_bus::git::TOPE_LECTURA).unwrap();
+    assert_eq!(bus.leer_orden(&id).unwrap().worktree, canonico);
 }

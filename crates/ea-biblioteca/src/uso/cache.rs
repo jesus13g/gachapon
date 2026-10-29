@@ -54,12 +54,7 @@ fn cabeza_de(ruta: &Path, n: u64) -> Option<(u64, u64)> {
     let mut f = std::fs::File::open(ruta).ok()?;
     let mut buf = Vec::new();
     f.by_ref().take(n.min(BYTES_CABEZA)).read_to_end(&mut buf).ok()?;
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in &buf {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    Some((h, buf.len() as u64))
+    Some((ea_plataforma::fs::fnv64(&buf), buf.len() as u64))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,11 +72,7 @@ impl Default for Cache {
 impl Cache {
     /// Lee la caché; una caché ausente, ilegible o de otra versión es vacía.
     pub fn cargar(ruta: &Path) -> Cache {
-        std::fs::read(ruta)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Cache>(&b).ok())
-            .filter(|c| c.version == VERSION)
-            .unwrap_or_default()
+        std::fs::read(ruta).ok().and_then(|b| serde_json::from_slice::<Cache>(&b).ok()).filter(|c| c.version == VERSION).unwrap_or_default()
     }
 
     pub fn guardar(&self, ruta: &Path, avisos: &mut Vec<String>) {
@@ -115,24 +106,13 @@ pub fn acumular(regs: &mut Vec<Reg>, nuevos: BTreeMap<(Tipo, String), (u64, Opti
 }
 
 fn mtime_ns(m: &std::fs::Metadata) -> u64 {
-    m.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64).unwrap_or(0)
 }
 
 /// Lee un fichero de líneas JSON con la caché: sin cambios, no lo abre; si
 /// creció, lee desde el offset; si encogió o cambió sin crecer, lo relee
 /// entero. Devuelve los recuentos de ese fichero.
-pub fn escanear_lineas(
-    cache: &mut Cache,
-    clave: &str,
-    ruta: &Path,
-    extraer: fn(&str) -> Vec<Hallazgo>,
-    est: &mut Estadisticas,
-    avisos: &mut Vec<String>,
-) {
+pub fn escanear_lineas(cache: &mut Cache, clave: &str, ruta: &Path, extraer: fn(&str) -> Vec<Hallazgo>, est: &mut Estadisticas, avisos: &mut Vec<String>) {
     est.ficheros += 1;
     let Ok(meta) = std::fs::metadata(ruta) else { return };
     let (tam, mtime) = (meta.len(), mtime_ns(&meta));

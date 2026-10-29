@@ -1,8 +1,8 @@
 use ea_ajustes::{Ajustes, Rol};
 use ea_store::ResumenAgente;
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::widgets::{Block, Borders, Row, Table};
-use ratatui::Frame;
 
 use crate::commands::fmt_ts;
 

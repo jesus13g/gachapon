@@ -100,7 +100,10 @@ llega al planificador, que entonces corrige la definición y sube la versión.
 ### El bus
 
 Ficheros en `~/.local/state/ecosistema-asistente/` (o `$EA_ESTADO_DIR`); SQLite
-guarda el historial y el diario.
+guarda el historial y el diario. Los ficheros son la fuente de verdad: las filas
+de trabajos y fases de SQLite son un espejo de mejor esfuerzo, como el diario. Si
+la base falla (bloqueada, disco lleno), la transición se hace igual, el trabajo
+queda en su cola y el fallo solo se apunta en el registro del proceso.
 
 ```
 colas/modelo-local/       órdenes por ejecutar (un .json por entrada)
@@ -124,19 +127,49 @@ llamada con la evidencia del fallo hasta que el criterio pasa o se agotan las
 iteraciones; en una obra recorre las fases, guarda una instantánea del árbol tras
 cada una y se detiene cada `revisar_cada`. Entrega un informe (resultado, motivo,
 evidencia, diff stat, fases, `obra_completa`) y encola el trabajo en `claude-code`.
-Una rutina que pasa se cierra sola. Al arrancar recupera lo que se quedó a medias.
-Los fallos, bloqueos y paquetes en espera avisan con `notify-send`; el aviso
-lleva una acción **abrir** que lanza `ea-web-open '#trabajos/<id>'` (el proceso
-del aviso va aparte: el ejecutor no lo espera).
+Una rutina que pasa se cierra sola. Los fallos, bloqueos y paquetes en espera
+avisan con `notify-send`; el aviso lleva una acción **abrir** que lanza
+`ea-web-open '#trabajos/<id>'` (el proceso del aviso va aparte: el ejecutor no lo
+espera).
+
+Solo corre un `ea-orchestrator` por bus: al arrancar toma sin esperar un
+`flock` exclusivo sobre `<estado>/orquestador.lock` (junto a las colas) y, si
+otro lo tiene, sale con «ya hay un ea-orchestrator en marcha» antes de latir o de
+tocar nada. Con el candado en la mano recupera lo que se quedó a medias:
+- lo reclamado que no se llegó a tomar (el proceso cayó entre el reclamo y el
+  paso a `ejecutando`) y cualquier trabajo `en_cola` sin entrada en `modelo-local`
+  ni en la cola de un agente vuelve a su cola (la del agente asignado si su equipo
+  sigue despierto; si no, `modelo-local`), con motivo `recuperado`;
+- lo que se quedó `ejecutando` se entrega bloqueado con motivo «interrumpido»
+  igual que si hubiera terminado así: una misión u obra pasa a revisión y una
+  rutina queda `en_espera` con su paquete de corrección.
+
+Un trabajo que vuelve a la cola sin ejecutarse (worktree ocupado, reformulado,
+equipo dormido, recuperado) va siempre a la cola vigente: nunca a la de un agente
+cuyo equipo se ha dormido.
 
 Cancelar un trabajo `ejecutando` (`ea trabajo cancelar`, o «Cancelar» en la web)
 lo detiene de verdad: el ejecutor relee el estado antes de cada iteración y de
-cada fase y, mientras corre Qwen, lo sondea cada 2 s; el agente va en su propio
-grupo de procesos, que recibe `SIGTERM` y, a los 5 s, `SIGKILL`. Tras cancelar no
-se corre el criterio ni hay informe: se suelta el semáforo y el diario apunta
-`bus_cancelado_en_curso`. **Lo que el agente ya escribió en el worktree no se
-deshace.** Mientras el semáforo siga cogido, la web muestra el trabajo como
-«cancelando…» (`cancelando: true` en `GET /api/trabajos`).
+cada fase y, mientras corren el agente o el criterio, lo sondea cada 2 s; los dos
+van en su propio grupo de procesos, que recibe `SIGTERM` y, a los 10 s, `SIGKILL`.
+Tras cancelar no se corre el criterio (si estaba corriendo, se corta en el
+siguiente sondeo, sin esperar a su tope, `topes.tiempo_criterio_s`) ni hay informe: se suelta el
+semáforo y el diario apunta `bus_cancelado_en_curso`. **Lo que el agente ya
+escribió en el worktree no se deshace.** Mientras el semáforo siga cogido, la web
+muestra el trabajo como «cancelando…» (`cancelando: true` en `GET /api/trabajos`).
+
+Cada corrida del agente o del criterio deja el árbol limpio: cuando el proceso
+principal sale (por su cuenta, por tiempo o cancelado), su grupo recibe `SIGKILL`
+y mueren también los procesos que hubiera dejado de fondo (`cmd &`), con sandbox
+o sin él y en macOS igual que en Linux.
+
+Parar el orquestador (`SIGTERM`, `systemctl --user stop ea-orchestrator` o Ctrl-C;
+en Windows, Ctrl-C o el cierre de la consola) corta lo que esté corriendo como una
+cancelación, en el siguiente sondeo, pero sin anotarla: el trabajo se queda
+`ejecutando`, sin informe ni `bus_cancelado_en_curso`, y al volver a arrancar se
+entrega como «interrumpido» (arriba). Lo que se acababa de reclamar y aún no había
+empezado vuelve a su cola. El orquestador espera a sus trabajadores como mucho
+30 s y sale.
 
 Reformular una obra la rehace desde una fase: la que se pida (`--fase N`, o
 `fase` en la web) o, si no, la pendiente (`fase_actual`; en una obra completa,
@@ -150,7 +183,7 @@ una fase en una misión o rutina, se rechaza sin escribir nada.
 
 El agente ejecutor (Qwen Code, Codex u OpenCode) corre dentro de
 **bubblewrap** (`bwrap`; en macOS, un perfil Seatbelt equivalente; en Windows nativo no hay sandbox y el ejecutor se niega con `sandbox = true`, ver [Limitaciones](#limitaciones-y-garantías-por-sistema)): sistema de ficheros de solo lectura salvo el
-worktree, un `/tmp` propio y sus directorios de estado (`~/.qwen`; `~/.codex`;
+worktree (y, dentro de él, su `.git` también de solo lectura), un `/tmp` propio y sus directorios de estado (`~/.qwen`; `~/.codex`;
 `~/.local/share/opencode`, `~/.local/state/opencode` y `~/.cache/opencode`), con
 `$XDG_RUNTIME_DIR` tapado por un tmpfs vacío (ahí están la clave de sesión del
 panel web y los sockets de D-Bus y `systemd --user`); la red queda abierta para
@@ -160,6 +193,53 @@ su propio sandbox (`workspace-write`). Además: topes por ejecución (recortados
 al techo de los ajustes; Codex y OpenCode solo admiten el de tiempo), exclusión
 de las herramientas web y semáforo para que dos agentes no escriban a la vez en
 el mismo worktree.
+
+Dentro del sandbox, el agente no puede escribir en el `.git` del worktree (ni en su configuración
+ni en sus *hooks*; con worktree propio, tampoco en el fichero `.git` que dice a
+qué repo pertenece): el sistema ejecuta git sobre ese repo fuera del sandbox, y
+lo que se plantara ahí correría con tus permisos. Dentro del sandbox fallan
+`git add`, `git commit`, `git stash` o `git checkout -b` (el agente no debe
+hacer commits); leer con `git status`, `git diff` o `git log` sigue funcionando.
+
+Las órdenes `git` que el sistema ejecuta **fuera** del sandbox sobre el
+worktree que escribió el agente (la instantánea y el diff del ejecutor, `ea
+trabajo diff`, el diff del panel, la comprobación del worktree al encolar y los
+worktrees propios) van por un único `git` endurecido (`ea_bus::git`): siempre
+con `-c core.fsmonitor=false`, todo `diff` con `--no-ext-diff --no-textconv`
+(no se ejecutan `diff.external` ni los *drivers* `textconv` que configure el
+repo), sin `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` ni `GIT_EXTERNAL_DIFF`
+del entorno, y con tope de tiempo y muerte del árbol: 30 s para leer, 300 s para
+`add -A`, `write-tree` y `worktree add`/`remove`, y 10 s en el panel. No se
+desactivan los *hooks* ni la configuración del sistema (git-lfs y los *hooks*
+de `worktree add` siguen funcionando): los del repo los protege el `.git` de
+solo lectura del sandbox.
+
+**El criterio de éxito corre en el mismo sandbox que el agente** (con
+`sandbox = true`): ejecuta tests, `build.rs` o `conftest.py` que el agente ha
+podido escribir, así que tiene el mismo perfil de disco. `/` de solo lectura,
+un `/tmp` propio, el directorio de ejecución tapado (no lee la clave de sesión
+del panel ni llega a D-Bus ni a `systemd --user`) y escribibles solo el worktree
+(su `.git` no) y las rutas de `agente.criterio.escribibles`. No puede tocar
+`ajustes.toml`, la base de datos, el bus ni `~/.bashrc`. La red no cambia: queda
+abierta, también en macOS (el perfil Seatbelt del criterio no lleva las reglas de
+red del agente). Lo lanza el sistema con `sh -c` en el worktree y un tope de
+`topes.tiempo_criterio_s` segundos por corrida (120 por defecto; al vencer se
+corta y la evidencia acaba en «(criterio interrumpido por tiempo: N s,
+topes.tiempo_criterio_s)»); con `sandbox = false` corre como el agente, con los permisos de tu
+usuario.
+
+Un criterio que escribía fuera del worktree falla ahora. Si necesita una caché
+(`cargo` al descargar dependencias en `~/.cargo`, `pip` en `~/.cache/pip`), añade
+la ruta desde la terminal, por ejemplo con `ea ajustes establecer
+agente.criterio.escribibles=~/.cargo,~/.cache/pip`. Cada ruta tiene que existir y
+no puede ser tu directorio personal ni un ancestro suyo, ni ser, contener o estar
+dentro de los directorios del ecosistema (configuración, datos y base, estado del
+bus, bóveda y directorio de ejecución): se comprueba al escribirla y cada vez que
+se cargan los ajustes (una que deja de valer se ignora con un aviso), y antes de
+cada criterio se mira que siga llevando al mismo sitio (si no, el criterio no se
+corre y no pasa). Lo que el criterio escribe en esas rutas es código del agente
+que otros programas pueden leer después: añade solo cachés. Revisa el criterio de
+un trabajo antes de lanzarlo como revisarías un script.
 
 Qué se le quita a cada agente para que no salga a la web:
 
@@ -202,11 +282,13 @@ comentarios y claves ajenas).
 | `modelos.<perfil>.base_url` | `local`: `http://127.0.0.1:8080/v1` | perfil no remoto: solo `127.0.0.1`, `localhost` o `[::1]` | | web y terminal | en caliente |
 | `modelos.<perfil>.remoto` | `false` | sí/no; uno remoto solo vale para el planificador | | web y terminal | en caliente |
 | `agente.sandbox` | `true` | sí/no | | solo terminal | en caliente |
+| `agente.criterio.escribibles` | `[]` | rutas absolutas o con `~`, que existan; nunca `$HOME` ni sus ancestros, ni los directorios del ecosistema | | solo terminal | en caliente (próximo trabajo) |
 | `agente.avisos_escritorio` | `true` | sí/no | | web y terminal | en caliente |
 | `agente.techo_topes.turnos` | 100 | 1–100 | | web solo baja; terminal | en caliente |
 | `agente.techo_topes.tiempo_s` | 3600 | 60–3600 | | web solo baja; terminal | en caliente |
 | `agente.techo_topes.llamadas_herramienta` | 200 | 1–200 | | web solo baja; terminal | en caliente |
 | `agente.techo_topes.iteraciones` | 10 | 1–10 | | web solo baja; terminal | en caliente |
+| `agente.techo_topes.tiempo_criterio_s` | 3600 | 10–3600 | | web solo baja; terminal | en caliente |
 | `agente.skills.dir` | `<config>/qwen-skills` | ruta (`~`) | | solo terminal | en caliente |
 | `agente.skills.habilitadas` | `[]` (todas) | lista | | solo terminal | en caliente |
 | `agente.skills.max_por_trabajo` | 3 | 0–5 | | web solo baja; terminal | en caliente |
@@ -255,10 +337,12 @@ clic para confirmar) que pasa por `POST /api/ajustes` y deja `ajustes_cambiados`
 en el diario.
 
 **Techo de topes.** Los topes de cada orden (`turnos`, `tiempo_s`,
-`llamadas_herramienta`, `iteraciones`; por defecto 30/900/60/5) los pone quien la
-escribe. El ejecutor los recorta a `agente.techo_topes` antes de lanzar al agente
-(mínimo por campo, al menos una iteración) y lo deja en el log. El techo nunca
-pasa de 100/3600/200/10. Un `[topes]` en un `orquestador.toml` antiguo pasa a ser
+`llamadas_herramienta`, `iteraciones` y `tiempo_criterio_s`, los segundos de
+cada corrida del criterio; por defecto 30/900/60/5/120) los pone quien la
+escribe; una orden sin `tiempo_criterio_s` (las de antes) lleva 120. El
+ejecutor los recorta a `agente.techo_topes` antes de lanzar al agente (mínimo por
+campo, al menos una iteración y un segundo de criterio) y lo deja en el log. El
+techo nunca pasa de 100/3600/200/10/3600. Un `[topes]` en un `orquestador.toml` antiguo pasa a ser
 ese techo.
 
 **Quién cambia qué.** `ea ajustes establecer` exige una terminal interactiva real
@@ -299,39 +383,78 @@ caliente: el ejecutor relee los ajustes en cada ciclo. No hay que tocar código.
 
 El esquema de la base de datos se ha reiniciado (una sola migración,
 `0001_inicial.sql`; sin tareas ni `routine_runs`). Una base antigua **no se
-migra**: `ea` y los servicios se niegan a abrirla con el mensaje «base de datos
-del esquema antiguo» y no tocan nada. Tras actualizar hay que empezar con una
-base nueva: parar los servicios, copiar `~/.local/share/ecosistema-asistente/ecosistema.db*`
+migra**: los servicios y las órdenes de `ea` que usan la base se niegan a
+abrirla con el mensaje «base de datos del esquema antiguo» y no tocan nada (las
+que no la usan, como `ea trabajo listar` o `ea ajustes`, ni la abren). Tras
+actualizar hay que empezar con una base nueva: parar los servicios, copiar `~/.local/share/ecosistema-asistente/ecosistema.db*`
 a un lugar seguro, borrarlos, vaciar `~/.local/state/ecosistema-asistente/` y
 volver a arrancar los servicios.
 
 ## Estructura
 
+- `crates/ea-plataforma`: todas las diferencias entre Linux, macOS y Windows
+  (rutas, procesos, ficheros privados, terminal, servicios); no depende de
+  ningún otro crate del workspace.
 - `crates/ea-ajustes`: los ajustes (`ajustes.toml` y los TOML heredados), con
-  su registro de claves, validación y escritura atómica; no depende de ningún
-  otro crate.
+  su registro de claves, validación y escritura atómica, y el catálogo estático
+  (agentes y roles); solo depende de `ea-plataforma`.
 - `crates/ea-biblioteca`: la biblioteca de herramientas (spec 018): inventario de
   solo lectura de skills, plugins, subagentes, MCP, comandos y extensiones de
   los agentes, su uso, los planes de activar y desactivar y de sesión efímera;
-  solo depende de `ea-ajustes`.
+  depende de `ea-ajustes`, `ea-plataforma` y `ea-store` (el diario, en solo lectura).
 - `crates/ea-store`: capa de datos compartida (SQLite embebido): diario,
   propuestas, índice de la bóveda, trabajos, fases y rutinas.
 - `crates/ea-bus`: el bus de ficheros: colas, estado de los trabajos, semáforo
-  del worktree, rutinas versionadas y la configuración del ejecutor.
+  del worktree, rutinas versionadas, el latido del orquestador
+  (`orquestador.json`), equipos y presencia de los agentes, las
+  marcas del hook de subagentes y la validación de las skills de cada orden.
 - `crates/ea-orchestrator`: binario `ea-orchestrator`, el ejecutor del agente
-  local y el heartbeat.
+  local con su configuración (la parte de los ajustes que usa) y el latido.
 - `crates/ea-acciones`: catálogo único de herramientas con riesgo, simulación,
-  revalidación y el flujo propuesta → aceptación → ejecución.
+  revalidación y el flujo propuesta → aceptación → ejecución; también cambiar
+  los ajustes con sus efectos y su evento en el diario (`ajustes`, para
+  `ea ajustes` y el panel) y la salud de los servicios residentes y de los
+  agentes (`salud`), que leen el panel, `ea agentes` y la TUI.
 - `crates/ea-boveda`: la bóveda de notas; único código que escribe en ella.
-- `crates/ea-cli`: binario `ea`, CLI y TUI.
+- `crates/ea-cli`: binario `ea`, CLI y TUI; también el instalador (`ea instalar`,
+  `ea desinstalar`, módulo `instalacion`), que lleva embebidos `claude/skills`,
+  `agentes/` y `qwen/skills` (una prueba exige registrar cada fichero nuevo en
+  `instalacion/recursos.rs`).
 - `crates/ea-mcp`: binario `ea-mcp`, servidor MCP (HTTP, `127.0.0.1:8765`).
 - `crates/ea-web`: binario `ea-web`, API JSON y panel web (`127.0.0.1:8092`).
+- `crates/ea-pruebas`: utilidades que comparten las pruebas de integración
+  (`tests/`): escribir ficheros, repos git, bases con rutinas, órdenes, un bus
+  sembrado, `systemctl` falsos, el binario `ea` aislado y el servidor y el cliente
+  MCP de prueba. Solo como `[dev-dependencies]`; no entra en ningún binario.
 - `escritorio/`: la app de escritorio `ea-escritorio` (spec 021); fuera del workspace.
+- `instalador/`: el instalador de Windows `gachapon-instalar.exe` (spec 023), que lleva
+  dentro los binarios y lanza `ea instalar`; también fuera del workspace.
 - `agentes/flujo/`: el procedimiento neutral del planificador (misión, obra,
-  rutina, revisar, equipo); `agentes/{codex,opencode,antigravity}/`: sus adaptadores.
-- `claude/skills/`: las skills vivas de Claude Code (adaptador del flujo).
-- `claude/hooks/`: el envoltorio del hook de subagentes de Claude Code que usa `ea-web` (el trabajo lo hace `ea hook subagentes`).
+  rutina, revisar, equipo); `agentes/planificador.md`: las reglas comunes del
+  planificador (de ellas salen el `AGENTS.md` de Codex y OpenCode y la regla de Antigravity).
+- `claude/skills/`: las skills de Claude Code y la fuente única de cada adaptador
+  (`ea instalar` genera de ellas los de los otros agentes y los copia con la ruta real de las guías).
 - `qwen/skills/`: las skills propias del agente local.
+
+Los crates forman capas y cada uno solo depende de los de debajo:
+
+| Capa | Crates | Puede depender de |
+|---|---|---|
+| Plataforma | `ea-plataforma` | — |
+| Configuración | `ea-ajustes` | `ea-plataforma` |
+| Persistencia | `ea-store` | `ea-ajustes` |
+| Mecanismos | `ea-boveda`, `ea-biblioteca`, `ea-bus` | `ea-store`, `ea-ajustes`, `ea-plataforma` |
+| Aplicación | `ea-acciones` | todo lo anterior |
+| Presentaciones | `ea-cli`, `ea-web`, `ea-mcp` | todo lo anterior, nunca otra presentación |
+| Presentaciones | `ea-orchestrator` | `ea-store`, `ea-bus`, `ea-ajustes`, `ea-plataforma` (nunca `ea-acciones`) |
+
+Lo que leen o deciden dos presentaciones vive debajo de ellas. Además, `libc`,
+`std::os::unix` y los `cfg` por sistema solo aparecen en `ea-plataforma` (salvo en
+las pruebas y en el aviso con acción del orquestador, solo de Linux). La prueba
+`crates/ea-cli/tests/arquitectura.rs` lee los `Cargo.toml` y el código y falla si
+alguien se sale del mapa. También vigila que `ea-pruebas` y los dobles de prueba
+(`SistemaSimulado`, `TerminalSimulada`, `OrdenesDoble`, detrás de la *feature*
+`dobles`) solo entren por `[dev-dependencies]`.
 
 ## Equipos de agentes
 
@@ -402,51 +525,49 @@ Las instrucciones del planificador son una **guía neutral común** más un
 | equipo | Dentro de un equipo despierto: el planificador parte el objetivo y reparte con `ea trabajo crear --equipo --asignar … --worktree-propio`; el revisor revisa su cola y solo propone |
 
 `ea instalar` instala el adaptador de cada agente que esté en el `PATH` (ver
-[Instalación en un paso](#instalación-en-un-paso)). A mano, se instalan con
-enlaces simbólicos (los comandos se ejecutan desde la raíz del repo). Un agente solo necesita
+[Instalación en un paso](#instalación-en-un-paso)). Un agente solo necesita
 el suyo, y solo si va a ser planificador.
 
-| Agente | Adaptador | Formato | Destino |
+Cada skill tiene **una sola fuente**, `claude/skills/<x>/SKILL.md` (la skill de
+Claude Code, válida tal cual), y las reglas del planificador otra,
+`agentes/planificador.md`. `ea instalar` genera de ellas el formato de cada
+agente (`crates/ea-cli/src/instalacion/adaptadores.rs`): solo cambian el
+`name`, el título y la cabecera. Codex, OpenCode y Antigravity ya no tienen
+ficheros propios en el repo.
+
+| Agente | Se genera | Formato | Destino |
 |---|---|---|---|
-| Claude Code | `claude/skills/<x>/` | skills (`/mision`, `/obra`, `/rutina`, `/revisar`, `/equipo`) | `~/.claude/skills/` |
-| Codex | `agentes/codex/skills/ea-<x>/` y `agentes/codex/AGENTS.md` | skills (`$ea-mision`…) y un fragmento de `AGENTS.md` | `~/.codex/skills/`, `~/.codex/AGENTS.md` |
-| OpenCode | `agentes/opencode/commands/ea-<x>.md` y `agentes/opencode/AGENTS.md` | comandos (`/ea-mision`…, con `$ARGUMENTS`) y un fragmento de `AGENTS.md` | `~/.config/opencode/commands/`, `~/.config/opencode/AGENTS.md` |
-| Antigravity | `agentes/antigravity/skills/ea-<x>/` y `agentes/antigravity/rules/ea-planificador.md` | skills (los workflows están obsoletos en favor de ellas) y una regla `model_decision` | `~/.gemini/config/skills/`, `~/.gemini/config/rules/` |
+| Claude Code | `<x>/SKILL.md`: la fuente tal cual | skills (`/mision`, `/obra`, `/rutina`, `/revisar`, `/equipo`) | `~/.claude/skills/` |
+| Codex | `ea-<x>/SKILL.md` (`name: ea-<x>`, título `# ea-<x>`) y el fragmento de `AGENTS.md` (las reglas con un comentario delante) | skills (`$ea-mision`…) y un fragmento de `AGENTS.md` | `~/.codex/skills/`, `~/.codex/AGENTS.md` |
+| OpenCode | `ea-<x>.md` (sin `name` ni título, con `Petición del usuario: $ARGUMENTS` al final) y el fragmento de `AGENTS.md` | comandos (`/ea-mision`…) y un fragmento de `AGENTS.md` | `~/.config/opencode/commands/`, `~/.config/opencode/AGENTS.md` |
+| Antigravity | `ea-<x>/SKILL.md` como Codex y `ea-planificador.md` (las reglas con el frontmatter `trigger: model_decision`) | skills (los workflows están obsoletos en favor de ellas) y una regla `model_decision` | `~/.gemini/config/skills/`, `~/.gemini/config/rules/` |
+
+Los adaptadores nombran la carpeta de las guías con el marcador `{{flujo}}/`,
+sin ninguna ruta personal. `ea instalar` los **copia** (también desde un clon) y
+cambia el marcador por la carpeta real: la `agentes/flujo/` del clon o la copia
+que deja el paquete. Por eso un adaptador instalado ya no es un enlace al repo:
+editar `agentes/flujo/*.md` en el clon cambia el procedimiento en uso al momento,
+pero un cambio en el propio adaptador se instala volviendo a ejecutar
+`ea instalar`. Los enlaces de las instalaciones anteriores (`~/.claude/skills/<x>`
+apuntando al repo) los sustituye `ea instalar` por la copia; hasta entonces
+siguen siendo skills válidas, con el marcador sin sustituir (la frase dice
+también dónde está la guía dentro del repo); los de Codex, OpenCode y
+Antigravity, en cambio, quedan rotos (sus ficheros ya no están en el repo)
+hasta volver a ejecutar `ea instalar`. Para los otros agentes, la única vía es
+`ea instalar`; a mano, solo Claude Code: copia la fuente y sustituye el
+marcador (desde la raíz del repo):
 
 ```bash
-# Claude Code (las skills vivas: editarlas cambia las skills en uso)
 for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/claude/skills/$s" ~/.claude/skills/$s
+  mkdir -p ~/.claude/skills/$s
+  sed "s#{{flujo}}/#$PWD/agentes/flujo/#" claude/skills/$s/SKILL.md > ~/.claude/skills/$s/SKILL.md
 done
-
-# Codex: skills y reglas (el fragmento se añade una sola vez)
-mkdir -p ~/.codex/skills
-for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/agentes/codex/skills/ea-$s" ~/.codex/skills/ea-$s
-done
-cat agentes/codex/AGENTS.md >> ~/.codex/AGENTS.md
-
-# OpenCode: comandos y reglas
-mkdir -p ~/.config/opencode/commands
-for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/agentes/opencode/commands/ea-$s.md" ~/.config/opencode/commands/ea-$s.md
-done
-cat agentes/opencode/AGENTS.md >> ~/.config/opencode/AGENTS.md
-
-# Antigravity: skills y regla
-mkdir -p ~/.gemini/config/skills ~/.gemini/config/rules
-for s in mision obra rutina revisar equipo; do
-  ln -sfn "$PWD/agentes/antigravity/skills/ea-$s" ~/.gemini/config/skills/ea-$s
-done
-ln -sfn "$PWD/agentes/antigravity/rules/ea-planificador.md" ~/.gemini/config/rules/ea-planificador.md
 ```
 
-Los adaptadores nombran la ruta `~/Proyectos/ecosistema-asistente/agentes/flujo/`
-(es un ejemplo, vale cualquier sitio y cualquier sistema); si el repo está en otro sitio, el resumen de cada adaptador basta para arrancar y
-`agentes/flujo/` en la raíz del repo es la referencia. Los formatos salen de lo
+Los formatos salen de lo
 instalado (`codex` 0.159, `opencode` 2.1, `agy` 1.4: sus propias skills de
 personalización y su carga de `{command,commands}/**/*.md`), pero el de
-Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado: con los enlaces puestos, `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
+Antigravity no se ha probado en una sesión real (necesita iniciar sesión con Google; sin ella `agy` no lista sus skills). OpenCode sí se ha comprobado (con los mismos ficheros que hoy se generan, entonces enlazados): `opencode api GET /api/command` lista `ea-mision`, `ea-obra`, `ea-revisar` y `ea-rutina` (`ea-equipo` se añadió después y no se ha comprobado), y `GET /api/mcp` da `ea-ecosistema` conectado.
 
 ## App de escritorio
 
@@ -541,12 +662,14 @@ con código 0, para no estorbar nunca a Claude Code.
 ```
 
 En Windows usa barras normales o `\\` dobles en el JSON
-(`C:/ruta/target/release/ea.exe hook subagentes start`). Las instalaciones
-anteriores con `claude/hooks/ea-subagentes.sh` siguen funcionando: ahora es un
-envoltorio que busca el binario en este orden (`$EA_BIN`; si no, el
-`target/release/ea` del repo donde vive el script, siguiendo el enlace de
-`~/.claude/hooks`; si no, el `ea` del `PATH`) y **siempre sale con 0**, sin
-estorbar a Claude Code. Para que el hook haga algo hay que **recompilar en
+(`C:/ruta/target/release/ea.exe hook subagentes start`). El envoltorio de
+shell de las instalaciones anteriores (`claude/hooks/ea-subagentes.sh`) ya no
+está en el repo: **vuelve a ejecutar `ea instalar`**, que cambia en
+`settings.json` cada orden que lo llamaba por la de `ea hook subagentes` (con
+copia `.gachapon.bak`; si ya estaban las dos, quita la del envoltorio) y borra el
+enlace `~/.claude/hooks/ea-subagentes.sh` si apunta al envoltorio del repo.
+Hasta entonces la orden vieja falla en cada subagente (Claude Code sigue
+funcionando, pero la portada no los pinta). Para que el hook haga algo hay que **recompilar en
 release** (`cargo build --release`): un `ea` anterior no tiene el subcomando
 `hook`.
 
@@ -653,9 +776,11 @@ ea desinstalar [--esperar]
    5. copia las guías `agentes/flujo` y las skills del ejecutor a
       `agente.skills.dir`;
    6. instala el adaptador de cada agente del catálogo que esté en el `PATH`;
-   7. registra el MCP (`claude mcp add … ea-ecosistema`) y fusiona el hook de
-      subagentes en `~/.claude/settings.json` (deja una copia
-      `settings.json.gachapon.bak`);
+   7. registra el MCP en Claude Code (`claude mcp add-json … ea-ecosistema`,
+      con el `headersHelper` `ea mcp cabeceras` que entrega la credencial del
+      planificador; ver [Identidad del cliente](#identidad-del-cliente)) y
+      fusiona el hook de subagentes en `~/.claude/settings.json` (deja una
+      copia `settings.json.gachapon.bak`);
    8. instala y arranca los servicios;
    9. crea la entrada de la app en el menú y fija `escritorio.al_iniciar = true`.
 5. **Verifica.** Espera a que respondan `ea-web` y `ea-mcp`, enseña los
@@ -668,7 +793,7 @@ ea desinstalar [--esperar]
 |---|---|---|
 | Binarios | Se copian a `~/.local/share/ecosistema-asistente/bin` (Linux), `~/Library/Application Support/ecosistema-asistente/bin` (macOS) o `%LOCALAPPDATA%\Programs\gachapon` (Windows) | Se quedan en `target/release`: recompilar y reiniciar los servicios basta |
 | `ea` en el `PATH` | Enlace en `~/.local/bin/ea` (si esa carpeta no está en el `PATH`, añade un bloque marcado a `~/.profile` o `~/.zprofile`); en Windows, el `PATH` del usuario | Igual, apuntando al `ea` del clon |
-| Guías y adaptadores | Copiados, con la ruta real de las guías | Enlazados al repo si el clon está en `~/Proyectos/ecosistema-asistente`; si no, copiados con la ruta del clon |
+| Guías y adaptadores | Copiados, con la ruta real de las guías | Las guías, las del repo; los adaptadores, copiados con la ruta de `agentes/flujo/` del clon (vuelve a ejecutar `ea instalar` si cambias un adaptador) |
 
 **Entrada de la app en el menú:**
 
@@ -694,7 +819,9 @@ y no duplica nada:
 - el hook se compara por su orden;
 - los fragmentos de `AGENTS.md` van entre `<!-- gachapon:inicio -->` y
   `<!-- gachapon:fin -->`;
-- el MCP no se vuelve a registrar.
+- el MCP no se vuelve a registrar si ya tiene la URL y el `headersHelper` de
+  ahora; un registro anterior (sin `headersHelper`, o con otro puerto o
+  binario) se quita y se vuelve a añadir.
 
 **`ea desinstalar`** quita lo que puso `ea instalar`: servicios, menú y
 autoarranque, adaptadores (solo los suyos), hook, MCP, el enlace del `PATH` y
@@ -728,11 +855,25 @@ publica en la Release:
 - `gachapon-instalar.exe`;
 - `SHA256SUMS`.
 
+Antes, un job compila y pasa las pruebas; si fallan, no se publica nada. Cada
+paquete lleva además una **atestación de procedencia** (SLSA, firmada con
+Sigstore por la identidad del workflow): `SHA256SUMS` solo dice que el fichero
+llegó entero, y viene del mismo sitio que el paquete; la atestación dice que lo
+compiló `release.yml` de este repo desde un commit concreto. Para comprobarla:
+
+```bash
+gh attestation verify gachapon-x86_64-unknown-linux-gnu.tar.gz --repo jesus13g/gachapon
+```
+
+El CI pasa además `cargo deny` (`deny.toml`: licencias permitidas, avisos de
+RustSec, fuentes) en los tres manifiestos.
+
 `pages.yml` copia `instalar.sh` e `instalar.ps1` a la web.
 
 **Límites:**
 
-- Los binarios no están firmados. SmartScreen avisa en Windows; en macOS, lo
+- Los binarios no están firmados con un certificado del sistema (solo llevan la
+  atestación de procedencia). SmartScreen avisa en Windows; en macOS, lo
   descargado con `curl` no lleva cuarentena.
 - En distribuciones con una glibc más antigua que la de Ubuntu 22.04, compila
   desde el clon.
@@ -745,7 +886,7 @@ ti.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Rust stable y Git | sí | sí | sí |
+| Rust ≥ 1.89 (≥ 1.90 para la app de escritorio) y Git | sí | sí | sí |
 | Aislamiento del ejecutor | `bubblewrap` (`bwrap`) | `/usr/bin/sandbox-exec` (viene con el sistema) | no hay: con `sandbox = true` el ejecutor se niega; usa WSL2 (vale lo de Linux) |
 | `sh` para el criterio | el del sistema | el del sistema | el `sh` de **Git for Windows** (si falta, el criterio falla con motivo claro) |
 | Gestor de servicios | `systemd --user` | `launchd` | Programador de tareas (`schtasks`) |
@@ -765,7 +906,10 @@ target/release/ea servicios desinstalar  # para y quita lo que instaló `instala
 
 `ea servicios instalar` escribe las unidades con la **ruta real** de los
 binarios (junto al `ea` que lo ejecuta; ya no hace falta que el repo esté en
-`~/Proyectos/`) y arranca `ea-mcp`, `ea-orchestrator` y `ea-web`:
+`~/Proyectos/`) y arranca `ea-mcp`, `ea-orchestrator` y `ea-web`. Solo puede
+haber un `ea-orchestrator` por bus: uno lanzado a mano con el servicio en marcha
+sale enseguida con «ya hay un ea-orchestrator en marcha» (para probar uno a mano,
+para antes el servicio):
 
 | Sistema | Qué crea |
 |---|---|
@@ -790,9 +934,11 @@ Notas por sistema:
   `ea rutina lanzar`, que es corto), sin condición de batería y recuperando el
   disparo perdido si el equipo estaba apagado.
 
-Las plantillas `crates/*/systemd/*.service` siguen ahí como referencia (y para
-quien prefiera enlazarlas a mano en Linux, como en las secciones de `ea-mcp` y
-`ea-web`). El estado y el reinicio de los servicios (`ea servicios ver`, el
+Ya no hay unidades estáticas en el repo (`crates/*/systemd/*.service`): la
+unidad que se escribe es la que enseña `ea servicios ver`. Si enlazaste una
+plantilla a mano en `~/.config/systemd/user/`, el enlace ha quedado roto:
+`ea servicios instalar` (o `ea instalar`) lo sustituye por la unidad generada.
+El estado y el reinicio de los servicios (`ea servicios ver`, el
 panel y `ea_reiniciar_servicio`) pasan por el mismo gestor de cada sistema.
 En el panel, ▦ Sistema trae el bloque «servicios residentes» con lo mismo que
 `ea servicios ver` (sistema y gestor, unidad y ruta del binario de cada
@@ -851,6 +997,15 @@ distintos de 0, rangos que dan la vuelta (`Fri..Mon`) ni días con una palabra
 clave (`Mon daily`); se rechazan con un motivo. Las horas son las locales, sin
 ajustar los cambios de horario de verano.
 
+Una rutina tiene como mucho **una ejecución activa** (en cola o ejecutándose),
+la lance quien la lance: `ea rutina lanzar` y su timer, la web (409) o
+`ea_encolar_rutina`. Si el timer se dispara con la anterior aún en curso (el
+orquestador parado, o el worktree ocupado por una obra larga), `ea rutina
+lanzar` sale con error («la rutina '<slug>' ya tiene una ejecución en curso»)
+sin crear otro trabajo: en systemd la unidad de ese disparo queda `failed`, y en
+launchd y el Programador de tareas el disparo termina con error. Los disparos
+perdidos no se acumulan.
+
 ### Limitaciones y garantías por sistema
 
 Las garantías son las mismas donde el sistema las puede dar; donde no, se dice
@@ -858,9 +1013,12 @@ aquí y el ecosistema no las relaja en silencio.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree, un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
-| Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`) | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
-| Solo local | `127.0.0.1`; `ea-web` filtra el `Host` | ídem | ídem |
+| Aislamiento del ejecutor | `bwrap` | Seatbelt (`sandbox-exec`): escritura solo en el worktree (salvo su `.git`), un temporal propio y los directorios de estado del agente; directorio de ejecución ilegible; red solo hacia `localhost` (más la resolución de nombres del sistema, que pasa por `mDNSResponder`: es un canal DNS posible); sin lanzar apps ni servicios del sistema (`open`, `osascript`, `launchctl`: se está cerrando la vía de escape por `mach-lookup`/`process-exec`) | **sin sandbox nativo**: con `sandbox = true` el ejecutor no arranca y lo dice; recomendado WSL2; `sandbox = false` es decisión explícita del usuario |
+| `.git` del worktree | de solo lectura dentro de `bwrap` (directorio o fichero del worktree propio); el worktree de una orden tiene que ser la raíz de su repo, así que siempre hay un `.git` que montar | escritura denegada siempre, exista o no (tampoco se puede crear uno falso) | — |
+| Topes duros | sí; al vencer el tiempo mueren el agente y sus nietos (grupo de procesos: `SIGTERM` y luego `SIGKILL`), y al acabar cada corrida muere lo que haya dejado de fondo | ídem | sí (Job Object con `KILL_ON_JOB_CLOSE`); un nieto lanzado antes de que el agente entre en el Job Object puede escaparse (carrera conocida) |
+| Criterio de éxito | con `sandbox = true`, en el `bwrap` del agente (escribe solo en el worktree, su `/tmp` y `agente.criterio.escribibles`; red abierta) | ídem con Seatbelt (mismo perfil de disco que el agente; red abierta) | sin sandbox: con `sandbox = true` el ejecutor no arranca |
+| Parada limpia | `SIGTERM` o Ctrl-C | ídem | Ctrl-C, cierre de la consola o apagado |
+| Solo local | `127.0.0.1`; `ea-web` y `ea-mcp` filtran el `Host` | ídem | ídem |
 | Terminal real (TTY) para lo irreversible | sí | sí | sí |
 | Ficheros privados (clave del panel, secretos de sesión) | `0600` / `0700` | `0600` / `0700` | dentro del perfil del usuario, que solo él (y los administradores) lee por la ACL heredada; no se fuerzan ACL propias |
 | Avisos de escritorio | sí | sí | no hay |
@@ -891,7 +1049,7 @@ ea trabajo crear ... --equipo <id> [--asignar <ejecutor>] [--revisor <agente>] [
                                              #   worktree (rama ea/<id>) para correr en paralelo sobre el repo
 ea trabajo listar
 ea trabajo ver <id> [--json]                 # orden, estado e informe (con el agente y modelo que lo ejecutó)
-ea trabajo diff <id> [--fase N]              # diff desde commit_inicio
+ea trabajo diff <id> [--fase N]              # diff desde commit_inicio (sin diff.external ni textconv del repo)
 ea trabajo cerrar|cancelar <id>
 ea trabajo reformular <id> --nota "..." [--fase N]  # vuelve al agente local (obra: desde la fase N)
 ea trabajo continuar <id>                    # aprueba una revisión intermedia de una obra
@@ -914,10 +1072,10 @@ ea worktree listar [--json]                  # trabajo, rama ea/<id>, estado del
 ea worktree limpiar <trabajo>                # simula y pide confirmar (TTY): git worktree remove sin --force; la rama se conserva
 
 # Rutinas versionadas
-ea rutina registrar <fichero.toml>           # valida y registra (la versión debe subir)
+ea rutina registrar <fichero.toml>           # valida y registra la v1; una versión nueva, simula y confirma (TTY)
 ea rutina listar [--retiradas]|ver <slug>     # --retiradas: las de la papelera (o sin fichero)
 ea rutina ver <slug> --version N             # esa versión registrada y la lista de todas
-ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si está retirada)
+ea rutina lanzar <slug> [--entrada k=v]...   # crea el trabajo en el bus (no si está retirada ni si ya tiene una ejecución en curso)
 ea rutina retirar|restaurar <slug>           # a la papelera y vuelta (simula y confirma con TTY)
 
 # Resto del ecosistema
@@ -936,8 +1094,50 @@ ea ajustes ver|obtener|establecer|ruta       # ajustes.toml (establecer: solo co
 ea biblioteca listar|ver|uso|activar|desactivar|sesion|categoria  # herramientas de los agentes (ver «Biblioteca»)
 ea servicios ver|instalar|desinstalar        # servicios residentes en el gestor del sistema (instalar/desinstalar: solo con TTY)
 ea hook subagentes start|stop                # hook de Claude Code (ver «Hook de subagentes»)
+ea mcp cabeceras                             # {"X-EA-Credencial": …} para el headersHelper del MCP (ver «Identidad del cliente»)
 ea tui                                       # interfaz interactiva
 ```
+
+Los argumentos con una lista cerrada de valores (`--modo` de `ea trabajo
+crear`, `--region` de `ea boveda listar|buscar`, el rol de `ea cola` y de `ea
+agentes rol` y el agente de `ea agentes rol`) los valida `clap` al leer la
+orden, antes de abrir nada: un valor que no está en la lista sale con su error
+(`invalid value … [possible values: …]`, código 2) y `--help` enumera los
+valores. El rol admite también su nombre en disco (`claude-code` o
+`modelo-local`).
+
+`ea trabajo crear` valida la orden como la web, por sus dos formas (opciones
+sueltas y `--orden`, que es lo que usan `/mision` y `/obra`), antes de escribir
+nada y con los mismos mensajes: el worktree es una ruta absoluta (en la forma
+corta, una relativa lo es al directorio actual: `--worktree .` desde el repo),
+existe, es un directorio, no es tu directorio personal ni lo contiene (`$HOME`,
+sus ancestros y `/` se rechazan) y es la **raíz** de un repo git con algún
+commit (la de `git rev-parse --show-toplevel`: la de un clon o la de un `git
+worktree add`; un subdirectorio del repo se rechaza, porque ahí el agente podría
+crear un `.git` falso que los `git` del sistema usarían); la orden lleva su forma
+canónica. Una obra numera sus fases `1, 2, …, N` en el orden en que
+van. El bus exige además, la cree quien la cree, el worktree absoluto, esa
+numeración, el criterio y las skills.
+
+Lo que la CLI hace en el bus (crear, cancelar, cerrar o reformular trabajos,
+registrar y lanzar rutinas, despertar equipos) y `ea boveda reindexar` quedan en
+el diario a nombre de `usuario` si `ea` corre en una terminal interactiva (stdin
+y stdout son un TTY) y, si no, a nombre de `claude-code`, el rol del
+planificador en disco: sin terminal lo lanza un agente con Bash, y el MCP le da
+ese mismo actor. Los eventos de antes siguen como estaban, con el actor
+`ea-cli`, y el filtro «quién» del diario los sigue encontrando. Un timer de
+rutina, que lanza `ea rutina lanzar` sin terminal, también firma como
+`claude-code`.
+
+Lo que viene de fuera (lo que escriben los agentes y la salida de los
+criterios: títulos, motivos, avisos, evidencias, descripciones de propuestas,
+el trabajo o el actor de un evento) llega a la terminal sin caracteres de
+control, salvo saltos de línea y tabuladores: ninguna secuencia ANSI u OSC (un
+OSC 52 escribe en el portapapeles; un `ESC[2J` borra la pantalla). Lo hacen
+`ea trabajo ver|listar`, `ea diario ver|listar`, `ea propuestas
+ver|listar|decidir`, `ea equipo ver|listar` y `ea biblioteca`; `ea tui` deja en
+blanco la celda de cada carácter de control. Con `--json` el texto va entero
+(JSON ya los escapa).
 
 La base de datos vive en `~/.local/share/ecosistema-asistente/ecosistema.db`
 (o en `rutas.db` de los ajustes, o en `$EA_DB_PATH`). Servicios de sesión (`systemd --user` en Linux; launchd y el Programador de tareas en los demás, ver `ea servicios`): `llama-server`,
@@ -982,9 +1182,20 @@ una propuesta que acepta tras ver el criterio resultante en la simulación).
 
 Registrar sigue también una sola política (`ea_bus::comprobar_registro`), la
 misma para `ea rutina registrar`, el editor de la web y `ea_registrar_rutina`:
-el TOML no pasa de 64 KiB, es una rutina válida y su versión es mayor que la
-registrada. Registrar guarda la versión en SQLite y copia el TOML a
-`rutinas_dir/<slug>.toml`; no lanza nada. Tras un paquete de corrección,
+el TOML no pasa de 64 KiB, es una rutina válida, su versión es mayor que la
+registrada y su `worktree` vale como el de una orden (la raíz de un repo git
+con commits, nunca `$HOME` ni un ancestro suyo). Registrar guarda la versión en
+SQLite, copia el TOML a `rutinas_dir/<slug>.toml` y deja `rutina_registrada`
+en el diario (`{rutina, version, anterior, bytes}`, a nombre de quien registra),
+por cualquier camino; no lanza nada. `ea rutina registrar` registra
+directamente la v1 de una rutina nueva; una versión nueva de una que ya existe
+es `ea_registrar_rutina`: con terminal interactiva simula (con el diff frente a
+la registrada) y pide confirmar, como `ea acciones ejecutar`; sin ella no
+registra nada y explica que se proponga por MCP o se registre desde una
+terminal. Al lanzarla (CLI, timer, web o `ea_encolar_rutina`) se vuelve a
+comprobar el worktree: si ya no vale (una rutina registrada antes de exigirlo,
+o un repo que cambió), no se crea el trabajo y queda `rutina_no_lanzada` en el
+diario con el motivo; el trabajo lleva el worktree en su forma canónica. Tras un paquete de corrección,
 Claude Code no pide la terminal: propone la vN+1 con `ea_registrar_rutina` (la
 simulación enseña el diff y el criterio resultante) y el usuario la acepta en
 la franja «Te espera» de Actividad, o la pega en «✎ nueva versión» de la ficha de la rutina.
@@ -996,12 +1207,19 @@ la franja «Te espera» de Actividad, o la pega en «✎ nueva versión» de la 
 # puerto: red.puerto_mcp de los ajustes o $EA_MCP_PORT
 ```
 
+Solo atiende `Host: localhost`, `127.0.0.1` o `[::1]` (con cualquier puerto):
+una página ajena que reenlace su nombre a `127.0.0.1` (DNS rebinding) recibe un
+403. La lista la fija `ea-mcp` (`ea_mcp::HOSTS_PERMITIDOS`), no un valor por
+defecto de la biblioteca MCP. Con `SIGTERM` (`systemctl --user stop ea-mcp`) o
+Ctrl-C (en Windows, también el cierre de la consola o el apagado) deja de
+escuchar, cierra las sesiones abiertas y sale con 0.
+
 Herramientas expuestas (un solo catálogo, `ea-acciones`), con su nivel de
 riesgo (§7.3):
 
 | Herramienta | Riesgo | Desde un agente |
 |---|---|---|
-| `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
+| `ea_status` (orquestador, trabajos por estado, colas, semáforos), `ea_listar_trabajos`, `ea_ver_trabajo`, `ea_listar_diario` (los dos listados con `limite`: por defecto 20 y hasta 50, y 10 y 20 para el agente local; uno mayor se recorta) | lectura (el bus es solo de lectura desde MCP: crear o decidir trabajo es de la CLI y las skills) | se ejecuta |
 | `ea_listar_equipos`, `ea_ver_equipo` (miembros con presencia, colas y últimos trabajos con su informe; `ea_status` también trae equipos y presencias) | lectura (despertar y dormir equipos es de la CLI con TTY: ningún agente puede) | se ejecuta |
 | `ea_biblioteca` (sin `id`: lista con filtros `agente`, `tipo`, `categoria`, `activado` y `limite`, por defecto 50 y hasta 200, y 15 y 40 para el agente local; con `id`: la ficha con la definición MCP sin secretos y el uso por actor) | lectura | se ejecuta |
 | `ea_buscar_notas`, `ea_leer_nota` | lectura (resultados acotados por actor) | se ejecuta |
@@ -1011,16 +1229,30 @@ riesgo (§7.3):
 | `ea_registrar_rutina` (`toml`: la definición entera; la versión debe subir; la simulación muestra el diff frente a la registrada y el criterio resultante; no lanza nada) | mutación reversible | solo simula o propone |
 | `ea_reiniciar_servicio` (lista cerrada: `llama-server`, `ea-mcp`, `ea-orchestrator`, `ea-web`) | mutación reversible | solo simula o propone |
 | `ea_programar_rutina` (`slug` de una rutina registrada y `calendario`, un `OnCalendar`; la simulación da las próximas 3 ejecuciones) y `ea_desprogramar_rutina` (`slug`) | mutación reversible | solo simula o propone |
-| `ea_lanzar_sesion` (`agente`: `claude-code`, `qwen-code`, `codex` u `opencode`; `herramientas`: ids de la biblioteca; `directorio` opcional; abre una terminal con el agente y solo esas herramientas, con los secretos de los MCP en ficheros 0600 del runtime y nunca en argumentos; la simulación muestra el comando y los ficheros sin secretos; no está disponible para el agente local) | mutación reversible | solo simula o propone |
+| `ea_lanzar_sesion` (`agente`: `claude-code`, `qwen-code`, `codex` u `opencode`; `herramientas`: ids de la biblioteca; `directorio` opcional, y la simulación (y la propuesta) lo lleva siempre, resuelto; abre una terminal con el agente y solo esas herramientas, con los secretos de los MCP en ficheros 0600 del runtime y nunca en argumentos; la simulación muestra el comando y los ficheros sin secretos; no está disponible para el agente local) | mutación reversible | solo simula o propone |
 | `ea_retirar_rutina` (su TOML a la papelera y su timer desprogramado) y `ea_restaurar_rutina` (vuelve, sin timer), con `slug` | mutación reversible | solo simula o propone |
 | `ea_limpiar_worktree` (`trabajo`: quita el worktree propio de un trabajo cerrado o cancelado con `git worktree remove`, sin `--force`, solo si está limpio y el ejecutor lo soltó; la rama `ea/<id>` se conserva; no está disponible para el agente local) | mutación reversible | solo simula o propone |
 | `ea_activar_herramienta` y `ea_desactivar_herramienta` (`elemento`: id `agente/tipo/ámbito/nombre` de la biblioteca; la simulación da el comando o fichero y el valor antes y después; comando oficial, campo `enabled` con copia previa, mover a un almacén o `agente.skills.habilitadas`; nunca `~/.claude.json`) | mutación reversible | solo simula o propone |
 | `ea_eliminar_rutina` (borra para siempre la copia retirada; antes hay que retirarla) | **mutación irreversible** | solo simula o propone; solo se confirma desde la terminal |
 
-Toda invocación queda registrada en el diario. El actor sale del nombre con
-que el cliente se presenta al conectar (`clientInfo.name`, nunca de un
-argumento) y del rol que ocupa ese agente **en ese momento** según los ajustes
-(spec 017):
+#### Identidad del cliente
+
+Toda invocación queda registrada en el diario con su actor. El actor sale de
+dos cosas, nunca de un argumento:
+
+1. **La credencial del planificador** (cabecera `X-EA-Credencial` en cada
+   petición). Son 256 bits aleatorios que `ea-mcp` deja al arrancar en
+   `<ejecución>/ea-mcp/credencial` (directorio 0700, fichero 0600; el
+   directorio de ejecución es `$XDG_RUNTIME_DIR` en Linux,
+   `$TMPDIR/ecosistema-asistente-ejecucion` en macOS y
+   `%LOCALAPPDATA%\ecosistema-asistente\ejecucion` en Windows). Si ya hay una
+   válida, la reutiliza: sobrevive a reiniciar `ea-mcp` y cambia cuando se
+   vacía el directorio de ejecución (al cerrar la sesión o reiniciar). El
+   servidor la compara en tiempo constante y nunca la escribe en el diario,
+   en los registros ni en un mensaje de error.
+2. **El nombre con que el cliente se presenta** (`clientInfo.name` del
+   `initialize`) y el rol que ocupa ese agente **en ese momento** según los
+   ajustes (spec 017):
 
 | Cliente MCP | Agente |
 |---|---|
@@ -1031,53 +1263,70 @@ argumento) y del rol que ocupa ese agente **en ese momento** según los ajustes
 | `antigravity-client` | Antigravity (`agy`) |
 | `ea-orchestrator` | el propio orquestador (actor `orquestador`) |
 
-- El agente que ocupa el planificador actúa como `claude-code` (el nombre en
-  disco del rol): catálogo completo, aunque las mutantes solo simulan o
-  proponen. El del ejecutor actúa como `modelo-local`: la proyección reducida
-  y nada irreversible. El diario guarda en el detalle qué agente fue
-  (`"agente": "codex"`).
-- Un agente del catálogo sin rol (actor `sin-rol`), un cliente desconocido
-  (actor `desconocido`) y lo desatendido (`orquestador`) **solo leen**. Del
-  desconocido, el diario guarda el nombre que declaró (`"cliente": …`): así se
-  ve cuál añadir. Antigravity aún no tiene nombre comprobado, así que por ahora
-  solo lee.
+El nombre lo declara el propio cliente, así que **solo cuenta con la
+credencial**:
 
-La autorización es del servidor, no del prompt. Cambiar de planificador no exige
-reconectar: los roles se releen en cada llamada.
+- Con la credencial, el agente que ocupa el planificador actúa como
+  `claude-code` (el nombre en disco del rol): catálogo completo, aunque las
+  mutantes solo simulan o proponen. Un agente del catálogo sin rol actúa como
+  `sin-rol` y `ea-orchestrator` como `orquestador`; los dos **solo leen**.
+- Sin la credencial, o con una que no coincide, el actor es `desconocido`
+  (**solo lee**), se presente como se presente. La excepción es el agente que
+  ocupa el ejecutor: actúa como `modelo-local` (la proyección reducida y nada
+  irreversible) con o sin ella. Es el que corre en el sandbox, donde el
+  directorio de ejecución está tapado (`bwrap` y Seatbelt, también para el
+  criterio) y la credencial no se puede leer; hacerse pasar por él no da
+  nada que un proceso sin sandbox no tenga ya.
+- El diario guarda en el detalle qué agente fue (`"agente": "codex"`) y, del
+  desconocido, el nombre que declaró (`"cliente": …`): un `"cliente":
+  "claude-code"` con actor `desconocido` es un planificador sin credencial.
+
+Lo que protege: que el agente local se presente como el planificador (cuotas
+amplias, la región `claude-code/` de la bóveda, proponer como él). Lo que no:
+un proceso sin sandbox de la misma cuenta lee el fichero igual que el
+planificador. La autorización es del servidor, no del prompt. Cambiar de
+planificador no exige reconectar: los roles se releen en cada llamada.
+
+**Tras actualizar desde una versión sin credencial, vuelve a ejecutar
+`ea instalar`** (o registra el MCP a mano como abajo): hasta entonces Claude
+Code se conecta sin la cabecera y queda como `desconocido`, que solo lee.
 
 Instalación como servicio de sesión: `ea servicios instalar` (ver
-[Instalación por sistema](#instalación-por-sistema)) o, a mano en Linux
-(`systemd --user`):
-
-```bash
-mkdir -p ~/.config/systemd/user
-ln -sf ~/Proyectos/ecosistema-asistente/crates/ea-mcp/systemd/ea-mcp.service \
-    ~/.config/systemd/user/ea-mcp.service
-systemctl --user daemon-reload
-systemctl --user enable --now ea-mcp.service
-```
+[Instalación por sistema](#instalación-por-sistema)), que escribe la unidad con
+la ruta real del binario (`ea servicios ver` la enseña antes).
 
 Registro en Claude Code (disponible en cualquier sesión, no solo en este
-directorio):
+directorio; es lo que hace `ea instalar`):
 
 ```bash
-claude mcp add --transport http --scope user ea-ecosistema http://127.0.0.1:8765/mcp
+claude mcp add-json --scope user ea-ecosistema \
+  '{"type":"http","url":"http://127.0.0.1:8765/mcp","headersHelper":"ea mcp cabeceras"}'
 ```
 
-Registro en los demás agentes (misma URL, `http://127.0.0.1:8765/mcp`):
+`ea mcp cabeceras` escribe `{"X-EA-Credencial": "…"}` con la credencial del
+fichero; Claude Code lo corre en cada conexión (en un shell, con 10 s de
+tope), así que la credencial nunca queda escrita en `~/.claude.json`, que el
+sandbox del ejecutor sí puede leer. Falla, sin enseñar el fichero, si `ea-mcp`
+no ha dejado aún la credencial.
 
-| Agente | Registro | Nombre de cliente MCP |
-|---|---|---|
-| Claude Code | `claude mcp add --transport http --scope user ea-ecosistema <url>` | `claude-code` |
-| Qwen Code | `qwen mcp add --transport http ea-ecosistema <url>` | `qwen-code-mcp-client` |
-| Codex | `codex mcp add ea-ecosistema --url <url>` | `codex-mcp-client` |
-| OpenCode | `opencode mcp add --global --url <url> ea-ecosistema` (escribe `"mcp": {"servers": {"ea-ecosistema": {"type": "remote", "url": "<url>"}}}` en `~/.config/opencode/opencode.json`) | `opencode` |
-| Antigravity | `agy mcp add -t http ea-ecosistema <url>` | `antigravity-client` |
+Registro en los demás agentes (misma URL, `http://127.0.0.1:8765/mcp`). `ea
+instalar` no los registra: hay que hacerlo a mano y, para que el agente actúe
+como planificador, darle la cabecera desde el fichero de la credencial sin
+copiarla en su configuración (el sandbox puede leer el HOME). Lo de la última
+columna sale de la documentación de cada agente y no se ha comprobado aquí;
+sin la cabecera, el agente queda como `desconocido` (solo lee) salvo cuando
+ocupa el ejecutor:
 
-`agy` 1.4 prueba antes con una petición `server/discover` (`ea-mcp` la rechaza con un error de parámetros; `agy` manda después `initialize` con su `clientInfo`, sin comprobar aún que conecta con sesión iniciada).
+| Agente | Registro | Nombre de cliente MCP | Cabecera con la credencial |
+|---|---|---|---|
+| Claude Code | `claude mcp add-json` (arriba) | `claude-code` | `headersHelper` (comprobado) |
+| Qwen Code | `qwen mcp add --transport http ea-ecosistema <url>` | `qwen-code-mcp-client` | `"headers": {"X-EA-Credencial": "$EA_MCP_CREDENCIAL"}` en su `settings.json`, arrancando `qwen` con `EA_MCP_CREDENCIAL="$(cat <fichero>)"` |
+| Codex | `codex mcp add ea-ecosistema --url <url>` | `codex-mcp-client` | `env_http_headers = { "X-EA-Credencial" = "EA_MCP_CREDENCIAL" }` en `[mcp_servers.ea-ecosistema]`, con la misma variable |
+| OpenCode | `opencode mcp add --global --url <url> ea-ecosistema` (escribe `"mcp": {"servers": {"ea-ecosistema": {"type": "remote", "url": "<url>"}}}` en `~/.config/opencode/opencode.json`) | `opencode` | `"headers": {"X-EA-Credencial": "{file:<fichero>}"}` en esa entrada (OpenCode lee el fichero al arrancar) |
+| Antigravity | `agy mcp add -t http ea-ecosistema <url>` | `antigravity-client` | sin mecanismo conocido: queda como `desconocido` |
 
-El nombre de cliente sale de lo que cada agente manda en `initialize`
-(`clientInfo.name`); es lo que decide sus permisos, junto con el rol que ocupa.
+`<fichero>` es la ruta absoluta de la credencial (`<ejecución>/ea-mcp/credencial`,
+p. ej. `/run/user/1000/ea-mcp/credencial`). `agy` 1.4 prueba antes con una petición `server/discover` (`ea-mcp` la rechaza con un error de parámetros; `agy` manda después `initialize` con su `clientInfo`, sin comprobar aún que conecta con sesión iniciada).
 
 ### Biblioteca
 
@@ -1106,7 +1355,11 @@ ea biblioteca categoria <id> <categoria>|--quitar
 ```
 
 `activar`, `desactivar` y `sesion` solo proponen: se aceptan con `ea propuestas
-decidir <n> --aceptar` o en la franja «Te espera» de Actividad. Con `--esperar` y una terminal
+decidir <n> --aceptar` o en la franja «Te espera» de Actividad. La propuesta de
+una sesión guarda siempre su carpeta (`directorio`): la que se pidió o, si no, la
+que se resolvió al simular (el directorio actual de quien la propuso o, fuera de
+un proyecto, el HOME). Así, al aceptarla desde otra terminal o desde el panel se
+abre donde se simuló, con el mismo plan que se vio. Con `--esperar` y una terminal
 interactiva real piden confirmación y aplican en el acto (y esperan a Intro al
 terminar); sin terminal, `--esperar` deja la propuesta pendiente. El uso sale
 de los contadores y transcripciones de cada agente, el diario y los trabajos del
@@ -1127,7 +1380,9 @@ las operaciones que mutan el sistema.
 Flujo propuesta → aceptación → ejecución:
 
 1. Un agente propone (`ea_encolar_rutina`, `ea_promover_nota` …). Una propuesta idéntica
-   pendiente no se duplica y hay un tope de 30 con acción.
+   pendiente no se duplica y hay un tope de 30 con acción **por proponente**
+   (el actor verificado): un agente que llena las suyas no impide proponer a
+   otro.
 2. El usuario la ve en `ea propuestas ver <id>`, en la TUI o en la sección ◇ de
    `ea-web`, con la simulación.
 3. **Aceptar la ejecuta**: `ea propuestas decidir <id> --aceptar` (pide una
@@ -1290,8 +1545,10 @@ cabecera `promocion: promovida`, `promovida_de`, `promovida_por`,
 reversible y no quita nada a la región del autor. No sobrescribe nunca: si el
 destino existe, falla. La propuesta guarda la huella del contenido que el
 usuario vio: si la nota cambia entre proponer y aceptar, la ejecución falla
-con un mensaje claro y no copia nada. `Boveda::promover` rechaza además a
-cualquier agente o al orquestador como autor de la promoción.
+con un mensaje claro y no copia nada. `Boveda::promover` (como las ediciones
+a mano de la bóveda) solo admite como autor al actor `usuario`, con el que
+firman `ea` y `ea-web`: es una lista blanca, así que rechaza a cualquier
+agente, al orquestador y a cualquier otro actor.
 
 Lo que ve el usuario: `ea boveda estado|listar|buscar|leer|promover|reindexar`,
 la pestaña «Bóveda» de `ea tui` (solo lectura, fotografía) y la sección ▥ del
@@ -1388,7 +1645,7 @@ de un ajuste (panel, terminal, variable de entorno); el candado, el modo solo le
 | Biblioteca | Herramientas | Biblioteca (spec 018): las skills, plugins, subagentes, servidores MCP, comandos y extensiones de cada agente, agrupados por categoría y tipo (●/○ activado, usos), con filtros de agente, tipo, categoría y estado y el cuadro de buscar. La ficha da origen, descripción, cómo se cambia, la definición de un MCP sin secretos (solo los nombres de sus variables y cabeceras) y el uso por actor. ⏻ desactivar/activar simula (antes/después) y pide aceptar, ▶ sesión con… abre una terminal con solo las herramientas elegidas (la simulación lleva el comando sin secretos) y ✎ categoría escribe `biblioteca.categorias` por los ajustes. Enlace `#biblioteca/<id>` | `7` |
 | Acciones | Herramientas | Acciones: simular y ejecutar las herramientas supervisadas. Los formularios guían: la ruta de `ea_promover_nota` sugiere las notas de `claude-code` y `modelo-local` aún sin promover (se puede escribir otra), el servicio de `ea_reiniciar_servicio` dice el estado de cada uno y el slug elige entre las rutinas registradas (`GET /api/acciones` trae por campo `opciones`, `sugerencias` y `estados`). La simulación dice en un renglón qué se revalidará al ejecutar («se comprobará: huella …») y avisa cuando tiene más de 60 s. En la ficha de cada herramienta (también de las directas), sus últimos 10 eventos del diario | `8` |
 | Sistema | Sistema | Sistema: servicios (reiniciar ↻, pide confirmar), el bloque «servicios residentes» (gestor, unidad, binario e instalado como `ea servicios ver`, con ⌨ instalar y ⌨ desinstalar en terminal), orquestador, el sandbox del ejecutor (sistema, aislamiento en uso y, si no puede arrancar, el motivo; lo declara el latido del orquestador) y una fila por rol (planificador y ejecutor) con su agente, modelo y última actividad. Debajo, «worktrees propios» (si hay): una fila por trabajo con su rama `ea/<id>`, el estado del trabajo y si está limpio, y en su ficha «▣ limpiar worktree» (clic para simular, segundo clic para confirmar; clave de sesión). La ficha de un rol lista los agentes que lo admiten (binario ●/✕, modelo, si responde, topes) y cambia el agente con «⇄ poner de …» (segundo clic) | `9` |
-| Diario | Sistema | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`, `usuario_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos. ✎ anotar abre en línea una nota del usuario (texto y, si quieres, trabajo) que queda como `usuario_nota`; en el detalle de un evento, ✎ corregir abre lo mismo apuntando a ese evento, que no se toca: el corregido muestra «corregido por #n» y la nota «corrige #m», enlazados. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros. Al pie, ↓ más antiguos añade la página siguiente con los mismos filtros (desaparece cuando no queda nada); el sondeo refresca solo la primera sin perder las cargadas, y cambiar un filtro vuelve a la primera | `0` o `d` |
+| Diario | Sistema | Diario. La barra filtra en el servidor (sobre todo el diario, no solo lo cargado): quién (actor), ✓/✕ (resultado), qué (familia: `bus_`, `mcp_`, `propuesta_`, `accion_`, `boveda_`, `memoria_`, `ajustes_`, `usuario_`), cuándo (hoy, ayer, 24 h, 7 días o fechas) y el trabajo, si se llega desde la ficha (→ diario en su historial; ✕ lo quita); ♡/♥ muestra u oculta los latidos que el orquestador anotaba antes en el diario (ahora van a `orquestador.json` del bus; arranques y paradas salen siempre). ✎ anotar abre en línea una nota del usuario (texto y, si quieres, trabajo) que queda como `usuario_nota`; en el detalle de un evento, ✎ corregir abre lo mismo apuntando a ese evento, que no se toca: el corregido muestra «corregido por #n» y la nota «corrige #m», enlazados. El cuadro de filtrar busca texto en lo devuelto y el sondeo respeta los filtros. Al pie, ↓ más antiguos añade la página siguiente con los mismos filtros (desaparece cuando no queda nada); el sondeo refresca solo la primera sin perder las cargadas, y cambiar un filtro vuelve a la primera | `0` o `d` |
 | Ajustes | Sistema | Ajustes: los de `ajustes.toml` por secciones, con valor, origen (por defecto, `ajustes.toml`, heredado o entorno) y si se aplican en caliente o piden reinicio; avisos arriba. ◐ se cambia aquí (✓ guardar y ↺ por defecto piden un segundo clic; los techos solo bajan), ⌨ solo en una terminal (la fila da el comando) y ⊘ lo fija una variable de entorno. Apunta `ajustes_cambiados` en el diario | `a` |
 
 `1`-`9` y `0` cambian de sección en el orden del raíl (`1` Inicio, `2` Actividad,
@@ -1440,13 +1697,13 @@ aceptada sigue a la vista con esos enlaces (en Actividad, en su pastilla) hasta 
 (`evento`: id de ese evento) y `POST /api/propuestas/<id>/decidir`, al aceptar
 una que se ejecuta bien, añade lo mismo en `resultado`.
 
-API (JSON): `GET /api/estado` (servicios, orquestador —con `sandbox`: `{sistema, sandbox, disponible, motivo}` del último latido, o `null`— y una entrada por rol con
+API (JSON): `GET /api/estado` (servicios, orquestador —`vivo`, `ultimo_latido`, `trabajadores` y `sandbox`: `{sistema, sandbox, disponible, motivo}`, del último latido de `orquestador.json`, o `null`— y una entrada por rol con
 `rol`, `agente`, `agente_nombre`, `modelo` y `ultimo_agente`), `GET /api/agentes`
 (`{version, fijados, agentes}`: cada agente del catálogo con `id`, `nombre`,
 `admite`, `rol`, `bin`, `ruta` (null si no está en el `PATH`), `perfil`, `modelo`,
 `topes`, `modelo_accesible` y `presencia` (`{viva, rol, equipo, trabajo, desde, latido}` o `null`, como `ea agentes --json`); `fijados`, los roles que fija una variable de entorno),
 `GET /api/ecosistema` (lo que pinta la escena de Inicio, solo lectura: `agentes` —cada agente activo detectado con `id` estable, `agente` del catálogo, `nombre`, `familia` visual, `modelo`, `local`, `rol`, `padre`, `estado` (`trabajando`, `esperando` o `terminado`), `actividad`, `trabajo`, `proyecto`, `desde`, `fuente` y `equipo`—, `tareas` —cada trabajo activo con su `lugar` (id de máquina, `usuario` o `bus`), `planificador`, `ejecutor` y `del_usuario`— y `senales` —los últimos eventos del diario con la máquina de la que salen, `de`, o `null`—),
-`GET /api/trabajos` (cada fila lleva además `ejecutado_por`: `{agente, modelo}` con el que se tomó, o `null`), `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea),
+`GET /api/trabajos` (cada fila lleva además `ejecutado_por`: `{agente, modelo}` con el que se tomó, o `null`), `/api/trabajos/<id>`, `/api/trabajos/<id>/diff` (`?fase=N`: el de esa fase de una obra, entre sus instantáneas de árbol, como `ea trabajo diff --fase N`; 404 si no hay instantánea; como en la CLI, sin `diff.external` ni `textconv` del repo: un binario con `textconv` sale como «Binary files differ»; 504 si git no responde en 10 s),
 `/api/colas`, `/api/semaforos`, `/api/rutinas` (las activas; `?retiradas=1`, las
 retiradas; cada fila y la ficha llevan `ubicacion`: `activa`, `retirada` o `sin_fichero`),
 `/api/rutinas/<slug>/versiones` (`[{version, creada_en, creada_por}]`, la más
@@ -1454,7 +1711,7 @@ reciente primero, sin la definición), `/api/rutinas/<slug>/versiones/<n>`
 (`{slug, version, creada_en, creada_por, contenido}`; 404 si no existe, 400 si
 `<n>` no es un entero), `/api/diario` (`?trabajo=`,
 `actor`, `desde`, `hasta`, `resultado=ok|error`, `accion=<prefijo>` —solo
-`[a-z_]`, si no 400—, `latidos=1`, `limite`, `antes_de=<id>` —cursor: los
+`[a-z_]`, si no 400—, `latidos=1` (incluye los `heartbeat` antiguos), `limite`, `antes_de=<id>` —cursor: los
 eventos anteriores a ese id con los mismos filtros, estable aunque lleguen
 nuevos; no numérico, 400—; cada evento corregido trae
 `corregido_por: [ids]`); y, con `Content-Type:
@@ -1467,21 +1724,21 @@ de rango o en una misión, 400 sin escribir nada—, `confirmar` `{"contexto": "
 `POST /api/trabajos` (crea una misión o una obra; misión: `{"modo"?: "mision", "titulo", "worktree",
 "objetivo", "criterio", "topes"?: {"iteraciones"?, "tiempo_s"?}}` → 201 `{id, estado}`;
 `creada_por` es `usuario` y no admite skills (la llave `pueden_elegir` es del rol planificador; 400 con ese motivo) ni otros campos; 400 si falta el
-criterio o el worktree no es una ruta absoluta existente dentro de un repo git
-con al menos un commit; los topes se recortan al techo; una obra es `{"modo":
+criterio o el worktree no es una ruta absoluta existente que sea la raíz de un
+repo git con al menos un commit, o es `$HOME` o un ancestro suyo; los topes se recortan al techo; una obra es `{"modo":
 "obra", "titulo", "worktree", "objetivo", "fases": [{"titulo", "instrucciones",
 "entregable", "criterio"}], "revisar_cada": n|null, "topes"?}`, sin `criterio`
 general, con 1-20 fases numeradas por su orden y `revisar_cada` obligatorio
 —`null` es «solo al final», si no entre 1 y el número de fases—; 400 si falta
 o una fase no tiene criterio), `GET /api/trabajos/nuevo` (modos, techo, topes por
 defecto y worktrees sugeridos para el formulario), `GET /api/skills` (catálogo de skills del ejecutor sin cuerpos, topes, `pueden_elegir` y `usuario_tiene_llave`) y `POST /api/skills/probar` (`{"skills": [...], "por"?: "claude-code"}`; la misma validación que `ea qwen-skills probar`: llave de `por` —por defecto `usuario`—, existencia, habilitada y topes; 200 `{por, skills, caracteres}` o 400 con el motivo; no escribe nada) y
-worktrees propios (spec 019, anexo A): `GET /api/worktrees` (solo lectura: `[{trabajo, ruta, rama, estado_trabajo, titulo, limpio, ocupado}]`) y `worktree` (esos mismos campos, o `null`) en `GET /api/trabajos/<id>`; quitarlos es `ea_limpiar_worktree` por `POST /api/acciones/{simular,ejecutar}` (409 si el trabajo no ha terminado, el semáforo está cogido o el worktree tiene cambios); equipos de agentes (spec 019): `GET /api/equipos` (una fila por equipo con sus miembros y si están vivos), `GET /api/equipos/<id>` (miembros con presencia y cola, y los últimos trabajos con su informe; 404 si no existe), `POST /api/equipos` (despertar; exige la clave; `{"titulo", "objetivo", "worktree", "miembros": [{"agente", "rol"}] | "todos": true, "terminal"?: bool}` → 201 `{equipo, omitidos, sesiones}`; mismas reglas que `ea equipo despertar` —roles que admite cada agente, sin repetir, ejecutor con modelo local, tope `orquestador.paralelo`, un agente en un solo equipo despierto, binarios presentes—, 400 con el motivo y nada escrito; `creado_por` es `usuario`; con `terminal` abre una terminal por cada planificador y revisor con `ea equipo sesion <id> <agente>` y lo apunta como `equipo_sesion_abierta`) y `POST /api/equipos/<id>/dormir` (exige la clave; lo pendiente de sus ejecutores vuelve a la cola de `modelo-local`); `POST /api/trabajos` admite además `equipo`, `asignado_a`, `revisor` y `worktree_propio` (400 con las validaciones del bus); `POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale o la versión no sube; deja `rutina_registrada` en el diario); la memoria de Claude Code va por
+worktrees propios (spec 019, anexo A): `GET /api/worktrees` (solo lectura: `[{trabajo, ruta, rama, estado_trabajo, titulo, limpio, ocupado}]`) y `worktree` (esos mismos campos, o `null`) en `GET /api/trabajos/<id>`; quitarlos es `ea_limpiar_worktree` por `POST /api/acciones/{simular,ejecutar}` (409 si el trabajo no ha terminado, el semáforo está cogido o el worktree tiene cambios); equipos de agentes (spec 019): `GET /api/equipos` (una fila por equipo con sus miembros y si están vivos), `GET /api/equipos/<id>` (miembros con presencia y cola, y los últimos trabajos con su informe; 404 si no existe), `POST /api/equipos` (despertar; exige la clave; `{"titulo", "objetivo", "worktree", "miembros": [{"agente", "rol"}] | "todos": true, "terminal"?: bool}` → 201 `{equipo, omitidos, sesiones}`; mismas reglas que `ea equipo despertar` —roles que admite cada agente, sin repetir, ejecutor con modelo local, tope `orquestador.paralelo`, un agente en un solo equipo despierto, binarios presentes—, 400 con el motivo y nada escrito; `creado_por` es `usuario`; con `terminal` abre una terminal por cada planificador y revisor con `ea equipo sesion <id> <agente>` y lo apunta como `equipo_sesion_abierta`) y `POST /api/equipos/<id>/dormir` (exige la clave; lo pendiente de sus ejecutores vuelve a la cola de `modelo-local`); `POST /api/trabajos` admite además `equipo`, `asignado_a`, `revisor` y `worktree_propio` (400 con las validaciones del bus); `POST /api/rutinas/<slug>/lanzar` (`{"entradas": {"clave": "valor"}}` opcional; sin cuerpo, las de por defecto; 400 si una entrada no está declarada o se sale de los límites, sin crear trabajo) y `POST /api/rutinas/<slug>/previa` (mismo cuerpo; devuelve `{rutina, version, objetivo, criterio}` sin escribir nada ni ejecutar el criterio); `POST /api/rutinas/validar` (`{"toml": "..."}`; devuelve `{rutina, version, anterior: {version, definicion}|null, previa}` sin escribir nada) y `POST /api/rutinas/registrar` (mismo cuerpo; 201 `{rutina, version, anterior}`; 400 con el mensaje del bus y nada escrito si el TOML no vale, la versión no sube o el worktree no es la raíz de un repo con commits; deja `rutina_registrada` en el diario, que escribe el bus como por los demás caminos); la memoria de Claude Code va por
 `GET /api/memoria`, `GET /api/memoria/<proyecto>/<fichero>` y
 `POST /api/memoria/<proyecto>/<fichero>` (`{"contenido": "...", "version": "..."}`;
 409 si la versión ya no es la del disco), `POST …/<fichero>/eliminar` (`{"version": "..."}`),
 `POST …/<fichero>/renombrar` (`{"nuevo": "x.md", "version": "..."}`; 409 si ya existe) y
 `POST /api/memoria/<proyecto>/crear` (`{"fichero": "mi-nota", "titulo", "descripcion", "tipo": "user|feedback|project|reference", "cuerpo"?}` → 201 con la memoria; fichero en kebab-case, 400 si algo no vale, 404 si el proyecto no existe y 409 si el fichero ya existe, sin pisar nada; escribe la cabecera `name`/`description`/`metadata.type` y añade `- [Título](fichero.md) — descripción` a `MEMORY.md`; deja `memoria_creada` en el diario),
-`POST …/<fichero>/mostrar` (`{}`; abre el gestor de ficheros por D-Bus
+`POST …/<fichero>/mostrar` (sin cuerpo; abre el gestor de ficheros por D-Bus
 `FileManager1` o, si no, `xdg-open` sobre la carpeta); la bóveda, por
 `GET /api/boveda` (`?q=`, `region`, `limite`: lista o busca), `GET /api/boveda/nota?ruta=`
 (lectura paginada), `POST /api/boveda/promover` (`{"ruta": "..."}`) y el editor:
@@ -1504,7 +1761,7 @@ cambió en disco, 400 si cambia la firma), `POST /api/boveda/crear` (`{"ruta",
 defecto, rango, origen, edición, quién la fija y si pide reinicio; `version` y
 `cliente`) y `POST /api/ajustes` (`{"version": "...", "cambios": {"clave": valor}}`,
 `null` quita la clave; 400 inválido, 403 solo terminal o aflojar un techo, 409
-versión vieja o fijada por el entorno); la biblioteca, por `GET /api/biblioteca` (`?agente=&tipo=&categoria=&activado=`; `{elementos, avisos, categorias, total, agentes_sesion}`, cada elemento ya redactado y con `cambio: {posible, motivo}` y `sesion`), `GET /api/biblioteca/<id>` (el id con `/` codificado como `%2F`; ficha y `uso`), `GET /api/biblioteca/uso` (informe, con caché) y `POST /api/biblioteca/{simular,ejecutar}` (solo `ea_activar_herramienta`, `ea_desactivar_herramienta` y `ea_lanzar_sesion`, con el cuerpo de `/api/acciones/*`). Solo atiende `Host: localhost|127.0.0.1`.
+versión vieja o fijada por el entorno); la biblioteca, por `GET /api/biblioteca` (`?agente=&tipo=&categoria=&activado=`; `{elementos, avisos, categorias, total, agentes_sesion}`, cada elemento ya redactado y con `cambio: {posible, motivo}` y `sesion`), `GET /api/biblioteca/<id>` (el id con `/` codificado como `%2F`; ficha y `uso`), `GET /api/biblioteca/uso` (informe, con caché) y `POST /api/biblioteca/{simular,ejecutar}` (solo `ea_activar_herramienta`, `ea_desactivar_herramienta` y `ea_lanzar_sesion`, con el cuerpo de `/api/acciones/*`; la sesión se abre en el proyecto de `ea-web`, y su `directorio` solo puede ser el que devuelve su propia simulación). Solo atiende `Host: localhost|127.0.0.1`.
 
 Ejecuciones de las rutinas (solo lectura, leídas del bus): en ↻ Rutinas, la
 columna «última» de cada fila dice el estado de su trabajo más reciente y hace
@@ -1549,6 +1806,42 @@ curl -X POST -H 'Content-Type: application/json' \
      -d '{}' http://localhost:8092/api/rutinas/<slug>/lanzar
 ```
 
+Contrato de errores: los errores de la API son un JSON `{"error": "mensaje"}`
+con el código que corresponde (400 inválido, 403 sin clave o prohibido, 404 no
+existe, 409 conflicto de versión, 503 no disponible, 504 tiempo agotado); solo
+un parámetro de la URL que no encaja con su tipo (`?fase=abc`,
+`/api/propuestas/abc/…`) y una ruta que no existe responden todavía con el
+error de `axum` (400 en texto plano o 404/405 sin cuerpo). Los
+cuerpos de las escrituras se leen todos igual: el JSON mal formado, un tipo que
+no encaja, un campo que falta, **un campo que sobra** (ningún cuerpo admite
+campos de más) y una petición sin `Content-Type: application/json` son siempre
+un **400** `{"error": "…"}` sin escribir nada; nunca un 415, un 422 ni un error
+en texto plano. Un cuerpo vacío cuenta como `{}`: vale donde todos los campos
+son opcionales (`lanzar` y `previa` de una rutina) y, si no, el error dice qué
+falta. Las rutas que no leen cuerpo (`cerrar`, `cancelar`, `continuar`,
+`dormir`, `reindexar`, `reiniciar`, `mostrar` de la memoria) lo ignoran.
+
+Cabeceras de seguridad: toda respuesta (la página, sus ficheros, el tema, la
+API y los errores, también los 403 y 404) lleva
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+```
+
+La página solo carga lo suyo: ningún guion en línea (el que aplica el tema
+claro antes de pintar es `/tema-inicial.js`), ni manejadores `on…=`, ni `eval`,
+ni nada de otro origen; los estilos en línea sí. Es la segunda barrera frente
+a un XSS (el panel pinta con `innerHTML` texto de los agentes y tiene la clave
+a mano): un `esc()` olvidado no llegaría a ejecutar nada. Con
+`frame-ancestors 'none'` ninguna página puede meter el panel en un `iframe`;
+la app de escritorio lo abre como ventana (`WebviewUrl::External`), no en un
+marco, y su guion de inicio con la clave lo inyecta el motor web, no la página,
+así que la CSP no lo frena. Los ficheros de la
+página salen de una tabla (`ea_web::http::ESTATICOS`): lo que no está en ella
+es 404.
+
 Aceptar una propuesta con acción la ejecuta por la capa de `ea-acciones`; las
 irreversibles no se confirman desde aquí (403).
 
@@ -1568,14 +1861,8 @@ cualquier otra cosa, texto libre incluido, da 400. Queda en el diario como
 `accion_terminal_abierta`.
 
 Instalación como servicio de sesión: `ea servicios instalar` (ver
-[Instalación por sistema](#instalación-por-sistema)) o, a mano en Linux:
-
-```bash
-ln -sf ~/Proyectos/ecosistema-asistente/crates/ea-web/systemd/ea-web.service \
-    ~/.config/systemd/user/ea-web.service
-systemctl --user daemon-reload
-systemctl --user enable --now ea-web.service
-```
+[Instalación por sistema](#instalación-por-sistema)), que escribe la unidad con
+la ruta real del binario (`ea servicios ver` la enseña antes).
 
 `ea-web-open` es solo de Linux (Hyprland/Omarchy). Se abre en el escritorio 4 al iniciar sesión (Hyprland) como `localhost`, no
 `127.0.0.1`, porque esa clase de ventana ya la usa el tutor:
@@ -1584,14 +1871,43 @@ systemctl --user enable --now ea-web.service
 -- ~/.config/hypr/hyprland.lua
 o.window("^chrome-localhost__-Default$", { workspace = "4 silent" })
 -- ~/.config/hypr/autostart.lua
-o.exec_on_start(os.getenv("HOME") .. "/Proyectos/ecosistema-asistente/crates/ea-web/bin/ea-web-open")
+o.exec_on_start("/ruta/al/clon/crates/ea-web/bin/ea-web-open")
 ```
+
+El `ea` al que pregunta el puerto (`red.puerto_web`, si no hay `EA_WEB_PORT`) es
+`$EA_BIN` o, si no, el que esté junto al script (siguiendo el enlace) o el
+`target/release/ea` del repo en que vive; si tampoco, el del `PATH`. La acción
+«abrir» del aviso del orquestador usa el `ea-web-open` que haya junto a los
+binarios y, si no hay, el del clon con que se compiló.
 
 La máquina arranca con la hora desajustada tras Windows hasta que NTP la
 corrige, así que el panel mide el tiempo activo de los servicios con el reloj
-monotónico e ignora latidos fechados en el futuro.
+monotónico y no da por vivo al orquestador con un latido fechado en el futuro.
+
+El latido del orquestador no va al diario: cada `orquestador.intervalo_heartbeat_s`
+reescribe (con escritura atómica) `orquestador.json` en la raíz del bus, con la
+hora, su pid, cuántos de sus trabajadores tienen la presencia al día
+(`trabajadores`) y el sandbox del ejecutor. `ea status`, la TUI, `ea_status` del
+MCP y el panel lo leen de ahí: vivo si tiene como mucho el doble del intervalo.
+En el diario el orquestador solo deja `orquestador_arrancado` (con el sandbox en
+el detalle) y, tras una parada limpia, `orquestador_parado`. Los `heartbeat` que
+se anotaban antes siguen en el diario (es append-only): ya no cuentan para la
+salud, y el diario del panel los oculta salvo con ♡ (`latidos=1`).
 
 ## Verificación
+
+Las pruebas nunca tocan el estado real: todo va a directorios de `tempfile`.
+Las de integración comparten sus ayudantes en `crates/ea-pruebas` (el binario `ea`
+de las pruebas de la CLI corre con `HOME`, `XDG_*` y `EA_*` temporales y sin el bus
+de sesión del usuario), y los dobles (`SistemaSimulado`, `TerminalSimulada`,
+`OrdenesDoble`) solo se compilan en las pruebas: la *feature* `dobles` la activan las
+`[dev-dependencies]`.
+
+El JavaScript del panel tiene sus pruebas en `crates/ea-web/tests/js/` (`node --test`,
+sin dependencias): el parseo de los enlaces y el Markdown de lo que escriben los agentes
+(`static/markdown.js`), que no deja pasar HTML activo. Las lanza `cargo test` (también
+`node --check` de cada guion de `static/`); sin `node` en el PATH se saltan con un
+aviso, salvo con `EA_EXIGIR_NODE=1`, que el CI exporta: ahí fallan.
 
 ```bash
 cargo test --workspace
@@ -1602,4 +1918,40 @@ systemctl --user restart ea-web ea-orchestrator ea-mcp   # Linux; en otros siste
 sqlite3 ~/.local/share/ecosistema-asistente/ecosistema.db \
     "DELETE FROM events WHERE id = 1;"
 # -> error del trigger ABORT
+```
+
+### Formato
+
+Todo el código Rust pasa `rustfmt` con el `rustfmt.toml` de la raíz (también
+`escritorio/` e `instalador/`), y el CI lo comprueba:
+
+```bash
+cargo fmt --all
+cargo fmt --manifest-path escritorio/Cargo.toml --all
+cargo fmt --manifest-path instalador/Cargo.toml --all
+```
+
+El commit que formateó todo el código está en `.git-blame-ignore-revs`; para que
+`git blame` lo salte en local: `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+
+### Versión de Rust, perfil de release y lockfiles
+
+El repo compila con el `stable` de `rust-toolchain.toml`, pero cada manifiesto declara
+la versión mínima con `rust-version`, así que con un Rust más viejo `cargo` lo dice en
+vez de fallar con un error de sintaxis: **1.89** en el workspace (por `File::lock`) y en
+`instalador/`, y **1.90** en `escritorio/` (lo pide Tauri 2).
+
+El perfil de release de los tres manifiestos es `lto = true`, `codegen-units = 1` y
+`strip = true` (binarios más pequeños, sin símbolos de depuración). No se usa
+`panic = "abort"`: cambiaría cómo mueren las tareas de tokio.
+
+Hay **tres `Cargo.lock`**: el del workspace, `escritorio/Cargo.lock` e
+`instalador/Cargo.lock` (los dos últimos son paquetes propios, fuera del workspace).
+`escritorio/` comparte con el workspace `ea-ajustes` y `ea-plataforma`, así que, al
+actualizar dependencias, se actualizan los tres para que no diverjan:
+
+```bash
+cargo update
+cargo update --manifest-path escritorio/Cargo.toml
+cargo update --manifest-path instalador/Cargo.toml
 ```

@@ -10,15 +10,18 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use ea_ajustes::{Ajustes, Fuentes};
-use ea_bus::{
-    Bus, ConfigOrquestador, EstadoTrabajo, Miembro, Modo, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes,
-};
-use ea_orchestrator::ejecutor::{ejecutar_uno, Ejecutor, SalidaAgente};
-use ea_orchestrator::trabajadores::{ejecutores_despiertos, Contexto, Trabajadores};
-use time::format_description::well_known::Rfc3339;
+use ea_bus::{Bus, Cola, EstadoTrabajo, Miembro, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes};
+use ea_orchestrator::config::ConfigOrquestador;
+use ea_orchestrator::ejecutor::{Ejecutor, SalidaAgente, correr_criterio, ejecutar_uno};
+use ea_orchestrator::sandbox::Sandbox;
+use ea_orchestrator::trabajadores::{Contexto, Trabajadores, arrancar, ejecutores_despiertos};
+use ea_pruebas::git;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 const LIMITE: Duration = Duration::from_secs(20);
+/// El tope de los criterios que se corren aquí a mano (el de por defecto).
+const TOPE_CRITERIO: Duration = Duration::from_secs(120);
 
 fn esperar_que(mut cond: impl FnMut() -> bool, que: &str) {
     let fin = Instant::now() + LIMITE;
@@ -28,48 +31,12 @@ fn esperar_que(mut cond: impl FnMut() -> bool, que: &str) {
     }
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
-    let s = Command::new("git")
-        .args(["-c", "user.email=a@b", "-c", "user.name=x", "-C"])
-        .arg(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(s.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&s.stderr));
-    String::from_utf8_lossy(&s.stdout).trim().to_string()
-}
-
 fn repo(d: &Path, nombre: &str) -> PathBuf {
-    let r = d.join(nombre);
-    std::fs::create_dir_all(&r).unwrap();
-    git(&r, &["init", "-q", "-b", "main"]);
-    std::fs::write(r.join("a.txt"), "a").unwrap();
-    git(&r, &["add", "."]);
-    git(&r, &["commit", "-q", "-m", "inicial"]);
-    r
+    ea_pruebas::repo_git(&d.join(nombre), true)
 }
 
 fn orden(wt: &Path) -> Orden {
-    Orden {
-        id: String::new(),
-        modo: Modo::Mision,
-        titulo: "prueba".into(),
-        worktree: wt.to_string_lossy().into(),
-        objetivo: "crea ok.txt".into(),
-        criterio_exito: Some("test -f ok.txt".into()),
-        fases: vec![],
-        revisar_cada: None,
-        topes: Topes::default(),
-        rutina: None,
-        notas_revision: vec![],
-        skills: vec![],
-        equipo: None,
-        asignado_a: None,
-        revisor: None,
-        worktree_propio: false,
-        creada_en: String::new(),
-        creada_por: "claude-code".into(),
-    }
+    Orden::mision("prueba", wt.to_string_lossy(), "crea ok.txt", "test -f ok.txt", "claude-code")
 }
 
 fn m(agente: &str, rol: RolEquipo) -> Miembro {
@@ -212,9 +179,8 @@ impl Drop for Entorno {
 #[test]
 fn los_ejecutores_despiertos_salen_de_los_equipos_con_el_tope_y_sin_equipos_es_el_del_rol() {
     let e = Entorno::nuevo(1);
-    let agentes = |a: &Ajustes| -> Vec<String> {
-        ejecutores_despiertos(&e.bus.listar_equipos().unwrap_or_default(), a).into_iter().map(|d| d.agente).collect()
-    };
+    let agentes =
+        |a: &Ajustes| -> Vec<String> { ejecutores_despiertos(&e.bus.listar_equipos().unwrap_or_default(), a).into_iter().map(|d| d.agente).collect() };
     assert_eq!(agentes(&e.ajustes), ["qwen-code"], "sin equipos: roles.ejecutor");
     let id = e.equipo();
     assert_eq!(agentes(&e.ajustes), ["qwen-code"], "paralelo = 1 recorta al primero");
@@ -258,10 +224,7 @@ fn dos_trabajos_en_el_mismo_worktree_no_corren_a_la_vez() {
     t.reconciliar();
     dentro.recv_timeout(LIMITE).unwrap();
     // El otro trabajador se topa con el semáforo y devuelve el trabajo a la cola.
-    esperar_que(
-        || e.bus.listar_cola(Rol::Ejecutor).unwrap().iter().any(|x| x.motivo == "worktree ocupado"),
-        "el trabajo vuelve a la cola de rol",
-    );
+    esperar_que(|| e.bus.listar_cola(Rol::Ejecutor).unwrap().iter().any(|x| x.motivo == "worktree ocupado"), "el trabajo vuelve a la cola de rol");
     assert_eq!(doble.llamadas().len(), 1, "solo uno ha llegado al agente");
     soltar.send(()).unwrap();
     esperar_que(|| e.en_revision(&[&i1, &i2]), "ambos trabajos entregados, uno tras otro");
@@ -334,7 +297,7 @@ fn un_trabajo_asignado_lo_toma_el_trabajador_de_ese_agente() {
     let para_codex = Orden { equipo: Some(eq), asignado_a: Some("codex".into()), ..orden(&r1) };
     let ic = e.bus.crear_trabajo(para_codex).unwrap();
     let ig = e.bus.crear_trabajo(orden(&r2)).unwrap();
-    assert_eq!(e.bus.listar_cola_agente("codex").unwrap().len(), 1);
+    assert_eq!(e.bus.listar_cola(Cola::Agente("codex")).unwrap().len(), 1);
     let doble = Doble::simple();
     let mut t = Trabajadores::new(e.contexto(&doble));
     t.reconciliar();
@@ -357,7 +320,7 @@ fn un_semaforo_ocupado_devuelve_el_asignado_a_la_cola_de_su_agente() {
     let doble = Doble::simple();
     assert_eq!(ejecutar_uno(&e.bus, &cfg, &Adaptador(doble)), Some(id.clone()));
     assert_eq!(e.estado(&id), EstadoTrabajo::EnCola);
-    assert_eq!(e.bus.listar_cola_agente("qwen-code").unwrap()[0].trabajo, id, "a SU cola");
+    assert_eq!(e.bus.listar_cola(Cola::Agente("qwen-code")).unwrap()[0].trabajo, id, "a SU cola");
     assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty());
 }
 
@@ -436,31 +399,217 @@ fn dormir_el_equipo_deja_sin_tomar_mas_y_quita_la_presencia_de_sus_trabajadores(
     t.detener();
 }
 
-#[test]
-fn bwrap_deja_escribible_el_worktree_propio_y_nada_mas() {
+/// `sh -c guion` dentro del sandbox del agente en `wt`; `None` si aquí no
+/// hay bwrap o no puede crear espacios de nombres (la prueba se omite).
+fn en_bwrap(wt: &Path, guion: &str) -> Option<std::process::Output> {
     if Command::new("bwrap").arg("--version").output().is_err() {
         eprintln!("sin bwrap: prueba omitida");
-        return;
+        return None;
     }
+    let args = ["-c".to_string(), guion.to_string()];
+    let s = Sandbox::Bwrap.envolver("sh", &args, wt, &[], None).unwrap().orden.output().unwrap();
+    if !s.status.success() && String::from_utf8_lossy(&s.stderr).contains("namespace") {
+        eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
+        return None;
+    }
+    Some(s)
+}
+
+#[test]
+fn bwrap_deja_escribible_el_worktree_propio_y_nada_mas() {
     let e = Entorno::nuevo(1);
     let r = repo(e.d.path(), "r");
     let ruta = e.bus.preparar_worktree("t1", &Orden { worktree_propio: true, ..orden(&r) }).unwrap();
-    let args = ea_orchestrator::agentes::argumentos_bwrap(&ruta, None, &[]);
+    let antes = std::fs::read_to_string(ruta.join(".git")).unwrap();
+    // El fichero `.git` del worktree propio (a dónde apunta) tampoco se reescribe.
     let guion = format!(
-        "echo x > '{w}/dentro.txt' && ! (echo x > '{r}/fuera.txt') 2>/dev/null && ! (echo x > '{g}/worktrees/t1/HEAD') 2>/dev/null",
+        "echo x > '{w}/dentro.txt' && ! (echo x > '{r}/fuera.txt') 2>/dev/null && ! (echo x > '{g}/worktrees/t1/HEAD') 2>/dev/null \
+         && ! (printf 'gitdir: /tmp/x' > '{w}/.git') 2>/dev/null && ! rm -f '{w}/.git' 2>/dev/null",
         w = ruta.display(),
         r = r.display(),
         g = r.join(".git").display()
     );
-    let s = Command::new("bwrap").args(&args).args(["sh", "-c", &guion]).output().unwrap();
-    if !s.status.success() && String::from_utf8_lossy(&s.stderr).contains("namespace") {
+    let Some(s) = en_bwrap(&ruta, &guion) else { return };
+    assert!(s.status.success(), "{}", String::from_utf8_lossy(&s.stderr));
+    assert!(ruta.join("dentro.txt").exists() && !r.join("fuera.txt").exists());
+    assert_eq!(std::fs::read_to_string(ruta.join(".git")).unwrap(), antes);
+    // La captura del sistema, fuera del sandbox, ve lo que el agente escribió.
+    assert_eq!(git(&ruta, &["ls-files", "--others", "--exclude-standard"]), "dentro.txt");
+}
+
+#[test]
+fn bwrap_deja_el_git_de_un_repo_normal_de_solo_lectura() {
+    let d = tempfile::tempdir().unwrap();
+    let r = repo(d.path(), "r");
+    let config = std::fs::read_to_string(r.join(".git/config")).unwrap();
+    // Ni la configuración, ni los hooks, ni quitar o mover `.git`; el resto
+    // del worktree, sí.
+    let guion = "echo x > dentro.txt && ! (echo x >> .git/config) 2>/dev/null && ! (echo x > .git/hooks/pre-commit) 2>/dev/null \
+                 && ! mv .git otro 2>/dev/null && ! rm -rf .git 2>/dev/null && mkdir sub && echo y > sub/f.txt";
+    let Some(s) = en_bwrap(&r, guion) else { return };
+    assert!(s.status.success(), "{}", String::from_utf8_lossy(&s.stderr));
+    assert_eq!(std::fs::read_to_string(r.join(".git/config")).unwrap(), config);
+    assert!(!r.join(".git/hooks/pre-commit").exists() && r.join(".git/HEAD").exists());
+    assert!(r.join("dentro.txt").exists() && r.join("sub/f.txt").exists());
+}
+
+#[test]
+fn el_criterio_en_bwrap_no_lee_el_directorio_de_ejecucion() {
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        eprintln!("sin bwrap: prueba omitida");
+        return;
+    }
+    let d = tempfile::tempdir().unwrap();
+    let r = repo(d.path(), "r");
+    let ejecucion = d.path().join("ejecucion");
+    std::fs::create_dir(&ejecucion).unwrap();
+    std::fs::write(ejecucion.join("marca"), "secreto").unwrap();
+    let criterio = |guion: &str| {
+        let mut c = Command::new("sh");
+        c.args(["-c", guion]).current_dir(&r);
+        c
+    };
+    let leer = format!("cat '{}'", ejecucion.join("marca").display());
+    // Fuera, se lee.
+    let fuera = criterio(&leer).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&fuera.stdout), "secreto");
+    let dentro = Sandbox::Bwrap.envolver_criterio(criterio(&leer), &r, &[], Some(&ejecucion)).unwrap().orden.output().unwrap();
+    if !dentro.status.success() && String::from_utf8_lossy(&dentro.stderr).contains("namespace") {
         eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
         return;
     }
-    assert!(s.status.success(), "{}", String::from_utf8_lossy(&s.stderr));
-    assert!(ruta.join("dentro.txt").exists() && !r.join("fuera.txt").exists());
-    // La captura del sistema, fuera del sandbox, ve lo que el agente escribió.
-    assert_eq!(git(&ruta, &["ls-files", "--others", "--exclude-standard"]), "dentro.txt");
+    assert!(!dentro.status.success() && dentro.stdout.is_empty(), "el criterio leyó el directorio de ejecución");
+    // Lo demás, como fuera: escribe en el worktree.
+    let ok = Sandbox::Bwrap.envolver_criterio(criterio("echo hecho > ok.txt && test -f ok.txt"), &r, &[], Some(&ejecucion)).unwrap().orden.output().unwrap();
+    assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
+    assert!(r.join("ok.txt").exists());
+}
+
+/// B-01: el criterio que corre el ejecutor, con el agente en bwrap, no lee
+/// la clave del panel (`<ejecucion>/ea-web/clave`) ni la credencial del
+/// planificador en el MCP (`<ejecucion>/ea-mcp/credencial`, U-02) y escribe en
+/// el worktree.
+#[test]
+fn el_criterio_del_ejecutor_en_bwrap_no_lee_la_clave_del_panel_y_escribe_en_el_worktree() {
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        eprintln!("sin bwrap: prueba omitida");
+        return;
+    }
+    let d = tempfile::tempdir().unwrap();
+    let r = repo(d.path(), "r");
+    let ejecucion = d.path().join("ejecucion");
+    let clave = ea_ajustes::fichero_clave_web(&ejecucion);
+    std::fs::create_dir_all(clave.parent().unwrap()).unwrap();
+    std::fs::write(&clave, "secreto").unwrap();
+    let credencial = ea_ajustes::fichero_credencial_mcp(&ejecucion);
+    std::fs::create_dir_all(credencial.parent().unwrap()).unwrap();
+    std::fs::write(&credencial, "contenido-credencial").unwrap();
+    let criterio = |sandbox: &Sandbox, guion: &str| correr_criterio(sandbox, &r, guion, &[], Some(&ejecucion), TOPE_CRITERIO, &|| false).unwrap();
+    // Sin sandbox, tal cual: se leen.
+    for (fichero, contenido) in [(&clave, "secreto"), (&credencial, "contenido-credencial")] {
+        let leer = format!("cat '{}'", fichero.display());
+        assert_eq!(criterio(&Sandbox::Ninguno, &leer), (true, contenido.to_string()));
+        let (pasa, evidencia) = criterio(&Sandbox::Bwrap, &leer);
+        if !pasa && evidencia.contains("namespace") {
+            eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
+            return;
+        }
+        assert!(!pasa && !evidencia.contains(contenido), "el criterio leyó {}: {evidencia}", fichero.display());
+    }
+    let (pasa, evidencia) = criterio(&Sandbox::Bwrap, "echo hecho > ok.txt && test -f ok.txt");
+    assert!(pasa, "{evidencia}");
+    assert_eq!(std::fs::read_to_string(r.join("ok.txt")).unwrap(), "hecho\n");
+}
+
+/// U-01: el criterio corre en el sandbox del agente. No escribe en el
+/// directorio personal ni en `ajustes.toml` (que sí puede leer), ni en el
+/// `.git` del worktree; sí en el worktree, en su `/tmp` y en una ruta de
+/// `agente.criterio.escribibles`. Los directorios van fuera de `/tmp` (en
+/// el de las pruebas de cargo) para que dentro se vean, de solo lectura.
+/// Una ruta escribible que ya no está no deja correr el criterio. Sin
+/// sandbox, el criterio corre como antes.
+#[test]
+fn el_criterio_en_bwrap_solo_escribe_en_el_worktree_su_tmp_y_sus_rutas() {
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        eprintln!("sin bwrap: prueba omitida");
+        return;
+    }
+    let guarda = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let d = ea_plataforma::rutas::canonica(guarda.path()).unwrap();
+    let r = repo(&d, "r");
+    let (casa, config, cache) = (d.join("home"), d.join("config"), d.join("cache"));
+    for dir in [&casa, &config, &cache] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let ajustes = config.join("ajustes.toml");
+    std::fs::write(&ajustes, "[agente]\nsandbox = true\n").unwrap();
+    let git_config = std::fs::read_to_string(r.join(".git/config")).unwrap();
+    let criterio = |guion: &str, escribibles: &[PathBuf]| correr_criterio(&Sandbox::Bwrap, &r, guion, escribibles, None, TOPE_CRITERIO, &|| false).unwrap();
+
+    let (pasa, evidencia) = criterio("echo ok", &[]);
+    if !pasa && evidencia.contains("namespace") {
+        eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
+        return;
+    }
+    let guion = format!(
+        "grep -q sandbox '{a}' && ! (echo 'sandbox = false' >> '{a}') && ! touch '{h}/.bashrc' \
+         && ! (echo x >> .git/config) && echo hecho > ok.txt && echo t > /tmp/t && test -f /tmp/t \
+         && echo c > '{c}/cache.txt'",
+        a = ajustes.display(),
+        h = casa.display(),
+        c = cache.display()
+    );
+    let (pasa, evidencia) = criterio(&guion, std::slice::from_ref(&cache));
+    assert!(pasa, "{evidencia}");
+    assert_eq!(std::fs::read_to_string(&ajustes).unwrap(), "[agente]\nsandbox = true\n", "el criterio cambió ajustes.toml");
+    assert!(!casa.join(".bashrc").exists(), "el criterio escribió en el directorio personal");
+    assert_eq!(std::fs::read_to_string(r.join(".git/config")).unwrap(), git_config, "el criterio escribió en .git");
+    assert_eq!(std::fs::read_to_string(r.join("ok.txt")).unwrap(), "hecho\n");
+    assert_eq!(std::fs::read_to_string(cache.join("cache.txt")).unwrap(), "c\n");
+
+    // Sin la ruta en la lista, la caché tampoco se escribe.
+    let (pasa, _) = criterio(&format!("echo c > '{}/otra.txt'", cache.display()), &[]);
+    assert!(!pasa && !cache.join("otra.txt").exists());
+    // Una ruta escribible que ya no existe: no se corre y no pasa.
+    let ida = d.join("ida");
+    std::fs::create_dir(&ida).unwrap();
+    let ida = ea_plataforma::rutas::canonica(&ida).unwrap();
+    std::fs::remove_dir(&ida).unwrap();
+    let (pasa, evidencia) = criterio("touch corrio", std::slice::from_ref(&ida));
+    assert!(!pasa && evidencia.contains("ya no existe o ha cambiado") && !r.join("corrio").exists(), "{evidencia}");
+    // Sin sandbox, como antes: escribe donde el usuario.
+    let (pasa, evidencia) =
+        correr_criterio(&Sandbox::Ninguno, &r, &format!("touch '{}/.bashrc'", casa.display()), &[ida], None, TOPE_CRITERIO, &|| false).unwrap();
+    assert!(pasa && casa.join(".bashrc").exists(), "{evidencia}");
+}
+
+/// F-14: con un orquestador en marcha, un segundo no arranca y no toca nada:
+/// ni da por interrumpido lo que el primero ejecuta ni devuelve a la cola lo
+/// que acaba de reclamar. Cuando el primero se va, el siguiente sí recupera.
+#[test]
+fn una_segunda_instancia_no_arranca_ni_toca_lo_que_lleva_la_primera() {
+    let e = Entorno::nuevo(1);
+    let r = repo(e.d.path(), "r");
+    let primera = arrancar(&e.bus).unwrap();
+    let por = ConfigOrquestador::para_agente(&e.ajustes, "qwen-code").unwrap().ejecutor.ejecutado_por();
+    // La primera ejecuta `a` y acaba de reclamar `b` (aún en cola, sin entrada).
+    let a = e.bus.crear_trabajo(orden(&r)).unwrap();
+    assert_eq!(e.bus.tomar_para_con("qwen-code", &|_| true).unwrap(), Some(a.clone()));
+    e.bus.tomar_con(&a, por).unwrap();
+    let b = e.bus.crear_trabajo(orden(&r)).unwrap();
+    assert_eq!(e.bus.tomar_para_con("qwen-code", &|_| true).unwrap(), Some(b.clone()));
+
+    let segunda = arrancar(&Bus::abrir_en(&e.raiz()).unwrap());
+    assert_eq!(e.estado(&a), EstadoTrabajo::Ejecutando);
+    assert!(e.bus.leer_informe(&a).unwrap().is_none(), "la segunda dio por interrumpido lo que ejecuta la primera");
+    assert!(e.bus.listar_cola(Rol::Ejecutor).unwrap().is_empty(), "la segunda devolvió a la cola lo reclamado");
+    let error = segunda.unwrap_err();
+    assert!(error.contains("ya hay un ea-orchestrator en marcha"), "{error}");
+
+    drop(primera);
+    let _tercera = arrancar(&e.bus).unwrap();
+    assert_eq!(e.bus.leer_informe(&a).unwrap().unwrap().motivo.as_deref(), Some("interrumpido"));
+    assert_eq!(e.bus.listar_cola(Rol::Ejecutor).unwrap().iter().map(|x| x.trabajo.clone()).collect::<Vec<_>>(), [b]);
 }
 
 #[test]

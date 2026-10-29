@@ -5,43 +5,24 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 
+use ea_pruebas::biblioteca::{MCP, SECRETOS, SKILL};
+use ea_pruebas::sin_secretos;
 use ea_store::{PropuestaFilter, Store};
 use serde_json::Value;
-
-const SKILL: &str = "claude-code/skill/usuario/propia";
-const MCP: &str = "claude-code/mcp/usuario/con-secretos";
-const SECRETOS: &[&str] = &["SECRETO_ENV", "SECRETO_HEADER"];
 
 struct Mundo {
     d: tempfile::TempDir,
 }
 
-fn escribe(ruta: &Path, texto: &str) {
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
-}
-
+/// El HOME pequeño de `ea_pruebas::biblioteca` (con una transcripción con un
+/// uso de la skill) y un proyecto dentro.
 fn mundo() -> Mundo {
     let d = tempfile::tempdir().unwrap();
     let home = d.path().join("home");
     fs::create_dir_all(home.join("proyecto")).unwrap();
-    fs::create_dir_all(d.path().join("rt")).unwrap();
-    escribe(&home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
-    escribe(
-        &home.join(".claude.json"),
-        r#"{"mcpServers":{"con-secretos":{"type":"stdio","command":"npx","args":["-y","pkg"],"env":{"API_KEY":"SECRETO_ENV"}},
-            "remoto":{"type":"http","url":"https://m.ejemplo.com/mcp","headers":{"Authorization":"Bearer SECRETO_HEADER"}}}}"#,
-    );
-    // Una transcripción con un uso de la skill.
-    escribe(
-        &home.join(".claude/projects/-p/s1.jsonl"),
-        concat!(
-            r#"{"type":"assistant","timestamp":"2026-10-01T10:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"propia"}}]}}"#,
-            "\n"
-        ),
-    );
+    ea_pruebas::biblioteca::home(&home);
     Mundo { d }
 }
 
@@ -52,21 +33,7 @@ impl Mundo {
 
     fn ea(&self, args: &[&str]) -> Output {
         let d = self.d.path();
-        Command::new(env!("CARGO_BIN_EXE_ea"))
-            .args(args)
-            .current_dir(d.join("home/proyecto"))
-            .env("HOME", d.join("home"))
-            .env("USERPROFILE", d.join("home"))
-            .env("XDG_RUNTIME_DIR", d.join("rt"))
-            .env("LOCALAPPDATA", d.join("rt"))
-            .env("EA_CONFIG_DIR", d.join("config"))
-            .env("EA_DB_PATH", d.join("ea.db"))
-            .env("EA_ESTADO_DIR", d.join("estado"))
-            .env("EA_BOVEDA_DIR", d.join("boveda"))
-            .env_remove("EA_REPO_DIR")
-            .stdin(Stdio::null())
-            .output()
-            .expect("lanzar ea")
+        ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea"), d).args(args).current_dir(d.join("home/proyecto")).output().expect("lanzar ea")
     }
 
     fn json(&self, args: &[&str]) -> Value {
@@ -84,12 +51,6 @@ fn salida(o: &Output) -> String {
     format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
 }
 
-fn sin_secretos(t: &str) {
-    for s in SECRETOS {
-        assert!(!t.contains(s), "se coló {s}: {t}");
-    }
-}
-
 #[test]
 fn listar_en_json_filtra_y_no_lleva_secretos() {
     let m = mundo();
@@ -99,7 +60,7 @@ fn listar_en_json_filtra_y_no_lleva_secretos() {
     let skill = v["elementos"].as_array().unwrap().iter().find(|e| e["id"] == SKILL).unwrap();
     assert_eq!(skill["activado"], "si");
     assert_eq!(skill["uso"]["total"], 1, "{skill}");
-    sin_secretos(&v.to_string());
+    sin_secretos(&v.to_string(), SECRETOS);
 
     let v = m.json(&["biblioteca", "listar", "--json", "--tipo", "mcp", "--agente", "claude-code"]);
     let ids: Vec<&str> = v["elementos"].as_array().unwrap().iter().map(|e| e["id"].as_str().unwrap()).collect();
@@ -121,7 +82,7 @@ fn listar_en_texto_agrupa_por_categoria_y_tipo() {
     let t = salida(&o);
     assert!(t.contains("== usuario") && t.contains("skill (1)") && t.contains("mcp (2)"), "{t}");
     assert!(t.contains("propia") && t.contains("Cómo se cambia"), "{t}");
-    sin_secretos(&t);
+    sin_secretos(&t, SECRETOS);
 }
 
 #[test]
@@ -131,7 +92,7 @@ fn ver_da_la_ficha_con_el_mcp_redactado_y_el_uso() {
     assert!(o.status.success(), "{}", salida(&o));
     let t = salida(&o);
     assert!(t.contains("API_KEY") && t.contains("npx") && t.contains("solo los nombres"), "{t}");
-    sin_secretos(&t);
+    sin_secretos(&t, SECRETOS);
     let v = m.json(&["biblioteca", "ver", SKILL, "--json"]);
     assert_eq!(v["id"], SKILL);
     assert_eq!(v["uso"]["total"], 1);
@@ -187,16 +148,16 @@ fn sesion_propone_sin_abrir_terminal_ni_escribir_ficheros() {
     assert!(o.status.success(), "{}", salida(&o));
     let t = salida(&o);
     assert!(t.contains("Comando:") && t.contains("--strict-mcp-config") && t.contains("Propuesta #1 creada"), "{t}");
-    sin_secretos(&t);
+    sin_secretos(&t, SECRETOS);
     let p = m.propuestas();
     assert_eq!(p.len(), 1);
     let a = p[0].accion.as_ref().unwrap();
     assert_eq!(a.herramienta, "ea_lanzar_sesion");
-    sin_secretos(&format!("{a:?}"));
+    sin_secretos(&format!("{a:?}"), SECRETOS);
     // El directorio relativo se guardó absoluto.
     let dir = a.argumentos["directorio"].as_str().unwrap();
     assert!(Path::new(dir).is_absolute(), "{dir}");
-    assert!(!m.ruta("rt/ea-biblioteca").exists(), "proponer no escribe la sesión");
+    assert!(!m.ruta("xdg/rt/ea-biblioteca").exists(), "proponer no escribe la sesión");
 
     let o = m.ea(&["biblioteca", "sesion", "antigravity", MCP]);
     assert!(!o.status.success());
