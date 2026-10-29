@@ -635,10 +635,12 @@ fn las_rutas_escribibles_del_criterio_se_validan_y_solo_se_cambian_desde_la_term
     assert!(matches!(&r, Err(ErrorAjustes::ValorInvalido { motivo, .. }) if motivo.contains("directorio personal")), "{r:?}");
 
     // El directorio de ejecución (la clave del panel), tampoco.
+    // (`XDG_RUNTIME_DIR` en Unix; en Windows cuelga de `LOCALAPPDATA`.)
     let rt = d.path().join("rt");
-    std::fs::create_dir_all(rt.join("ea-web")).unwrap();
-    let f2 = Fuentes::aislada(d.path()).con_var("XDG_RUNTIME_DIR", rt.to_str().unwrap());
-    let r = establecer(&f2, Canal::Terminal, None, &cambio(k, json!([rt.join("ea-web").to_str().unwrap()])));
+    let f2 = Fuentes::aislada(d.path()).con_var("XDG_RUNTIME_DIR", rt.to_str().unwrap()).con_var("LOCALAPPDATA", rt.to_str().unwrap());
+    let web = ea_ajustes::dir_ejecucion(&f2.entorno).unwrap().join("ea-web");
+    std::fs::create_dir_all(&web).unwrap();
+    let r = establecer(&f2, Canal::Terminal, None, &cambio(k, json!([web.to_str().unwrap()])));
     assert!(matches!(&r, Err(ErrorAjustes::ValorInvalido { motivo, .. }) if motivo.contains("del ecosistema")), "{r:?}");
 
     // Una ruta que deja de valer (aquí, borrada) se ignora al cargar, con aviso.
