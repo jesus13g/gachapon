@@ -75,7 +75,9 @@ fn crear_rechaza_el_home_sus_ancestros_y_un_subdirectorio_del_repo() {
     let personal = "es tu directorio personal o lo contiene";
     falla_con(&crear_con_orden(d, home.to_str().unwrap(), None), personal);
     falla_con(&crear_con_orden(d, d.to_str().unwrap(), None), personal);
-    falla_con(&crear_con_orden(d, "/", None), personal);
+    // La raíz del disco del temporal (`/` en Unix, `C:\` en Windows).
+    let raiz = d.ancestors().last().unwrap();
+    falla_con(&crear_con_orden(d, raiz.to_str().unwrap(), None), personal);
     let corta = ["trabajo", "crear", "--titulo", "t", "--worktree", ".", "--objetivo", "o", "--criterio", "true"];
     falla_con(&ea(d, &home, &corta), personal);
 
@@ -113,7 +115,7 @@ fn el_worktree_queda_canonico_por_las_dos_formas() {
     let d = d.path();
     let wt = d.join("repo");
     repo_git(&wt, true);
-    let canon = std::fs::canonicalize(&wt).unwrap().to_string_lossy().into_owned();
+    let canon = ea_plataforma::rutas::canonica(&wt).unwrap().to_string_lossy().into_owned();
     let ver = |id: &[u8]| {
         let id = String::from_utf8_lossy(id).trim().to_string();
         let v: serde_json::Value = serde_json::from_slice(&ea(d, d, &["trabajo", "ver", &id, "--json"]).stdout).unwrap();

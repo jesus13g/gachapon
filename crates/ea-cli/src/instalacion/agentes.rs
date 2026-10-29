@@ -595,7 +595,10 @@ mod pruebas {
     const HOME: &str = "/nohay/home-pruebas-023";
 
     fn ctx(origen: Origen) -> Contexto {
-        let home = PathBuf::from(HOME);
+        ctx_en(origen, PathBuf::from(HOME))
+    }
+
+    fn ctx_en(origen: Origen, home: PathBuf) -> Contexto {
         Contexto {
             sistema: ea_plataforma::Sistema::Linux,
             origen,
@@ -818,10 +821,8 @@ mod pruebas {
         // real de las guías, sin el marcador.
         let d = tempfile::tempdir().unwrap();
         let repo = d.path().join("clon");
-        let mut c = ctx(Origen::Clon { repo: repo.clone() });
-        c.home = d.path().join("home");
+        let mut c = ctx_en(Origen::Clon { repo: repo.clone() }, d.path().join("home"));
         c.destinos.flujo = repo.join("agentes/flujo");
-        c.skills_dir = c.home.join(".config/ea/qwen-skills");
         std::fs::create_dir_all(repo.join("claude/skills/mision")).unwrap();
         std::fs::create_dir_all(c.home.join(".claude/skills")).unwrap();
         let enlace = c.home.join(".claude/skills/mision");
@@ -939,8 +940,8 @@ mod pruebas {
         // enlace `~/.claude/hooks/ea-subagentes.sh` al envoltorio del repo
         // (ya roto) y el settings.json que lo llama.
         let d = tempfile::tempdir().unwrap();
-        let mut c = ctx(Origen::Paquete);
-        c.home = d.path().join("home");
+        // Todo el contexto en el temporal: aplicar el plan escribe de verdad.
+        let c = ctx_en(Origen::Paquete, d.path().join("home"));
         let hooks = c.home.join(".claude/hooks");
         std::fs::create_dir_all(&hooks).unwrap();
         let enlace = hooks.join("ea-subagentes.sh");

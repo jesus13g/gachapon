@@ -38,7 +38,7 @@ async fn cambiar_un_ajuste_escribe_el_fichero_y_lo_apunta() {
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["aplicados"][0], json!({ "clave": "web.sondeo_ms", "antes": 3000, "despues": 5000, "aplica": "caliente", "reinicio": [] }));
     assert_eq!(v["ajustes"]["cliente"]["sondeo_ms"], 5000);
-    let fichero = f._dir.path().join("config/ajustes.toml");
+    let fichero = f._dir.path().join("config").join("ajustes.toml");
     assert!(std::fs::read_to_string(&fichero).unwrap().contains("sondeo_ms = 5000"));
     let (_, d) = get(&f, "/api/diario").await;
     let ev = d.as_array().unwrap().iter().find(|e| e["accion"] == "ajustes_cambiados").expect("evento");

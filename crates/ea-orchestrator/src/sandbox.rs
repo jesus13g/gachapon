@@ -356,6 +356,7 @@ mod tests {
         assert_eq!(literal(Path::new("a\nb")), "\"a\\nb\"");
     }
 
+    #[cfg(unix)] // el perfil de Seatbelt (macOS) junta las rutas con `/`
     #[test]
     fn el_perfil_deja_el_git_del_worktree_de_solo_lectura() {
         // `/w/repo` no existe: la regla va igual (tampoco se puede crear un `.git`).
@@ -416,6 +417,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)] // el perfil de Seatbelt (macOS) junta las rutas con `/`
     #[test]
     fn el_criterio_tiene_el_perfil_de_disco_del_agente_sin_su_red() {
         let esc = [PathBuf::from("/Users/u/.cargo")];

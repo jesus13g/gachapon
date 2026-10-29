@@ -68,9 +68,10 @@ fn fecha(s: &str) -> Option<usize> {
     Some(n)
 }
 
-/// Sin fechas, sin duraciones y sin la carpeta temporal.
+/// Sin fechas, sin duraciones y sin la carpeta temporal (también escrita
+/// dentro de un JSON, con las `\` de Windows escapadas).
 fn normalizar(texto: &str, tmp: &str) -> String {
-    let texto = texto.replace(tmp, "<TMP>");
+    let texto = texto.replace(&tmp.replace('\\', "\\\\"), "<TMP>").replace(tmp, "<TMP>");
     let mut out = String::new();
     let mut resto = texto.as_str();
     while let Some(ch) = resto.chars().next() {

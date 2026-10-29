@@ -597,7 +597,9 @@ fn las_rutas_escribibles_del_criterio_se_validan_y_solo_se_cambian_desde_la_term
     assert_eq!((c.edicion, c.tipo.nombre()), (Edicion::Terminal, "lista"));
     assert!(interpretar(c, "relativa/x").is_err());
     assert!(interpretar(c, "~otro/x").is_err());
-    assert_eq!(interpretar(c, " /a , ~/b,/a ").unwrap(), json!(["/a", "~/b"]));
+    let a = d.path().join("a");
+    let a = a.to_str().unwrap();
+    assert_eq!(interpretar(c, &format!(" {a} , ~/b,{a} ")).unwrap(), json!([a, "~/b"]));
 
     let cache = d.path().join("cache");
     std::fs::create_dir_all(&cache).unwrap();
@@ -618,7 +620,7 @@ fn las_rutas_escribibles_del_criterio_se_validan_y_solo_se_cambian_desde_la_term
         (d.path().join("no-existe"), "no existe"),
         (casa.clone(), "directorio personal"),
         (casa.parent().unwrap().to_path_buf(), "directorio personal"),
-        (PathBuf::from("/"), "directorio personal"),
+        (d.path().ancestors().last().unwrap().to_path_buf(), "directorio personal"),
         (f.dir_config.clone(), "del ecosistema"),
         (f.dir_datos.join("sub"), "del ecosistema"),
         (f.dir_estado.join("sub"), "del ecosistema"),
