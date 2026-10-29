@@ -68,10 +68,70 @@ fn fecha(s: &str) -> Option<usize> {
     Some(n)
 }
 
-/// Sin fechas, sin duraciones y sin la carpeta temporal (también escrita
-/// dentro de un JSON, con las `\` de Windows escapadas).
-fn normalizar(texto: &str, tmp: &str) -> String {
-    let texto = texto.replace(&tmp.replace('\\', "\\\\"), "<TMP>").replace(tmp, "<TMP>");
+/// Las formas en que la carpeta temporal aparece en la salida, de la más
+/// larga a la más corta: tal cual y canónica (en Windows, la corta
+/// `RUNNER~1` y la larga), con `\` o con `/`, y escrita dentro de un JSON
+/// o de un JSON dentro de otro (las `\` escapadas una o dos veces).
+fn formas_de_tmp(tmp: &Path) -> Vec<String> {
+    let mut bases = vec![tmp.display().to_string()];
+    bases.extend(ea_plataforma::rutas::canonica(tmp).map(|c| c.display().to_string()));
+    let mut formas: Vec<String> =
+        bases.iter().flat_map(|b| [b.clone(), b.replace('\\', "/")]).flat_map(|b| [b.replace('\\', "\\\\\\\\"), b.replace('\\', "\\\\"), b]).collect();
+    formas.sort_by_key(|f| std::cmp::Reverse(f.len()));
+    formas.dedup();
+    formas
+}
+
+/// Tras `<TMP>`, los separadores de Windows (`\` escapada o no) pasan a
+/// `/`, como en Unix; una `\` que escapa unas comillas o un salto de línea
+/// acaba la ruta.
+fn separadores_tras_tmp(texto: &str) -> String {
+    let mut out = String::new();
+    let mut trozos = texto.split("<TMP>");
+    out.push_str(trozos.next().unwrap_or_default());
+    for trozo in trozos {
+        out.push_str("<TMP>");
+        let b = trozo.as_bytes();
+        let mut i = 0;
+        loop {
+            match b.get(i) {
+                Some(b'\\') => {
+                    let n = b[i..].iter().take_while(|c| **c == b'\\').count();
+                    let escapa = n % 2 == 1 && matches!(b.get(i + n), None | Some(b'"' | b'n' | b't' | b'r'));
+                    if escapa {
+                        break;
+                    }
+                    out.push('/');
+                    i += n;
+                }
+                Some(c) if c.is_ascii_alphanumeric() || b"._-~/".contains(c) => {
+                    out.push(*c as char);
+                    i += 1;
+                }
+                _ => break,
+            }
+        }
+        out.push_str(&trozo[i..]);
+    }
+    out
+}
+
+#[test]
+fn las_rutas_de_windows_tras_tmp_quedan_como_en_unix() {
+    assert_eq!(separadores_tras_tmp(r#""<TMP>\\home\\.codex/config.toml","#), r#""<TMP>/home/.codex/config.toml","#);
+    assert_eq!(separadores_tras_tmp(r#"\"<TMP>\\\\repo\\\"\\n"#), r#"\"<TMP>/repo\\\"\\n"#);
+    assert_eq!(separadores_tras_tmp(r"Worktree: <TMP>\\repo. Criterio"), "Worktree: <TMP>/repo. Criterio");
+    assert_eq!(separadores_tras_tmp("<TMP>/repo\\n x"), "<TMP>/repo\\n x");
+}
+
+/// Sin fechas, sin duraciones y sin la carpeta temporal (en cualquiera de
+/// sus formas; ver [`formas_de_tmp`]).
+fn normalizar(texto: &str, tmps: &[String]) -> String {
+    let mut texto = texto.to_string();
+    for tmp in tmps {
+        texto = texto.replace(tmp.as_str(), "<TMP>");
+    }
+    let texto = if cfg!(windows) { separadores_tras_tmp(&texto) } else { texto };
     let mut out = String::new();
     let mut resto = texto.as_str();
     while let Some(ch) = resto.chars().next() {
@@ -102,7 +162,7 @@ fn normalizar(texto: &str, tmp: &str) -> String {
 
 struct Registro {
     texto: String,
-    tmp: String,
+    tmps: Vec<String>,
 }
 
 impl Registro {
@@ -117,7 +177,7 @@ impl Registro {
             }
             Err(e) => writeln!(t, "<< error {e:?}").unwrap(),
         }
-        self.texto.push_str(&normalizar(&t, &self.tmp));
+        self.texto.push_str(&normalizar(&t, &self.tmps));
     }
 }
 
@@ -139,7 +199,8 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     // La versión registrada, con un repo de verdad (U-05: el worktree de una
     // rutina es la raíz de un repo); el fichero de `rutinas_dir` sigue igual.
     let repo = ea_pruebas::repo_git(&dir.path().join("repo"), true);
-    let rutina = RUTINA.replace("\"/tmp\"", &format!("\"{}\"", repo.display()));
+    // Con `/` también en Windows: una `\` en una cadena TOML sería un escape.
+    let rutina = RUTINA.replace("\"/tmp\"", &format!("\"{}\"", repo.display().to_string().replace('\\', "/")));
     ea_pruebas::guardar_rutinas(&store, &[("nocturna", 1, &rutina)]);
     let store = Arc::new(Mutex::new(store));
     let boveda = dir.path().join("boveda");
@@ -156,7 +217,7 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     );
     let url = ea_pruebas::mcp::servidor(router).await;
 
-    let mut reg = Registro { texto: String::new(), tmp };
+    let mut reg = Registro { texto: String::new(), tmps: formas_de_tmp(dir.path()) };
     let planificador = conectar(&url, "claude-code").await;
     let ejecutor = conectar(&url, "qwen-code-mcp-client").await;
     let orquestador = conectar(&url, "ea-orchestrator").await;
@@ -241,7 +302,7 @@ async fn el_servidor_mcp_dice_lo_mismo_que_siempre() {
     writeln!(reg.texto, "== diario").unwrap();
     for e in eventos {
         let linea = format!("{} {} {} trabajo={:?} {:?} {}\n", e.id, e.actor, e.action, e.trabajo, e.outcome, e.detail.as_deref().unwrap_or_default());
-        reg.texto.push_str(&normalizar(&linea, &reg.tmp));
+        reg.texto.push_str(&normalizar(&linea, &reg.tmps));
     }
     for c in [planificador, ejecutor, orquestador, desconocido] {
         c.cancel().await.ok();

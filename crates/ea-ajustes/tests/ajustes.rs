@@ -609,7 +609,7 @@ fn las_rutas_escribibles_del_criterio_se_validan_y_solo_se_cambian_desde_la_term
     let e = cargar_de(&f);
     assert_eq!(e.ajustes.agente.criterio.escribibles, std::slice::from_ref(&cache));
     assert_eq!(e.valores[k], json!([cache.to_str().unwrap()]));
-    assert_eq!(validar_escribibles(&e.ajustes.agente.criterio.escribibles, &f, &e.ajustes).unwrap(), [std::fs::canonicalize(&cache).unwrap()]);
+    assert_eq!(validar_escribibles(&e.ajustes.agente.criterio.escribibles, &f, &e.ajustes).unwrap(), [ea_plataforma::rutas::canonica(&cache).unwrap()]);
 
     // Lo que no vale no se escribe y deja la lista como estaba.
     for d in [&f.dir_config, &f.dir_datos, &f.dir_estado] {
