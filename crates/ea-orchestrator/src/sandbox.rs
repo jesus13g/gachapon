@@ -592,8 +592,6 @@ mod tests {
         assert_eq!(no.err().as_deref(), Some("sin sandbox"));
     }
 
-    /// CE-004: Seatbelt de verdad (corre en la CI de macOS).
-    #[cfg(target_os = "macos")]
     /// Spec 024 (RF-002): lo tapado va tras el `/` de solo lectura y antes de
     /// todo bind escribible; un directorio con tmpfs y un fichero con `/dev/null`.
     #[test]
@@ -673,6 +671,8 @@ mod tests {
         assert!(Sandbox::Ninguno.envolver("qwen", &[], &wt, &[], ocultar).is_ok());
     }
 
+    /// CE-004: Seatbelt de verdad (corre en la CI de macOS).
+    #[cfg(target_os = "macos")]
     #[test]
     fn seatbelt_impide_escribir_fuera_del_worktree() {
         use std::process::Command;
