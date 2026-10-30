@@ -5,7 +5,7 @@ description: "Formaliza un proceso repetible como rutina versionada (TOML), la r
 
 # /rutina
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/rutina.md` (en la raíz del repo, `agentes/flujo/rutina.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/rutina.md` (en la raíz del repo, `agentes/flujo/rutina.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 
@@ -13,4 +13,4 @@ Reglas que no se rompen:
 - **Ningún agente se confirma a sí mismo:** lo mutante se simula o se propone y solo el usuario acepta.
 - El criterio de éxito lo ejecuta el sistema; un criterio vacío no es éxito.
 
-Resumen: Escribir el TOML de la rutina, `ea rutina registrar`, `ea rutina lanzar`; el horario y los cambios por MCP (`ea_programar_rutina`, `ea_registrar_rutina`…) primero con `simular: true` y luego como propuesta que acepta el usuario; y la corrección de un paquete de fallo.
+Resumen: Escribir el TOML de la rutina, `ea rutina registrar` (solo la v1; una versión nueva se propone con `ea_registrar_rutina`), `ea rutina lanzar`; el horario y los cambios por MCP (`ea_programar_rutina`, `ea_registrar_rutina`…) primero con `simular: true` y luego como propuesta que acepta el usuario; y la corrección de un paquete de fallo.

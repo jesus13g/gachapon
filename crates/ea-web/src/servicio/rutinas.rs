@@ -3,13 +3,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ea_bus::{Bus, Rutina};
-use ea_store::{EventOutcome, NewEvent};
-use serde_json::json;
 
-use super::{bus_con_store, slug_valido, ErrorWeb, Resultado};
+use super::{ErrorWeb, Resultado, bus_con_store, slug_valido};
+use crate::AppState;
 use crate::vistas::{RutinaAnterior, RutinaDetalle, RutinaFila, RutinaLanzada, RutinaPrevia, RutinaRegistrada, RutinaValidada};
 use crate::vistas::{RutinaVersion, RutinaVersionFila};
-use crate::AppState;
 
 /// Cuántas ejecuciones lleva la ficha de una rutina.
 const EJECUCIONES_EN_FICHA: usize = 10;
@@ -18,44 +16,26 @@ const EJECUCIONES_EN_FICHA: usize = 10;
 /// de la rutina (la de su `orden.json`) y, si entregó informe, resultado y
 /// duración. `None` si el trabajo no se puede leer.
 fn ejecucion(bus: &Bus, id: &str) -> Option<crate::vistas::RutinaEjecucion> {
-    let orden = bus.leer_orden(id).ok()?;
-    let estado = bus.leer_estado(id).ok()?;
-    let informe = bus.leer_informe(id).ok().flatten();
+    let r = bus.resumen_trabajo(id)?;
     Some(crate::vistas::RutinaEjecucion {
-        trabajo: id.into(),
-        estado: estado.estado.as_str(),
-        version: orden.rutina.map_or(0, |r| r.version),
-        resultado: informe.as_ref().map(|i| match i.resultado {
-            ea_bus::ResultadoInforme::Terminado => "terminado",
-            ea_bus::ResultadoInforme::Bloqueado => "bloqueado",
-        }),
-        duracion_s: informe.map(|i| i.duracion_s),
-        detalle: estado.detalle,
-        creado: orden.creada_en,
-        actualizado: estado.actualizado_en,
+        estado: r.estado.as_str(),
+        version: r.rutina.map_or(0, |r| r.version),
+        resultado: r.informe.as_ref().map(|i| i.resultado.as_str()),
+        duracion_s: r.informe.map(|i| i.duracion_s),
+        trabajo: r.id,
+        detalle: r.detalle,
+        creado: r.creada_en,
+        actualizado: r.actualizado_en,
     })
 }
 
-/// El trabajo más reciente de cada una de `slugs`, en una sola pasada por
-/// el bus del más nuevo al más viejo (los ids empiezan por la fecha): se lee
-/// la orden de cada trabajo hasta haber visto todas, y el estado y el
-/// informe solo del elegido. Si el bus no se puede abrir, ninguna.
+/// La última ejecución de cada una de `slugs`, en una sola pasada por el
+/// bus ([`Bus::ultimas_ejecuciones`]); el informe, solo de la elegida. Si el
+/// bus no se puede abrir, ninguna.
 fn ultimas(s: &AppState, slugs: &HashSet<String>) -> HashMap<String, crate::vistas::RutinaEjecucion> {
-    let mut out = HashMap::new();
-    let Ok(bus) = super::bus_lectura(s) else { return out };
-    let Ok(ids) = bus.listar_trabajos() else { return out };
-    for id in ids.iter().rev() {
-        if out.len() == slugs.len() {
-            break;
-        }
-        let Some(slug) = bus.leer_orden(id).ok().and_then(|o| o.rutina).map(|r| r.slug) else { continue };
-        if slugs.contains(&slug) && !out.contains_key(&slug) {
-            if let Some(e) = ejecucion(&bus, id) {
-                out.insert(slug, e);
-            }
-        }
-    }
-    out
+    let Ok(bus) = super::bus_lectura(s) else { return HashMap::new() };
+    let ultimas = bus.ultimas_ejecuciones(slugs).unwrap_or_default();
+    ultimas.into_iter().filter_map(|(slug, (id, _))| Some((slug, ejecucion(&bus, &id)?))).collect()
 }
 
 /// Dónde está el TOML de la rutina; un error de lectura cuenta como sin
@@ -67,23 +47,11 @@ fn ubicacion(s: &AppState, slug: &str) -> ea_bus::Ubicacion {
 /// Las rutinas registradas cruzadas con su fichero (spec 004, RF-011): las
 /// activas o, con `retiradas`, las que están en la papelera o sin fichero.
 pub async fn listar(s: &AppState, retiradas: bool) -> Resultado<Vec<RutinaFila>> {
-    let filas: Vec<_> = s
-        .store
-        .lock()
-        .await
-        .listar_rutinas()?
-        .into_iter()
-        .map(|f| {
-            let u = ubicacion(s, &f.slug);
-            (f, u)
-        })
-        .filter(|(_, u)| (*u == ea_bus::Ubicacion::Activa) != retiradas)
-        .collect();
-    let filas_u: Vec<ea_bus::Ubicacion> = filas.iter().map(|(_, u)| *u).collect();
-    let filas: Vec<_> = filas.into_iter().map(|(f, _)| f).collect();
-    let mut ultimas = ultimas(s, &filas.iter().map(|f| f.slug.clone()).collect());
+    let registradas = s.store.lock().await.listar_rutinas()?;
+    let filas = ea_bus::rutinas_por_ubicacion(registradas, &s.config.rutinas_dir, retiradas);
+    let mut ultimas = ultimas(s, &filas.iter().map(|(f, _)| f.slug.clone()).collect());
     let mut out = Vec::with_capacity(filas.len());
-    for (f, u) in filas.into_iter().zip(filas_u) {
+    for (f, u) in filas {
         let r = ea_bus::Rutina::parsear(&f.definicion).ok();
         let (proxima, timer) = if s.config.systemctl && ea_bus::slug_valido(&f.slug) {
             match s.config.temporizadores.proxima(&f.slug).await {
@@ -124,12 +92,7 @@ pub async fn ver(s: &AppState, slug: &str) -> Resultado<RutinaDetalle> {
     let fila = s.store.lock().await.ultima_rutina(slug)?.ok_or_else(|| no_registrada(slug))?;
     // Como `ea rutina ver`: los trabajos de la rutina, el más reciente primero.
     let ejecuciones = match super::bus_lectura(s) {
-        Ok(bus) => bus
-            .trabajos_de_rutina(slug)?
-            .into_iter()
-            .take(EJECUCIONES_EN_FICHA)
-            .filter_map(|(id, _)| ejecucion(&bus, &id))
-            .collect(),
+        Ok(bus) => bus.trabajos_de_rutina(slug)?.into_iter().take(EJECUCIONES_EN_FICHA).filter_map(|(id, _)| ejecucion(&bus, &id)).collect(),
         Err(_) => Vec::new(),
     };
     let ubicacion = ubicacion(s, slug).as_str();
@@ -144,33 +107,15 @@ pub async fn versiones(s: &AppState, slug: &str) -> Resultado<Vec<RutinaVersionF
     if filas.is_empty() {
         return Err(no_registrada(slug));
     }
-    Ok(filas
-        .into_iter()
-        .map(|f| RutinaVersionFila { version: f.version, creada_en: f.creada_en, creada_por: f.creada_por })
-        .collect())
+    Ok(filas.into_iter().map(|f| RutinaVersionFila { version: f.version, creada_en: f.creada_en, creada_por: f.creada_por }).collect())
 }
 
 /// Una versión concreta de una rutina, con su TOML. Solo lectura.
 pub async fn version(s: &AppState, slug: &str, n: &str) -> Resultado<RutinaVersion> {
     slug_valido(slug)?;
-    let n: i64 = n
-        .parse()
-        .ok()
-        .filter(|n| *n > 0)
-        .ok_or_else(|| ErrorWeb::Invalido(format!("versión no válida: '{n}' (un entero positivo)")))?;
-    let fila = s
-        .store
-        .lock()
-        .await
-        .obtener_rutina(slug, n)?
-        .ok_or_else(|| ErrorWeb::NoEncontrado(format!("la rutina '{slug}' no tiene versión {n}")))?;
-    Ok(RutinaVersion {
-        slug: fila.slug,
-        version: fila.version,
-        creada_en: fila.creada_en,
-        creada_por: fila.creada_por,
-        contenido: fila.definicion,
-    })
+    let n: i64 = n.parse().ok().filter(|n| *n > 0).ok_or_else(|| ErrorWeb::Invalido(format!("versión no válida: '{n}' (un entero positivo)")))?;
+    let fila = s.store.lock().await.obtener_rutina(slug, n)?.ok_or_else(|| ErrorWeb::NoEncontrado(format!("la rutina '{slug}' no tiene versión {n}")))?;
+    Ok(RutinaVersion { slug: fila.slug, version: fila.version, creada_en: fila.creada_en, creada_por: fila.creada_por, contenido: fila.definicion })
 }
 
 /// Entradas tal como llegan de la petición (`{clave: valor}`), en pares.
@@ -222,46 +167,25 @@ pub async fn validar(s: &AppState, toml: &str) -> Resultado<RutinaValidada> {
 }
 
 /// Registra `toml` igual que `ea rutina registrar`: `Bus::registrar_rutina`
-/// guarda la versión en SQLite (con `creada_por` el usuario) y copia el TOML
-/// a `rutinas_dir/<slug>.toml`. Si no vale, el error del bus y nada escrito.
-/// Deja `rutina_registrada` en el diario, como las demás decisiones de la web.
+/// guarda la versión en SQLite (con `creada_por` el usuario), copia el TOML
+/// a `rutinas_dir/<slug>.toml` y deja `rutina_registrada` en el diario. Si no
+/// vale, el error del bus y nada escrito.
 pub async fn registrar(s: &AppState, toml: &str) -> Resultado<RutinaRegistrada> {
     let anterior = ea_bus::comprobar_registro(&*s.store.lock().await, toml)?.1.map(|f| f.version);
     let r = bus_con_store(s).await?.registrar_rutina(toml, &s.config.rutinas_dir)?;
-    let c = &r.rutina;
-    let evento = NewEvent {
-        actor: super::ACTOR.into(),
-        action: "rutina_registrada".into(),
-        trabajo: None,
-        outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
-        detail: Some(
-            json!({ "canal": "web", "rutina": c.slug, "version": c.version, "anterior": anterior, "bytes": toml.len() })
-                .to_string(),
-        ),
-    };
-    // El registro ya está hecho: si el diario falla, se avisa en el log.
-    if let Err(e) = s.store.lock().await.append_event(evento) {
-        tracing::warn!(error = %e, "no se pudo apuntar el registro de la rutina en el diario");
-    }
-    Ok(RutinaRegistrada { rutina: c.slug.clone(), version: c.version, anterior })
+    Ok(RutinaRegistrada { rutina: r.rutina.slug, version: r.rutina.version, anterior })
 }
 
-/// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`): crea el
-/// trabajo en el bus y el orquestador lo recoge. Las entradas se validan
-/// antes de mirar si hay otra ejecución en curso, y si no valen no se crea
-/// nada.
+/// Lo mismo que hace el disparador de systemd (`ea rutina lanzar`):
+/// `Bus::lanzar_rutina_en` crea el trabajo en el bus y el orquestador lo
+/// recoge. Sin registrar, 404. Retirada o sin fichero, 409, con el mismo
+/// texto que la simulación de `ea_encolar_rutina` y que `ea rutina lanzar`.
+/// Las entradas se validan antes de mirar si hay otra ejecución en curso
+/// (400, y no se crea nada); con otra en curso, 409.
 pub async fn lanzar(s: &AppState, slug: &str, entradas: &Entradas) -> Resultado<RutinaLanzada> {
     slug_valido(slug)?;
     let bus = bus_con_store(s).await?;
-    let rutina = bus.rutina(slug).map_err(|_| no_registrada(slug))?;
-    // Retirada o sin fichero: 409, con el mismo texto que la simulación de
-    // `ea_encolar_rutina` y que `ea rutina lanzar`.
-    ea_bus::comprobar_lanzable(&s.config.rutinas_dir, slug)?;
-    let orden = rutina.a_orden(&pares(entradas))?;
-    if !bus.trabajos_activos_de_rutina(slug)?.is_empty() {
-        return Err(ErrorWeb::Conflicto(format!("la rutina '{slug}' ya tiene una ejecución en curso")));
-    }
-    let id = bus.crear_trabajo(orden)?;
+    bus.rutina(slug).map_err(|_| no_registrada(slug))?;
+    let id = bus.lanzar_rutina_en(&s.config.rutinas_dir, slug, &pares(entradas))?;
     Ok(RutinaLanzada { trabajo: id, rutina: slug.into() })
 }

@@ -1,0 +1,6 @@
+# Commits que solo cambian el formato: `git blame` los salta con
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub lo lee solo).
+
+# Formato con rustfmt en todo el código
+6ddea3c0419b26913ab6078e28793aca8e7f0d16

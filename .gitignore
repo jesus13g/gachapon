@@ -11,5 +11,7 @@ node_modules/
 .venv*/
 /marketing/
 
-# Diagramas generados por la skill archify (.claude/skills/archify)
+# La skill archify se instala bajo demanda (origen fijado en skills-lock.json;
+# ver web/README.md) y lo que genera en su carpeta de trabajo no se sube.
+/.claude/skills/archify/
 .archify/

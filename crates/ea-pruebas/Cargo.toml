@@ -1,0 +1,22 @@
+[package]
+name = "ea-pruebas"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Solo como `[dev-dependencies]` y solo desde `tests/` (la prueba de
+# arquitectura de ea-cli lo vigila): nunca entra en un binario.
+
+[features]
+# El servidor y el cliente MCP de prueba: solo para las pruebas de ea-mcp.
+mcp = ["dep:axum", "dep:rmcp", "dep:tokio"]
+
+[dependencies]
+ea-bus = { path = "../ea-bus" }
+ea-store = { path = "../ea-store" }
+serde_json.workspace = true
+tempfile.workspace = true
+axum = { workspace = true, optional = true }
+rmcp = { workspace = true, optional = true, features = ["client", "transport-streamable-http-client-reqwest"] }
+tokio = { workspace = true, optional = true, features = ["net", "rt"] }

@@ -2,10 +2,7 @@ use std::path::Path;
 
 use crate::connection;
 use crate::error::StoreResult;
-use crate::models::{
-    EntradaIndice, ResultadoBusqueda, RutaIndexada,
-    EstadoEjecucion, EstadoPropuesta, Event, NewEvent, NuevaPropuesta, Propuesta,
-};
+use crate::models::{EntradaIndice, EstadoEjecucion, EstadoPropuesta, Event, NewEvent, NuevaPropuesta, Propuesta, ResultadoBusqueda, RutaIndexada};
 use crate::repository::boveda;
 use crate::repository::events::{self, EventFilter};
 use crate::repository::notas::{self, NuevaNota};
@@ -20,20 +17,18 @@ pub struct Store {
 }
 
 impl Store {
-    /// Abre la base de datos en su ruta XDG estándar (o `$EA_DB_PATH` si está
-    /// definida) y aplica migraciones pendientes.
-    pub fn open() -> StoreResult<Self> {
-        Ok(Self {
-            conn: connection::open()?,
-        })
+    /// Abre la base de datos en `path` (`rutas.db` de los ajustes; `":memory:"`
+    /// para tests), creando su directorio si falta, y aplica las migraciones
+    /// pendientes.
+    pub fn open_at(path: &Path) -> StoreResult<Self> {
+        Ok(Self { conn: connection::open_at(path)? })
     }
 
-    /// Igual que [`Store::open`] pero sobre una ruta explícita (`":memory:"`
-    /// para tests).
-    pub fn open_at(path: &Path) -> StoreResult<Self> {
-        Ok(Self {
-            conn: connection::open_at(path)?,
-        })
+    /// Solo lectura, sin migraciones y sin crear nada: para mirar el diario
+    /// sin poder escribir en él (la biblioteca). Una base de un esquema ajeno
+    /// se rechaza sin tocarla.
+    pub fn abrir_lectura(path: &Path) -> StoreResult<Self> {
+        Ok(Self { conn: connection::abrir_lectura(path)? })
     }
 
     /// Otra conexión a la misma base. Sirve para que un trabajo largo no
@@ -109,6 +104,12 @@ impl Store {
         events::list_events_herramienta(&self.conn, herramienta, limit)
     }
 
+    /// `(actor, usos, última)` de las llamadas a `ea-mcp` (`mcp_*`), por
+    /// actor (`detail.agente` o, si no hay, la columna `actor`).
+    pub fn uso_mcp_por_actor(&self) -> StoreResult<Vec<(String, u64, Option<time::OffsetDateTime>)>> {
+        events::uso_mcp_por_actor(&self.conn)
+    }
+
     /// Añade una nota del usuario (`usuario_nota`), que puede corregir otro
     /// evento; valida antes y no escribe nada si algo falla.
     pub fn anotar_diario(&self, nota: NuevaNota) -> StoreResult<Event> {
@@ -130,12 +131,7 @@ impl Store {
         propuestas::reclamar_para_ejecucion(&self.conn, id)
     }
 
-    pub fn registrar_ejecucion_propuesta(
-        &self,
-        id: i64,
-        estado: EstadoEjecucion,
-        detalle: &str,
-    ) -> StoreResult<Propuesta> {
+    pub fn registrar_ejecucion_propuesta(&self, id: i64, estado: EstadoEjecucion, detalle: &str) -> StoreResult<Propuesta> {
         propuestas::registrar_ejecucion(&self.conn, id, estado, detalle)
     }
 
@@ -166,13 +162,7 @@ impl Store {
     }
 
     /// `consulta_fts` debe venir saneada (ver `ea_boveda::consulta_fts`).
-    pub fn boveda_buscar(
-        &self,
-        consulta_fts: &str,
-        region: Option<&str>,
-        limite: i64,
-        max_fragmento: i64,
-    ) -> StoreResult<Vec<ResultadoBusqueda>> {
+    pub fn boveda_buscar(&self, consulta_fts: &str, region: Option<&str>, limite: i64, max_fragmento: i64) -> StoreResult<Vec<ResultadoBusqueda>> {
         boveda::buscar(&self.conn, consulta_fts, region, limite, max_fragmento)
     }
 

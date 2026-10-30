@@ -10,16 +10,11 @@ use crate::sesiones::Sesion;
 /// apagarse aunque haya durado menos que un sondeo.
 pub const GRACIA_MS: u64 = 15_000;
 
-const AGENTE: &str = "claude-code";
+const AGENTE: &str = ea_ajustes::AgenteId::ClaudeCode.as_str();
 
 /// `modelo` da el modelo de una sesión (de su transcripción); `rol`, el que
 /// ocupa Claude Code según los ajustes, si ocupa alguno.
-pub fn detectar(
-    sesiones: Vec<Sesion>,
-    modelo: impl Fn(&Sesion) -> Option<String>,
-    rol: Option<&str>,
-    ahora_ms: u64,
-) -> Vec<AgenteVivo> {
+pub fn detectar(sesiones: Vec<Sesion>, modelo: impl Fn(&Sesion) -> Option<String>, rol: Option<&str>, ahora_ms: u64) -> Vec<AgenteVivo> {
     let mut v = Vec::new();
     for s in sesiones {
         let id = format!("claude:{}", if s.sesion.is_empty() { s.pid.to_string() } else { s.sesion.clone() });
@@ -88,11 +83,7 @@ mod tests {
     #[test]
     fn la_sesion_es_la_maquina_y_sus_subagentes_cuelgan_de_ella() {
         let ahora = 100_000;
-        let s = sesion("s1", true, vec![
-            sub("a", "haiku", None),
-            sub("b", "inherit", Some(ahora - 1_000)),
-            sub("c", "", Some(ahora - GRACIA_MS - 1)),
-        ]);
+        let s = sesion("s1", true, vec![sub("a", "haiku", None), sub("b", "inherit", Some(ahora - 1_000)), sub("c", "", Some(ahora - GRACIA_MS - 1))]);
         let v = detectar(vec![s], |_| Some("claude-opus-5-5".into()), Some("planificador"), ahora);
         let ids: Vec<_> = v.iter().map(|a| a.id.as_str()).collect();
         assert_eq!(ids, ["claude:s1/a", "claude:s1/b", "claude:s1"], "el terminado hace rato ya no sale");

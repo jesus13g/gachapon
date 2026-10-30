@@ -7,18 +7,17 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use comfy_table::Table;
-use ea_acciones::{aceptar_propuesta, observar, proponer, Canal};
+use ea_acciones::{observar, proponer};
 use ea_ajustes::Fuentes;
-use ea_biblioteca::uso::{calcular_uso, FuentesUso, InformeUso, Uso};
+use ea_biblioteca::uso::{FuentesUso, InformeUso, Uso, calcular_uso};
 use ea_biblioteca::{Activado, Biblioteca, Elemento, Filtro, Inventario, Mecanismo, Raices, Tipo};
-use ea_store::Store;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{bloquear, confirmar_en_terminal, sistema};
+use super::{bloquear, confirmar_y_aceptar, limpio};
 
-const ACTOR: &str = "usuario";
+const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 const CLAVE_CATEGORIAS: &str = "biblioteca.categorias";
 
 fn cargar() -> (Raices, Inventario) {
@@ -67,9 +66,7 @@ pub fn listar(
     json: bool,
 ) -> Result<()> {
     let tipo = match tipo {
-        Some(t) => Some(Tipo::desde(&t).with_context(|| {
-            format!("tipo desconocido {t:?} (uno de: {})", Tipo::TODOS.map(|t| t.as_str()).join(", "))
-        })?),
+        Some(t) => Some(Tipo::desde(&t).with_context(|| format!("tipo desconocido {t:?} (uno de: {})", Tipo::TODOS.map(|t| t.as_str()).join(", ")))?),
         None => None,
     };
     let activado = match (activados, desactivados) {
@@ -122,11 +119,6 @@ pub fn listar(
         }
     }
     Ok(())
-}
-
-/// Texto de un fichero ajeno listo para un terminal: sin secuencias de escape.
-fn limpio(texto: &str) -> String {
-    ea_biblioteca::sin_control(texto)
 }
 
 pub fn ver(id: &str, json: bool) -> Result<()> {
@@ -257,32 +249,26 @@ pub fn uso(id: Option<String>, json: bool) -> Result<()> {
 /// una terminal interactiva real, pide confirmación y la acepta y ejecuta en
 /// el acto (como `ea propuestas decidir --aceptar`); sin terminal, solo
 /// propone: un agente que lance `ea` no puede confirmar nada.
-fn proponer_y_quiza_aceptar(store: &mut Store, herramienta: &str, args: &Value, esperar: bool) -> Result<()> {
-    let sis = sistema();
+fn proponer_y_quiza_aceptar(ctx: &mut super::Contexto, herramienta: &str, args: &Value, esperar: bool) -> Result<()> {
+    let sis = ctx.sistema();
+    let store = ctx.store()?;
     let hechos = bloquear(observar(&sis, herramienta, args))?;
     let (p, nueva) = proponer(store, &sis, &hechos, ACTOR, None, herramienta, args)?;
     let accion = p.accion.as_ref().context("la propuesta no tiene acción")?;
-    println!(
-        "Propuesta #{} {} ({}, riesgo {}):",
-        p.id,
-        if nueva { "creada" } else { "ya estaba pendiente" },
-        accion.herramienta,
-        accion.riesgo
-    );
+    println!("Propuesta #{} {} ({}, riesgo {}):", p.id, if nueva { "creada" } else { "ya estaba pendiente" }, accion.herramienta, accion.riesgo);
     println!("  {}", accion.simulacion);
     if !esperar {
         println!("No se ha hecho nada. Para aplicarla: `ea propuestas decidir {} --aceptar`.", p.id);
         return Ok(());
     }
-    let Ok(canal) = Canal::terminal_interactiva() else {
+    let Ok(canal) = ea_acciones::terminal_interactiva() else {
         println!("Sin terminal interactiva no se acepta: la propuesta #{} queda pendiente.", p.id);
         return Ok(());
     };
-    if !confirmar_en_terminal(&accion.herramienta, &accion.riesgo, &accion.argumentos, &accion.simulacion, &p.id.to_string())? {
+    let Some(p) = confirmar_y_aceptar(store, &sis, p.id, accion, canal)? else {
         println!("Cancelado: la propuesta #{} sigue pendiente y no se ha hecho nada.", p.id);
         return Ok(());
-    }
-    let p = bloquear(aceptar_propuesta(store, &sis, p.id, ACTOR, canal))?;
+    };
     println!("Propuesta #{} marcada como '{}'", p.id, p.estado.as_str());
     if let Some(e) = &p.ejecucion {
         println!("  Ejecución: {} — {}", e.estado.as_str(), e.detalle.clone().unwrap_or_default());
@@ -290,20 +276,15 @@ fn proponer_y_quiza_aceptar(store: &mut Store, herramienta: &str, args: &Value, 
     Ok(())
 }
 
-pub fn cambiar(store: &mut Store, id: &str, activar: bool, esperar: bool) -> Result<()> {
+pub fn cambiar(ctx: &mut super::Contexto, id: &str, activar: bool, esperar: bool) -> Result<()> {
     let herramienta = if activar { "ea_activar_herramienta" } else { "ea_desactivar_herramienta" };
-    proponer_y_quiza_aceptar(store, herramienta, &json!({ "elemento": id }), esperar)
+    proponer_y_quiza_aceptar(ctx, herramienta, &json!({ "elemento": id }), esperar)
 }
 
-pub fn sesion(store: &mut Store, agente: &str, ids: &[String], directorio: Option<String>, esperar: bool) -> Result<()> {
+pub fn sesion(ctx: &mut super::Contexto, agente: &str, ids: &[String], directorio: Option<String>, esperar: bool) -> Result<()> {
     // Una ruta relativa se entiende desde donde se lanza `ea`.
     let directorio = match directorio {
-        Some(d) => Some(
-            ea_plataforma::rutas::canonica(&d)
-                .with_context(|| format!("el directorio {d:?} no existe"))?
-                .display()
-                .to_string(),
-        ),
+        Some(d) => Some(ea_plataforma::rutas::canonica(&d).with_context(|| format!("el directorio {d:?} no existe"))?.display().to_string()),
         None => None,
     };
     // El plan (sin secretos) se enseña antes de proponer, y un plan imposible
@@ -322,14 +303,14 @@ pub fn sesion(store: &mut Store, agente: &str, ids: &[String], directorio: Optio
     if let Some(d) = directorio {
         args["directorio"] = Value::String(d);
     }
-    proponer_y_quiza_aceptar(store, "ea_lanzar_sesion", &args, esperar)
+    proponer_y_quiza_aceptar(ctx, "ea_lanzar_sesion", &args, esperar)
 }
 
 /// Atajo de `ea ajustes establecer biblioteca.categorias=…` para un solo
 /// elemento: lee el mapa, cambia o quita la entrada y lo escribe por la vía
 /// de los ajustes (que exige terminal interactiva y valida la clave).
 pub fn categoria(id: &str, categoria: Option<&str>, quitar: bool) -> Result<()> {
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     let (_, inv) = cargar();
     if !quitar && inv.buscar(id).is_none() {
         bail!("no existe el elemento {id:?} (mira `ea biblioteca listar --ids`)");
@@ -353,21 +334,10 @@ pub fn categoria(id: &str, categoria: Option<&str>, quitar: bool) -> Result<()> 
         _ => bail!("indica una categoría o --quitar"),
     }
     let valor = if mapa.is_empty() { None } else { Some(serde_json::to_value(&mapa)?) };
-    let aplicados = ea_ajustes::establecer(&f, ea_ajustes::Canal::Terminal, None, &[(CLAVE_CATEGORIAS.to_string(), valor)])?;
-    super::ajustes::apuntar(&f, &aplicados);
+    super::ajustes::cambiar(&f, &[(CLAVE_CATEGORIAS.to_string(), valor)])?;
     match categoria {
         Some(c) => println!("{id}: categoría «{c}»."),
         None => println!("{id}: vuelve a su categoría por defecto (el origen)."),
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod pruebas {
-    use super::limpio;
-
-    #[test]
-    fn lo_que_se_imprime_no_lleva_secuencias_de_escape() {
-        assert_eq!(limpio("\x1b[31mrojo\x1b[0m\x07 ok\n"), "[31mrojo[0m ok\n");
-    }
 }

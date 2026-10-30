@@ -1,4 +1,7 @@
-use clap::{Parser, Subcommand};
+use clap::builder::{PossibleValue, PossibleValuesParser};
+use clap::{Parser, Subcommand, ValueEnum};
+use ea_ajustes::Rol;
+use ea_bus::Modo;
 use ea_store::EstadoPropuesta;
 
 #[derive(Parser)]
@@ -45,8 +48,9 @@ pub enum Command {
     },
     /// Entradas de una cola del bus (por defecto, las dos)
     Cola {
-        /// planificador o ejecutor (también claude-code o modelo-local)
-        agente: Option<String>,
+        /// El rol de la cola (también su nombre en disco: claude-code o modelo-local)
+        #[arg(value_enum)]
+        agente: Option<ArgRol>,
         /// Salida en JSON
         #[arg(long)]
         json: bool,
@@ -120,8 +124,19 @@ pub enum Command {
         #[command(subcommand)]
         accion: HookAccion,
     },
+    /// El cliente MCP del planificador (ea-mcp en 127.0.0.1)
+    Mcp {
+        #[command(subcommand)]
+        accion: McpAccion,
+    },
     /// Interfaz interactiva
     Tui,
+}
+
+#[derive(Subcommand)]
+pub enum McpAccion {
+    /// Escribe en JSON la cabecera con la credencial del planificador (el headersHelper de Claude Code que pone `ea instalar`)
+    Cabeceras,
 }
 
 #[derive(Subcommand)]
@@ -284,9 +299,11 @@ pub enum AgentesAccion {
     /// Pone un agente en un rol (atajo de `ea ajustes establecer roles.<rol>=<agente>`);
     /// exige una terminal interactiva real
     Rol {
-        /// planificador o ejecutor
-        rol: String,
-        /// Id del catálogo (claude-code, qwen-code, codex, opencode, antigravity)
+        /// El rol (también claude-code o modelo-local)
+        #[arg(value_enum)]
+        rol: ArgRol,
+        /// Id del catálogo
+        #[arg(value_parser = PossibleValuesParser::new(ea_ajustes::IDS_AGENTES.iter().copied()))]
         agente: String,
     },
 }
@@ -312,6 +329,9 @@ pub enum AjustesAccion {
     Ruta,
 }
 
+// Se lee una vez de la línea de órdenes: no compensa meter `Crear` en una
+// caja.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 pub enum TrabajoAccion {
     /// Crea un trabajo y lo encola en modelo-local
@@ -319,9 +339,8 @@ pub enum TrabajoAccion {
         /// Orden completa en JSON (el resto de opciones se ignora)
         #[arg(long)]
         orden: Option<std::path::PathBuf>,
-        /// mision, obra o rutina
-        #[arg(long, default_value = "mision")]
-        modo: String,
+        #[arg(long, value_enum, default_value = "mision")]
+        modo: ArgModo,
         #[arg(long)]
         titulo: Option<String>,
         #[arg(long)]
@@ -458,7 +477,7 @@ pub enum DiarioAccion {
 
 #[derive(Subcommand)]
 pub enum RutinaAccion {
-    /// Valida un fichero de rutina y lo registra (la versión debe subir)
+    /// Valida un fichero de rutina y lo registra (la versión debe subir; una versión nueva se confirma en una terminal)
     Registrar { fichero: std::path::PathBuf },
     /// Lista las rutinas registradas en uso, con su última ejecución
     Listar {
@@ -518,8 +537,7 @@ pub enum BovedaAccion {
     Estado,
     /// Lista las notas más recientes
     Listar {
-        /// modelo-local, claude-code o compartida
-        #[arg(long)]
+        #[arg(long, value_parser = ea_boveda::ruta::REGIONES)]
         region: Option<String>,
         #[arg(long, default_value_t = 20)]
         limite: usize,
@@ -527,7 +545,7 @@ pub enum BovedaAccion {
     /// Busca notas por palabras (todas deben aparecer)
     Buscar {
         consulta: String,
-        #[arg(long)]
+        #[arg(long, value_parser = ea_boveda::ruta::REGIONES)]
         region: Option<String>,
         #[arg(long, default_value_t = 10)]
         limite: usize,
@@ -586,9 +604,70 @@ pub enum PropuestasAccion {
 /// Un prefijo de acción del diario: letras minúsculas y `_`, como los nombres
 /// de las acciones.
 fn prefijo_de_accion(s: &str) -> Result<String, String> {
-    if !s.is_empty() && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') {
-        Ok(s.to_string())
-    } else {
-        Err("solo letras minúsculas y `_` (p. ej. `bus_` o `propuesta_`)".into())
+    if ea_store::prefijo_accion_valido(s) { Ok(s.to_string()) } else { Err("solo letras minúsculas y `_` (p. ej. `bus_` o `propuesta_`)".into()) }
+}
+
+// ------------------------------------------------------ dominios cerrados
+//
+// `clap` valida al leer la línea de órdenes los valores de una lista cerrada
+// y la ayuda los enumera. Las listas son las de las bibliotecas (que no
+// dependen de `clap`): aquí solo se envuelven sus tipos o se citan sus
+// constantes (`IDS_AGENTES`, `REGIONES`).
+
+/// Un rol: `planificador` o `ejecutor` (también su nombre en disco,
+/// `claude-code` o `modelo-local`).
+#[derive(Clone, Copy)]
+pub struct ArgRol(pub Rol);
+
+impl ValueEnum for ArgRol {
+    fn value_variants<'a>() -> &'a [Self] {
+        const V: [ArgRol; Rol::TODOS.len()] = [ArgRol(Rol::TODOS[0]), ArgRol(Rol::TODOS[1])];
+        &V
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(PossibleValue::new(self.0.nombre()).alias(self.0.as_str()))
+    }
+}
+
+/// El modo de una orden: `mision`, `obra` o `rutina`.
+#[derive(Clone, Copy)]
+pub struct ArgModo(pub Modo);
+
+impl ValueEnum for ArgModo {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[ArgModo(Modo::Mision), ArgModo(Modo::Obra), ArgModo(Modo::Rutina)]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(PossibleValue::new(self.0.as_str()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn la_linea_de_ordenes_es_coherente() {
+        Cli::command().debug_assert();
+    }
+
+    /// Las listas de la ayuda son las de las bibliotecas, sin perder ninguna.
+    #[test]
+    fn los_dominios_cerrados_son_los_de_las_bibliotecas() {
+        let nombres = |v: &[PossibleValue]| v.iter().map(|p| p.get_name().to_string()).collect::<Vec<_>>();
+        let roles: Vec<_> = ArgRol::value_variants().iter().filter_map(ValueEnum::to_possible_value).collect();
+        assert_eq!(nombres(&roles), Rol::TODOS.map(|r| r.nombre()));
+        for r in Rol::TODOS {
+            assert!(roles.iter().any(|p| p.matches(r.as_str(), false)), "{}", r.as_str());
+        }
+        let modos: Vec<_> = ArgModo::value_variants().iter().filter_map(ValueEnum::to_possible_value).collect();
+        assert_eq!(nombres(&modos), ["mision", "obra", "rutina"]);
+        for (m, p) in ArgModo::value_variants().iter().zip(&modos) {
+            let vuelta: Modo = serde_json::from_value(serde_json::json!(p.get_name())).unwrap();
+            assert_eq!(vuelta, m.0);
+        }
     }
 }

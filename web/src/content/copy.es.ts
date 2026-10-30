@@ -526,8 +526,8 @@ export const architecture: typeof import('./copy.en').architecture = {
       points: [
         'El workspace excluye `escritorio/` (`ea-escritorio`, bandeja y avisos) e `instalador/` (`gachapon-instalar.exe`); ambos tienen su propio manifiesto.',
         '`instalar.sh` e `instalar.ps1` son los instaladores de un paso.',
-        '`claude/` contiene las skills `/mision`, `/obra`, `/rutina`, `/revisar` y `/equipo`, y el hook de subagentes.',
-        '`agentes/` trae el flujo y los adaptadores de Codex, OpenCode y Antigravity; `qwen/skills`, las skills cortas de Qwen.',
+        '`claude/` contiene las skills `/mision`, `/obra`, `/rutina`, `/revisar` y `/equipo`, la única fuente de los adaptadores de cada agente; el hook de subagentes es `ea hook subagentes`, que registra `ea instalar`.',
+        '`agentes/` trae el flujo neutral y las reglas del planificador; con ellos `ea instalar` genera los adaptadores de Codex, OpenCode y Antigravity. `qwen/skills`, las skills cortas de Qwen.',
         'También en el árbol: `web/` (esta landing en Astro), `bench/`, `docs/` y `.github/workflows` (`ci`, `pages`, `release`).',
       ],
     },

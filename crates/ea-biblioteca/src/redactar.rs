@@ -10,9 +10,7 @@ const MASCARA: &str = "***";
 /// ¿El nombre de una clave, variable o cabecera suena a secreto?
 pub fn nombre_secreto(nombre: &str) -> bool {
     let n = nombre.to_ascii_lowercase();
-    ["token", "key", "secret", "pass", "auth", "bearer", "cookie", "credential", "signature", "session"]
-        .iter()
-        .any(|s| n.contains(s))
+    ["token", "key", "secret", "pass", "auth", "bearer", "cookie", "credential", "signature", "session"].iter().any(|s| n.contains(s))
 }
 
 /// Enmascara el valor de todo `clave=valor` o `clave:valor` (también dentro de
@@ -169,11 +167,7 @@ fn redactar_palabra(p: &str) -> String {
         redactar_url(med)
     } else if let Some((k, _)) = med.split_once('=') {
         let k_limpia = k.trim_start_matches('-');
-        if nombre_secreto(k_limpia) || forma_de_secreto(med.split_once('=').map_or("", |x| x.1)) {
-            format!("{k}={MASCARA}")
-        } else {
-            med.to_string()
-        }
+        if nombre_secreto(k_limpia) || forma_de_secreto(med.split_once('=').map_or("", |x| x.1)) { format!("{k}={MASCARA}") } else { med.to_string() }
     } else if forma_de_secreto(med) {
         MASCARA.into()
     } else {
@@ -194,9 +188,8 @@ pub fn redactar_args(args: &[String]) -> Vec<String> {
             salida.push(MASCARA.into());
             continue;
         }
-        let opcion_con_valor = |o: &str| {
-            matches!(o, "-H" | "--header" | "-e" | "--env" | "-E" | "-p" | "-k" | "-t") || (o.starts_with('-') && nombre_secreto(o))
-        };
+        let opcion_con_valor =
+            |o: &str| matches!(o, "-H" | "--header" | "-e" | "--env" | "-E" | "-p" | "-k" | "-t") || (o.starts_with('-') && nombre_secreto(o));
         if a.starts_with('-') && !a.contains('=') && opcion_con_valor(a) {
             salida.push(a.clone());
             ocultar_siguiente = true;

@@ -1,0 +1,5 @@
+# Formato de todo el código Rust del repo (también escritorio/ e instalador/).
+# Líneas largas y heurísticas al máximo: lo más cercano al estilo que ya tenía
+# el código, escrito a mano antes de pasar rustfmt.
+max_width = 160
+use_small_heuristics = "Max"

@@ -12,7 +12,7 @@ use super::comun::{leer_texto, mcp as crear_mcp, skills_en};
 use crate::modelo::{Activado, Ambito, Elemento, Mecanismo};
 use crate::raices::Raices;
 
-pub const AGENTE: &str = "codex";
+pub const AGENTE: &str = ea_ajustes::AgenteId::Codex.as_str();
 pub const VERSION: &str = "0.159.3";
 
 pub fn leer(r: &Raices, avisos: &mut Vec<String>) -> Vec<Elemento> {

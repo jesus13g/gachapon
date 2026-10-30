@@ -3,9 +3,9 @@
 //! la ejecuta; el diario lo cuenta. Con bóveda y base temporales.
 
 use ea_acciones::*;
-use ea_boveda::{Limites, NuevaNota};
+use ea_boveda::{Boveda, Limites, NuevaNota};
 use ea_store::{EstadoEjecucion, EstadoPropuesta, EventFilter, Store};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 struct Entorno {
     store: Store,
@@ -22,10 +22,12 @@ fn entorno() -> Entorno {
 
 impl Entorno {
     fn real(&self) -> SistemaReal {
-        SistemaReal { rutinas_dir: self.dir.path().join("rutinas"), boveda: self.boveda.clone(), propio: None, temporizadores: ea_acciones::Temporizadores::systemd(self.dir.path().join("unidades"), vec!["true".into()], vec!["true".into()]) }
+        let mut s = SistemaReal::usuario(self.dir.path().join("rutinas"), self.boveda.clone(), self.dir.path().join("estado"), None);
+        s.consulta.temporizadores = ea_acciones::Temporizadores::systemd(self.dir.path().join("unidades"), vec!["true".into()], vec!["true".into()]);
+        s
     }
     fn consulta(&self) -> SoloConsulta {
-        SoloConsulta { rutinas_dir: self.dir.path().join("rutinas"), boveda: self.boveda.clone() }
+        SoloConsulta::usuario(self.dir.path().join("rutinas"), self.boveda.clone(), self.dir.path().join("estado"))
     }
     fn nota(&mut self, autor: &str, titulo: &str, cuerpo: &str) -> String {
         self.boveda
@@ -42,13 +44,7 @@ impl Entorno {
         self.boveda.raiz().join("compartida")
     }
     fn acciones(&self) -> Vec<String> {
-        let mut v: Vec<_> = self
-            .store
-            .list_events(&EventFilter { limit: Some(500), ..Default::default() })
-            .unwrap()
-            .into_iter()
-            .map(|e| e.action)
-            .collect();
+        let mut v: Vec<_> = self.store.list_events(&EventFilter { limit: Some(500), ..Default::default() }).unwrap().into_iter().map(|e| e.action).collect();
         v.reverse();
         v
     }

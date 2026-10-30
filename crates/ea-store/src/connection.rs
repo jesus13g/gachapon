@@ -1,43 +1,18 @@
-use std::path::PathBuf;
-
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{StoreError, StoreResult};
-use crate::migrations::run_migrations;
+use crate::migrations::{comprobar_esquema, run_migrations};
 
-const ENV_OVERRIDE: &str = "EA_DB_PATH";
-
-/// Resuelve la ruta del fichero SQLite: `$EA_DB_PATH` si está definida
-/// (usado por tests de integración y pruebas manuales), si no `rutas.db` de
-/// los ajustes (`ajustes.toml`; por defecto la ruta XDG estándar de datos de
-/// la aplicación, `ecosistema.db`).
-pub fn resolve_db_path() -> StoreResult<PathBuf> {
-    if let Ok(path) = std::env::var(ENV_OVERRIDE)
-        && !path.trim().is_empty()
-    {
-        return Ok(PathBuf::from(path));
-    }
-
-    let path = ea_ajustes::cargar().rutas.db;
+/// Abre la base de datos en `path` (`rutas.db` de los ajustes, que resuelve
+/// `$EA_DB_PATH`; `:memory:` en pruebas), crea su directorio si falta, aplica
+/// los PRAGMAs necesarios y ejecuta las migraciones pendientes. Punto de
+/// entrada único para todo consumidor de `ea-store`: la ruta la decide quien
+/// llama, nunca esta capa.
+pub fn open_at(path: &std::path::Path) -> StoreResult<Connection> {
     match path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => std::fs::create_dir_all(dir)?,
         _ => {}
     }
-    Ok(path)
-}
-
-/// Abre la base de datos en la ruta resuelta, aplica los PRAGMAs necesarios
-/// y ejecuta las migraciones pendientes. Punto de entrada único para todo
-/// consumidor de `ea-store` (CLI hoy; orquestador y servidor MCP en fases
-/// futuras).
-pub fn open() -> StoreResult<Connection> {
-    let path = resolve_db_path()?;
-    open_at(&path)
-}
-
-/// Igual que [`open`] pero sobre una ruta explícita. Útil para tests
-/// (`:memory:`) y para herramientas de diagnóstico.
-pub fn open_at(path: &std::path::Path) -> StoreResult<Connection> {
     const INTENTOS: u32 = 5;
     let mut intento = 1;
     loop {
@@ -63,6 +38,15 @@ fn abrir_una_vez(path: &std::path::Path) -> StoreResult<Connection> {
     let mut conn = Connection::open(path)?;
     apply_pragmas(&conn)?;
     run_migrations(&mut conn)?;
+    Ok(conn)
+}
+
+/// Solo lectura y sin migraciones: no escribe ni crea nada. Rechaza un
+/// esquema ajeno ([`StoreError::EsquemaAntiguo`]) sin tocarlo.
+pub fn abrir_lectura(path: &std::path::Path) -> StoreResult<Connection> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+    conn.busy_timeout(std::time::Duration::from_millis(500))?;
+    comprobar_esquema(&conn)?;
     Ok(conn)
 }
 

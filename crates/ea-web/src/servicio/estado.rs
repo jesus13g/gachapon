@@ -1,21 +1,23 @@
 //! Vista general, portada y sesiones de Claude Code.
 
 use ea_ajustes::Rol;
-use ea_bus::Bus;
+use ea_bus::{Bus, EstadoTrabajo};
 use ea_store::{EstadoPropuesta, PropuestaFilter};
 use time::OffsetDateTime;
 
-use super::{bus_lectura, propuestas::vista as propuesta_vista, ts, Resultado};
-use crate::vistas::{AgenteConPresencia, AgentesVista, AgenteVista, PresenciaVista, EstadoGeneral, Inicio, Orquestador, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento};
+use super::{Resultado, bus_lectura, propuestas::vista as propuesta_vista, ts};
 use crate::AppState;
+use crate::vistas::{
+    AgenteConPresencia, AgenteVista, AgentesVista, EstadoGeneral, Inicio, Orquestador, PresenciaVista, ServicioVista, Sesiones, TrabajosPorEstado, UltimoEvento,
+};
 
 pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
-    let servicios = crate::estado::servicios(s.config.systemctl).await;
+    let servicios = ea_acciones::salud::servicios(s.config.systemctl).await;
+
+    // El latido está en un fichero del bus (U-07).
+    let orquestador = ea_bus::estado_orquestador(&s.config.estado_dir, s.config.umbral_heartbeat_s);
 
     let store = s.store.lock().await;
-    let orquestador = store.estado_orquestador(s.config.umbral_heartbeat_s)?;
-
-    let sandbox = store.sandbox_orquestador()?;
 
     let ajustes = ea_ajustes::cargar_de(&s.config.ajustes).ajustes;
     let agentes = store
@@ -36,21 +38,21 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
         })
         .collect();
 
-    let propuestas_pendientes = store
-        .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?
-        .len();
+    let propuestas_pendientes = store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: None })?.len();
 
     Ok(EstadoGeneral {
         ahora: ts(OffsetDateTime::now_utc()),
-        servicios: servicios
-            .into_iter()
-            .map(|sv| ServicioVista { nombre: sv.nombre, activo: sv.activo, activo_s: sv.activo_s })
-            .collect(),
-        orquestador: Orquestador { vivo: orquestador.vivo, ultimo_latido: orquestador.ultimo_latido.map(ts), sandbox },
+        servicios: servicios.into_iter().map(|sv| ServicioVista { nombre: sv.nombre, activo: sv.activo, activo_s: sv.activo_s }).collect(),
+        orquestador: Orquestador {
+            vivo: orquestador.vivo,
+            ultimo_latido: orquestador.ultimo_latido.map(ts),
+            trabajadores: orquestador.trabajadores,
+            sandbox: orquestador.sandbox,
+        },
         agentes,
         trabajos: trabajos_por_estado(s),
         propuestas_pendientes,
-        db: ea_store::resolve_db_path().ok().map(|p| p.display().to_string()),
+        db: Some(ea_ajustes::cargar_de(&s.config.ajustes).ajustes.rutas.db.display().to_string()),
     })
 }
 
@@ -58,17 +60,16 @@ pub async fn general(s: &AppState) -> Resultado<EstadoGeneral> {
 fn trabajos_por_estado(s: &AppState) -> TrabajosPorEstado {
     let mut t = TrabajosPorEstado::default();
     let Ok(bus) = Bus::abrir_en(&s.config.estado_dir) else { return t };
-    for id in bus.listar_trabajos().unwrap_or_default() {
-        let Ok(e) = bus.leer_estado(&id) else { continue };
-        match e.estado.as_str() {
-            "en_cola" => t.en_cola += 1,
-            "ejecutando" => t.ejecutando += 1,
-            "en_revision" => t.en_revision += 1,
-            "en_espera" => t.en_espera += 1,
-            "cerrado" => t.cerrado += 1,
-            "cancelado" => t.cancelado += 1,
-            _ => {}
-        }
+    for (estado, n) in bus.conteo_por_estado() {
+        let campo = match estado {
+            EstadoTrabajo::EnCola => &mut t.en_cola,
+            EstadoTrabajo::Ejecutando => &mut t.ejecutando,
+            EstadoTrabajo::EnRevision => &mut t.en_revision,
+            EstadoTrabajo::EnEspera => &mut t.en_espera,
+            EstadoTrabajo::Cerrado => &mut t.cerrado,
+            EstadoTrabajo::Cancelado => &mut t.cancelado,
+        };
+        *campo = n;
     }
     t
 }
@@ -77,19 +78,14 @@ fn trabajos_por_estado(s: &AppState) -> TrabajosPorEstado {
 /// `trabajos`, `colas` y `semaforos`.
 pub async fn inicio(s: &AppState) -> Resultado<Inicio> {
     let store = s.store.lock().await;
-    let propuestas = store
-        .list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: Some(20) })?
-        .iter()
-        .map(propuesta_vista)
-        .collect();
+    let propuestas =
+        store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), limit: Some(20) })?.iter().map(propuesta_vista).collect();
     Ok(Inicio { propuestas })
 }
 
 pub fn sesiones(s: &AppState) -> Sesiones {
     let subagentes = s.config.subagentes_dir.as_deref();
-    Sesiones {
-        sesiones: s.config.sesiones_dir.as_deref().map(|d| crate::sesiones::vivas(d, subagentes)).unwrap_or_default(),
-    }
+    Sesiones { sesiones: s.config.sesiones_dir.as_deref().map(|d| crate::sesiones::vivas(d, subagentes)).unwrap_or_default() }
 }
 
 /// El catálogo de agentes con su disponibilidad (spec 017). Los ajustes se
@@ -104,7 +100,7 @@ pub async fn agentes(s: &AppState) -> AgentesVista {
         })
         .collect();
     let presencias = bus_lectura(s).map(|b| b.presencias()).unwrap_or_default();
-    let agentes = crate::agentes::disponibilidad(&e.ajustes)
+    let agentes = ea_acciones::salud::disponibilidad(&e.ajustes)
         .await
         .into_iter()
         .map(|agente| {

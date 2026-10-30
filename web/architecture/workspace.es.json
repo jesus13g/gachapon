@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/jesus13g/gachapon",
-      "revision": "628fe36c7290e3d103d81eccbf5879e01d15e77a"
+      "revision": "0397bcdb4447c22ee5e962e7f67c8cb7c4c965aa"
     }
   },
   "layout": {
@@ -33,13 +33,13 @@
       "id": "cargo",
       "label": "Cargo.toml",
       "parent": "repo",
-      "sublabel": "Raíz del workspace: 11 miembros, excluye escritorio e instalador"
+      "sublabel": "Raíz del workspace: 12 miembros, excluye escritorio e instalador"
     },
     {
       "id": "crates",
       "label": "crates/",
       "parent": "repo",
-      "sublabel": "Los 11 crates del workspace",
+      "sublabel": "Los 12 crates del workspace",
       "sources": [
         {
           "path": "Cargo.toml",
@@ -97,9 +97,9 @@
     },
     {
       "id": "m_aj3",
-      "label": "agentes.rs · equipo.rs · ejecucion.rs",
+      "label": "agentes.rs · ejecucion.rs",
       "parent": "c_aj",
-      "sublabel": "Catálogo de agentes, equipos y ejecutor"
+      "sublabel": "Catálogo de agentes y ajustes del ejecutor"
     },
     {
       "id": "c_bib",
@@ -175,7 +175,7 @@
     },
     {
       "id": "m_bus1",
-      "label": "bus.rs · tipos.rs · fs_atomico.rs",
+      "label": "bus/ · tipos.rs · fs_atomico.rs",
       "parent": "c_bus",
       "sublabel": "Colas, tipos de trabajo, escritura atómica"
     },
@@ -187,9 +187,9 @@
     },
     {
       "id": "m_bus3",
-      "label": "rutina.rs · equipo.rs · config.rs",
+      "label": "rutina.rs · equipo.rs · orquestador.rs",
       "parent": "c_bus",
-      "sublabel": "Rutinas TOML, equipos, ConfigOrquestador"
+      "sublabel": "Rutinas TOML, equipos y el latido del orquestador (orquestador.json)"
     },
     {
       "id": "c_bov",
@@ -223,7 +223,7 @@
     },
     {
       "id": "m_acc1",
-      "label": "catalogo.rs · flujo.rs · herramientas.rs",
+      "label": "catalogo.rs · flujo.rs · herramientas/",
       "parent": "c_acc",
       "sublabel": "Catálogo y flujo de propuestas"
     },
@@ -235,15 +235,15 @@
     },
     {
       "id": "m_acc3",
-      "label": "instalacion/ (recursos.rs, agentes.rs, wsl.rs…)",
+      "label": "salud.rs · ajustes.rs · temporizador.rs",
       "parent": "c_acc",
-      "sublabel": "Lógica de instalación y recursos embebidos"
+      "sublabel": "Salud de servicios y agentes, cambiar ajustes, temporizadores"
     },
     {
       "id": "c_orq",
       "label": "ea-orchestrator",
       "parent": "crates",
-      "sublabel": "Ejecutor: toma trabajos, agente en sandbox, ejecuta el criterio [binario ea-orchestrator]",
+      "sublabel": "Ejecutor: toma trabajos; el agente y el criterio corren en el sandbox [binario ea-orchestrator]",
       "sources": [
         {
           "path": "crates/ea-orchestrator/Cargo.toml",
@@ -253,9 +253,9 @@
     },
     {
       "id": "m_orq1",
-      "label": "ejecutor.rs · trabajadores.rs",
+      "label": "ejecutor/ · trabajadores.rs",
       "parent": "c_orq",
-      "sublabel": "Bucle de ejecución y trabajadores"
+      "sublabel": "Cada intento como tubería de pasos, trabajadores"
     },
     {
       "id": "m_orq2",
@@ -277,9 +277,9 @@
     },
     {
       "id": "m_mcp",
-      "label": "tools.rs · args.rs",
+      "label": "tools/ · args.rs · credencial.rs",
       "parent": "c_mcp",
-      "sublabel": "Definición de herramientas MCP y argumentos"
+      "sublabel": "Herramientas MCP por área, argumentos y credencial del planificador"
     },
     {
       "id": "c_web",
@@ -336,6 +336,24 @@
       "sublabel": "Una vista por pestaña del monitor"
     },
     {
+      "id": "m_cli3",
+      "label": "instalacion/ (recursos.rs, adaptadores.rs, wsl.rs…)",
+      "parent": "c_cli",
+      "sublabel": "ea instalar: recursos embebidos y adaptadores generados"
+    },
+    {
+      "id": "c_pru",
+      "label": "ea-pruebas",
+      "parent": "crates",
+      "sublabel": "Utilidades de las pruebas de integración (solo dev-dependencies)",
+      "sources": [
+        {
+          "path": "crates/ea-pruebas/Cargo.toml",
+          "line": 1
+        }
+      ]
+    },
+    {
       "id": "esc",
       "label": "escritorio/",
       "parent": "repo",
@@ -381,10 +399,10 @@
       "id": "claude",
       "label": "claude/",
       "parent": "repo",
-      "sublabel": "Adaptador de Claude Code",
+      "sublabel": "Skills de Claude Code: la fuente de los adaptadores",
       "sources": [
         {
-          "path": "claude/hooks/ea-subagentes.sh",
+          "path": "claude/skills/mision/SKILL.md",
           "line": 1
         }
       ]
@@ -402,22 +420,10 @@
       ]
     },
     {
-      "id": "hk",
-      "label": "hooks/",
-      "parent": "claude",
-      "sublabel": "ea-subagentes.sh: envoltorio de ea hook subagentes",
-      "sources": [
-        {
-          "path": "claude/hooks/ea-subagentes.sh",
-          "line": 1
-        }
-      ]
-    },
-    {
       "id": "ag",
       "label": "agentes/",
       "parent": "repo",
-      "sublabel": "Procedimiento neutral del planificador y adaptadores",
+      "sublabel": "Procedimiento neutral y reglas del planificador",
       "sources": [
         {
           "path": "agentes/flujo/mision.md",
@@ -439,12 +445,12 @@
     },
     {
       "id": "ag2",
-      "label": "codex/ · opencode/ · antigravity/",
+      "label": "planificador.md",
       "parent": "ag",
-      "sublabel": "Adaptadores de los otros agentes planificadores",
+      "sublabel": "Reglas del planificador; con ellas y claude/skills, ea instalar genera los adaptadores de Codex, OpenCode y Antigravity",
       "sources": [
         {
-          "path": "agentes/codex/AGENTS.md",
+          "path": "agentes/planificador.md",
           "line": 1
         }
       ]

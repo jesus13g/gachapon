@@ -83,21 +83,11 @@ pub fn contadores(ruta: &std::path::Path, avisos: &mut Vec<String>) -> Option<Co
             .into_iter()
             .flatten()
             .map(|(n, d)| {
-                (
-                    n.trim_start_matches('/').to_string(),
-                    d.get("usageCount").and_then(Value::as_u64).unwrap_or(0),
-                    d.get("lastUsedAt").and_then(Value::as_i64),
-                )
+                (n.trim_start_matches('/').to_string(), d.get("usageCount").and_then(Value::as_u64).unwrap_or(0), d.get("lastUsedAt").and_then(Value::as_i64))
             })
             .collect()
     };
-    let subagentes = v
-        .get("agentLastUsed")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
-        .map(|(n, d)| (n.clone(), 0, d.as_i64()))
-        .collect();
+    let subagentes = v.get("agentLastUsed").and_then(Value::as_object).into_iter().flatten().map(|(n, d)| (n.clone(), 0, d.as_i64())).collect();
     Some(Contadores { skills: uso("skillUsage"), plugins: uso("pluginUsage"), subagentes })
 }
 

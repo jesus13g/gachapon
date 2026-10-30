@@ -4,23 +4,34 @@
 
 use serde_json::Value;
 
-use crate::agentes::{ficha, id_perfil_valido, IDS_AGENTES};
+use crate::agentes::{IDS_AGENTES, ficha, id_perfil_valido};
 use crate::fuentes::{Ajustes, ConfigAgente, PerfilModelo};
 use crate::validar::expandir_tilde;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tipo {
     Booleano,
-    Entero { min: i64, max: i64 },
-    Texto { max: usize },
+    Entero {
+        min: i64,
+        max: i64,
+    },
+    Texto {
+        max: usize,
+    },
     /// URL del modelo: solo loopback.
     Url,
     /// Ruta de fichero o directorio; admite `~`.
     Ruta,
     /// Lista de nombres; con `permitidos`, solo esos.
-    Lista { permitidos: Option<&'static [&'static str]> },
+    Lista {
+        permitidos: Option<&'static [&'static str]>,
+    },
+    /// Lista de rutas absolutas (o con `~`).
+    Rutas,
     /// Uno de una lista cerrada.
-    Eleccion { permitidos: &'static [&'static str] },
+    Eleccion {
+        permitidos: &'static [&'static str],
+    },
     /// URL de un perfil de modelo: vacía o `http(s)://` sin credenciales. Que
     /// sea de loopback se exige al perfil no remoto (validación cruzada).
     UrlPerfil,
@@ -41,7 +52,7 @@ impl Tipo {
             Tipo::Texto { .. } => "texto",
             Tipo::Url => "url",
             Tipo::Ruta => "ruta",
-            Tipo::Lista { .. } => "lista",
+            Tipo::Lista { .. } | Tipo::Rutas => "lista",
             Tipo::Eleccion { .. } => "eleccion",
             Tipo::UrlPerfil => "url",
             Tipo::Perfil => "perfil",
@@ -69,7 +80,9 @@ impl Edicion {
     }
 }
 
-/// Desde dónde llega un cambio.
+/// Desde dónde llega un cambio (de los ajustes) o la confirmación del
+/// usuario (de una acción, `ea_acciones::puede_confirmar`). No tiene variante
+/// MCP a propósito: por ahí no se cambia ni se confirma nada.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Canal {
     Web,
@@ -145,17 +158,72 @@ pub static SECCIONES: &[(&str, &str)] = &[
     ("biblioteca", "Biblioteca"),
 ];
 
+/// Un servicio residente: su unidad en el gestor del sistema (y su binario)
+/// se llama `nombre`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Servicio {
+    pub nombre: &'static str,
+    /// Lo vigila el panel de salud.
+    pub monitorizado: bool,
+    /// Se puede reiniciar (`ea_reiniciar_servicio`).
+    pub reiniciable: bool,
+    /// Es un binario nuestro que se registra en el gestor (`ea servicios instalar`).
+    pub instalable: bool,
+}
+
+/// La tabla única de los servicios; las listas cerradas salen de ella, en este orden.
+pub const SERVICIOS: [Servicio; 4] = [
+    Servicio { nombre: "llama-server", monitorizado: true, reiniciable: true, instalable: false },
+    Servicio { nombre: "ea-mcp", monitorizado: true, reiniciable: true, instalable: true },
+    Servicio { nombre: "ea-orchestrator", monitorizado: true, reiniciable: true, instalable: true },
+    Servicio { nombre: "ea-web", monitorizado: false, reiniciable: true, instalable: true },
+];
+
+/// Los que vigila el panel (ea-web no se vigila a sí mismo).
+pub const SERVICIOS_MONITORIZADOS: [&str; 3] = servicios(Columna::Monitorizado);
+/// Los que se pueden reiniciar: lista cerrada.
+pub const SERVICIOS_REINICIABLES: [&str; 4] = servicios(Columna::Reiniciable);
+/// Los que instalan `ea servicios instalar` y `ea instalar`.
+pub const SERVICIOS_INSTALABLES: [&str; 3] = servicios(Columna::Instalable);
+
+#[derive(Clone, Copy)]
+enum Columna {
+    Monitorizado,
+    Reiniciable,
+    Instalable,
+}
+
+/// Los nombres de [`SERVICIOS`] con esa columna a `true`, en su orden. `N`
+/// tiene que ser justo cuántos son: si no, no compila.
+const fn servicios<const N: usize>(columna: Columna) -> [&'static str; N] {
+    let mut v = [""; N];
+    let (mut i, mut n) = (0, 0);
+    while i < SERVICIOS.len() {
+        let s = SERVICIOS[i];
+        if match columna {
+            Columna::Monitorizado => s.monitorizado,
+            Columna::Reiniciable => s.reiniciable,
+            Columna::Instalable => s.instalable,
+        } {
+            v[n] = s.nombre;
+            n += 1;
+        }
+        i += 1;
+    }
+    assert!(n == N, "la lista no tiene tantos servicios");
+    v
+}
+
+/// Lo que hay que reiniciar tras cambiar una clave que leen todos los
+/// servicios del ecosistema: los instalables, en el orden en que se dice.
 const TODOS: &[&str] = &["ea-orchestrator", "ea-web", "ea-mcp"];
 const ORQ: &str = "orquestador.toml";
 /// La sección `[modelo]` que `ajustes.toml` tenía antes de la 017: se lee
 /// como fuente heredada del perfil `local` y de `agentes.qwen-code.bin`.
 pub(crate) const AJ_VIEJO: &str = "ajustes.toml [modelo]";
 /// Claves antiguas de `ajustes.toml` y su nombre de ahora.
-pub static ALIAS: &[(&str, &str)] = &[
-    ("modelo.nombre", "modelos.local.nombre"),
-    ("modelo.base_url", "modelos.local.base_url"),
-    ("modelo.qwen_bin", "agentes.qwen-code.bin"),
-];
+pub static ALIAS: &[(&str, &str)] =
+    &[("modelo.nombre", "modelos.local.nombre"), ("modelo.base_url", "modelos.local.base_url"), ("modelo.qwen_bin", "agentes.qwen-code.bin")];
 
 /// Fuentes heredadas de instancias concretas de un patrón.
 static HEREDADAS_INSTANCIA: &[(&str, &[(&str, &str)])] = &[
@@ -262,6 +330,30 @@ pub static CLAVES: &[Clave] = &[
         heredada: &[(ORQ, "sandbox")],
     },
     Clave {
+        nombre: "agente.criterio.escribibles",
+        seccion: "agente",
+        titulo: "Rutas escribibles del criterio",
+        descripcion: "El criterio de éxito corre en el sandbox del agente: solo escribe en el worktree (no en su .git) y en un /tmp propio. Aquí van las rutas extra que puede escribir (p. ej. ~/.cargo o ~/.cache/pip): absolutas o con ~, que existan, y nunca tu directorio personal ni un ancestro suyo, ni la configuración, los datos, el estado o el directorio de ejecución del ecosistema. Es código del agente lo que escribe ahí: solo desde la terminal.",
+        tipo: Tipo::Rutas,
+        edicion: Edicion::Terminal,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
+    },
+    Clave {
+        nombre: "agente.tapar",
+        seccion: "agente",
+        titulo: "Rutas que el sandbox tapa",
+        descripcion: "Rutas absolutas (o con ~) que el sandbox esconde al ejecutor y al criterio: un directorio aparece vacío y un fichero ilegible (p. ej. ~/.config/credenciales o ~/.aws). Solo endurece. Si una ruta contiene o coincide con el worktree, el estado del agente o una ruta escribible del criterio, o cae dentro de ellos, el trabajo se rechaza; una que no existe se ignora. No actúa con sandbox = false. Solo desde la terminal.",
+        tipo: Tipo::Rutas,
+        edicion: Edicion::Terminal,
+        endurecible: false,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[],
+    },
+    Clave {
         nombre: "agente.avisos_escritorio",
         seccion: "agente",
         titulo: "Avisos de escritorio",
@@ -320,6 +412,18 @@ pub static CLAVES: &[Clave] = &[
         aplica: Aplica::EnCaliente,
         entorno: None,
         heredada: &[(ORQ, "topes.iteraciones")],
+    },
+    Clave {
+        nombre: "agente.techo_topes.tiempo_criterio_s",
+        seccion: "agente",
+        titulo: "Techo de tiempo del criterio (s)",
+        descripcion: "Máximo de segundos por corrida del criterio de éxito (topes.tiempo_criterio_s de la orden, 120 por defecto); las órdenes que pidan más se recortan.",
+        tipo: Tipo::Entero { min: 10, max: 3600 },
+        edicion: Edicion::Web,
+        endurecible: true,
+        aplica: Aplica::EnCaliente,
+        entorno: None,
+        heredada: &[(ORQ, "topes.tiempo_criterio_s")],
     },
     Clave {
         nombre: "agente.skills.dir",
@@ -606,8 +710,7 @@ pub fn concretas(perfiles: &[String]) -> Vec<(String, &'static Clave)> {
             "agentes" => IDS_AGENTES.to_vec(),
             _ => perfiles.iter().map(String::as_str).collect(),
         };
-        let patrones: Vec<&'static Clave> =
-            CLAVES.iter().filter(|p| p.nombre.split_once(".*.").is_some_and(|(g, _)| g == grupo)).collect();
+        let patrones: Vec<&'static Clave> = CLAVES.iter().filter(|p| p.nombre.split_once(".*.").is_some_and(|(g, _)| g == grupo)).collect();
         for id in ids {
             for p in &patrones {
                 let campo = p.nombre.rsplit('.').next().unwrap_or_default();
@@ -659,11 +762,14 @@ pub(crate) fn valor_de(a: &Ajustes, nombre: &str) -> Value {
         "roles.planificador" => a.roles.planificador.clone().into(),
         "roles.ejecutor" => a.roles.ejecutor.clone().into(),
         "agente.sandbox" => a.agente.sandbox.into(),
+        "agente.tapar" => a.agente.tapar.iter().map(|p| ruta(p)).collect::<Vec<_>>().into(),
         "agente.avisos_escritorio" => a.agente.avisos_escritorio.into(),
+        "agente.criterio.escribibles" => a.agente.criterio.escribibles.iter().map(|p| ruta(p)).collect::<Vec<_>>().into(),
         "agente.techo_topes.turnos" => a.agente.techo_topes.turnos.into(),
         "agente.techo_topes.tiempo_s" => a.agente.techo_topes.tiempo_s.into(),
         "agente.techo_topes.llamadas_herramienta" => a.agente.techo_topes.llamadas_herramienta.into(),
         "agente.techo_topes.iteraciones" => a.agente.techo_topes.iteraciones.into(),
+        "agente.techo_topes.tiempo_criterio_s" => a.agente.techo_topes.tiempo_criterio_s.into(),
         "agente.skills.dir" => a.agente.skills.dir.clone().into(),
         "agente.skills.habilitadas" => a.agente.skills.habilitadas.clone().into(),
         "agente.skills.max_por_trabajo" => a.agente.skills.max_por_trabajo.into(),
@@ -700,11 +806,7 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
     if let Some((grupo, id, campo)) = trocear(nombre) {
         match grupo {
             "modelos" => {
-                let p = a.modelos.entry(id.to_string()).or_insert_with(|| PerfilModelo {
-                    nombre: String::new(),
-                    base_url: String::new(),
-                    remoto: false,
-                });
+                let p = a.modelos.entry(id.to_string()).or_insert_with(|| PerfilModelo { nombre: String::new(), base_url: String::new(), remoto: false });
                 match campo {
                     "nombre" => p.nombre = t(),
                     "base_url" => p.base_url = t(),
@@ -729,11 +831,14 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
         "roles.planificador" => a.roles.planificador = t(),
         "roles.ejecutor" => a.roles.ejecutor = t(),
         "agente.sandbox" => a.agente.sandbox = b(),
+        "agente.tapar" => a.agente.tapar = lista(v).iter().map(|r| expandir_tilde(r)).collect(),
         "agente.avisos_escritorio" => a.agente.avisos_escritorio = b(),
+        "agente.criterio.escribibles" => a.agente.criterio.escribibles = lista(v).iter().map(|r| expandir_tilde(r)).collect(),
         "agente.techo_topes.turnos" => a.agente.techo_topes.turnos = n() as u32,
         "agente.techo_topes.tiempo_s" => a.agente.techo_topes.tiempo_s = n() as u64,
         "agente.techo_topes.llamadas_herramienta" => a.agente.techo_topes.llamadas_herramienta = n() as u32,
         "agente.techo_topes.iteraciones" => a.agente.techo_topes.iteraciones = n() as u32,
+        "agente.techo_topes.tiempo_criterio_s" => a.agente.techo_topes.tiempo_criterio_s = n() as u64,
         "agente.skills.dir" => a.agente.skills.dir = r().to_string_lossy().into_owned(),
         "agente.skills.habilitadas" => a.agente.skills.habilitadas = lista(v),
         "agente.skills.max_por_trabajo" => a.agente.skills.max_por_trabajo = n() as usize,
@@ -753,11 +858,27 @@ pub(crate) fn aplicar(a: &mut Ajustes, nombre: &str, v: &Value) {
         "escritorio.al_iniciar" => a.escritorio.al_iniciar = b(),
         "escritorio.wsl" => a.escritorio.wsl = v.as_str().unwrap_or_default().to_string(),
         "biblioteca.categorias" => {
-            a.biblioteca.categorias = v
-                .as_object()
-                .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
-                .unwrap_or_default();
+            a.biblioteca.categorias =
+                v.as_object().map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()).unwrap_or_default();
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Las listas que salen de la tabla son las que había escritas a mano,
+    /// en el mismo orden (se ven en la interfaz).
+    #[test]
+    fn las_listas_de_servicios_salen_de_la_tabla_como_estaban() {
+        assert_eq!(SERVICIOS_MONITORIZADOS, ["llama-server", "ea-mcp", "ea-orchestrator"]);
+        assert_eq!(SERVICIOS_REINICIABLES, ["llama-server", "ea-mcp", "ea-orchestrator", "ea-web"]);
+        assert_eq!(SERVICIOS_INSTALABLES, ["ea-mcp", "ea-orchestrator", "ea-web"]);
+        // `TODOS` va en otro orden (el de «Requiere reiniciar»), pero son los mismos.
+        let mut todos = TODOS.to_vec();
+        todos.sort();
+        assert_eq!(todos, SERVICIOS_INSTALABLES);
     }
 }

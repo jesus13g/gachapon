@@ -71,10 +71,7 @@ fn validar_componentes(ruta: &str, minimo: usize) -> Resultado<Vec<&str>> {
         return mal("debe ser 'región/nota.md'");
     }
     if !es_region(partes[0]) {
-        return Err(ErrorBoveda::Ruta(format!(
-            "'{ruta}': la primera carpeta debe ser una región ({})",
-            REGIONES.join(", ")
-        )));
+        return Err(ErrorBoveda::Ruta(format!("'{ruta}': la primera carpeta debe ser una región ({})", REGIONES.join(", "))));
     }
     Ok(partes)
 }

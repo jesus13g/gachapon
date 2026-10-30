@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use ea_ajustes::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn fuentes() -> (tempfile::TempDir, Fuentes) {
     let d = tempfile::tempdir().unwrap();
@@ -66,6 +66,33 @@ fn precedencia_defecto_ajustes_entorno() {
     assert_eq!(e.ajustes.red.puerto_web, 9200);
     assert_eq!(e.origenes["red.puerto_web"], Origen::Entorno { variable: "EA_WEB_PORT" });
     assert_eq!(e.origenes["red.puerto_web"].legible(), "entorno: EA_WEB_PORT");
+}
+
+/// Las rutas que leen el bus, el diario y la bóveda salen solo de aquí: la
+/// variable de entorno gana a `ajustes.toml` y al heredado, sin espacios en los
+/// extremos y con `~` expandido, y `ea ajustes ver` dice que viene del entorno.
+#[test]
+fn las_rutas_del_entorno_ganan_a_los_ficheros() {
+    let (d, f) = fuentes();
+    escribe(&f, "ajustes.toml", "[rutas]\ndb = \"/a/ea.db\"\nestado = \"/a/estado\"\n");
+    escribe(&f, "boveda.toml", "raiz = \"/a/boveda\"\n");
+    let e = cargar_de(&f);
+    assert_eq!((e.ajustes.rutas.db, e.ajustes.rutas.estado), (PathBuf::from("/a/ea.db"), PathBuf::from("/a/estado")));
+    assert_eq!((e.ajustes.rutas.boveda, &e.origenes["rutas.boveda"]), (PathBuf::from("/a/boveda"), &Origen::Heredado { fichero: "boveda.toml" }));
+
+    let f = Fuentes::aislada(d.path()).con_var("EA_DB_PATH", " /e/ea.db ").con_var("EA_ESTADO_DIR", "/e/estado").con_var("EA_BOVEDA_DIR", "~/boveda");
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.rutas.db, PathBuf::from("/e/ea.db"));
+    assert_eq!(e.ajustes.rutas.estado, PathBuf::from("/e/estado"));
+    if let Some(casa) = ea_plataforma::usuario::home() {
+        assert_eq!(e.ajustes.rutas.boveda, casa.join("boveda"));
+    }
+    for (clave, variable) in [("rutas.db", "EA_DB_PATH"), ("rutas.estado", "EA_ESTADO_DIR"), ("rutas.boveda", "EA_BOVEDA_DIR")] {
+        assert_eq!(e.origenes[clave].legible(), format!("entorno: {variable}"));
+    }
+    // Una variable vacía no cuenta.
+    let e = cargar_de(&Fuentes::aislada(d.path()).con_var("EA_ESTADO_DIR", "  "));
+    assert_eq!((e.ajustes.rutas.estado, &e.origenes["rutas.estado"]), (PathBuf::from("/a/estado"), &Origen::Ajustes));
 }
 
 #[test]
@@ -160,7 +187,9 @@ fn un_ajustes_toml_roto_se_ignora_sin_panico() {
 #[test]
 fn desde_la_web_no_se_tocan_las_claves_de_terminal() {
     let (_d, f) = fuentes();
-    for (k, v) in [("agente.sandbox", json!(false)), ("modelo.qwen_bin", json!("/tmp/x")), ("agentes.codex.bin", json!("/tmp/x")), ("rutas.db", json!("/tmp/x.db"))] {
+    for (k, v) in
+        [("agente.sandbox", json!(false)), ("modelo.qwen_bin", json!("/tmp/x")), ("agentes.codex.bin", json!("/tmp/x")), ("rutas.db", json!("/tmp/x.db"))]
+    {
         let r = establecer(&f, Canal::Web, Some(""), &cambio(k, v));
         assert!(matches!(r, Err(ErrorAjustes::NoEditable { .. })), "{k}: {r:?}");
     }
@@ -200,10 +229,7 @@ fn version_entorno_y_lotes_todo_o_nada() {
     let r = establecer(&f, Canal::Terminal, None, &cambio("no.existe", json!(1)));
     assert!(matches!(r, Err(ErrorAjustes::ClaveDesconocida(_))), "{r:?}");
     let antes = std::fs::read(f.fichero()).unwrap();
-    let lote = vec![
-        ("web.diario_limite".to_string(), Some(json!(50))),
-        ("web.sondeo_ms".to_string(), Some(json!(1))),
-    ];
+    let lote = vec![("web.diario_limite".to_string(), Some(json!(50))), ("web.sondeo_ms".to_string(), Some(json!(1)))];
     assert!(establecer(&f, Canal::Terminal, None, &lote).is_err());
     assert_eq!(std::fs::read(f.fichero()).unwrap(), antes);
     let r = establecer(&f, Canal::Terminal, None, &cambio("red.puerto_mcp", json!(8092)));
@@ -212,12 +238,7 @@ fn version_entorno_y_lotes_todo_o_nada() {
 }
 
 fn temporales(dir: &Path) -> Vec<String> {
-    std::fs::read_dir(dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".tmp"))
-        .collect()
+    std::fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".tmp")).collect()
 }
 
 #[test]
@@ -300,9 +321,29 @@ fn el_resumen_lleva_todas_las_claves_por_seccion() {
 
 // ------------------------------------------------- 017: roles, agentes y modelos
 
+/// Los ids del catálogo y el binario y el perfil por defecto de cada agente,
+/// tal como están en disco y en la API.
+#[test]
+fn los_agentes_conservan_sus_nombres_y_sus_valores_por_defecto() {
+    assert_eq!(IDS_AGENTES, ["claude-code", "qwen-code", "codex", "opencode", "antigravity"]);
+    let (_d, f) = fuentes();
+    let a = Ajustes::por_defecto(&f);
+    let defecto: Vec<_> = a.agentes.iter().map(|(id, c)| (id.as_str(), c.bin.as_str(), c.modelo.as_str())).collect();
+    assert_eq!(
+        defecto,
+        [
+            ("antigravity", "agy", ""),
+            ("claude-code", "claude", ""),
+            ("codex", "codex", "local"),
+            ("opencode", "opencode", "local"),
+            ("qwen-code", "qwen", "local"),
+        ]
+    );
+}
+
 #[test]
 fn el_catalogo_y_los_roles() {
-    assert_eq!(CATALOGO.iter().map(|a| a.id).collect::<Vec<_>>(), IDS_AGENTES);
+    assert_eq!(CATALOGO.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), IDS_AGENTES);
     let admite = |id, r| ficha(id).unwrap().admite(r);
     for id in ["qwen-code", "codex", "opencode"] {
         assert!(admite(id, Rol::Ejecutor) && admite(id, Rol::Planificador), "{id}");
@@ -383,10 +424,7 @@ fn cada_agente_solo_ocupa_los_roles_que_admite() {
 fn el_modelo_del_ejecutor_es_local() {
     let (_d, f) = fuentes();
     // un perfil remoto: solo para el planificador
-    let lote = vec![
-        ("modelos.gpt.nombre".to_string(), Some(json!("gpt-5-codex"))),
-        ("modelos.gpt.remoto".to_string(), Some(json!(true))),
-    ];
+    let lote = vec![("modelos.gpt.nombre".to_string(), Some(json!("gpt-5-codex"))), ("modelos.gpt.remoto".to_string(), Some(json!(true)))];
     establecer(&f, Canal::Web, Some(""), &lote).unwrap();
     let e = cargar_de(&f);
     assert_eq!(e.ajustes.modelos["gpt"], PerfilModelo { nombre: "gpt-5-codex".into(), base_url: "".into(), remoto: true });
@@ -542,4 +580,126 @@ fn la_distribucion_de_wsl_vale_vacia_por_defecto_y_solo_se_cambia_desde_la_termi
     assert_eq!(cargar_de(&f).ajustes.escritorio.wsl, "Ubuntu");
     establecer(&f, Canal::Terminal, None, &cambio("escritorio.wsl", json!(""))).unwrap();
     assert_eq!(cargar_de(&f).ajustes.escritorio.wsl, "");
+}
+
+// ------------------------------------------------- U-01: el criterio en el sandbox
+
+/// `agente.criterio.escribibles`: vacía por defecto, solo desde la terminal,
+/// rutas absolutas (o con `~`) que existen, guardadas como se escribieron y
+/// expandidas en los ajustes; nunca el directorio personal ni un ancestro
+/// suyo, ni un directorio del ecosistema (ni dentro, ni por encima).
+#[test]
+fn las_rutas_escribibles_del_criterio_se_validan_y_solo_se_cambian_desde_la_terminal() {
+    let (d, f) = fuentes();
+    let k = "agente.criterio.escribibles";
+    assert!(cargar_de(&f).ajustes.agente.criterio.escribibles.is_empty());
+    let c = clave(k).unwrap();
+    assert_eq!((c.edicion, c.tipo.nombre()), (Edicion::Terminal, "lista"));
+    assert!(interpretar(c, "relativa/x").is_err());
+    assert!(interpretar(c, "~otro/x").is_err());
+    let a = d.path().join("a");
+    let a = a.to_str().unwrap();
+    assert_eq!(interpretar(c, &format!(" {a} , ~/b,{a} ")).unwrap(), json!([a, "~/b"]));
+
+    let cache = d.path().join("cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    let r = establecer(&f, Canal::Web, Some(""), &cambio(k, json!([cache.to_str().unwrap()])));
+    assert!(matches!(r, Err(ErrorAjustes::NoEditable { .. })), "{r:?}");
+    establecer(&f, Canal::Terminal, None, &cambio(k, json!([cache.to_str().unwrap()]))).unwrap();
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.agente.criterio.escribibles, std::slice::from_ref(&cache));
+    assert_eq!(e.valores[k], json!([cache.to_str().unwrap()]));
+    assert_eq!(validar_escribibles(&e.ajustes.agente.criterio.escribibles, &f, &e.ajustes).unwrap(), [ea_plataforma::rutas::canonica(&cache).unwrap()]);
+
+    // Lo que no vale no se escribe y deja la lista como estaba.
+    for d in [&f.dir_config, &f.dir_datos, &f.dir_estado] {
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+    }
+    let casa = ea_plataforma::usuario::home().unwrap();
+    let malas: Vec<(PathBuf, &str)> = vec![
+        (d.path().join("no-existe"), "no existe"),
+        (casa.clone(), "directorio personal"),
+        (casa.parent().unwrap().to_path_buf(), "directorio personal"),
+        (d.path().ancestors().last().unwrap().to_path_buf(), "directorio personal"),
+        (f.dir_config.clone(), "del ecosistema"),
+        (f.dir_datos.join("sub"), "del ecosistema"),
+        (f.dir_estado.join("sub"), "del ecosistema"),
+        (d.path().to_path_buf(), "del ecosistema"),
+    ];
+    for (mala, motivo) in &malas {
+        let r = establecer(&f, Canal::Terminal, None, &cambio(k, json!([cache.to_str().unwrap(), mala.to_str().unwrap()])));
+        assert!(matches!(&r, Err(ErrorAjustes::ValorInvalido { clave, motivo: m }) if clave == k && m.contains(motivo)), "{mala:?}: {r:?}");
+        assert_eq!(cargar_de(&f).ajustes.agente.criterio.escribibles, std::slice::from_ref(&cache), "{mala:?}");
+    }
+    let r = establecer(&f, Canal::Terminal, None, &cambio(k, json!(["~"])));
+    assert!(matches!(&r, Err(ErrorAjustes::ValorInvalido { motivo, .. }) if motivo.contains("directorio personal")), "{r:?}");
+
+    // El directorio de ejecución (la clave del panel), tampoco.
+    // (`XDG_RUNTIME_DIR` en Unix; en Windows cuelga de `LOCALAPPDATA`.)
+    let rt = d.path().join("rt");
+    let f2 = Fuentes::aislada(d.path()).con_var("XDG_RUNTIME_DIR", rt.to_str().unwrap()).con_var("LOCALAPPDATA", rt.to_str().unwrap());
+    let web = ea_ajustes::dir_ejecucion(&f2.entorno).unwrap().join("ea-web");
+    std::fs::create_dir_all(&web).unwrap();
+    let r = establecer(&f2, Canal::Terminal, None, &cambio(k, json!([web.to_str().unwrap()])));
+    assert!(matches!(&r, Err(ErrorAjustes::ValorInvalido { motivo, .. }) if motivo.contains("del ecosistema")), "{r:?}");
+
+    // Una ruta que deja de valer (aquí, borrada) se ignora al cargar, con aviso.
+    std::fs::remove_dir(&cache).unwrap();
+    let e = cargar_de(&f);
+    assert!(e.ajustes.agente.criterio.escribibles.is_empty());
+    assert!(e.avisos.iter().any(|a| a.contains(k) && a.contains("no existe")), "{:?}", e.avisos);
+}
+
+/// Spec 024: `agente.tapar`, vacía por defecto, solo desde la terminal,
+/// rutas absolutas (o con `~`) sin `..` ni la raíz, guardadas como se
+/// escribieron y expandidas en los ajustes. No hace falta que existan.
+#[test]
+fn agente_tapar_valida_rutas_y_solo_se_cambia_desde_la_terminal() {
+    let (d, f) = fuentes();
+    let k = "agente.tapar";
+    assert!(cargar_de(&f).ajustes.agente.tapar.is_empty(), "por defecto no tapa nada");
+    let c = clave(k).unwrap();
+    assert_eq!((c.edicion, c.tipo.nombre(), c.endurecible), (Edicion::Terminal, "lista", false));
+    // Rutas absolutas en cada sistema (en Windows, con unidad).
+    let secreto = d.path().join("secreto");
+    let secreto = secreto.to_str().unwrap();
+    assert_eq!(interpretar(c, &format!("~/.config/x, {secreto},{secreto}")).unwrap(), json!(["~/.config/x", secreto]));
+    assert_eq!(interpretar(c, "").unwrap(), json!([]));
+    let con_puntos = d.path().join("a").join("..").join("b");
+    let raiz = d.path().ancestors().last().unwrap();
+    for malo in ["relativa/ruta", con_puntos.to_str().unwrap(), raiz.to_str().unwrap()] {
+        assert!(interpretar(c, malo).is_err(), "{malo}");
+    }
+    for malo in [json!(secreto), json!([1]), json!([""]), json!([format!("{secreto}\nb")])] {
+        let r = establecer(&f, Canal::Terminal, None, &cambio(k, malo.clone()));
+        assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{malo}: {r:?}");
+    }
+    let r = establecer(&f, Canal::Web, Some(""), &cambio(k, json!([])));
+    assert!(matches!(r, Err(ErrorAjustes::NoEditable { .. })), "{r:?}");
+    establecer(&f, Canal::Terminal, None, &cambio(k, json!(["~/.secreto", secreto]))).unwrap();
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.agente.tapar, [expandir_tilde("~/.secreto"), PathBuf::from(secreto)]);
+    assert_eq!(e.valores[k], json!(["~/.secreto", secreto]));
+}
+
+/// U-09: el techo del tope del criterio es uno más de `agente.techo_topes`:
+/// 3600 s de fábrica, de 10 a 3600, solo baja desde la web y se hereda del
+/// `[topes]` de `orquestador.toml`.
+#[test]
+fn el_techo_del_criterio_es_un_techo_de_topes_mas() {
+    let (_d, f) = fuentes();
+    let k = "agente.techo_topes.tiempo_criterio_s";
+    assert_eq!(cargar_de(&f).ajustes.agente.techo_topes.tiempo_criterio_s, 3600);
+    let c = clave(k).unwrap();
+    assert!(c.endurecible && c.edicion == Edicion::Web);
+    assert!(interpretar(c, "9").is_err() && interpretar(c, "3601").is_err());
+    escribe(&f, "orquestador.toml", "[topes]\ntiempo_criterio_s = 300\n");
+    assert_eq!(cargar_de(&f).ajustes.agente.techo_topes.tiempo_criterio_s, 300);
+    let v = version(&f);
+    establecer(&f, Canal::Web, Some(&v), &cambio(k, json!(200))).unwrap();
+    let v = version(&f);
+    let r = establecer(&f, Canal::Web, Some(&v), &cambio(k, json!(250)));
+    assert!(matches!(r, Err(ErrorAjustes::SoloEndurecer { .. })), "{r:?}");
+    establecer(&f, Canal::Terminal, None, &cambio(k, json!(900))).unwrap();
+    assert_eq!(cargar_de(&f).ajustes.agente.techo_topes.tiempo_criterio_s, 900);
 }
