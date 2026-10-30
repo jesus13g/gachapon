@@ -13,9 +13,12 @@ fn ea(dir: &Path, args: &[&str]) -> Output {
 }
 
 /// `git` sin nada más, como lo lanzaría a mano el usuario. Devuelve stdout tal cual.
+/// Los prefijos del diff se fijan: `ea` corre con un HOME temporal y no ve la
+/// configuración global de quien pasa las pruebas (`diff.mnemonicPrefix`…).
 fn git(wt: &Path, args: &[&str], indice: Option<&Path>) -> String {
     let mut c = Command::new("git");
     c.arg("-C").arg(wt).args(["-c", "user.name=prueba", "-c", "user.email=prueba@localhost", "-c", "commit.gpgsign=false"]);
+    c.args(["-c", "diff.mnemonicPrefix=false", "-c", "diff.noprefix=false"]);
     if let Some(i) = indice {
         c.env("GIT_INDEX_FILE", i);
     }
