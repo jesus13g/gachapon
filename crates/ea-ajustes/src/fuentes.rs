@@ -133,6 +133,9 @@ pub struct Roles {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Agente {
     pub sandbox: bool,
+    /// Rutas que el sandbox esconde al ejecutor y al criterio (`agente.tapar`,
+    /// spec 024), ya expandidas. Solo endurece; se cambia solo desde la terminal.
+    pub tapar: Vec<PathBuf>,
     pub avisos_escritorio: bool,
     pub techo_topes: TechoTopes,
     pub skills: Skills,
@@ -239,6 +242,7 @@ impl Ajustes {
             roles: Roles { planificador: AgenteId::ClaudeCode.as_str().into(), ejecutor: AgenteId::QwenCode.as_str().into() },
             agente: Agente {
                 sandbox: true,
+                tapar: vec![],
                 avisos_escritorio: true,
                 techo_topes: TECHO_DURO,
                 skills: Skills {

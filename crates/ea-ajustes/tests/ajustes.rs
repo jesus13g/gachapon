@@ -650,6 +650,33 @@ fn las_rutas_escribibles_del_criterio_se_validan_y_solo_se_cambian_desde_la_term
     assert!(e.avisos.iter().any(|a| a.contains(k) && a.contains("no existe")), "{:?}", e.avisos);
 }
 
+/// Spec 024: `agente.tapar`, vacía por defecto, solo desde la terminal,
+/// rutas absolutas (o con `~`) sin `..` ni la raíz, guardadas como se
+/// escribieron y expandidas en los ajustes. No hace falta que existan.
+#[test]
+fn agente_tapar_valida_rutas_y_solo_se_cambia_desde_la_terminal() {
+    let (_d, f) = fuentes();
+    let k = "agente.tapar";
+    assert!(cargar_de(&f).ajustes.agente.tapar.is_empty(), "por defecto no tapa nada");
+    let c = clave(k).unwrap();
+    assert_eq!((c.edicion, c.tipo.nombre(), c.endurecible), (Edicion::Terminal, "lista", false));
+    assert_eq!(interpretar(c, "~/.config/x, /srv/secreto,/srv/secreto").unwrap(), json!(["~/.config/x", "/srv/secreto"]));
+    assert_eq!(interpretar(c, "").unwrap(), json!([]));
+    for malo in ["relativa/ruta", "/a/../b", "/"] {
+        assert!(interpretar(c, malo).is_err(), "{malo}");
+    }
+    for malo in [json!("/a"), json!([1]), json!([""]), json!(["/a\nb"])] {
+        let r = establecer(&f, Canal::Terminal, None, &cambio(k, malo.clone()));
+        assert!(matches!(r, Err(ErrorAjustes::ValorInvalido { .. })), "{malo}: {r:?}");
+    }
+    let r = establecer(&f, Canal::Web, Some(""), &cambio(k, json!([])));
+    assert!(matches!(r, Err(ErrorAjustes::NoEditable { .. })), "{r:?}");
+    establecer(&f, Canal::Terminal, None, &cambio(k, json!(["~/.secreto", "/srv/x"]))).unwrap();
+    let e = cargar_de(&f);
+    assert_eq!(e.ajustes.agente.tapar, [expandir_tilde("~/.secreto"), PathBuf::from("/srv/x")]);
+    assert_eq!(e.valores[k], json!(["~/.secreto", "/srv/x"]));
+}
+
 /// U-09: el techo del tope del criterio es uno más de `agente.techo_topes`:
 /// 3600 s de fábrica, de 10 a 3600, solo baja desde la web y se hereda del
 /// `[topes]` de `orquestador.toml`.

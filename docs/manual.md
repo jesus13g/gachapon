@@ -241,6 +241,20 @@ corre y no pasa). Lo que el criterio escribe en esas rutas es código del agente
 que otros programas pueden leer después: añade solo cachés. Revisa el criterio de
 un trabajo antes de lanzarlo como revisarías un script.
 
+**Rutas que el sandbox tapa (`agente.tapar`, spec 024).** El sandbox monta `/`
+en solo lectura, así que el agente y el criterio pueden *leer* cualquier
+fichero de tu usuario (por ejemplo credenciales de APIs). `agente.tapar` es una
+lista de rutas absolutas (admite `~/`) que el sandbox les esconde a los dos: un
+directorio aparece vacío (tmpfs) y un fichero, ilegible (`/dev/null` encima en
+Linux; en macOS, una regla `deny file-read* file-write*` en el perfil Seatbelt).
+Por defecto está vacía. Se cambia solo desde la terminal, p. ej.
+`ea ajustes establecer agente.tapar '~/.config/credenciales, ~/.aws'`. Solo
+endurece: no abre nada y no actúa con `sandbox = false`. Las rutas que no
+existen se ignoran. Si una ruta contiene al worktree del trabajo, al estado del
+agente o a una ruta de `agente.criterio.escribibles`, coincide con ellos o cae
+dentro, el trabajo se rechaza con el motivo en vez de taparse a medias. Las
+rutas no pueden llevar comas ni `..`, ni ser `/`.
+
 Qué se le quita a cada agente para que no salga a la web:
 
 | Agente | Cómo | Herramientas que le quedan (comprobado) |
@@ -282,6 +296,7 @@ comentarios y claves ajenas).
 | `modelos.<perfil>.base_url` | `local`: `http://127.0.0.1:8080/v1` | perfil no remoto: solo `127.0.0.1`, `localhost` o `[::1]` | | web y terminal | en caliente |
 | `modelos.<perfil>.remoto` | `false` | sí/no; uno remoto solo vale para el planificador | | web y terminal | en caliente |
 | `agente.sandbox` | `true` | sí/no | | solo terminal | en caliente |
+| `agente.tapar` | `[]` | rutas absolutas o con `~`, sin `..` ni `/`; las que no existen se ignoran | | solo terminal | en caliente (próximo trabajo) |
 | `agente.criterio.escribibles` | `[]` | rutas absolutas o con `~`, que existan; nunca `$HOME` ni sus ancestros, ni los directorios del ecosistema | | solo terminal | en caliente (próximo trabajo) |
 | `agente.avisos_escritorio` | `true` | sí/no | | web y terminal | en caliente |
 | `agente.techo_topes.turnos` | 100 | 1–100 | | web solo baja; terminal | en caliente |

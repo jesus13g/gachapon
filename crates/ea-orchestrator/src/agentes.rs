@@ -21,7 +21,7 @@ use ea_bus::{TipoAgente, Topes};
 
 use crate::config::{ConfigOrquestador, PerfilEjecutor};
 use crate::ejecutor::{SalidaAgente, avisar_sin_arbol};
-use crate::sandbox::Sandbox;
+use crate::sandbox::{Ocultar, Sandbox};
 
 /// Lo que el bucle del orquestador necesita de un ejecutor.
 pub trait Ejecutor {
@@ -115,7 +115,7 @@ pub(crate) fn lanzar<A: AgenteCli>(
     // Los directorios de estado solo se crean si van a montarse.
     let estado = if matches!(sandbox, Sandbox::Bwrap | Sandbox::Seatbelt) { preparar_dirs_estado(&home_usuario(), a.dirs_estado()) } else { vec![] };
     let args = a.argumentos(p, prompt, sistema, worktree, topes, config.sandbox);
-    let mut envoltorio = match sandbox.envolver(&p.bin, &args, worktree, &estado, ejecucion.as_deref()) {
+    let mut envoltorio = match sandbox.envolver(&p.bin, &args, worktree, &estado, Ocultar { ejecucion: ejecucion.as_deref(), tapar: &config.tapar }) {
         Ok(e) => e,
         Err(motivo) => {
             // Sin aislamiento posible no se lanza al agente (art. V y VIII).

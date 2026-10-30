@@ -13,7 +13,7 @@ use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{Bus, Cola, EstadoTrabajo, Miembro, NuevoEquipo, Orden, Presencia, ResultadoInforme, Rol, RolEquipo, Topes};
 use ea_orchestrator::config::ConfigOrquestador;
 use ea_orchestrator::ejecutor::{Ejecutor, SalidaAgente, correr_criterio, ejecutar_uno};
-use ea_orchestrator::sandbox::Sandbox;
+use ea_orchestrator::sandbox::{Ocultar, Sandbox};
 use ea_orchestrator::trabajadores::{Contexto, Trabajadores, arrancar, ejecutores_despiertos};
 use ea_pruebas::git;
 use time::OffsetDateTime;
@@ -407,7 +407,7 @@ fn en_bwrap(wt: &Path, guion: &str) -> Option<std::process::Output> {
         return None;
     }
     let args = ["-c".to_string(), guion.to_string()];
-    let s = Sandbox::Bwrap.envolver("sh", &args, wt, &[], None).unwrap().orden.output().unwrap();
+    let s = Sandbox::Bwrap.envolver("sh", &args, wt, &[], Ocultar::default()).unwrap().orden.output().unwrap();
     if !s.status.success() && String::from_utf8_lossy(&s.stderr).contains("namespace") {
         eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
         return None;
@@ -453,6 +453,46 @@ fn bwrap_deja_el_git_de_un_repo_normal_de_solo_lectura() {
     assert!(r.join("dentro.txt").exists() && r.join("sub/f.txt").exists());
 }
 
+/// Spec 024 (CE-002): con bwrap de verdad, ni el agente ni el criterio leen
+/// lo de `agente.tapar` (un directorio y un fichero sueltos), pero sí el resto
+/// del sistema; fuera del sandbox todo sigue intacto.
+#[test]
+fn bwrap_tapa_las_rutas_de_agente_tapar_al_agente_y_al_criterio() {
+    let d = tempfile::tempdir().unwrap();
+    let r = repo(d.path(), "r");
+    // Fuera de /tmp: dentro del sandbox /tmp es un tmpfs propio y no se vería nada.
+    let secretos = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    std::fs::write(secretos.path().join("clave"), "secreto").unwrap();
+    let suelto = secretos.path().join("token.txt");
+    std::fs::write(&suelto, "otro-secreto").unwrap();
+    let privado = secretos.path().join("privado");
+    std::fs::create_dir(&privado).unwrap();
+    std::fs::write(privado.join("clave"), "secreto").unwrap();
+    let tapar = [privado.clone(), suelto.clone(), secretos.path().join("no-existe")];
+    let ocultar = Ocultar { ejecucion: None, tapar: &tapar };
+    let guion = format!(
+        "! cat '{p}/clave' 2>/dev/null && ! cat '{t}' 2>/dev/null && [ -z \"$(ls -A '{p}')\" ] && cat '{s}/clave' >/dev/null",
+        p = privado.display(),
+        t = suelto.display(),
+        s = secretos.path().display()
+    );
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        eprintln!("sin bwrap: prueba omitida");
+        return;
+    }
+    let args = ["-c".to_string(), guion.clone()];
+    let s = Sandbox::Bwrap.envolver("sh", &args, &r, &[], ocultar).unwrap().orden.output().unwrap();
+    if !s.status.success() && String::from_utf8_lossy(&s.stderr).contains("namespace") {
+        eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
+        return;
+    }
+    assert!(s.status.success(), "agente: {}", String::from_utf8_lossy(&s.stderr));
+    let (pasa, ev) = correr_criterio(&Sandbox::Bwrap, &r, &guion, &[], ocultar, TOPE_CRITERIO, &|| false).unwrap();
+    assert!(pasa, "criterio: {ev}");
+    assert_eq!(std::fs::read_to_string(&suelto).unwrap(), "otro-secreto");
+    assert_eq!(std::fs::read_to_string(privado.join("clave")).unwrap(), "secreto");
+}
+
 #[test]
 fn el_criterio_en_bwrap_no_lee_el_directorio_de_ejecucion() {
     if Command::new("bwrap").arg("--version").output().is_err() {
@@ -473,14 +513,24 @@ fn el_criterio_en_bwrap_no_lee_el_directorio_de_ejecucion() {
     // Fuera, se lee.
     let fuera = criterio(&leer).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&fuera.stdout), "secreto");
-    let dentro = Sandbox::Bwrap.envolver_criterio(criterio(&leer), &r, &[], Some(&ejecucion)).unwrap().orden.output().unwrap();
+    let dentro = Sandbox::Bwrap
+        .envolver_criterio(criterio(&leer), &r, &[], Ocultar { ejecucion: Some(&ejecucion), ..Default::default() })
+        .unwrap()
+        .orden
+        .output()
+        .unwrap();
     if !dentro.status.success() && String::from_utf8_lossy(&dentro.stderr).contains("namespace") {
         eprintln!("bwrap sin espacios de nombres aquí: prueba omitida");
         return;
     }
     assert!(!dentro.status.success() && dentro.stdout.is_empty(), "el criterio leyó el directorio de ejecución");
     // Lo demás, como fuera: escribe en el worktree.
-    let ok = Sandbox::Bwrap.envolver_criterio(criterio("echo hecho > ok.txt && test -f ok.txt"), &r, &[], Some(&ejecucion)).unwrap().orden.output().unwrap();
+    let ok = Sandbox::Bwrap
+        .envolver_criterio(criterio("echo hecho > ok.txt && test -f ok.txt"), &r, &[], Ocultar { ejecucion: Some(&ejecucion), ..Default::default() })
+        .unwrap()
+        .orden
+        .output()
+        .unwrap();
     assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
     assert!(r.join("ok.txt").exists());
 }
@@ -504,7 +554,9 @@ fn el_criterio_del_ejecutor_en_bwrap_no_lee_la_clave_del_panel_y_escribe_en_el_w
     let credencial = ea_ajustes::fichero_credencial_mcp(&ejecucion);
     std::fs::create_dir_all(credencial.parent().unwrap()).unwrap();
     std::fs::write(&credencial, "contenido-credencial").unwrap();
-    let criterio = |sandbox: &Sandbox, guion: &str| correr_criterio(sandbox, &r, guion, &[], Some(&ejecucion), TOPE_CRITERIO, &|| false).unwrap();
+    let criterio = |sandbox: &Sandbox, guion: &str| {
+        correr_criterio(sandbox, &r, guion, &[], Ocultar { ejecucion: Some(&ejecucion), ..Default::default() }, TOPE_CRITERIO, &|| false).unwrap()
+    };
     // Sin sandbox, tal cual: se leen.
     for (fichero, contenido) in [(&clave, "secreto"), (&credencial, "contenido-credencial")] {
         let leer = format!("cat '{}'", fichero.display());
@@ -544,7 +596,8 @@ fn el_criterio_en_bwrap_solo_escribe_en_el_worktree_su_tmp_y_sus_rutas() {
     let ajustes = config.join("ajustes.toml");
     std::fs::write(&ajustes, "[agente]\nsandbox = true\n").unwrap();
     let git_config = std::fs::read_to_string(r.join(".git/config")).unwrap();
-    let criterio = |guion: &str, escribibles: &[PathBuf]| correr_criterio(&Sandbox::Bwrap, &r, guion, escribibles, None, TOPE_CRITERIO, &|| false).unwrap();
+    let criterio =
+        |guion: &str, escribibles: &[PathBuf]| correr_criterio(&Sandbox::Bwrap, &r, guion, escribibles, Ocultar::default(), TOPE_CRITERIO, &|| false).unwrap();
 
     let (pasa, evidencia) = criterio("echo ok", &[]);
     if !pasa && evidencia.contains("namespace") {
@@ -579,7 +632,7 @@ fn el_criterio_en_bwrap_solo_escribe_en_el_worktree_su_tmp_y_sus_rutas() {
     assert!(!pasa && evidencia.contains("ya no existe o ha cambiado") && !r.join("corrio").exists(), "{evidencia}");
     // Sin sandbox, como antes: escribe donde el usuario.
     let (pasa, evidencia) =
-        correr_criterio(&Sandbox::Ninguno, &r, &format!("touch '{}/.bashrc'", casa.display()), &[ida], None, TOPE_CRITERIO, &|| false).unwrap();
+        correr_criterio(&Sandbox::Ninguno, &r, &format!("touch '{}/.bashrc'", casa.display()), &[ida], Ocultar::default(), TOPE_CRITERIO, &|| false).unwrap();
     assert!(pasa && casa.join(".bashrc").exists(), "{evidencia}");
 }
 
