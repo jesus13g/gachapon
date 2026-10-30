@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::avisar_sin_arbol;
-use crate::sandbox::Sandbox;
+use crate::sandbox::{Ocultar, Sandbox};
 
 const MAX_EVIDENCIA: usize = 2048;
 
@@ -50,9 +50,9 @@ pub(super) fn recortar_resumen(s: &str) -> String {
 /// en el mismo sandbox ([`Sandbox::envolver_criterio`]): ejecuta tests y
 /// guiones que ha podido escribir el agente, así que solo escribe en el
 /// worktree (no en su `.git`), en su `/tmp` y en `escribibles`
-/// (`agente.criterio.escribibles`, canónicas), y no ve el directorio de
-/// `ejecucion` (la clave del panel, D-Bus, `systemd --user`); la red, como
-/// el usuario. Una ruta de `escribibles` que ya no está o que ahora lleva a
+/// (`agente.criterio.escribibles`, canónicas), y no ve lo de `ocultar`: el
+/// directorio de ejecución (la clave del panel, D-Bus, `systemd --user`) y
+/// las rutas de `agente.tapar`; la red, como el usuario. Una ruta de `escribibles` que ya no está o que ahora lleva a
 /// otro sitio (un enlace cambiado) no se monta: el criterio no se corre y no
 /// pasa. Sin sandbox, tal cual; con uno que no está disponible no se corre y
 /// no pasa.
@@ -61,7 +61,7 @@ pub fn correr_criterio(
     wt: &Path,
     criterio: &str,
     escribibles: &[PathBuf],
-    ejecucion: Option<&Path>,
+    ocultar: Ocultar,
     tope: Duration,
     cancelado: &dyn Fn() -> bool,
 ) -> Option<(bool, String)> {
@@ -75,7 +75,7 @@ pub fn correr_criterio(
     {
         return Some((false, format!("la ruta escribible del criterio {} ya no existe o ha cambiado (agente.criterio.escribibles): no se corre", p.display())));
     }
-    let envoltorio = match sandbox.envolver_criterio(c, wt, escribibles, ejecucion) {
+    let envoltorio = match sandbox.envolver_criterio(c, wt, escribibles, ocultar) {
         Ok(e) => e,
         Err(motivo) => return Some((false, motivo)),
     };

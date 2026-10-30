@@ -36,6 +36,9 @@ pub struct ConfigOrquestador {
     /// Ejecuta al agente dentro de bubblewrap (solo el worktree es escribible).
     /// El criterio corre en el mismo sandbox.
     pub sandbox: bool,
+    /// Lo que el sandbox esconde al agente y al criterio (`agente.tapar`, ya
+    /// con `~` expandido); se resuelve en cada corrida ([`crate::sandbox::resolver_tapar`]).
+    pub tapar: Vec<PathBuf>,
     /// Lo que el criterio puede escribir además del worktree y su `/tmp`
     /// (`agente.criterio.escribibles`, validadas al cargar los ajustes), en
     /// su forma canónica.
@@ -61,6 +64,7 @@ impl ConfigOrquestador {
             techo_topes: Topes::from(&a.agente.techo_topes),
             avisos_escritorio: a.agente.avisos_escritorio,
             sandbox: a.agente.sandbox,
+            tapar: a.agente.tapar.clone(),
             criterio_escribibles: a.agente.criterio.escribibles.iter().map(|p| crate::sandbox::canonica(p)).collect(),
             skills: ConfigSkills::desde_ajustes(a),
         }

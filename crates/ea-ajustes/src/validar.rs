@@ -167,6 +167,13 @@ pub fn validar_valor(c: &Clave, v: &Value) -> Result<Value, String> {
                 if !expandir_tilde(&t).is_absolute() {
                     return Err(format!("{t:?} no es una ruta absoluta (ni empieza por ~/)"));
                 }
+                let r = expandir_tilde(&t);
+                if r.components().any(|c| c == std::path::Component::ParentDir) {
+                    return Err(format!("{t:?} no puede llevar «..»"));
+                }
+                if r.parent().is_none() {
+                    return Err(format!("{t:?} es la raíz del disco, que contiene tu directorio personal"));
+                }
                 if !salida.contains(&t) {
                     salida.push(t);
                 }

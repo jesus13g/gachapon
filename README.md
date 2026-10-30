@@ -302,7 +302,9 @@ llaves de tu equipo:
 
 - **Sandbox del ejecutor**: solo puede escribir en el worktree y en sus propios
   directorios de estado; no tiene herramientas web ni acceso a la clave del
-  panel. En Windows nativo no hay sandbox y el ejecutor se niega a arrancar.
+  panel. Con `agente.tapar` le escondes además rutas de tu usuario que no debe
+  leer (credenciales; vacía por defecto). En Windows nativo no hay sandbox y el
+  ejecutor se niega a arrancar.
 - **Topes duros**: tiempo, turnos e iteraciones; al vencer, se mata el árbol de
   procesos entero.
 - **Nada se confirma solo**: lo que un agente quiere cambiar (programar una

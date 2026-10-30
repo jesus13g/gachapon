@@ -8,6 +8,8 @@
 //!   por [`perfil_seatbelt`]: escritura solo en el worktree (salvo su `.git`),
 //!   un temporal propio y los directorios de estado del adaptador; el
 //!   directorio de ejecución, ilegible; red solo hacia `localhost`.
+//! - En los dos, las rutas de `agente.tapar` (spec 024) quedan escondidas al
+//!   agente y al criterio ([`resolver_tapar`]).
 //! - Windows (y cualquier otro): no hay equivalente. Con `sandbox = true` el
 //!   ejecutor **no arranca** y dice por qué; no se relaja en silencio.
 //!
@@ -85,26 +87,27 @@ impl Sandbox {
 
     /// La orden que lanza `programa args` en `wt` con este aislamiento: el
     /// worktree y los directorios de `estado` escribibles, su `.git` de solo
-    /// lectura y el directorio de `ejecucion` tapado ([`argumentos_bwrap`],
-    /// [`perfil_seatbelt`]). Sin sandbox, la orden tal cual; con
-    /// `NoDisponible`, `Err` con el motivo y no se construye nada.
-    pub fn envolver(&self, programa: &str, args: &[String], wt: &Path, estado: &[PathBuf], ejecucion: Option<&Path>) -> Result<Envoltorio, String> {
-        self.construir(programa.as_ref(), args.iter().map(OsStr::new), wt, estado, ejecucion, false)
+    /// lectura y el directorio de `ejecucion` y las rutas de `tapar` tapados
+    /// ([`argumentos_bwrap`], [`perfil_seatbelt`]). Sin sandbox, la orden tal
+    /// cual; con `NoDisponible` o con una ruta de `tapar` que se solapa con lo
+    /// escribible ([`resolver_tapar`]), `Err` con el motivo y no se construye nada.
+    pub fn envolver(&self, programa: &str, args: &[String], wt: &Path, estado: &[PathBuf], ocultar: Ocultar) -> Result<Envoltorio, String> {
+        self.construir(programa.as_ref(), args.iter().map(OsStr::new), wt, estado, ocultar, false)
     }
 
     /// La orden `cmd` del criterio de éxito con el mismo aislamiento de disco
     /// que el agente ([`Sandbox::envolver`]): `/` de solo lectura, un `/tmp`
-    /// propio, el directorio de `ejecucion` tapado y escribibles solo el
+    /// propio, el directorio de `ejecucion` y las rutas de `tapar` tapados y escribibles solo el
     /// worktree (su `.git` no) y `escribibles` (`agente.criterio.escribibles`,
     /// en su lugar de los directorios de estado del agente). La red, como
     /// hasta ahora: abierta (en macOS el perfil del criterio no lleva las
     /// reglas de red del agente). Sin sandbox, `cmd` tal cual. Conserva sus
     /// argumentos, su entorno y su directorio (`wt` si no tiene).
-    pub fn envolver_criterio(&self, cmd: Command, wt: &Path, escribibles: &[PathBuf], ejecucion: Option<&Path>) -> Result<Envoltorio, String> {
+    pub fn envolver_criterio(&self, cmd: Command, wt: &Path, escribibles: &[PathBuf], ocultar: Ocultar) -> Result<Envoltorio, String> {
         if *self == Sandbox::Ninguno {
             return Ok(Envoltorio { orden: cmd, _temporal: None });
         }
-        let mut e = self.construir(cmd.get_program(), cmd.get_args(), wt, escribibles, ejecucion, true)?;
+        let mut e = self.construir(cmd.get_program(), cmd.get_args(), wt, escribibles, ocultar, true)?;
         for (k, v) in cmd.get_envs() {
             match v {
                 Some(v) => e.orden.env(k, v),
@@ -124,27 +127,30 @@ impl Sandbox {
         args: impl IntoIterator<Item = &'a OsStr>,
         wt: &Path,
         escribibles: &[PathBuf],
-        ejecucion: Option<&Path>,
+        ocultar: Ocultar,
         criterio: bool,
     ) -> Result<Envoltorio, String> {
+        let ejecucion = ocultar.ejecucion;
+        let tapar = || resolver_tapar(ocultar.tapar, wt, escribibles);
         let mut temporal = None;
         let mut orden = match self {
             Sandbox::NoDisponible(m) => return Err(m.clone()),
             Sandbox::Ninguno => Command::new(programa),
             Sandbox::Bwrap => {
                 let mut c = Command::new("bwrap");
-                c.args(argumentos_bwrap(wt, ejecucion, escribibles)).arg(programa);
+                c.args(argumentos_bwrap(wt, ejecucion, &tapar()?, escribibles)).arg(programa);
                 c
             }
             Sandbox::Seatbelt => {
+                let tapar = tapar()?;
                 let (prefijo, quien) = if criterio { ("ea-criterio-", "del criterio") } else { ("ea-ejecutor-", "del agente") };
                 let tmp = tempfile::Builder::new().prefix(prefijo).tempdir().map_err(|e| format!("no se pudo crear el temporal propio {quien}: {e}"))?;
                 let escribibles: Vec<PathBuf> = escribibles.iter().map(|d| canonica(d)).collect();
                 let (wt_c, tmp_c, ej) = (canonica(wt), canonica(tmp.path()), ejecucion.map(canonica));
                 let perfil = if criterio {
-                    perfil_seatbelt_criterio(&wt_c, &tmp_c, &escribibles, ej.as_deref())
+                    perfil_seatbelt_criterio(&wt_c, &tmp_c, &escribibles, ej.as_deref(), &tapar)
                 } else {
-                    perfil_seatbelt(&wt_c, &tmp_c, &escribibles, ej.as_deref())
+                    perfil_seatbelt(&wt_c, &tmp_c, &escribibles, ej.as_deref(), &tapar)
                 };
                 let mut c = Command::new(SANDBOX_EXEC);
                 c.arg("-p").arg(perfil).arg(programa).env("TMPDIR", tmp_c);
@@ -155,6 +161,15 @@ impl Sandbox {
         orden.args(args).current_dir(wt);
         Ok(Envoltorio { orden, _temporal: temporal })
     }
+}
+
+/// Lo que se esconde al agente y al criterio además de lo que ya no pueden
+/// escribir: el directorio de ejecución de la sesión ([`dir_ejecucion`]) y
+/// las rutas de `agente.tapar` (sin resolver: lo hace [`resolver_tapar`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Ocultar<'a> {
+    pub ejecucion: Option<&'a Path>,
+    pub tapar: &'a [PathBuf],
 }
 
 /// La orden aislada del agente ([`Sandbox::envolver`]) o del criterio
@@ -183,12 +198,24 @@ pub struct Envoltorio {
 /// el worktree de una orden tiene que ser la raíz de su repo
 /// (`ea_bus::validar_worktree`), que siempre tiene `.git`. Un `.git` enlace
 /// simbólico protege su destino, no el propio enlace.
-pub fn argumentos_bwrap(worktree: &Path, ejecucion: Option<&Path>, estado: &[PathBuf]) -> Vec<String> {
+///
+/// `tapar` (`agente.tapar`, ya resuelto por [`resolver_tapar`]) se esconde
+/// igual: un directorio con un tmpfs vacío y un fichero con `/dev/null`
+/// encima, también antes de los bind escribibles.
+pub fn argumentos_bwrap(worktree: &Path, ejecucion: Option<&Path>, tapar: &[Tapado], estado: &[PathBuf]) -> Vec<String> {
     let wt = worktree.to_string_lossy().to_string();
     let mut args: Vec<String> = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"].map(String::from).into();
     if let Some(d) = ejecucion {
         args.push("--tmpfs".into());
         args.push(d.to_string_lossy().into());
+    }
+    for t in tapar {
+        let ruta = t.ruta.to_string_lossy().to_string();
+        if t.directorio {
+            args.extend(["--tmpfs".into(), ruta]);
+        } else {
+            args.extend(["--ro-bind".into(), "/dev/null".into(), ruta]);
+        }
     }
     // Los bind escribibles van después del tmpfs: si alguno cayera dentro del
     // directorio de ejecución, se montaría encima y seguiría visible.
@@ -235,7 +262,8 @@ fn literal(ruta: &Path) -> String {
 ///    de estado del adaptador y los dispositivos mínimos;
 /// 4. escritura denegada en `<worktree>/.git` (exista o no: tampoco se puede
 ///    crear uno falso en un worktree que sea subdirectorio del repo);
-/// 5. lectura denegada en el directorio de ejecución (clave del panel);
+/// 5. lectura denegada en el directorio de ejecución (clave del panel), y
+///    lectura y escritura denegadas en las rutas de `agente.tapar`;
 /// 6. red denegada salvo conectar a `localhost` (llama-server), escuchar solo
 ///    en `localhost` y el socket de
 ///    `mDNSResponder`, que usa la resolución de nombres del sistema. No se
@@ -249,8 +277,8 @@ const REGLAS_ESCAPE: &str = "(deny process-exec*\n  (literal \"/usr/bin/open\")\
 
 /// El del agente: el del criterio ([`perfil_seatbelt_criterio`]) con la red
 /// del punto 6.
-pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucion: Option<&Path>) -> String {
-    let mut p = perfil_seatbelt_criterio(worktree, tmp, estado, ejecucion);
+pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucion: Option<&Path>, tapar: &[Tapado]) -> String {
+    let mut p = perfil_seatbelt_criterio(worktree, tmp, estado, ejecucion, tapar);
     p.push_str("(deny network*)\n(allow network* (remote ip \"localhost:*\"))\n(allow network-bind network-inbound (local ip \"localhost:*\"))\n");
     p.push_str("(allow network* (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n");
     p
@@ -259,7 +287,7 @@ pub fn perfil_seatbelt(worktree: &Path, tmp: &Path, estado: &[PathBuf], ejecucio
 /// Perfil Seatbelt del criterio (puro): el del agente ([`perfil_seatbelt`],
 /// puntos 1 a 5 y las vías de escape) sin las reglas de red; `escribibles`
 /// ocupa el lugar de los directorios de estado del agente.
-pub fn perfil_seatbelt_criterio(worktree: &Path, tmp: &Path, escribibles: &[PathBuf], ejecucion: Option<&Path>) -> String {
+pub fn perfil_seatbelt_criterio(worktree: &Path, tmp: &Path, escribibles: &[PathBuf], ejecucion: Option<&Path>, tapar: &[Tapado]) -> String {
     let mut p = String::from("(version 1)\n(allow default)\n(deny file-write* (subpath \"/\"))\n(allow file-write*\n");
     p.push_str(&format!("  (subpath {})\n  (subpath {})\n", literal(worktree), literal(tmp)));
     for d in escribibles {
@@ -271,8 +299,48 @@ pub fn perfil_seatbelt_criterio(worktree: &Path, tmp: &Path, escribibles: &[Path
     if let Some(d) = ejecucion {
         p.push_str(&format!("(deny file-read* (subpath {}))\n", literal(d)));
     }
+    // `agente.tapar`: ni leer ni escribir (gana la última regla que case).
+    for t in tapar {
+        p.push_str(&format!("(deny file-read* file-write* (subpath {}))\n", literal(&t.ruta)));
+    }
     p.push_str(REGLAS_ESCAPE);
     p
+}
+
+/// Una ruta de `agente.tapar` que existe, ya canonicalizada.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tapado {
+    pub ruta: PathBuf,
+    /// Un directorio se tapa con un tmpfs vacío; un fichero, con `/dev/null`.
+    pub directorio: bool,
+}
+
+/// Qué se tapa de verdad (puro salvo por mirar el disco): ignora las rutas
+/// que no existen y rechaza, con el motivo, las que se solapan con el
+/// worktree o con lo escribible (`escribibles`: el estado del agente o las
+/// rutas escribibles del criterio), tanto si las contienen como si
+/// coinciden o caen dentro: taparlas a medias en silencio dejaría al agente
+/// sin poder trabajar, o la ruta visible por el bind escribible que va después.
+pub fn resolver_tapar(tapar: &[PathBuf], worktree: &Path, escribibles: &[PathBuf]) -> Result<Vec<Tapado>, String> {
+    let propios: Vec<(PathBuf, String)> = std::iter::once((canonica(worktree), "el worktree del trabajo".to_string()))
+        .chain(escribibles.iter().map(|d| (canonica(d), format!("una ruta escribible del sandbox ({})", d.display()))))
+        .collect();
+    let mut salida: Vec<Tapado> = Vec::new();
+    for t in tapar {
+        let Ok(meta) = std::fs::metadata(t) else { continue };
+        let ruta = canonica(t);
+        if let Some((propio, que)) = propios.iter().find(|(p, _)| p.starts_with(&ruta) || ruta.starts_with(p)) {
+            return Err(format!(
+                "agente.tapar: la ruta {} se solapa con {que} ({}); el trabajo se rechaza en vez de taparla a medias (quítala de agente.tapar o lanza el trabajo desde otro sitio)",
+                t.display(),
+                propio.display()
+            ));
+        }
+        if !salida.iter().any(|s| s.ruta == ruta) {
+            salida.push(Tapado { ruta, directorio: meta.is_dir() });
+        }
+    }
+    Ok(salida)
 }
 
 /// El directorio de ejecución de la sesión (`$XDG_RUNTIME_DIR`), si existe:
@@ -310,7 +378,7 @@ mod tests {
     #[test]
     fn el_perfil_limita_escritura_lectura_y_red() {
         let estado = [PathBuf::from("/Users/u/.qwen")];
-        let p = perfil_seatbelt(Path::new("/w/repo"), Path::new("/private/var/t/x"), &estado, Some(Path::new("/private/var/run/ea")));
+        let p = perfil_seatbelt(Path::new("/w/repo"), Path::new("/private/var/t/x"), &estado, Some(Path::new("/private/var/run/ea")), &[]);
         assert!(p.starts_with("(version 1)\n(allow default)\n(deny file-write* (subpath \"/\"))"));
         for esperado in [
             "(subpath \"/w/repo\")",
@@ -346,12 +414,12 @@ mod tests {
         }
         assert!(p.find("(deny process-exec*").unwrap() < p.find("(deny network*)").unwrap());
         // Sin directorio de ejecución no hay nada que tapar.
-        assert!(!perfil_seatbelt(Path::new("/w"), Path::new("/t"), &[], None).contains("deny file-read*"));
+        assert!(!perfil_seatbelt(Path::new("/w"), Path::new("/t"), &[], None, &[]).contains("deny file-read*"));
     }
 
     #[test]
     fn el_perfil_escapa_comillas_y_barras() {
-        let p = perfil_seatbelt(Path::new("/w/a\"b\\c"), Path::new("/t"), &[], None);
+        let p = perfil_seatbelt(Path::new("/w/a\"b\\c"), Path::new("/t"), &[], None, &[]);
         assert!(p.contains(r#"(subpath "/w/a\"b\\c")"#), "{p}");
         assert_eq!(literal(Path::new("a\nb")), "\"a\\nb\"");
     }
@@ -360,7 +428,7 @@ mod tests {
     #[test]
     fn el_perfil_deja_el_git_del_worktree_de_solo_lectura() {
         // `/w/repo` no existe: la regla va igual (tampoco se puede crear un `.git`).
-        let p = perfil_seatbelt(Path::new("/w/repo"), Path::new("/t"), &[], Some(Path::new("/private/var/run/ea")));
+        let p = perfil_seatbelt(Path::new("/w/repo"), Path::new("/t"), &[], Some(Path::new("/private/var/run/ea")), &[]);
         let regla = "(deny file-write* (literal \"/w/repo/.git\") (subpath \"/w/repo/.git\"))";
         let i = p.find(regla).unwrap_or_else(|| panic!("falta {regla}\n{p}"));
         // En SBPL gana la última regla: el `deny` va después del bloque `allow`.
@@ -373,7 +441,7 @@ mod tests {
         let ejecucion = tempfile::tempdir().unwrap();
         let ej = ejecucion.path().to_string_lossy().to_string();
         let estado = [PathBuf::from("/home/u/.codex")];
-        let args = argumentos_bwrap(Path::new("/w/repo"), Some(ejecucion.path()), &estado);
+        let args = argumentos_bwrap(Path::new("/w/repo"), Some(ejecucion.path()), &[], &estado);
         let pos = |par: [&str; 2]| args.windows(2).position(|w| w[0] == par[0] && w[1] == par[1]);
         let tmpfs = pos(["--tmpfs", &ej]).expect("tmpfs sobre el directorio de ejecución");
         // Encima del / de solo lectura y antes de los bind escribibles.
@@ -383,7 +451,7 @@ mod tests {
         assert!(pos(["--bind", "/home/u/.qwen"]).is_none(), "solo el estado de este agente");
         assert!(args.ends_with(&["--unshare-pid".into(), "--die-with-parent".into()]));
         // Sin directorio de ejecución no hay nada que tapar.
-        let sin = argumentos_bwrap(Path::new("/w/repo"), None, &[]);
+        let sin = argumentos_bwrap(Path::new("/w/repo"), None, &[], &[]);
         assert_eq!(sin.iter().filter(|a| *a == "--tmpfs").count(), 1, "solo el de /tmp");
     }
 
@@ -394,15 +462,15 @@ mod tests {
         let git = d.path().join(".git").to_string_lossy().to_string();
         let ro_git = |args: &[String]| args.windows(3).position(|w| w[0] == "--ro-bind" && w[1] == git && w[2] == git);
         // Sin `.git` (worktree que es un subdirectorio del repo): nada que montar.
-        let sin = argumentos_bwrap(d.path(), None, &[]);
+        let sin = argumentos_bwrap(d.path(), None, &[], &[]);
         assert!(ro_git(&sin).is_none(), "{sin:?}");
         // `.git` fichero (worktree propio) y directorio (repo normal): justo
         // después del bind del worktree, para quedar encima.
         std::fs::write(d.path().join(".git"), "gitdir: /r/.git/worktrees/t1\n").unwrap();
-        let fichero = argumentos_bwrap(d.path(), None, &[]);
+        let fichero = argumentos_bwrap(d.path(), None, &[], &[]);
         std::fs::remove_file(d.path().join(".git")).unwrap();
         std::fs::create_dir(d.path().join(".git")).unwrap();
-        let directorio = argumentos_bwrap(d.path(), None, &[]);
+        let directorio = argumentos_bwrap(d.path(), None, &[], &[]);
         for args in [&fichero, &directorio] {
             let bind = args.windows(3).position(|w| w[0] == "--bind" && w[1] == wt && w[2] == wt).unwrap();
             assert_eq!(ro_git(args), Some(bind + 3), "{args:?}");
@@ -413,7 +481,7 @@ mod tests {
         {
             std::fs::remove_dir(d.path().join(".git")).unwrap();
             std::os::unix::fs::symlink("/no/existe", d.path().join(".git")).unwrap();
-            assert!(ro_git(&argumentos_bwrap(d.path(), None, &[])).is_none());
+            assert!(ro_git(&argumentos_bwrap(d.path(), None, &[], &[])).is_none());
         }
     }
 
@@ -422,9 +490,9 @@ mod tests {
     fn el_criterio_tiene_el_perfil_de_disco_del_agente_sin_su_red() {
         let esc = [PathBuf::from("/Users/u/.cargo")];
         let ej = Some(Path::new("/private/var/run/ea"));
-        let p = perfil_seatbelt_criterio(Path::new("/w/repo"), Path::new("/t"), &esc, ej);
+        let p = perfil_seatbelt_criterio(Path::new("/w/repo"), Path::new("/t"), &esc, ej, &[]);
         // Lo mismo que el del agente con esas rutas, salvo la red.
-        let agente = perfil_seatbelt(Path::new("/w/repo"), Path::new("/t"), &esc, ej);
+        let agente = perfil_seatbelt(Path::new("/w/repo"), Path::new("/t"), &esc, ej, &[]);
         assert!(agente.starts_with(&p), "{p}\n---\n{agente}");
         assert!(agente[p.len()..].starts_with("(deny network*)"), "{agente}");
         assert!(!p.contains("network"), "la red del criterio no cambia: {p}");
@@ -452,19 +520,19 @@ mod tests {
         let args = ["-p".to_string(), "x".to_string()];
         let estado = [PathBuf::from("/home/u/.qwen")];
 
-        let e = Sandbox::Ninguno.envolver("qwen", &args, wt.path(), &estado, None).unwrap();
+        let e = Sandbox::Ninguno.envolver("qwen", &args, wt.path(), &estado, Ocultar::default()).unwrap();
         assert_eq!((e.orden.get_program(), argumentos(&e.orden)), ("qwen".as_ref(), args.to_vec()));
         assert_eq!(e.orden.get_current_dir(), Some(wt.path()));
 
-        let e = Sandbox::Bwrap.envolver("qwen", &args, wt.path(), &estado, None).unwrap();
-        let mut esperado = argumentos_bwrap(wt.path(), None, &estado);
+        let e = Sandbox::Bwrap.envolver("qwen", &args, wt.path(), &estado, Ocultar::default()).unwrap();
+        let mut esperado = argumentos_bwrap(wt.path(), None, &[], &estado);
         esperado.extend(["qwen".into(), "-p".into(), "x".into()]);
         assert_eq!((e.orden.get_program(), argumentos(&e.orden)), ("bwrap".as_ref(), esperado));
         assert_eq!(e.orden.get_current_dir(), Some(wt.path()));
 
         // Seatbelt: el perfil con el worktree real y su `.git`, y un temporal
         // propio que vive lo que el envoltorio.
-        let e = Sandbox::Seatbelt.envolver("qwen", &args, wt.path(), &[], None).unwrap();
+        let e = Sandbox::Seatbelt.envolver("qwen", &args, wt.path(), &[], Ocultar::default()).unwrap();
         let a = argumentos(&e.orden);
         assert_eq!(e.orden.get_program(), SANDBOX_EXEC);
         assert_eq!((a[0].as_str(), &a[2..]), ("-p", &["qwen".to_string(), "-p".into(), "x".into()][..]));
@@ -476,7 +544,7 @@ mod tests {
         assert!(!tmp.exists(), "el temporal se borra al soltar el envoltorio");
 
         let no = Sandbox::NoDisponible("sin sandbox".into());
-        assert_eq!(no.envolver("qwen", &args, wt.path(), &[], None).err().as_deref(), Some("sin sandbox"));
+        assert_eq!(no.envolver("qwen", &args, wt.path(), &[], Ocultar::default()).err().as_deref(), Some("sin sandbox"));
     }
 
     #[test]
@@ -495,34 +563,116 @@ mod tests {
         let entorno = |c: &Command| c.get_envs().map(|(k, v)| (k.to_os_string(), v.map(|v| v.to_os_string()))).collect::<Vec<_>>();
 
         // bwrap: los argumentos del agente, con `escribibles` en lugar de su estado.
-        let e = Sandbox::Bwrap.envolver_criterio(criterio(Some(wt.path())), wt.path(), &esc, Some(ej.path())).unwrap();
-        let mut esperado = argumentos_bwrap(wt.path(), Some(ej.path()), &esc);
+        let e =
+            Sandbox::Bwrap.envolver_criterio(criterio(Some(wt.path())), wt.path(), &esc, Ocultar { ejecucion: Some(ej.path()), ..Default::default() }).unwrap();
+        let mut esperado = argumentos_bwrap(wt.path(), Some(ej.path()), &[], &esc);
         esperado.extend(["sh".into(), "-c".into(), "test -f ok.txt".into()]);
         assert_eq!((e.orden.get_program(), argumentos(&e.orden)), ("bwrap".as_ref(), esperado));
         assert_eq!(entorno(&e.orden), entorno(&criterio(None)), "mismo entorno");
         assert_eq!(e.orden.get_current_dir(), Some(wt.path()));
 
         // Seatbelt: el perfil del criterio con el temporal propio.
-        let e = Sandbox::Seatbelt.envolver_criterio(criterio(None), wt.path(), &esc, Some(ej.path())).unwrap();
+        let e = Sandbox::Seatbelt.envolver_criterio(criterio(None), wt.path(), &esc, Ocultar { ejecucion: Some(ej.path()), ..Default::default() }).unwrap();
         let a = argumentos(&e.orden);
         assert_eq!(e.orden.get_program(), SANDBOX_EXEC);
         let tmp = e.orden.get_envs().find(|(k, _)| *k == "TMPDIR").and_then(|(_, v)| v).map(PathBuf::from).unwrap();
         assert!(tmp.is_dir() && tmp.file_name().unwrap().to_string_lossy().starts_with("ea-criterio-"));
-        let perfil = perfil_seatbelt_criterio(&canonica(wt.path()), &tmp, &esc, Some(&canonica(ej.path())));
+        let perfil = perfil_seatbelt_criterio(&canonica(wt.path()), &tmp, &esc, Some(&canonica(ej.path())), &[]);
         assert_eq!(a, ["-p".to_string(), perfil, "sh".into(), "-c".into(), "test -f ok.txt".into()]);
         assert_eq!(e.orden.get_current_dir(), Some(wt.path()), "sin directorio propio, el worktree");
         drop(e);
         assert!(!tmp.exists(), "el temporal se borra al soltar el envoltorio");
 
         // Sin sandbox, tal cual; sin sandbox posible, el motivo.
-        let e = Sandbox::Ninguno.envolver_criterio(criterio(Some(wt.path())), wt.path(), &esc, Some(ej.path())).unwrap();
+        let e = Sandbox::Ninguno
+            .envolver_criterio(criterio(Some(wt.path())), wt.path(), &esc, Ocultar { ejecucion: Some(ej.path()), ..Default::default() })
+            .unwrap();
         assert_eq!((e.orden.get_program(), argumentos(&e.orden)), ("sh".as_ref(), vec!["-c".to_string(), "test -f ok.txt".into()]));
-        let no = Sandbox::NoDisponible("sin sandbox".into()).envolver_criterio(criterio(None), wt.path(), &[], None);
+        let no = Sandbox::NoDisponible("sin sandbox".into()).envolver_criterio(criterio(None), wt.path(), &[], Ocultar::default());
         assert_eq!(no.err().as_deref(), Some("sin sandbox"));
     }
 
     /// CE-004: Seatbelt de verdad (corre en la CI de macOS).
     #[cfg(target_os = "macos")]
+    /// Spec 024 (RF-002): lo tapado va tras el `/` de solo lectura y antes de
+    /// todo bind escribible; un directorio con tmpfs y un fichero con `/dev/null`.
+    #[test]
+    fn bwrap_tapa_directorios_con_tmpfs_y_ficheros_con_dev_null_antes_de_los_bind() {
+        let tapar =
+            [Tapado { ruta: PathBuf::from("/home/u/.secretos"), directorio: true }, Tapado { ruta: PathBuf::from("/home/u/.netrc"), directorio: false }];
+        let estado = [PathBuf::from("/home/u/.codex")];
+        let args = argumentos_bwrap(Path::new("/w/repo"), None, &tapar, &estado);
+        let pos = |par: [&str; 2]| args.windows(2).position(|w| w[0] == par[0] && w[1] == par[1]);
+        let dir = pos(["--tmpfs", "/home/u/.secretos"]).expect("tmpfs sobre el directorio");
+        let fich = args.windows(3).position(|w| w == ["--ro-bind", "/dev/null", "/home/u/.netrc"]).expect("/dev/null sobre el fichero");
+        let raiz = pos(["--ro-bind", "/"]).unwrap();
+        for bind in ["/w/repo", "/home/u/.codex"] {
+            let b = pos(["--bind", bind]).unwrap();
+            assert!(raiz < dir && raiz < fich && dir < b && fich < b, "{bind}: {args:?}");
+        }
+        // Sin lista, solo el tmpfs de /tmp.
+        assert_eq!(argumentos_bwrap(Path::new("/w/repo"), None, &[], &[]).iter().filter(|a| *a == "--tmpfs").count(), 1);
+    }
+
+    /// Spec 024 (RF-003): en el perfil del agente y en el del criterio, tras
+    /// los permisos de escritura (gana la última regla que case).
+    #[test]
+    fn el_perfil_tapa_las_rutas_de_agente_tapar_tras_los_permisos() {
+        let tapar = [Tapado { ruta: PathBuf::from("/Users/u/.secretos"), directorio: true }];
+        let regla = "(deny file-read* file-write* (subpath \"/Users/u/.secretos\"))";
+        for p in [
+            perfil_seatbelt(Path::new("/w/repo"), Path::new("/t"), &[], None, &tapar),
+            perfil_seatbelt_criterio(Path::new("/w/repo"), Path::new("/t"), &[], None, &tapar),
+        ] {
+            assert!(p.contains(regla), "{p}");
+            assert!(p.find("(allow file-write*").unwrap() < p.find(regla).unwrap());
+        }
+        assert!(!perfil_seatbelt(Path::new("/w"), Path::new("/t"), &[], None, &[]).contains("file-read* file-write*"));
+    }
+
+    /// Spec 024 (RF-004): lo que no existe se ignora, sin repetidos, y se
+    /// distingue un directorio de un fichero.
+    #[test]
+    fn resolver_tapar_ignora_lo_que_no_existe_y_distingue_ficheros() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("secretos");
+        std::fs::create_dir(&dir).unwrap();
+        let fichero = d.path().join("clave.txt");
+        std::fs::write(&fichero, "x").unwrap();
+        let wt = d.path().join("repo");
+        std::fs::create_dir(&wt).unwrap();
+        let r = resolver_tapar(&[dir.clone(), fichero.clone(), d.path().join("no-existe"), dir.clone()], &wt, &[]).unwrap();
+        assert_eq!(r, [Tapado { ruta: canonica(&dir), directorio: true }, Tapado { ruta: canonica(&fichero), directorio: false }]);
+        assert!(resolver_tapar(&[], &wt, &[]).unwrap().is_empty());
+    }
+
+    /// Spec 024 (RF-005): lo que contiene al worktree o a una ruta escribible
+    /// (estado del agente, escribibles del criterio), coincide o cae dentro
+    /// se rechaza con el motivo, también al envolver.
+    #[test]
+    fn resolver_tapar_rechaza_lo_que_se_solapa_con_el_worktree_o_lo_escribible() {
+        let d = tempfile::tempdir().unwrap();
+        let wt = d.path().join("repo");
+        let estado = d.path().join(".qwen");
+        std::fs::create_dir_all(wt.join("sub")).unwrap();
+        std::fs::create_dir(&estado).unwrap();
+        for t in [wt.clone(), d.path().to_path_buf(), wt.join("sub")] {
+            let e = resolver_tapar(std::slice::from_ref(&t), &wt, &[]).unwrap_err();
+            assert!(e.contains("agente.tapar") && e.contains("worktree"), "{t:?}: {e}");
+        }
+        let e = resolver_tapar(std::slice::from_ref(&estado), &wt, std::slice::from_ref(&estado)).unwrap_err();
+        assert!(e.contains("ruta escribible"), "{e}");
+        assert!(resolver_tapar(&[wt.join("nada")], &wt, &[]).unwrap().is_empty(), "lo que no existe no molesta");
+        // `envolver` y `envolver_criterio` no construyen nada; sin sandbox no se mira.
+        let tapar = [wt.clone()];
+        let ocultar = Ocultar { ejecucion: None, tapar: &tapar };
+        for s in [Sandbox::Bwrap, Sandbox::Seatbelt] {
+            assert!(s.envolver("qwen", &[], &wt, &[], ocultar).err().unwrap().contains("agente.tapar"));
+            assert!(s.envolver_criterio(Command::new("true"), &wt, &[], ocultar).err().unwrap().contains("agente.tapar"));
+        }
+        assert!(Sandbox::Ninguno.envolver("qwen", &[], &wt, &[], ocultar).is_ok());
+    }
+
     #[test]
     fn seatbelt_impide_escribir_fuera_del_worktree() {
         use std::process::Command;
@@ -539,7 +689,11 @@ mod tests {
         let run = tempfile::tempdir().unwrap();
         let run_c = canonica(run.path());
         std::fs::write(run_c.join("clave"), "secreto").unwrap();
-        let perfil = perfil_seatbelt(&wt_c, &tmp_c, &[], Some(&run_c));
+        let tapado = tempfile::tempdir().unwrap();
+        let tapado_c = canonica(tapado.path());
+        std::fs::write(tapado_c.join("clave"), "secreto").unwrap();
+        let t = [Tapado { ruta: tapado_c.clone(), directorio: true }];
+        let perfil = perfil_seatbelt(&wt_c, &tmp_c, &[], Some(&run_c), &t);
         let sh = |orden: String| Command::new(SANDBOX_EXEC).args(["-p", &perfil, "sh", "-c"]).arg(orden).current_dir(&wt_c).output().unwrap();
         let correr = |destino: &Path| sh(format!("touch '{}'", destino.display()));
         let dentro = correr(&wt_c.join("dentro"));
@@ -547,6 +701,10 @@ mod tests {
         assert!(correr(&tmp_c.join("tmp")).status.success(), "el temporal propio debe ser escribible");
         let f = correr(&fuera_c.join("fuera"));
         assert!(!f.status.success() && !fuera_c.join("fuera").exists(), "escribió fuera del worktree");
+        // Lo de `agente.tapar` ni se lee ni se escribe (spec 024).
+        let l = sh(format!("cat '{}'", tapado_c.join("clave").display()));
+        assert!(!l.status.success() && l.stdout.is_empty(), "leyó una ruta tapada");
+        assert!(!correr(&tapado_c.join("otro")).status.success() && !tapado_c.join("otro").exists(), "escribió en una ruta tapada");
 
         // `.git`: ni crear uno falso ni escribir en el del repo.
         let falso = sh("printf 'gitdir: /tmp/x' > .git".into());
@@ -563,13 +721,15 @@ mod tests {
         // rutas escribibles), sin sus reglas de red.
         let extra = tempfile::tempdir().unwrap();
         let extra_c = canonica(extra.path());
-        let criterio = perfil_seatbelt_criterio(&wt_c, &tmp_c, std::slice::from_ref(&extra_c), Some(&run_c));
+        let criterio = perfil_seatbelt_criterio(&wt_c, &tmp_c, std::slice::from_ref(&extra_c), Some(&run_c), &t);
         let c = |orden: String| Command::new(SANDBOX_EXEC).args(["-p", &criterio, "sh", "-c"]).arg(orden).current_dir(&wt_c).output().unwrap();
         let l = c(format!("cat '{}'", run_c.join("clave").display()));
         assert!(!l.status.success() && l.stdout.is_empty(), "el criterio leyó el directorio de ejecución");
         let f = c(format!("touch '{}'", fuera_c.join("criterio").display()));
         assert!(!f.status.success() && !fuera_c.join("criterio").exists(), "el criterio escribió fuera del worktree");
         assert!(c(format!("touch '{}'", extra_c.join("criterio").display())).status.success() && extra_c.join("criterio").exists());
+        let l = c(format!("cat '{}'", tapado_c.join("clave").display()));
+        assert!(!l.status.success() && l.stdout.is_empty(), "el criterio leyó una ruta tapada");
         assert!(c("touch criterio-dentro".into()).status.success() && wt_c.join("criterio-dentro").exists());
         assert!(!c("echo x >> .git/config".into()).status.success(), "el criterio escribió en .git/config");
 

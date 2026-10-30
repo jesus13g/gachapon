@@ -6,7 +6,7 @@ use ea_bus::{Informe, Orden, ResultadoInforme};
 
 use super::criterio::{correr_criterio, recortar_resumen};
 use super::{Cancelado, Contexto};
-use crate::sandbox::Sandbox;
+use crate::sandbox::{Ocultar, Sandbox};
 
 /// Resultado de un bucle de iteraciones.
 pub(super) struct Bucle {
@@ -77,7 +77,15 @@ pub(super) fn bucle(ctx: &Contexto, titulo: &str, cuerpo: &str, criterio: &str, 
             return None;
         }
         let tope = std::time::Duration::from_secs(orden.topes.tiempo_criterio_s);
-        let (pasa, ev) = correr_criterio(&sandbox, wt, criterio, &config.criterio_escribibles, ejecucion.as_deref(), tope, &cortar)?;
+        let (pasa, ev) = correr_criterio(
+            &sandbox,
+            wt,
+            criterio,
+            &config.criterio_escribibles,
+            Ocultar { ejecucion: ejecucion.as_deref(), tapar: &config.tapar },
+            tope,
+            &cortar,
+        )?;
         let mut evidencia = ev.clone();
         if !salida.resumen.is_empty() {
             evidencia = recortar_resumen(&format!("{ev}\n--- resumen del agente ---\n{}", salida.resumen.trim()));

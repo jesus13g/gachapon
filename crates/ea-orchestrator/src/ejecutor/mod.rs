@@ -298,7 +298,7 @@ mod tests {
     use super::pruebas::*;
     use super::*;
     #[cfg(target_os = "linux")]
-    use crate::sandbox::Sandbox;
+    use crate::sandbox::{Ocultar, Sandbox};
     use ea_bus::{CandadoWorktree, EstadoTrabajo, Rol, Topes};
 
     /// T-007 de la spec 017: una misión trivial con el agente de verdad,
@@ -589,7 +589,7 @@ mod tests {
     impl Ejecutor for EnBwrap {
         fn ejecutar(&self, _: &str, _: &str, wt: &Path, topes: &Topes, _: &ConfigOrquestador, cancelado: &dyn Fn() -> bool) -> SalidaAgente {
             let args = ["-c".to_string(), self.guion.clone()];
-            let e = Sandbox::Bwrap.envolver("sh", &args, wt, &[], None).unwrap();
+            let e = Sandbox::Bwrap.envolver("sh", &args, wt, &[], Ocultar::default()).unwrap();
             let c = ea_plataforma::proceso::correr(e.orden, Duration::from_secs(topes.tiempo_s), cancelado);
             SalidaAgente { codigo: c.codigo, bruta: c.salida, resumen: String::new(), cancelado: c.cancelado }
         }
@@ -612,7 +612,7 @@ mod tests {
     /// ¿Puede bwrap crear sus espacios de nombres aquí?
     #[cfg(target_os = "linux")]
     fn bwrap_disponible(wt: &Path) -> bool {
-        let Ok(e) = Sandbox::Bwrap.envolver("true", &[], wt, &[], None) else { return false };
+        let Ok(e) = Sandbox::Bwrap.envolver("true", &[], wt, &[], Ocultar::default()) else { return false };
         let mut c = e.orden;
         c.output().is_ok_and(|s| s.status.success()) || {
             eprintln!("bwrap no funciona aquí: prueba omitida");
