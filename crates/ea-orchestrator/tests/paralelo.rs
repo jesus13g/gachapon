@@ -636,6 +636,23 @@ fn el_criterio_en_bwrap_solo_escribe_en_el_worktree_su_tmp_y_sus_rutas() {
     assert!(pasa && casa.join(".bashrc").exists(), "{evidencia}");
 }
 
+/// Arranca tras soltar una instancia anterior. Otras pruebas de este binario
+/// lanzan procesos (git, bwrap, sh) desde otros hilos: un `fork` duplica el
+/// descriptor del candado hasta que el hijo hace `exec`, y el `flock` sigue
+/// tomado un instante aunque ya se haya soltado la instancia. Es una carrera
+/// de la prueba (en producción hay un solo proceso), así que se reintenta con
+/// un tope corto y, si se agota, falla con el último error.
+fn arrancar_tras_soltar(bus: &Bus) -> ea_orchestrator::trabajadores::Instancia {
+    let limite = Instant::now() + Duration::from_secs(5);
+    loop {
+        match arrancar(bus) {
+            Ok(i) => return i,
+            Err(e) if Instant::now() >= limite => panic!("la instancia no se pudo retomar tras soltarla: {e}"),
+            Err(_) => std::thread::sleep(Duration::from_millis(25)),
+        }
+    }
+}
+
 /// F-14: con un orquestador en marcha, un segundo no arranca y no toca nada:
 /// ni da por interrumpido lo que el primero ejecuta ni devuelve a la cola lo
 /// que acaba de reclamar. Cuando el primero se va, el siguiente sí recupera.
@@ -660,7 +677,7 @@ fn una_segunda_instancia_no_arranca_ni_toca_lo_que_lleva_la_primera() {
     assert!(error.contains("ya hay un ea-orchestrator en marcha"), "{error}");
 
     drop(primera);
-    let _tercera = arrancar(&e.bus).unwrap();
+    let _tercera = arrancar_tras_soltar(&e.bus);
     assert_eq!(e.bus.leer_informe(&a).unwrap().unwrap().motivo.as_deref(), Some("interrumpido"));
     assert_eq!(e.bus.listar_cola(Rol::Ejecutor).unwrap().iter().map(|x| x.trabajo.clone()).collect::<Vec<_>>(), [b]);
 }

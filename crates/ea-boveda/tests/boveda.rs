@@ -237,8 +237,14 @@ fn las_escrituras_concurrentes_se_serializan() {
     const POR_HILO: usize = 6;
     let barrera = Arc::new(Barrier::new(HILOS));
     let mut hilos = Vec::new();
+    // 96 escrituras con fsync y SQLite detrás de un solo candado: en un CI
+    // lento (Windows) la cola puede superar los 10 s por defecto. Si un hilo
+    // agota la espera, el panic de `join` borra el directorio temporal y los
+    // demás fallan con NotFound. La espera larga solo evita ese falso fallo;
+    // la exclusión mutua que se comprueba es la misma.
+    let boveda_prueba = e.boveda.clone().con_espera(Duration::from_secs(120));
     for h in 0..HILOS {
-        let boveda = e.boveda.clone();
+        let boveda = boveda_prueba.clone();
         let db = e.db.clone();
         let barrera = barrera.clone();
         hilos.push(std::thread::spawn(move || {
@@ -254,8 +260,12 @@ fn las_escrituras_concurrentes_se_serializan() {
             }
         }));
     }
-    for h in hilos {
-        h.join().unwrap();
+    // Se espera a todos antes de fallar: si uno cae y la prueba termina con
+    // los demás aún escribiendo, el directorio temporal se borra debajo de
+    // ellos y sus NotFound tapan el error de verdad.
+    let resultados: Vec<_> = hilos.into_iter().map(|h| h.join()).collect();
+    for r in resultados {
+        r.unwrap();
     }
 
     let escrituras = e.eventos("boveda_escritura");
