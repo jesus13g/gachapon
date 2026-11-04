@@ -150,13 +150,7 @@ const CON_SESIONES: &[&str] = &["claude-code"];
 const ACTIVOS: &[&str] = &["en_cola", "ejecutando", "en_revision", "en_espera"];
 
 /// Junta lo que dieron los detectores y lo relaciona con el bus.
-pub fn componer(
-    mut agentes: Vec<AgenteVivo>,
-    trabajos: &[TrabajoBus],
-    semaforos: &[SemaforoBus],
-    eventos: &[EventoBus],
-    roles: &Roles,
-) -> Ecosistema {
+pub fn componer(mut agentes: Vec<AgenteVivo>, trabajos: &[TrabajoBus], semaforos: &[SemaforoBus], eventos: &[EventoBus], roles: &Roles) -> Ecosistema {
     fundir_presencias(&mut agentes);
 
     // Lo que dicen los semáforos y los trabajos de cada ejecutor.
@@ -176,11 +170,7 @@ pub fn componer(
         }
     }
 
-    let tareas = trabajos
-        .iter()
-        .filter(|t| ACTIVOS.contains(&t.estado.as_str()))
-        .map(|t| ubicar(t, &agentes, semaforos, roles))
-        .collect();
+    let tareas = trabajos.iter().filter(|t| ACTIVOS.contains(&t.estado.as_str())).map(|t| ubicar(t, &agentes, semaforos, roles)).collect();
     let senales = eventos.iter().map(|e| senal(e, &agentes, roles)).collect();
     agentes.sort_by_key(orden);
     Ecosistema { agentes, tareas, senales }
@@ -201,11 +191,8 @@ fn orden(a: &AgenteVivo) -> (u8, u64, String) {
 /// Quita la presencia de los agentes que ya tienen sesión detectada; si hay
 /// una sola sesión de ese agente, le pasa el rol y el equipo de la presencia.
 fn fundir_presencias(agentes: &mut Vec<AgenteVivo>) {
-    let presencias: Vec<AgenteVivo> = agentes
-        .iter()
-        .filter(|a| a.fuente == "presencia" && a.agente.as_deref().is_some_and(|x| CON_SESIONES.contains(&x)))
-        .cloned()
-        .collect();
+    let presencias: Vec<AgenteVivo> =
+        agentes.iter().filter(|a| a.fuente == "presencia" && a.agente.as_deref().is_some_and(|x| CON_SESIONES.contains(&x))).cloned().collect();
     agentes.retain(|a| !(a.fuente == "presencia" && a.agente.as_deref().is_some_and(|x| CON_SESIONES.contains(&x))));
     for p in presencias {
         let mut sesiones = agentes.iter_mut().filter(|a| a.padre.is_none() && a.agente == p.agente);
@@ -249,12 +236,8 @@ fn cuelga_de(ruta: &str, base: &str) -> bool {
 
 fn ubicar(t: &TrabajoBus, agentes: &[AgenteVivo], semaforos: &[SemaforoBus], roles: &Roles) -> Tarea {
     let en_semaforo = semaforos.iter().find(|s| s.trabajo == t.id).map(|s| s.agente.as_str());
-    let agente_ejecutor = t
-        .asignado_a
-        .as_deref()
-        .or(en_semaforo)
-        .or(if t.estado == "ejecutando" { t.ejecutado_por.as_deref() } else { None })
-        .unwrap_or(&roles.ejecutor);
+    let agente_ejecutor =
+        t.asignado_a.as_deref().or(en_semaforo).or(if t.estado == "ejecutando" { t.ejecutado_por.as_deref() } else { None }).unwrap_or(&roles.ejecutor);
     let ejecutor = maquina_de(agentes, agente_ejecutor, &t.worktree);
     let planificador = match &t.revisor {
         Some(r) => maquina_de(agentes, r, &t.worktree),
@@ -265,14 +248,7 @@ fn ubicar(t: &TrabajoBus, agentes: &[AgenteVivo], semaforos: &[SemaforoBus], rol
         "en_revision" => planificador.clone(),
         _ => Some("usuario".into()),
     };
-    Tarea {
-        trabajo: t.id.clone(),
-        estado: t.estado.clone(),
-        lugar: lugar.unwrap_or_else(|| "bus".into()),
-        planificador,
-        ejecutor,
-        del_usuario: t.del_usuario,
-    }
+    Tarea { trabajo: t.id.clone(), estado: t.estado.clone(), lugar: lugar.unwrap_or_else(|| "bus".into()), planificador, ejecutor, del_usuario: t.del_usuario }
 }
 
 /// De qué máquina sale un evento: la única máquina principal del agente que

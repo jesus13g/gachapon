@@ -1,12 +1,9 @@
-use rusqlite::{params, Connection, Row};
+use rusqlite::{Connection, Row, params};
 
 use crate::error::{StoreError, StoreResult};
-use crate::models::{
-    AccionPropuesta, EjecucionPropuesta, EstadoEjecucion, EstadoPropuesta, NuevaPropuesta,
-    Propuesta,
-};
+use crate::models::{AccionPropuesta, EjecucionPropuesta, EstadoEjecucion, EstadoPropuesta, NuevaPropuesta, Propuesta};
 
-use super::{now_str, parse_ts};
+use super::parse_ts;
 
 const SELECT_COLUMNS: &str = "id, creado_en, descripcion, estado, decidido_en, \
     proponente, accion_herramienta, accion_argumentos, accion_riesgo, accion_simulacion, \
@@ -49,9 +46,7 @@ fn map_row(row: &Row) -> rusqlite::Result<Raw> {
 }
 
 fn json_o_nulo(texto: Option<String>) -> serde_json::Value {
-    texto
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or(serde_json::Value::Null)
+    texto.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(serde_json::Value::Null)
 }
 
 fn to_propuesta(raw: Raw) -> StoreResult<Propuesta> {
@@ -87,46 +82,27 @@ fn to_propuesta(raw: Raw) -> StoreResult<Propuesta> {
 
 /// Encola una propuesta, con o sin acción estructurada.
 pub fn crear(conn: &Connection, nueva: NuevaPropuesta) -> StoreResult<Propuesta> {
-    let now = now_str()?;
+    let now = crate::ahora_rfc3339();
     let (herramienta, argumentos, riesgo, simulacion, precondicion) = match &nueva.accion {
-        Some(a) => (
-            Some(a.herramienta.clone()),
-            Some(a.argumentos.to_string()),
-            Some(a.riesgo.clone()),
-            Some(a.simulacion.clone()),
-            Some(a.precondicion.to_string()),
-        ),
+        Some(a) => {
+            (Some(a.herramienta.clone()), Some(a.argumentos.to_string()), Some(a.riesgo.clone()), Some(a.simulacion.clone()), Some(a.precondicion.to_string()))
+        }
         None => (None, None, None, None, None),
     };
     conn.execute(
         "INSERT INTO propuestas (creado_en, descripcion, estado, proponente,
             accion_herramienta, accion_argumentos, accion_riesgo, accion_simulacion, accion_precondicion)
          VALUES (?1, ?2, 'pendiente', ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            now,
-            nueva.descripcion,
-            nueva.proponente,
-            herramienta,
-            argumentos,
-            riesgo,
-            simulacion,
-            precondicion
-        ],
+        params![now, nueva.descripcion, nueva.proponente, herramienta, argumentos, riesgo, simulacion, precondicion],
     )?;
     get_propuesta(conn, conn.last_insert_rowid())
 }
 
 pub fn get_propuesta(conn: &Connection, id: i64) -> StoreResult<Propuesta> {
-    let raw = conn
-        .query_row(
-            &format!("SELECT {SELECT_COLUMNS} FROM propuestas WHERE id = ?1"),
-            params![id],
-            map_row,
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => StoreError::PropuestaNotFound(id),
-            other => StoreError::Database(other),
-        })?;
+    let raw = conn.query_row(&format!("SELECT {SELECT_COLUMNS} FROM propuestas WHERE id = ?1"), params![id], map_row).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => StoreError::PropuestaNotFound(id),
+        other => StoreError::Database(other),
+    })?;
     to_propuesta(raw)
 }
 
@@ -165,11 +141,7 @@ pub fn list_propuestas(conn: &Connection, filter: &PropuestaFilter) -> StoreResu
 /// libre. Solo transita desde `pendiente` (decidir dos veces es un error) y
 /// una propuesta con acción solo puede rechazarse por aquí: aceptarla es
 /// ejecutarla, y eso pasa por [`reclamar_para_ejecucion`].
-pub fn decidir_propuesta(
-    conn: &Connection,
-    id: i64,
-    estado: EstadoPropuesta,
-) -> StoreResult<Propuesta> {
+pub fn decidir_propuesta(conn: &Connection, id: i64, estado: EstadoPropuesta) -> StoreResult<Propuesta> {
     if estado == EstadoPropuesta::Pendiente {
         return Err(StoreError::InvalidStatus(estado.as_str().to_string()));
     }
@@ -177,11 +149,9 @@ pub fn decidir_propuesta(
     if estado == EstadoPropuesta::Aceptada && actual.accion.is_some() {
         return Err(StoreError::PropuestaConAccion(id));
     }
-    let now = now_str()?;
-    let filas = conn.execute(
-        "UPDATE propuestas SET estado = ?1, decidido_en = ?2 WHERE id = ?3 AND estado = 'pendiente'",
-        params![estado.as_str(), now, id],
-    )?;
+    let now = crate::ahora_rfc3339();
+    let filas =
+        conn.execute("UPDATE propuestas SET estado = ?1, decidido_en = ?2 WHERE id = ?3 AND estado = 'pendiente'", params![estado.as_str(), now, id])?;
     if filas == 0 {
         return Err(StoreError::PropuestaYaDecidida(id));
     }
@@ -197,7 +167,7 @@ pub fn reclamar_para_ejecucion(conn: &Connection, id: i64) -> StoreResult<Propue
     if actual.accion.is_none() {
         return Err(StoreError::PropuestaSinAccion(id));
     }
-    let now = now_str()?;
+    let now = crate::ahora_rfc3339();
     let filas = conn.execute(
         "UPDATE propuestas SET estado = 'aceptada', decidido_en = ?1, ejecucion_estado = 'ejecutando'
          WHERE id = ?2 AND estado = 'pendiente'",
@@ -211,16 +181,11 @@ pub fn reclamar_para_ejecucion(conn: &Connection, id: i64) -> StoreResult<Propue
 
 /// Cierra la ejecución reclamada con su resultado. Solo actúa sobre una
 /// propuesta `ejecutando`: no se puede reescribir un resultado ya registrado.
-pub fn registrar_ejecucion(
-    conn: &Connection,
-    id: i64,
-    estado: EstadoEjecucion,
-    detalle: &str,
-) -> StoreResult<Propuesta> {
+pub fn registrar_ejecucion(conn: &Connection, id: i64, estado: EstadoEjecucion, detalle: &str) -> StoreResult<Propuesta> {
     if estado == EstadoEjecucion::Ejecutando {
         return Err(StoreError::InvalidStatus(estado.as_str().to_string()));
     }
-    let now = now_str()?;
+    let now = crate::ahora_rfc3339();
     let filas = conn.execute(
         "UPDATE propuestas SET ejecucion_estado = ?1, ejecucion_detalle = ?2, ejecutada_en = ?3
          WHERE id = ?4 AND ejecucion_estado = 'ejecutando'",

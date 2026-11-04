@@ -280,8 +280,8 @@ export const architecture = {
       points: [
         'The workspace excludes `escritorio/` (`ea-escritorio`, tray and notifications) and `instalador/` (`gachapon-instalar.exe`); both have their own manifests.',
         '`instalar.sh` and `instalar.ps1` are the one-step installers.',
-        '`claude/` holds the skills `/mision`, `/obra`, `/rutina`, `/revisar` and `/equipo`, plus the subagent hook.',
-        '`agentes/` has the flow and the adapters for Codex, OpenCode and Antigravity; `qwen/skills` the short Qwen skills.',
+        '`claude/` holds the skills `/mision`, `/obra`, `/rutina`, `/revisar` and `/equipo`, the single source of every agent\'s adapter; the subagent hook is `ea hook subagentes`, which `ea instalar` registers.',
+        '`agentes/` has the neutral flow and the planner rules; `ea instalar` generates the Codex, OpenCode and Antigravity adapters from them. `qwen/skills` holds the short Qwen skills.',
         'Also in the tree: `web/` (this Astro landing), `bench/`, `docs/` and `.github/workflows` (`ci`, `pages`, `release`).',
       ],
     },

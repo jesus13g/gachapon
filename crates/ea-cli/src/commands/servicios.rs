@@ -5,22 +5,14 @@
 //! el sistema, así que exigen una terminal interactiva real y la confirmación
 //! escrita del usuario, como el resto de lo mutante de la CLI.
 
-use anyhow::{bail, Result};
-use ea_acciones::servicios::{aplicar, correr_orden, plan_desinstalar, plan_instalar, Backend, Entorno, Paso};
-use ea_acciones::{Canal, GestorServicios, SERVICIOS_INSTALABLES};
+use anyhow::{Result, bail};
+use ea_acciones::servicios::{Backend, Entorno, Paso, aplicar, correr_orden, plan_desinstalar, plan_instalar};
+use ea_acciones::{GestorServicios, SERVICIOS_INSTALABLES};
 
 use super::{bloquear, preguntar, respuesta_confirma};
 
-fn gestor(b: Backend) -> &'static str {
-    match b {
-        Backend::Systemd => "systemd --user (unidades en ~/.config/systemd/user)",
-        Backend::Launchd => "launchd (LaunchAgents en ~/Library/LaunchAgents)",
-        Backend::Schtasks => "Programador de tareas de Windows (tareas «ecosistema-asistente\\…» al iniciar sesión)",
-    }
-}
-
 fn mostrar(env: &Entorno, pasos: &[Paso]) {
-    println!("Gestor:    {}", gestor(env.backend));
+    println!("Gestor:    {}", env.backend.descripcion());
     println!("Binarios:  {}", env.exes_dir.display());
     if env.backend == Backend::Launchd {
         // launchd arranca los agentes con un PATH mínimo: se fija el de ahora.
@@ -69,7 +61,7 @@ pub fn ver() -> Result<()> {
 fn con_confirmacion(titulo: &str, env: &Entorno, pasos: &[Paso]) -> Result<()> {
     // Lo primero: una persona delante de un teclado, no un agente con `ea`
     // como subproceso.
-    Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     println!("{titulo} en {}:\n", ea_plataforma::Sistema::actual().nombre());
     mostrar(env, pasos);
     let r = preguntar("\n  ¿Hacerlo ahora? [s/N]: ")?;
@@ -84,7 +76,7 @@ fn con_confirmacion(titulo: &str, env: &Entorno, pasos: &[Paso]) -> Result<()> {
 
 /// Escribe las unidades con la ruta real y arranca los servicios.
 pub fn instalar() -> Result<()> {
-    Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     let env = Entorno::usuario().map_err(anyhow::Error::msg)?;
     let faltan = env.faltan();
     if !faltan.is_empty() {
@@ -97,7 +89,7 @@ pub fn instalar() -> Result<()> {
 
 /// Para y quita los servicios (no toca las rutinas programadas).
 pub fn desinstalar() -> Result<()> {
-    Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     let env = Entorno::usuario().map_err(anyhow::Error::msg)?;
     let pasos = plan_desinstalar(&env).map_err(anyhow::Error::msg)?;
     con_confirmacion("Se desinstalarán los servicios", &env, &pasos)

@@ -4,7 +4,7 @@
 //! rechazan sin tocar nada.
 
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 
 /// Un directorio absoluto que existe en cada sistema (`/tmp` no es absoluta en Windows).
 #[cfg(windows)]
@@ -24,15 +24,7 @@ use ea_ajustes::{Ajustes, Fuentes};
 use ea_bus::{Bus, Miembro, NuevoEquipo, Presencia, RolEquipo};
 
 fn ea(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ea"))
-        .args(args)
-        .env("EA_CONFIG_DIR", dir.join("config"))
-        .env("EA_DB_PATH", dir.join("ea.db"))
-        .env("EA_ESTADO_DIR", dir.join("estado"))
-        .env("EA_BOVEDA_DIR", dir.join("boveda"))
-        .stdin(Stdio::piped())
-        .output()
-        .expect("lanzar ea")
+    ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea"), dir).args(args).output().expect("lanzar ea")
 }
 
 fn stderr(o: &Output) -> String {
@@ -69,10 +61,7 @@ fn despertar_y_dormir_sin_terminal_se_rechazan_sin_tocar_nada() {
     let o = ea(d.path(), &["equipo", "despertar", "--todos", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!()]);
     assert!(!o.status.success());
     assert!(stderr(&o).contains("terminal interactiva"), "{}", stderr(&o));
-    let o = ea(
-        d.path(),
-        &["equipo", "despertar", "--miembro", "codex:ejecutor", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!(), "--sin-terminal"],
-    );
+    let o = ea(d.path(), &["equipo", "despertar", "--miembro", "codex:ejecutor", "--titulo", "t", "--objetivo", "o", "--worktree", tmp!(), "--sin-terminal"]);
     assert!(!o.status.success() && stderr(&o).contains("terminal interactiva"), "{}", stderr(&o));
     assert!(!d.path().join("estado/equipos").exists(), "no se creó ningún equipo");
 
@@ -127,7 +116,9 @@ fn listar_y_ver_en_json_traen_miembros_con_presencia() {
 fn trabajo_crear_con_equipo_asigna_revisa_y_pide_worktree_propio() {
     let d = tempfile::tempdir().unwrap();
     let id = equipo(d.path());
-    let wt = d.path().to_string_lossy().into_owned();
+    // `ea trabajo crear` exige, como la web, un repo git con algún commit.
+    let repo = ea_pruebas::repo_git(&d.path().join("repo"), true);
+    let wt = repo.to_string_lossy().into_owned();
     let base = ["trabajo", "crear", "--titulo", "tarea", "--worktree", &wt, "--objetivo", "haz algo", "--criterio", "true"];
     // asignar sin equipo lo rechaza clap
     let mut args = base.to_vec();

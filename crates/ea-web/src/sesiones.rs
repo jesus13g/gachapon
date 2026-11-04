@@ -1,7 +1,8 @@
 //! Sesiones de Claude Code abiertas en la máquina, leídas de los ficheros
 //! que Claude Code deja en `~/.claude/sessions/<pid>.json`, con sus
-//! subagentes: los apunta el hook `claude/hooks/ea-subagentes.sh` en
-//! `<subagentes_dir>/<sessionId>/<agente>.json`. Solo lectura.
+//! subagentes: los apunta el hook (`ea hook subagentes`) en
+//! `<subagentes_dir>/<sessionId>/<agente>.json` (`ea_bus::subagentes`). Solo
+//! lectura.
 
 use std::path::Path;
 
@@ -51,20 +52,6 @@ struct Fichero {
     updated_at: u64,
 }
 
-/// Lo que escribe el hook.
-#[derive(Deserialize)]
-struct Marca {
-    agente: String,
-    #[serde(default)]
-    tipo: String,
-    #[serde(default)]
-    transcript: String,
-    #[serde(default)]
-    desde: u64,
-    #[serde(default)]
-    hasta: Option<u64>,
-}
-
 /// El `meta.json` que Claude Code deja junto a la transcripción del subagente.
 #[derive(Deserialize, Default)]
 struct Meta {
@@ -105,14 +92,8 @@ pub fn vivas(dir: &Path, subagentes_dir: Option<&Path>) -> Vec<Sesion> {
 /// Los subagentes de una sesión: primero los que siguen en marcha (del más
 /// antiguo al más nuevo), luego los terminados más recientes.
 fn subagentes(dir: &Path, sesion: &str) -> Vec<Subagente> {
-    if sesion.is_empty() || sesion.contains(['/', '\\']) || sesion.contains("..") {
-        return Vec::new();
-    }
-    let Ok(entradas) = std::fs::read_dir(dir.join(sesion)) else { return Vec::new() };
-    let mut v: Vec<Subagente> = entradas
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-        .filter_map(|e| serde_json::from_slice::<Marca>(&std::fs::read(e.path()).ok()?).ok())
+    let mut v: Vec<Subagente> = ea_bus::subagentes::de_sesion(dir, sesion)
+        .into_iter()
         // Un `SubagentStop` sin `SubagentStart` ni meta.json (agentes internos
         // de Claude Code) deja una marca sin tipo ni descripción: no hay nada
         // que mostrar, así que no cuenta como subagente.
@@ -145,11 +126,8 @@ fn meta(transcript: &str, agente: &str) -> (Meta, Option<u64>) {
     let Some(base) = transcript.strip_suffix(".jsonl") else { return (Meta::default(), None) };
     let ruta = Path::new(base).join("subagents").join(format!("agent-{agente}.meta.json"));
     let meta = std::fs::read(&ruta).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    let cuando = std::fs::metadata(&ruta)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64);
+    let cuando =
+        std::fs::metadata(&ruta).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
     (meta, cuando)
 }
 

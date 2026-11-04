@@ -1,7 +1,7 @@
 use ea_store::Propuesta;
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::widgets::{Block, Borders, Row, Table};
-use ratatui::Frame;
 
 use crate::commands::fmt_ts;
 
@@ -19,17 +19,9 @@ pub fn render(frame: &mut Frame, area: Rect, propuestas: &[Propuesta]) {
             ])
         })
         .collect();
-    let widths = [
-        Constraint::Length(6),
-        Constraint::Length(10),
-        Constraint::Length(36),
-        Constraint::Length(22),
-        Constraint::Percentage(50),
-    ];
+    let widths = [Constraint::Length(6), Constraint::Length(10), Constraint::Length(36), Constraint::Length(22), Constraint::Percentage(50)];
     let table = Table::new(rows, widths).header(header).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!("Propuestas ({}) — decide con 'ea propuestas decidir' (aceptar ejecuta)", propuestas.len())),
+        Block::default().borders(Borders::ALL).title(format!("Propuestas ({}) — decide con 'ea propuestas decidir' (aceptar ejecuta)", propuestas.len())),
     );
     frame.render_widget(table, area);
 }

@@ -7,7 +7,6 @@
 use anyhow::Result;
 use comfy_table::Table;
 use ea_bus::{Bus, InfoWorktree};
-use ea_store::Store;
 
 pub fn listar(json: bool) -> Result<()> {
     let v = Bus::abrir()?.listar_worktrees()?;
@@ -25,7 +24,7 @@ pub fn listar(json: bool) -> Result<()> {
         t.add_row(vec![
             w.trabajo.clone(),
             w.rama.clone(),
-            w.estado_trabajo.unwrap_or("sin trabajo").to_string(),
+            w.estado_trabajo.map_or("sin trabajo", ea_bus::EstadoTrabajo::as_str).to_string(),
             estado_texto(w).to_string(),
             w.ruta.clone(),
         ]);
@@ -46,6 +45,6 @@ fn estado_texto(w: &InfoWorktree) -> &'static str {
     }
 }
 
-pub fn limpiar(store: &mut Store, id: &str) -> Result<()> {
-    super::acciones::ejecutar(store, "ea_limpiar_worktree", &serde_json::json!({ "trabajo": id }).to_string())
+pub fn limpiar(ctx: &mut super::Contexto, id: &str) -> Result<()> {
+    super::acciones::ejecutar(ctx, "ea_limpiar_worktree", &serde_json::json!({ "trabajo": id }).to_string())
 }

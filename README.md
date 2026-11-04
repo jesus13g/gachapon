@@ -99,7 +99,7 @@ uno en la nube. Un mismo agente no ocupa los dos roles a la vez.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Rust stable | solo para compilar desde el código | ídem | ídem |
+| Rust ≥ 1.89 (1.90 para la app) | solo para compilar desde el código | ídem | ídem |
 | Git | sí | sí | sí |
 | Sandbox del ejecutor | `bubblewrap` (`bwrap`) | incluido (`sandbox-exec`) | no hay: usa **WSL2** (el instalador lo prepara) |
 | Servicios | `systemd --user` | `launchd` | Programador de tareas |
@@ -149,7 +149,8 @@ El instalador (`ea instalar`) hace esto:
    - la app de escritorio en el menú del sistema, arrancando con la sesión;
    - las skills del ejecutor;
    - el adaptador de cada agente que tengas instalado;
-   - el MCP y el hook de subagentes en Claude Code.
+   - el MCP (con la credencial del planificador) y el hook de subagentes en
+     Claude Code.
 5. Comprueba que el panel y el MCP responden y ofrece abrir la app.
 
 En **Windows** pregunta la vía:
@@ -161,7 +162,9 @@ En **Windows** pregunta la vía:
   `sin sandbox`.
 
 Los binarios no están firmados: SmartScreen avisará («Más información →
-Ejecutar de todos modos»).
+Ejecutar de todos modos»). Cada paquete de la Release lleva una atestación de
+procedencia que puedes comprobar con `gh attestation verify <fichero> --repo
+jesus13g/gachapon` (ver el [manual](docs/manual.md)).
 
 Hay dos cosas que el instalador no puede hacer por ti, y te las recuerda al
 final con la orden exacta:
@@ -186,9 +189,10 @@ cd gachapon
 
 Compila en release (también la app, si están sus dependencias) y ejecuta
 `target/release/ea instalar`. En este modo los servicios usan `target/release`:
-tras un `cargo build --release` basta reiniciarlos. Si el clon está en
-`~/Proyectos/ecosistema-asistente`, las skills de Claude Code quedan enlazadas al
-repo. La instalación paso a paso está en el manual
+tras un `cargo build --release` basta reiniciarlos. Las skills de Claude Code
+y los adaptadores de los otros planificadores se copian con la ruta real de las
+guías del clon (`agentes/flujo/`); si cambias un adaptador, vuelve a ejecutar
+`ea instalar`. La instalación paso a paso está en el manual
 ([Instalación por sistema](docs/manual.md#instalación-por-sistema)).
 
 ### 3. Comprueba
@@ -298,7 +302,9 @@ llaves de tu equipo:
 
 - **Sandbox del ejecutor**: solo puede escribir en el worktree y en sus propios
   directorios de estado; no tiene herramientas web ni acceso a la clave del
-  panel. En Windows nativo no hay sandbox y el ejecutor se niega a arrancar.
+  panel. Con `agente.tapar` le escondes además rutas de tu usuario que no debe
+  leer (credenciales; vacía por defecto). En Windows nativo no hay sandbox y el
+  ejecutor se niega a arrancar.
 - **Topes duros**: tiempo, turnos e iteraciones; al vencer, se mata el árbol de
   procesos entero.
 - **Nada se confirma solo**: lo que un agente quiere cambiar (programar una
@@ -330,6 +336,12 @@ no se migra. Para los servicios, guarda una copia de
 `~/.local/share/ecosistema-asistente/ecosistema.db*`, bórrala y vacía
 `~/.local/state/ecosistema-asistente/`.
 
+**Claude Code solo puede leer por MCP (actor `desconocido` en el diario).**
+El MCP identifica al planificador por una credencial y no por el nombre que
+declara: vuelve a ejecutar `ea instalar` para registrar el MCP con
+`ea mcp cabeceras` y reconecta (`/mcp` en Claude Code). Ver «Identidad del
+cliente» en el manual.
+
 **He cambiado el código y no veo el cambio.** Los servicios ejecutan los
 binarios de `target/release/`: compila en release y reinícialos
 (`systemctl --user restart ea-web ea-orchestrator ea-mcp` en Linux).
@@ -351,7 +363,7 @@ cargo test -p ea-bus       # un solo crate
 
 | Crate | Qué es |
 |---|---|
-| `ea-cli` | Binario `ea`: CLI y TUI |
+| `ea-cli` | Binario `ea`: CLI, TUI e instalador (`ea instalar`) |
 | `ea-orchestrator` | El orquestador: toma trabajos, lanza al ejecutor y corre el criterio |
 | `ea-web` | API JSON y panel web |
 | `ea-mcp` | Servidor MCP |
@@ -363,9 +375,13 @@ cargo test -p ea-bus       # un solo crate
 | `ea-ajustes` | Ajustes, validación y escritura atómica |
 | `ea-plataforma` | Diferencias entre Linux, macOS y Windows |
 
-Fuera del workspace: `escritorio/` (app de escritorio), `claude/` y `agentes/`
-(skills y adaptadores de los planificadores), `qwen/skills/` (skills del
-ejecutor) y `bench/` (banco de pruebas de modelos).
+Fuera del workspace: `escritorio/` (app de escritorio), `instalador/` (el
+instalador de Windows, `gachapon-instalar.exe`), `claude/` y `agentes/` (skills y
+adaptadores de los planificadores), `qwen/skills/` (skills del ejecutor), `web/`
+(la página del proyecto) y `bench/` (banco de pruebas de modelos).
+`escritorio/` e `instalador/` tienen su propio `Cargo.lock`: al actualizar
+dependencias, actualiza los tres (ver «Versión de Rust, perfil de release y
+lockfiles» en el [manual](docs/manual.md)).
 
 Todo el proyecto (código, mensajes y documentación) está en español. Las
 mejoras salen de la rama `desarrollo` y vuelven a ella; `main` es la versión

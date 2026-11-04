@@ -39,15 +39,7 @@ pub fn leer(trabajos: &Path, avisos: &mut Vec<String>) -> Vec<(String, u64, Opti
             .get("creada_en")
             .and_then(Value::as_str)
             .and_then(parse_ts)
-            .or_else(|| {
-                std::fs::metadata(&entregadas)
-                    .ok()?
-                    .modified()
-                    .ok()?
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .ok()
-                    .map(|d| d.as_millis() as i64)
-            });
+            .or_else(|| std::fs::metadata(&entregadas).ok()?.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_millis() as i64));
         for s in skills {
             let a = acum.entry(s).or_insert((0, None));
             a.0 += 1;

@@ -53,8 +53,16 @@ pub fn revelar(ruta: &Path) -> io::Result<()> {
         let uri = uri_fichero(&ruta.display().to_string());
         let dbus = Command::new("gdbus")
             .args([
-                "call", "--session", "--timeout", "5", "--dest", "org.freedesktop.FileManager1", "--object-path", "/org/freedesktop/FileManager1",
-                "--method", "org.freedesktop.FileManager1.ShowItems",
+                "call",
+                "--session",
+                "--timeout",
+                "5",
+                "--dest",
+                "org.freedesktop.FileManager1",
+                "--object-path",
+                "/org/freedesktop/FileManager1",
+                "--method",
+                "org.freedesktop.FileManager1.ShowItems",
             ])
             .arg(format!("['{uri}']"))
             .arg("")
@@ -302,7 +310,9 @@ pub fn contenido_desktop(binario: &Path) -> String {
     )
 }
 
-fn escapar_xml(t: &str) -> String {
+/// Escapa un texto para ir dentro de un elemento (o un atributo) XML: el
+/// LaunchAgent de aquí y los de `ea-acciones` (plist y tareas de Windows).
+pub fn escapar_xml(t: &str) -> String {
     t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
@@ -394,7 +404,8 @@ pub fn autoarranque_en(home: Option<&Path>, config: Option<&Path>, activar: bool
 fn launchctl(cargar: bool, plist: &Path) {
     #[cfg(all(target_os = "macos", not(test)))]
     {
-        let uid = Command::new("id").arg("-u").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
+        let uid =
+            Command::new("id").arg("-u").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
         let Some(uid) = uid else { return };
         let dominio = format!("gui/{uid}");
         let mut c = Command::new("launchctl");
@@ -425,10 +436,7 @@ mod tests {
 
     #[test]
     fn argv_de_linux_usa_env() {
-        assert_eq!(
-            texto(argv_lanzador(&orden(), "xdg-terminal-exec")),
-            ["env", "-C", "/tmp/mi dir", "EA_X=1", "Y=it's", "claude", "--flag", "a b"]
-        );
+        assert_eq!(texto(argv_lanzador(&orden(), "xdg-terminal-exec")), ["env", "-C", "/tmp/mi dir", "EA_X=1", "Y=it's", "claude", "--flag", "a b"]);
         let simple = OrdenTerminal { argv: vec!["ls".into()], ..Default::default() };
         assert_eq!(texto(argv_lanzador(&simple, "omarchy-launch-terminal")), ["ls"]);
     }

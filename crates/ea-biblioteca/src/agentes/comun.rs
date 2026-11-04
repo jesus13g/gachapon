@@ -164,11 +164,7 @@ pub fn frontmatter(texto: &str) -> BTreeMap<String, String> {
         if let Some((k, v)) = l.split_once(':') {
             let k = k.trim().to_string();
             let v = v.trim();
-            let v = if matches!(v, ">" | "|" | ">-" | "|-") {
-                String::new()
-            } else {
-                v.trim_matches(|c| c == '"' || c == '\'').to_string()
-            };
+            let v = if matches!(v, ">" | "|" | ">-" | "|-") { String::new() } else { v.trim_matches(|c| c == '"' || c == '\'').to_string() };
             salida.insert(k.clone(), v);
             actual = Some(k);
         }
@@ -319,15 +315,7 @@ pub fn def_mcp(v: &Value) -> DefMcp {
 }
 
 /// Un MCP con su definición ya redactada.
-pub fn mcp(
-    avisos: &mut Vec<String>,
-    agente: &str,
-    ambito: Ambito,
-    nombre: &str,
-    config: &Path,
-    def: &Value,
-    version: &str,
-) -> Option<Elemento> {
+pub fn mcp(avisos: &mut Vec<String>, agente: &str, ambito: Ambito, nombre: &str, config: &Path, def: &Value, version: &str) -> Option<Elemento> {
     let mut e = crear(avisos, agente, Tipo::Mcp, ambito, nombre, config.to_path_buf(), version)?;
     e.def_mcp = Some(def_mcp(def));
     Some(e)

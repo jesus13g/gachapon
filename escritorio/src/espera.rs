@@ -11,7 +11,8 @@ pub const PROTOCOLO: &str = "ea-espera";
 pub const HTML: &str = include_str!("espera.html");
 
 /// El párrafo de ayuda de la página (cómo ver y cargar los servicios).
-const AYUDA: &str = "<p id=\"ayuda\">Para ver el estado de los servicios: <code>ea servicios ver</code>. Para cargarlos: <code>ea servicios instalar</code>.</p>";
+const AYUDA: &str =
+    "<p id=\"ayuda\">Para ver el estado de los servicios: <code>ea servicios ver</code>. Para cargarlos: <code>ea servicios instalar</code>.</p>";
 
 /// La página que se sirve. En modo WSL (spec 023) la ayuda nombra la
 /// distribución: los servicios corren dentro de ella con `systemd --user`.

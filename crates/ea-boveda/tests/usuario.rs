@@ -44,12 +44,7 @@ impl Entorno {
         self.boveda.leer_completa(ruta).unwrap().version
     }
     fn eventos(&self, accion: &str) -> Vec<ea_store::Event> {
-        self.store
-            .list_events(&EventFilter { limit: Some(1000), ..Default::default() })
-            .unwrap()
-            .into_iter()
-            .filter(|e| e.action == accion)
-            .collect()
+        self.store.list_events(&EventFilter { limit: Some(1000), ..Default::default() }).unwrap().into_iter().filter(|e| e.action == accion).collect()
     }
     fn rutas(&self) -> Vec<String> {
         self.store.boveda_todas().unwrap().into_iter().map(|r| r.ruta).collect()
@@ -163,10 +158,7 @@ fn crear_solo_en_la_compartida_y_sin_pisar() {
 fn renombrar_mueve_y_reescribe_los_enlaces() {
     let mut e = entorno();
     let x = e.usuario("compartida/x", "Soy x.");
-    e.usuario(
-        "compartida/otra",
-        "[[x]] [[compartida/x|alias]] [[x#ancla]] [v](x.md) [w](./x.md#a) [[otra]]",
-    );
+    e.usuario("compartida/otra", "[[x]] [[compartida/x|alias]] [[x#ancla]] [v](x.md) [w](./x.md#a) [[otra]]");
     e.agente("claude-code", "nota", "Desde fuera: [[x]] y [z](../compartida/x.md)");
     let v = e.version(&x);
     let r = e.boveda.renombrar(&mut e.store, &x, "compartida/sub/y", &v, "usuario").unwrap();

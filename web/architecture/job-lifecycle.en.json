@@ -38,7 +38,7 @@
           "label": "EstadoTrabajo"
         },
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/trabajos.rs",
           "line": 179,
           "end_line": 247,
           "label": "crear_trabajo"
@@ -66,13 +66,13 @@
           "label": "transicion"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 478,
           "end_line": 507,
           "label": "tomar_con"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mision.rs",
           "line": 620,
           "end_line": 685,
           "label": "bucle"
@@ -88,13 +88,13 @@
       "step": "03",
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 407,
           "end_line": 427,
           "label": "encola al planificador"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 525,
           "end_line": 562,
           "label": "entregar"
@@ -110,7 +110,7 @@
       "step": "04",
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/colas.rs",
           "line": 431,
           "end_line": 433,
           "label": "retirar_de_colas"
@@ -131,13 +131,13 @@
       "tag": "on hold",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 544,
           "end_line": 553,
           "label": "PonerEnEspera"
         },
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 544,
           "end_line": 554,
           "label": "confirmar"
@@ -152,13 +152,13 @@
       "tag": "terminal",
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 749,
           "end_line": 755,
           "label": "fases canceladas"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 515,
           "end_line": 521,
           "label": "cancelado_en_curso"

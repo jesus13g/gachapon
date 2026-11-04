@@ -16,19 +16,14 @@ use crate::clave;
 /// válido en `escritorio.wsl`.
 pub fn distro_activa(ajuste: &str, es_windows: bool) -> Option<String> {
     let d = ajuste.trim();
-    let valida = !d.is_empty() && d.len() <= 64 && d.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
-    (es_windows && valida).then(|| d.to_string())
+    (es_windows && ea_plataforma::wsl::nombre_distro_valido(d)).then(|| d.to_string())
 }
 
 /// Guion `sh` que escribe la clave por la salida estándar: el mismo fichero
 /// que `ea_ajustes::fichero_clave_web` dentro del directorio de ejecución
 /// de Linux (`$XDG_RUNTIME_DIR` o `/run/user/<uid>`).
 pub fn guion_clave() -> String {
-    format!(
-        "d=\"${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}\"; cat \"$d/{}/{}\"",
-        ea_ajustes::DIR_WEB,
-        ea_ajustes::FICHERO_CLAVE
-    )
+    format!("d=\"${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}\"; cat \"$d/{}/{}\"", ea_ajustes::DIR_WEB, ea_ajustes::FICHERO_CLAVE)
 }
 
 /// `wsl.exe` para leer la clave.
@@ -41,9 +36,9 @@ pub fn argv_viva(distro: &str) -> Vec<String> {
     ["wsl.exe", "-d", distro, "--exec", "sleep", "infinity"].iter().map(|s| s.to_string()).collect()
 }
 
-/// La clave de la salida de `wsl.exe` (sin NUL ni espacios), si es válida.
+/// La clave de la salida de `wsl.exe` (sin NUL, BOM ni espacios), si es válida.
 pub fn clave_de_salida(salida: &[u8]) -> Option<String> {
-    let t: String = String::from_utf8_lossy(salida).chars().filter(|c| *c != '\0').collect();
+    let t = ea_plataforma::wsl::limpiar_salida(salida);
     let c = t.trim();
     clave::es_valida(c).then(|| c.to_string())
 }
@@ -178,5 +173,6 @@ mod tests {
         assert_eq!(clave_de_salida(b"cat: no such file"), None);
         let con_nul: Vec<u8> = BUENA.bytes().flat_map(|b| [b, 0]).collect();
         assert_eq!(clave_de_salida(&con_nul).as_deref(), Some(BUENA));
+        assert_eq!(clave_de_salida(format!("\u{feff}{BUENA}\n").as_bytes()).as_deref(), Some(BUENA));
     }
 }

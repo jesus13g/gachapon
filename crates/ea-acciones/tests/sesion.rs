@@ -8,8 +8,9 @@ use std::path::Path;
 use ea_acciones::*;
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_biblioteca::{Biblioteca, Raices};
+use ea_pruebas::{escribe, sin_secretos};
 use ea_store::{EstadoEjecucion, EstadoPropuesta, Store};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const SECRETOS: &[&str] = &["SECRETO_ENV", "SECRETO_HEADER", "SECRETO_RUTA"];
 
@@ -21,19 +22,14 @@ struct Entorno {
     home: std::path::PathBuf,
 }
 
-fn escribe(ruta: &Path, texto: &str) {
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
-}
-
 fn entorno() -> Entorno {
     let d = tempfile::tempdir().unwrap();
     let home = d.path().join("home");
     let runtime = d.path().join("rt");
     fs::create_dir_all(&runtime).unwrap();
-    escribe(&home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
+    escribe(home.join(".claude/skills/propia/SKILL.md"), "---\ndescription: Hace cosas\n---\n");
     escribe(
-        &home.join(".claude.json"),
+        home.join(".claude.json"),
         r#"{"mcpServers":{
             "con-secretos":{"type":"stdio","command":"npx","args":["-y","pkg"],"env":{"API_KEY":"SECRETO_ENV"}},
             "remoto":{"type":"http","url":"https://m.ejemplo.com/SECRETO_RUTA/mcp","headers":{"Authorization":"Bearer SECRETO_HEADER"}}}}"#,
@@ -58,12 +54,6 @@ fn diario(s: &Store) -> String {
     s.list_events(&Default::default()).unwrap().iter().map(|e| format!("{} {} {:?}", e.actor, e.action, e.detail)).collect::<Vec<_>>().join("\n")
 }
 
-fn sin_secretos(t: &str) {
-    for s in SECRETOS {
-        assert!(!t.contains(s), "se coló {s} en: {t}");
-    }
-}
-
 #[test]
 fn la_herramienta_es_supervisada_reversible_y_no_es_del_ejecutor() {
     let h = buscar("ea_lanzar_sesion").unwrap();
@@ -72,7 +62,7 @@ fn la_herramienta_es_supervisada_reversible_y_no_es_del_ejecutor() {
     assert!(autorizar_mcp("orquestador", h).is_err());
     assert!(autorizar_mcp("claude-code", h).is_ok(), "el planificador solo propone");
     // La web puede confirmarla (es reversible), pero no es una lectura.
-    assert!(Canal::Web.puede_confirmar(h.riesgo).is_ok());
+    assert!(puede_confirmar(Canal::Web, h.riesgo).is_ok());
 }
 
 #[test]
@@ -94,15 +84,16 @@ async fn simular_describe_el_plan_sin_secretos_y_no_escribe_nada() {
     let e = entorno();
     let sim = simular(&e.store, &e.sis, &json!({ "agente": "claude-code", "herramientas": [SKILL, MCP, REMOTO, MCP] })).await.unwrap();
     assert_eq!(sim.riesgo, Riesgo::Reversible);
-    // Normalizados: ordenados y sin repetir.
-    assert_eq!(sim.argumentos, json!({ "agente": "claude-code", "herramientas": [MCP, REMOTO, SKILL] }));
+    // Normalizados: ordenados y sin repetir, y con la carpeta resuelta (sin
+    // proyecto, el HOME).
+    assert_eq!(sim.argumentos, json!({ "agente": "claude-code", "herramientas": [MCP, REMOTO, SKILL], "directorio": e.home.to_str().unwrap() }));
     for trozo in ["--strict-mcp-config", "--mcp-config", "mcp.json", "ajustes.json", "--plugin-dir", "0600"] {
         assert!(sim.texto.contains(trozo), "{trozo}: {}", sim.texto);
     }
     let sep = std::path::MAIN_SEPARATOR;
     assert!(sim.texto.contains(&format!("complemento{sep}skills{sep}propia")), "{}", sim.texto);
-    sin_secretos(&sim.texto);
-    sin_secretos(&sim.precondicion.to_string());
+    sin_secretos(&sim.texto, SECRETOS);
+    sin_secretos(&sim.precondicion.to_string(), SECRETOS);
     assert!(!e.runtime.join("ea-biblioteca").exists(), "simular no escribe");
     assert!(e.sis.terminales().is_empty());
     assert!(e.sis.mutaciones().is_empty());
@@ -128,7 +119,7 @@ async fn proponer_no_abre_nada_y_aceptar_materializa_y_abre_la_terminal() {
     let h = observar(&e.sis, "ea_lanzar_sesion", &args).await.unwrap();
     let (p, nueva) = proponer(&e.store, &e.sis, &h, "claude-code", None, "ea_lanzar_sesion", &args).unwrap();
     assert!(nueva);
-    sin_secretos(&format!("{p:?}"));
+    sin_secretos(&format!("{p:?}"), SECRETOS);
     assert!(e.sis.terminales().is_empty(), "proponer no abre nada");
     assert!(!e.runtime.join("ea-biblioteca").exists());
 
@@ -143,7 +134,7 @@ async fn proponer_no_abre_nada_y_aceptar_materializa_y_abre_la_terminal() {
     assert_eq!(argv[0], "claude", "sin proyecto no hay `env`");
     assert!(argv.contains(&"--strict-mcp-config".to_string()));
     let mcp_json = argv[argv.iter().position(|a| a == "--mcp-config").unwrap() + 1].clone();
-    sin_secretos(&argv.join(" "));
+    sin_secretos(&argv.join(" "), SECRETOS);
 
     // El secreto solo está en el fichero 0600 del runtime.
     let contenido = fs::read_to_string(&mcp_json).unwrap();
@@ -158,7 +149,7 @@ async fn proponer_no_abre_nada_y_aceptar_materializa_y_abre_la_terminal() {
 
     // El diario: agente, ids y argv; ningún secreto.
     let d = diario(&e.store);
-    sin_secretos(&d);
+    sin_secretos(&d, SECRETOS);
     assert!(d.contains("accion_ejecutada") && d.contains("ea_lanzar_sesion"), "{d}");
     assert!(d.contains(MCP) && d.contains("claude-code") && d.contains("--strict-mcp-config"), "{d}");
 }
@@ -191,6 +182,38 @@ async fn con_directorio_la_terminal_se_abre_con_env_chdir() {
     assert_eq!(argv[1], "-C");
     assert_eq!(argv[2], proyecto.to_str().unwrap());
     assert_eq!(e.sis.terminales()[0][..3], ["env", "-C", proyecto.to_str().unwrap()].map(String::from));
+}
+
+/// B-08: la propuesta guarda la carpeta que se resolvió al simular, así que
+/// aceptarla desde un proceso con otro directorio actual (aquí, el proyecto
+/// de las raíces del doble, que hace de `current_dir`) revalida igual y abre
+/// la sesión donde se simuló. Sin proyecto, se guarda el HOME y sigue sin él.
+#[tokio::test]
+async fn la_propuesta_guarda_su_carpeta_y_aceptarla_desde_otro_directorio_abre_la_misma() {
+    let mut e = entorno();
+    let (a, b) = (e.home.join("proy-a"), e.home.join("proy-b"));
+    let cwd = |sis: &SistemaSimulado, p: Option<&Path>| sis.sesiones.lock().unwrap().as_mut().unwrap().1.proyecto = p.map(Path::to_path_buf);
+    let args = json!({ "agente": "claude-code", "herramientas": [MCP] });
+    for (proponente, guardada) in [(Some(a.as_path()), a.as_path()), (None, e.home.as_path())] {
+        cwd(&e.sis, proponente);
+        let h = observar(&e.sis, "ea_lanzar_sesion", &args).await.unwrap();
+        let (p, _) = proponer(&e.store, &e.sis, &h, "claude-code", None, "ea_lanzar_sesion", &args).unwrap();
+        let accion = p.accion.clone().unwrap();
+        assert_eq!(accion.argumentos["directorio"], guardada.to_str().unwrap(), "{:?}", accion.argumentos);
+
+        // Quien acepta está en otro directorio.
+        cwd(&e.sis, Some(&b));
+        let otra = simular(&e.store, &e.sis, &accion.argumentos).await.unwrap();
+        assert_eq!(otra.precondicion, accion.precondicion, "la revalidación da la misma precondición");
+        let antes = e.sis.terminales().len();
+        let p = aceptar_propuesta(&mut e.store, &e.sis, p.id, "usuario", Canal::Web).await.unwrap();
+        assert_eq!(p.ejecucion.as_ref().unwrap().estado, EstadoEjecucion::Ejecutada, "{:?}", p.ejecucion);
+        let argv = e.sis.terminales()[antes].clone();
+        match proponente {
+            Some(d) => assert_eq!(argv[..3], ["env", "-C", d.to_str().unwrap()].map(String::from), "{argv:?}"),
+            None => assert_eq!(argv[0], "claude", "sin proyecto no hay `env`: {argv:?}"),
+        }
+    }
 }
 
 #[tokio::test]
@@ -233,7 +256,7 @@ async fn si_la_terminal_falla_la_accion_falla_y_queda_en_el_diario() {
     assert!(err.to_string().contains("no hay terminal"), "{err}");
     let d = diario(&e.store);
     assert!(d.contains("accion_fallida"), "{d}");
-    sin_secretos(&d);
+    sin_secretos(&d, SECRETOS);
 }
 
 #[tokio::test]

@@ -1,9 +1,6 @@
 use std::path::Path;
 
-use ea_store::{
-    AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, EventOutcome, NewEvent, NuevaPropuesta,
-    PropuestaFilter, Store, StoreError,
-};
+use ea_store::{AccionPropuesta, EstadoEjecucion, EstadoPropuesta, EventFilter, EventOutcome, NewEvent, NuevaPropuesta, PropuestaFilter, Store, StoreError};
 
 fn open_test_store() -> Store {
     Store::open_at(Path::new(":memory:")).expect("abrir store en memoria")
@@ -26,12 +23,7 @@ fn un_evento_suelto_se_lista_por_actor() {
     store.append_event(evento("orquestador", "heartbeat", None)).unwrap();
     store.append_event(evento("otro", "x", None)).unwrap();
 
-    let events = store
-        .list_events(&EventFilter {
-            actor: Some("orquestador".into()),
-            ..Default::default()
-        })
-        .unwrap();
+    let events = store.list_events(&EventFilter { actor: Some("orquestador".into()), ..Default::default() }).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].action, "heartbeat");
     assert_eq!(events[0].trabajo, None);
@@ -55,12 +47,7 @@ fn list_events_can_exclude_an_action() {
     for action in ["heartbeat", "heartbeat", "voz_escucha_iniciada"] {
         store.append_event(evento("orquestador", action, None)).unwrap();
     }
-    let events = store
-        .list_events(&EventFilter {
-            exclude_action: Some("heartbeat".into()),
-            ..Default::default()
-        })
-        .unwrap();
+    let events = store.list_events(&EventFilter { exclude_action: Some("heartbeat".into()), ..Default::default() }).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].action, "voz_escucha_iniciada");
 }
@@ -68,19 +55,14 @@ fn list_events_can_exclude_an_action() {
 #[test]
 fn filtra_por_resultado_y_prefijo_de_accion() {
     let store = open_test_store();
-    let con = |actor: &str, action: &str, outcome| NewEvent {
-        outcome: Some(outcome),
-        ..evento(actor, action, None)
-    };
+    let con = |actor: &str, action: &str, outcome| NewEvent { outcome: Some(outcome), ..evento(actor, action, None) };
     store.append_event(con("usuario", "bus_crear", EventOutcome::Ok)).unwrap();
     store.append_event(con("orquestador", "bus_entregar", EventOutcome::Error)).unwrap();
     store.append_event(con("usuario", "propuesta_decidida", EventOutcome::Error)).unwrap();
     // `busXcrear` casaría con `bus_` si el `_` no se escapase.
     store.append_event(con("usuario", "busXcrear", EventOutcome::Error)).unwrap();
 
-    let lista = |f: EventFilter| -> Vec<String> {
-        store.list_events(&f).unwrap().into_iter().map(|e| e.action).collect()
-    };
+    let lista = |f: EventFilter| -> Vec<String> { store.list_events(&f).unwrap().into_iter().map(|e| e.action).collect() };
 
     let mut bus = lista(EventFilter { action_prefix: Some("bus_".into()), ..Default::default() });
     bus.sort();
@@ -90,11 +72,7 @@ fn filtra_por_resultado_y_prefijo_de_accion() {
     errores.sort();
     assert_eq!(errores, ["busXcrear", "bus_entregar", "propuesta_decidida"]);
 
-    let ambos = lista(EventFilter {
-        outcome: Some(EventOutcome::Error),
-        action_prefix: Some("bus_".into()),
-        ..Default::default()
-    });
+    let ambos = lista(EventFilter { outcome: Some(EventOutcome::Error), action_prefix: Some("bus_".into()), ..Default::default() });
     assert_eq!(ambos, ["bus_entregar"]);
 
     // Un comodín en el prefijo se compara literalmente.
@@ -109,12 +87,7 @@ fn el_cursor_before_id_pagina_sin_huecos_ni_repetidos() {
         store.append_event(evento("usuario", "bus_crear", Some(&format!("m-{i}")))).unwrap();
         store.append_event(evento("usuario", "propuesta_decidida", None)).unwrap();
     }
-    let filtro = |antes: Option<i64>| EventFilter {
-        action_prefix: Some("bus_".into()),
-        before_id: antes,
-        limit: Some(3),
-        ..Default::default()
-    };
+    let filtro = |antes: Option<i64>| EventFilter { action_prefix: Some("bus_".into()), before_id: antes, limit: Some(3), ..Default::default() };
 
     let mut vistos: Vec<i64> = Vec::new();
     let mut antes = None;
@@ -166,11 +139,7 @@ fn accion() -> AccionPropuesta {
 }
 
 fn texto(descripcion: &str) -> NuevaPropuesta {
-    NuevaPropuesta {
-        proponente: "claude-code".into(),
-        descripcion: descripcion.into(),
-        accion: None,
-    }
+    NuevaPropuesta { proponente: "claude-code".into(), descripcion: descripcion.into(), accion: None }
 }
 
 #[test]
@@ -179,54 +148,33 @@ fn propuesta_lifecycle_pendiente_to_decidida() {
     let propuesta = store.crear_propuesta(texto("Se detectaron errores")).unwrap();
     assert_eq!(propuesta.estado, EstadoPropuesta::Pendiente);
 
-    let pendientes = store
-        .list_propuestas(&PropuestaFilter {
-            estado: Some(EstadoPropuesta::Pendiente),
-            ..Default::default()
-        })
-        .unwrap();
+    let pendientes = store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), ..Default::default() }).unwrap();
     assert_eq!(pendientes.len(), 1);
 
     let decidida = store.decidir_propuesta(propuesta.id, EstadoPropuesta::Aceptada).unwrap();
     assert_eq!(decidida.estado, EstadoPropuesta::Aceptada);
     assert!(decidida.decidido_en.is_some());
 
-    let pendientes = store
-        .list_propuestas(&PropuestaFilter {
-            estado: Some(EstadoPropuesta::Pendiente),
-            ..Default::default()
-        })
-        .unwrap();
+    let pendientes = store.list_propuestas(&PropuestaFilter { estado: Some(EstadoPropuesta::Pendiente), ..Default::default() }).unwrap();
     assert!(pendientes.is_empty());
 }
 
 #[test]
 fn propuesta_con_accion_se_reclama_una_sola_vez() {
     let store = open_test_store();
-    let p = store
-        .crear_propuesta(NuevaPropuesta {
-            proponente: "claude-code".into(),
-            descripcion: "reiniciar".into(),
-            accion: Some(accion()),
-        })
-        .unwrap();
+    let p = store.crear_propuesta(NuevaPropuesta { proponente: "claude-code".into(), descripcion: "reiniciar".into(), accion: Some(accion()) }).unwrap();
     assert_eq!(p.accion.as_ref().unwrap(), &accion());
     assert_eq!(p.proponente.as_deref(), Some("claude-code"));
 
     // Aceptarla "a secas" está prohibido: aceptar es ejecutar.
-    assert!(matches!(
-        store.decidir_propuesta(p.id, EstadoPropuesta::Aceptada),
-        Err(StoreError::PropuestaConAccion(_))
-    ));
+    assert!(matches!(store.decidir_propuesta(p.id, EstadoPropuesta::Aceptada), Err(StoreError::PropuestaConAccion(_))));
 
     let r = store.reclamar_propuesta(p.id).unwrap();
     assert_eq!(r.estado, EstadoPropuesta::Aceptada);
     assert_eq!(r.ejecucion.unwrap().estado, EstadoEjecucion::Ejecutando);
     assert!(matches!(store.reclamar_propuesta(p.id), Err(StoreError::PropuestaYaDecidida(_))));
 
-    let fin = store
-        .registrar_ejecucion_propuesta(p.id, EstadoEjecucion::Ejecutada, "ok")
-        .unwrap();
+    let fin = store.registrar_ejecucion_propuesta(p.id, EstadoEjecucion::Ejecutada, "ok").unwrap();
     assert_eq!(fin.ejecucion.as_ref().unwrap().estado, EstadoEjecucion::Ejecutada);
     assert!(fin.ejecucion.unwrap().ejecutada_en.is_some());
     // Un resultado ya registrado no se reescribe.
@@ -239,10 +187,7 @@ fn una_propuesta_de_texto_no_se_puede_reclamar_ni_decidir_dos_veces() {
     let p = store.crear_propuesta(texto("texto")).unwrap();
     assert!(matches!(store.reclamar_propuesta(p.id), Err(StoreError::PropuestaSinAccion(_))));
     store.decidir_propuesta(p.id, EstadoPropuesta::Rechazada).unwrap();
-    assert!(matches!(
-        store.decidir_propuesta(p.id, EstadoPropuesta::Aceptada),
-        Err(StoreError::PropuestaYaDecidida(_))
-    ));
+    assert!(matches!(store.decidir_propuesta(p.id, EstadoPropuesta::Aceptada), Err(StoreError::PropuestaYaDecidida(_))));
 }
 
 /// Varios procesos arrancando a la vez sobre una base recién creada (los
@@ -289,13 +234,41 @@ fn una_base_del_esquema_antiguo_se_rechaza_sin_tocarla() {
         assert!(err.to_string().contains("esquema antiguo"));
         // Intacta: ni migrada ni borrada.
         let conn = rusqlite::Connection::open(&path).unwrap();
-        let tablas: i64 = conn
-            .query_row("SELECT count(*) FROM sqlite_master WHERE name = 'events'", [], |r| r.get(0))
-            .unwrap();
+        let tablas: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE name = 'events'", [], |r| r.get(0)).unwrap();
         assert_eq!(tablas, 0);
         drop(conn);
         assert_eq!(std::fs::read(&path).unwrap().len(), antes.len());
     }
+}
+
+/// La apertura de solo lectura (la de la biblioteca) no crea, no migra y no
+/// escribe: lee el uso de `ea-mcp` por actor y rechaza un esquema ajeno.
+#[test]
+fn la_apertura_de_solo_lectura_no_crea_ni_escribe() {
+    let dir = tempfile::tempdir().unwrap();
+    let falta = dir.path().join("no-existe.db");
+    assert!(Store::abrir_lectura(&falta).is_err());
+    assert!(!falta.exists(), "no la crea");
+
+    let ruta = dir.path().join("ea.db");
+    let store = Store::open_at(&ruta).unwrap();
+    for (actor, accion, detalle) in
+        [("claude-code", "mcp_status", None), ("mcp", "mcp_leer_nota", Some(r#"{"agente":"codex"}"#)), ("orquestador", "heartbeat", None)]
+    {
+        store.append_event(NewEvent { actor: actor.into(), action: accion.into(), detail: detalle.map(str::to_string), ..Default::default() }).unwrap();
+    }
+    drop(store);
+    let lectura = Store::abrir_lectura(&ruta).unwrap();
+    let mut uso: Vec<(String, u64, bool)> = lectura.uso_mcp_por_actor().unwrap().into_iter().map(|(a, n, t)| (a, n, t.is_some())).collect();
+    uso.sort();
+    assert_eq!(uso, vec![("claude-code".into(), 1, true), ("codex".into(), 1, true)]);
+    assert!(lectura.append_event(NewEvent { actor: "x".into(), action: "y".into(), ..Default::default() }).is_err(), "no escribe");
+
+    let antigua = dir.path().join("antigua.db");
+    rusqlite::Connection::open(&antigua).unwrap().execute_batch("CREATE TABLE tasks (id INTEGER); PRAGMA user_version = 1;").unwrap();
+    let antes = std::fs::read(&antigua).unwrap();
+    assert!(matches!(Store::abrir_lectura(&antigua).err(), Some(StoreError::EsquemaAntiguo)));
+    assert_eq!(std::fs::read(&antigua).unwrap(), antes, "intacta");
 }
 
 #[test]

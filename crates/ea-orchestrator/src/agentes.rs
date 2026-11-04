@@ -14,28 +14,21 @@
 //! tope es el tope de tiempo del orquestador, igual al tiempo de la orden.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::time::Duration;
 
 use ea_ajustes::buscar_binario;
-use ea_bus::{ConfigOrquestador, PerfilEjecutor, TipoAgente, Topes};
+use ea_bus::{TipoAgente, Topes};
 
-use crate::ejecutor::{correr_cancelable, SalidaAgente};
-use crate::sandbox::{canonica, perfil_seatbelt, Sandbox, SANDBOX_EXEC};
+use crate::config::{ConfigOrquestador, PerfilEjecutor};
+use crate::ejecutor::{SalidaAgente, avisar_sin_arbol};
+use crate::sandbox::{Ocultar, Sandbox};
 
 /// Lo que el bucle del orquestador necesita de un ejecutor.
 pub trait Ejecutor {
     /// `sistema` son las skills del trabajo; vacío si no hay. `cancelado`
     /// dice si el trabajo se ha cancelado: hay que consultarlo mientras
     /// corre y cortar en cuanto devuelva `true`.
-    fn ejecutar(
-        &self,
-        prompt: &str,
-        sistema: &str,
-        worktree: &Path,
-        topes: &Topes,
-        config: &ConfigOrquestador,
-        cancelado: &dyn Fn() -> bool,
-    ) -> SalidaAgente;
+    fn ejecutar(&self, prompt: &str, sistema: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador, cancelado: &dyn Fn() -> bool) -> SalidaAgente;
 
     /// Regla sobre sus herramientas que va en las «Reglas» del prompt.
     fn regla_herramientas(&self) -> &str {
@@ -83,15 +76,7 @@ pub trait AgenteCli {
 }
 
 impl<A: AgenteCli> Ejecutor for A {
-    fn ejecutar(
-        &self,
-        prompt: &str,
-        sistema: &str,
-        worktree: &Path,
-        topes: &Topes,
-        config: &ConfigOrquestador,
-        cancelado: &dyn Fn() -> bool,
-    ) -> SalidaAgente {
+    fn ejecutar(&self, prompt: &str, sistema: &str, worktree: &Path, topes: &Topes, config: &ConfigOrquestador, cancelado: &dyn Fn() -> bool) -> SalidaAgente {
         lanzar(self, Sandbox::actual(config.sandbox), prompt, sistema, worktree, topes, config, cancelado)
     }
 
@@ -126,47 +111,26 @@ pub(crate) fn lanzar<A: AgenteCli>(
     cancelado: &dyn Fn() -> bool,
 ) -> SalidaAgente {
     let p = &config.ejecutor;
-    let mut args: Vec<String> = Vec::new();
-    // El temporal propio de macOS vive hasta que acaba la corrida.
-    let mut _tmp_propio = None;
-    let ejecucion = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso).filter(|d| d.is_dir());
-    let mut cmd = match &sandbox {
-        Sandbox::NoDisponible(motivo) => {
+    let ejecucion = crate::sandbox::dir_ejecucion();
+    // Los directorios de estado solo se crean si van a montarse.
+    let estado = if matches!(sandbox, Sandbox::Bwrap | Sandbox::Seatbelt) { preparar_dirs_estado(&home_usuario(), a.dirs_estado()) } else { vec![] };
+    let args = a.argumentos(p, prompt, sistema, worktree, topes, config.sandbox);
+    let mut envoltorio = match sandbox.envolver(&p.bin, &args, worktree, &estado, Ocultar { ejecucion: ejecucion.as_deref(), tapar: &config.tapar }) {
+        Ok(e) => e,
+        Err(motivo) => {
             // Sin aislamiento posible no se lanza al agente (art. V y VIII).
             tracing::error!(%motivo, "el ejecutor no arranca");
-            return SalidaAgente { codigo: None, bruta: motivo.clone(), resumen: motivo.clone(), cancelado: false };
-        }
-        Sandbox::Ninguno => Command::new(&p.bin),
-        Sandbox::Bwrap => {
-            let estado = preparar_dirs_estado(&home_usuario(), a.dirs_estado());
-            args.extend(argumentos_bwrap(worktree, ejecucion.as_deref(), &estado));
-            args.push(p.bin.clone());
-            Command::new("bwrap")
-        }
-        Sandbox::Seatbelt => {
-            let tmp = match tempfile::Builder::new().prefix("ea-ejecutor-").tempdir() {
-                Ok(t) => t,
-                Err(e) => {
-                    let motivo = format!("no se pudo crear el temporal propio del agente: {e}");
-                    return SalidaAgente { codigo: None, bruta: motivo.clone(), resumen: motivo, cancelado: false };
-                }
-            };
-            let estado: Vec<PathBuf> =
-                preparar_dirs_estado(&home_usuario(), a.dirs_estado()).iter().map(|d| canonica(d)).collect();
-            let perfil = perfil_seatbelt(&canonica(worktree), &canonica(tmp.path()), &estado, ejecucion.as_deref().map(canonica).as_deref());
-            args.extend(["-p".to_string(), perfil, p.bin.clone()]);
-            let mut c = Command::new(SANDBOX_EXEC);
-            c.env("TMPDIR", canonica(tmp.path()));
-            _tmp_propio = Some(tmp);
-            c
+            return SalidaAgente { codigo: None, bruta: motivo.clone(), resumen: motivo, cancelado: false };
         }
     };
-    args.extend(a.argumentos(p, prompt, sistema, worktree, topes, config.sandbox));
-    cmd.args(&args).current_dir(worktree);
     for (k, v) in a.entorno(p) {
-        cmd.env(k, v);
+        envoltorio.orden.env(k, v);
     }
-    let c = correr_cancelable(cmd, topes.tiempo_s + a.margen_s(), cancelado);
+    // La orden sale del envoltorio; el resto (el temporal propio de macOS)
+    // vive hasta que acaba la corrida.
+    let cmd = envoltorio.orden;
+    let c = ea_plataforma::proceso::correr(cmd, Duration::from_secs(topes.tiempo_s + a.margen_s()), cancelado);
+    avisar_sin_arbol(&c);
     let resumen = ea_bus::resumen_salida_agente(a.tipo(), &c.salida);
     SalidaAgente { codigo: c.codigo, bruta: c.salida, resumen, cancelado: c.cancelado }
 }
@@ -184,11 +148,7 @@ pub fn fabricar(p: &PerfilEjecutor) -> Box<dyn Ejecutor + Send + Sync> {
 /// Las skills van delante del prompt en las CLI que no tienen dónde
 /// añadirlas al system prompt sin tocar su configuración global.
 fn con_sistema(sistema: &str, prompt: &str) -> String {
-    if sistema.trim().is_empty() {
-        prompt.to_string()
-    } else {
-        format!("{}\n\n{prompt}", sistema.trim())
-    }
+    if sistema.trim().is_empty() { prompt.to_string() } else { format!("{}\n\n{prompt}", sistema.trim()) }
 }
 
 /// Una cadena TOML (para los `-c clave=valor` de Codex).
@@ -211,9 +171,23 @@ impl AgenteCli for QwenCode {
         // que no se trague la orden, que va la última. Las de objetivos y
         // notebooks no le sirven y cada herramienta declarada cuesta tokens.
         let mut a: Vec<String> = [
-            "--exclude-tools", "web_fetch", "web_search", "get_goal", "update_goal", "notebook_edit", "--bare", "--auth-type", "openai",
-            "--openai-base-url", &p.modelo.base_url, "--openai-api-key", "local", "-m", &p.modelo.nombre,
-            "--approval-mode", "yolo",
+            "--exclude-tools",
+            "web_fetch",
+            "web_search",
+            "get_goal",
+            "update_goal",
+            "notebook_edit",
+            "--bare",
+            "--auth-type",
+            "openai",
+            "--openai-base-url",
+            &p.modelo.base_url,
+            "--openai-api-key",
+            "local",
+            "-m",
+            &p.modelo.nombre,
+            "--approval-mode",
+            "yolo",
         ]
         .map(String::from)
         .into();
@@ -286,9 +260,8 @@ impl AgenteCli for Codex {
     }
 
     fn argumentos(&self, p: &PerfilEjecutor, prompt: &str, sistema: &str, wt: &Path, _: &Topes, sandbox: bool) -> Vec<String> {
-        let mut a: Vec<String> = ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-C"]
-            .map(String::from)
-            .into();
+        let mut a: Vec<String> =
+            ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-C"].map(String::from).into();
         a.push(wt.to_string_lossy().into());
         for c in [
             "model_provider=\"ea\"".to_string(),
@@ -336,8 +309,7 @@ impl OpenCode {
     /// La configuración que se le pasa: el proveedor `ea` con el modelo del
     /// perfil y los permisos.
     pub fn configuracion(p: &PerfilEjecutor) -> serde_json::Value {
-        let permisos: serde_json::Map<String, serde_json::Value> =
-            OPENCODE_DENEGADAS.iter().map(|h| ((*h).to_string(), "deny".into())).collect();
+        let permisos: serde_json::Map<String, serde_json::Value> = OPENCODE_DENEGADAS.iter().map(|h| ((*h).to_string(), "deny".into())).collect();
         serde_json::json!({
             "autoupdate": false,
             "share": "disabled",
@@ -382,7 +354,8 @@ impl AgenteCli for OpenCode {
 
 // --- comunes -------------------------------------------------------------------
 
-/// El directorio personal del usuario (`directories`; en Windows no hay `HOME`).
+/// El directorio personal del usuario (`ea_plataforma::usuario::home`; en
+/// Windows no hay `HOME`).
 /// Vacío si no se conoce: entonces no se monta ningún directorio de estado.
 fn home_usuario() -> PathBuf {
     ea_plataforma::usuario::home().unwrap_or_default()
@@ -394,40 +367,7 @@ fn preparar_dirs_estado(home: &Path, dirs: &[&str]) -> Vec<PathBuf> {
     if home.as_os_str().is_empty() {
         return vec![];
     }
-    dirs.iter()
-        .map(|d| home.join(d))
-        .filter(|d| std::fs::create_dir_all(d).is_ok() && d.is_dir())
-        .collect()
-}
-
-/// Argumentos de `bwrap` (sin el programa): `/` en solo lectura, `/tmp`
-/// propio, el worktree y los directorios de estado del agente escribibles.
-/// El directorio de ejecución de la sesión (`$XDG_RUNTIME_DIR`), si existe,
-/// queda tapado por un tmpfs vacío: ahí está la clave de sesión del panel
-/// web (con ella el agente, que tiene la red abierta, podría escribir por
-/// `127.0.0.1:8092`), y también los sockets de D-Bus y de `systemd --user`,
-/// que no necesita. Se tapa entero y no solo `ea-web/`: así no hace falta
-/// que exista ese subdirectorio (bwrap no puede crear el punto de montaje en
-/// un `/` de solo lectura) y no queda ningún otro socket de la sesión a su
-/// alcance.
-pub fn argumentos_bwrap(worktree: &Path, ejecucion: Option<&Path>, estado: &[PathBuf]) -> Vec<String> {
-    let wt = worktree.to_string_lossy().to_string();
-    let mut args: Vec<String> =
-        ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"].map(String::from).into();
-    if let Some(d) = ejecucion {
-        args.push("--tmpfs".into());
-        args.push(d.to_string_lossy().into());
-    }
-    // Los bind escribibles van después del tmpfs: si alguno cayera dentro del
-    // directorio de ejecución, se montaría encima y seguiría visible.
-    for d in estado {
-        let d = d.to_string_lossy().to_string();
-        args.extend(["--bind".into(), d.clone(), d]);
-    }
-    for a in ["--bind", &wt, &wt, "--chdir", &wt, "--unshare-pid", "--die-with-parent"] {
-        args.push(a.into());
-    }
-    args
+    dirs.iter().map(|d| home.join(d)).filter(|d| std::fs::create_dir_all(d).is_ok() && d.is_dir()).collect()
 }
 
 #[cfg(test)]
@@ -445,7 +385,7 @@ mod tests {
     }
 
     fn topes() -> Topes {
-        Topes { turnos: 7, tiempo_s: 300, llamadas_herramienta: 9, iteraciones: 2 }
+        Topes { turnos: 7, tiempo_s: 300, llamadas_herramienta: 9, iteraciones: 2, tiempo_criterio_s: 120 }
     }
 
     fn args(a: &dyn AgenteCli, sistema: &str, sandbox: bool) -> Vec<String> {
@@ -524,25 +464,6 @@ mod tests {
             let e = fabricar(&perfil(t));
             assert_eq!(e.codigo_topes().is_some(), t == TipoAgente::QwenCode);
         }
-    }
-
-    #[test]
-    fn bwrap_oculta_el_directorio_de_ejecucion_y_monta_el_estado_del_agente() {
-        let ejecucion = tempfile::tempdir().unwrap();
-        let ej = ejecucion.path().to_string_lossy().to_string();
-        let estado = [PathBuf::from("/home/u/.codex")];
-        let args = argumentos_bwrap(Path::new("/w/repo"), Some(ejecucion.path()), &estado);
-        let pos = |par: [&str; 2]| args.windows(2).position(|w| w[0] == par[0] && w[1] == par[1]);
-        let tmpfs = pos(["--tmpfs", &ej]).expect("tmpfs sobre el directorio de ejecución");
-        // Encima del / de solo lectura y antes de los bind escribibles.
-        assert!(pos(["--ro-bind", "/"]).unwrap() < tmpfs);
-        assert!(tmpfs < pos(["--bind", "/w/repo"]).unwrap());
-        assert!(tmpfs < pos(["--bind", "/home/u/.codex"]).unwrap());
-        assert!(pos(["--bind", "/home/u/.qwen"]).is_none(), "solo el estado de este agente");
-        assert!(args.ends_with(&["--unshare-pid".into(), "--die-with-parent".into()]));
-        // Sin directorio de ejecución no hay nada que tapar.
-        let sin = argumentos_bwrap(Path::new("/w/repo"), None, &[]);
-        assert_eq!(sin.iter().filter(|a| *a == "--tmpfs").count(), 1, "solo el de /tmp");
     }
 
     #[test]

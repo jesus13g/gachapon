@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use ea_ajustes::Entorno;
+use ea_plataforma::fs::poner_permisos_unix;
 
 use crate::vigia::AvisoTrabajo;
 
@@ -40,10 +41,10 @@ pub fn crear_presencia() {
     let Some(f) = fichero_presencia() else { return };
     if let Some(dir) = f.parent() {
         let _ = std::fs::create_dir_all(dir);
-        privado(dir, 0o700);
+        let _ = poner_permisos_unix(dir, 0o700);
     }
     if std::fs::write(&f, contenido_presencia(std::process::id())).is_ok() {
-        privado(&f, 0o600);
+        let _ = poner_permisos_unix(&f, 0o600);
     }
 }
 
@@ -55,15 +56,6 @@ pub fn borrar_presencia() {
         let _ = std::fs::remove_file(&f);
     }
 }
-
-#[cfg(unix)]
-fn privado(ruta: &std::path::Path, modo: u32) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(ruta, std::fs::Permissions::from_mode(modo));
-}
-
-#[cfg(not(unix))]
-fn privado(_ruta: &std::path::Path, _modo: u32) {}
 
 #[cfg(test)]
 mod tests {

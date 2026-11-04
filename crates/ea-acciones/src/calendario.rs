@@ -30,7 +30,10 @@ pub enum Cuando {
     CadaMinuto,
     CadaHora,
     /// A esa hora y minuto, los días de [`Horario::dias`] (todos si no hay).
-    Diario { hora: u8, minuto: u8 },
+    Diario {
+        hora: u8,
+        minuto: u8,
+    },
     /// El día 1 de cada mes a las 00:00.
     Mensual,
 }
@@ -72,8 +75,7 @@ fn dia_de_nombre(n: &str) -> Option<Weekday> {
 }
 
 fn dia_de_indice(i: u8) -> Weekday {
-    [Weekday::Monday, Weekday::Tuesday, Weekday::Wednesday, Weekday::Thursday, Weekday::Friday, Weekday::Saturday, Weekday::Sunday]
-        [usize::from(i)]
+    [Weekday::Monday, Weekday::Tuesday, Weekday::Wednesday, Weekday::Thursday, Weekday::Friday, Weekday::Saturday, Weekday::Sunday][usize::from(i)]
 }
 
 fn abreviatura(d: Weekday) -> &'static str {
@@ -111,10 +113,7 @@ fn parsear_dias(spec: &str) -> Result<Vec<Weekday>, String> {
 }
 
 fn parte_numerica(p: &str, max: u8) -> Option<u8> {
-    (!p.is_empty() && p.len() <= 2 && p.bytes().all(|b| b.is_ascii_digit()))
-        .then(|| p.parse::<u8>().ok())
-        .flatten()
-        .filter(|&n| n < max)
+    (!p.is_empty() && p.len() <= 2 && p.bytes().all(|b| b.is_ascii_digit())).then(|| p.parse::<u8>().ok()).flatten().filter(|&n| n < max)
 }
 
 fn parsear_hora(t: &str) -> Result<(u8, u8), String> {
@@ -124,10 +123,10 @@ fn parsear_hora(t: &str) -> Result<(u8, u8), String> {
     }
     let hora = parte_numerica(partes[0], 24).ok_or_else(|| format!("la hora de «{t}» no está entre 0 y 23"))?;
     let minuto = parte_numerica(partes[1], 60).ok_or_else(|| format!("los minutos de «{t}» no están entre 0 y 59"))?;
-    if let Some(s) = partes.get(2) {
-        if parte_numerica(s, 60) != Some(0) {
-            return Err(format!("los segundos de «{t}» deben ser 00 (la resolución es de un minuto)"));
-        }
+    if let Some(s) = partes.get(2)
+        && parte_numerica(s, 60) != Some(0)
+    {
+        return Err(format!("los segundos de «{t}» deben ser 00 (la resolución es de un minuto)"));
     }
     Ok((hora, minuto))
 }
@@ -274,12 +273,7 @@ impl Horario {
                 if self.dias.is_empty() {
                     return IntervaloLaunchd::Calendario(vec![hm.to_vec()]);
                 }
-                IntervaloLaunchd::Calendario(
-                    self.dias
-                        .iter()
-                        .map(|&d| std::iter::once(("Weekday", numero_launchd(d))).chain(hm).collect())
-                        .collect(),
-                )
+                IntervaloLaunchd::Calendario(self.dias.iter().map(|&d| std::iter::once(("Weekday", numero_launchd(d))).chain(hm).collect()).collect())
             }
         }
     }
@@ -307,8 +301,7 @@ impl Horario {
 
 /// Una ejecución como la escribe systemd: `Thu 2026-10-22 08:00:00`.
 pub fn formatear(dt: PrimitiveDateTime) -> String {
-    dt.format(format_description!("[weekday repr:short] [year]-[month]-[day] [hour]:[minute]:[second]"))
-        .unwrap_or_else(|_| dt.to_string())
+    dt.format(format_description!("[weekday repr:short] [year]-[month]-[day] [hour]:[minute]:[second]")).unwrap_or_else(|_| dt.to_string())
 }
 
 #[cfg(test)]
@@ -353,9 +346,28 @@ mod pruebas {
     #[test]
     fn lo_que_no_cabe_se_rechaza_con_motivo() {
         for malo in [
-            "", "   ", "yearly", "quarterly", "*:0/15", "Mon..Fri", "Mon daily", "08:00 09:00", "*-*-* 08:00 09:00",
-            "2026-10-22 08:00", "08:00:30", "24:00", "08:60", "8", "08:", "Fri..Mon 08:00", "Foo 08:00", "08:00,09:00",
-            "*-*-01 08:00", "Mon..Fri,Foo 08:00", "123:00", "*-*-* *:00:00",
+            "",
+            "   ",
+            "yearly",
+            "quarterly",
+            "*:0/15",
+            "Mon..Fri",
+            "Mon daily",
+            "08:00 09:00",
+            "*-*-* 08:00 09:00",
+            "2026-10-22 08:00",
+            "08:00:30",
+            "24:00",
+            "08:60",
+            "8",
+            "08:",
+            "Fri..Mon 08:00",
+            "Foo 08:00",
+            "08:00,09:00",
+            "*-*-01 08:00",
+            "Mon..Fri,Foo 08:00",
+            "123:00",
+            "*-*-* *:00:00",
         ] {
             let e = parsear(malo).unwrap_err();
             assert!(e.contains("fuera de Linux solo se admite") || e.contains("vacío"), "{malo:?}: {e}");
@@ -403,10 +415,7 @@ mod pruebas {
         assert_eq!(h("08:30").launchd(), IntervaloLaunchd::Calendario(vec![vec![("Hour", 8), ("Minute", 30)]]));
         assert_eq!(
             h("Sun,Mon 09:00").launchd(),
-            IntervaloLaunchd::Calendario(vec![
-                vec![("Weekday", 1), ("Hour", 9), ("Minute", 0)],
-                vec![("Weekday", 0), ("Hour", 9), ("Minute", 0)],
-            ])
+            IntervaloLaunchd::Calendario(vec![vec![("Weekday", 1), ("Hour", 9), ("Minute", 0)], vec![("Weekday", 0), ("Hour", 9), ("Minute", 0)],])
         );
     }
 

@@ -37,14 +37,8 @@ fn falso(dir: &Path) -> (Vec<String>, PathBuf) {
 
 fn temporizadores(dir: &Path, backend: Backend) -> (Temporizadores, PathBuf) {
     let (gestor, log) = falso(dir);
-    let mut t = Temporizadores::portable(
-        backend,
-        dir.join("LaunchAgents"),
-        gestor,
-        dir.join("programadas"),
-        PathBuf::from("/Apps/ea con espacio/ea"),
-        Some(501),
-    );
+    let mut t =
+        Temporizadores::portable(backend, dir.join("LaunchAgents"), gestor, dir.join("programadas"), PathBuf::from("/Apps/ea con espacio/ea"), Some(501));
     // Jueves 22 de octubre de 2026, 07:00 en un sitio con UTC+2.
     t.reloj = Some((datetime!(2026-10-22 07:00:00), 7200));
     (t, log)
@@ -95,10 +89,7 @@ async fn launchd_programa_consulta_y_desprograma() {
 
     let ordenes = std::fs::read_to_string(&log).unwrap();
     let uid_label = "gui/501/es.gachapon.ea-rutina.diaria";
-    for esperado in [
-        format!("bootout\n{uid_label}\n--\n"),
-        format!("bootstrap\ngui/501\n{}\n--\n", plist.display()),
-    ] {
+    for esperado in [format!("bootout\n{uid_label}\n--\n"), format!("bootstrap\ngui/501\n{}\n--\n", plist.display())] {
         assert!(ordenes.contains(&esperado), "falta {esperado:?} en:\n{ordenes}");
     }
 }

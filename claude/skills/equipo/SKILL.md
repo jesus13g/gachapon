@@ -5,7 +5,7 @@ description: "Trabaja dentro de un equipo de agentes despertado por el usuario: 
 
 # /equipo
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/equipo.md` (en la raíz del repo, `agentes/flujo/equipo.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores y revisores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/equipo.md` (en la raíz del repo, `agentes/flujo/equipo.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores y revisores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 

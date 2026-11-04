@@ -1,22 +1,10 @@
 //! `ea ajustes` de extremo a extremo, con el binario real y todo el estado en
 //! directorios temporales (configuración, base de datos, bus y bóveda).
 
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 
 fn ea(dir: &std::path::Path, args: &[&str], extra: &[(&str, &str)]) -> Output {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_ea"));
-    c.args(args)
-        .env("EA_CONFIG_DIR", dir.join("config"))
-        .env("EA_DB_PATH", dir.join("ea.db"))
-        .env("EA_ESTADO_DIR", dir.join("estado"))
-        .env("EA_BOVEDA_DIR", dir.join("boveda"))
-        .env_remove("EA_WEB_PORT")
-        .env_remove("EA_MCP_PORT")
-        .stdin(Stdio::piped());
-    for (k, v) in extra {
-        c.env(k, v);
-    }
-    c.output().expect("lanzar ea")
+    ea_pruebas::cli::ea(env!("CARGO_BIN_EXE_ea"), dir).args(args).envs(extra.iter().copied()).output().expect("lanzar ea")
 }
 
 #[test]

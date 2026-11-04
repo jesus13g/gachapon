@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use ea_bus::slug_valido;
 use ea_plataforma::Sistema;
 use time::{OffsetDateTime, PrimitiveDateTime};
 use tokio::process::Command;
@@ -23,8 +24,7 @@ use tokio::time::timeout;
 
 use crate::calendario::{self, Cuando, Horario, IntervaloLaunchd};
 use crate::plist;
-use crate::servicios::{bloques_show, cita_systemd, dir_unidades, Backend};
-use crate::sistema::slug_valido;
+use crate::servicios::{Backend, bloques_show, cita_systemd, dir_unidades};
 
 /// Longitud máxima de una expresión `OnCalendar`.
 pub const MAX_CALENDARIO: usize = 200;
@@ -109,12 +109,7 @@ pub fn contenido_timer(slug: &str, calendario: &str) -> String {
 /// El `OnCalendar=` de un fichero de unidad. Si hubiera varios (systemd los
 /// suma), se enseña el último.
 pub fn leer_calendario(contenido: &str) -> Option<String> {
-    contenido
-        .lines()
-        .filter_map(|l| l.trim().strip_prefix("OnCalendar="))
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .next_back()
+    contenido.lines().filter_map(|l| l.trim().strip_prefix("OnCalendar=")).map(|v| v.trim().to_string()).rfind(|v| !v.is_empty())
 }
 
 /// La salida de `systemd-analyze calendar --iterations=N`.
@@ -132,9 +127,8 @@ pub fn parsear_analisis(salida: &str) -> Option<Calendario> {
     Some(Calendario { normalizado: normalizado?, proximas })
 }
 
-/// El servicio de instancia `ea-rutina@.service` con la ruta real de `ea`
-/// (la plantilla de `crates/ea-orchestrator/systemd/` tiene una fija). No
-/// ejecuta la rutina: solo crea el trabajo en el bus (art. V).
+/// El servicio de instancia `ea-rutina@.service` con la ruta real de `ea`.
+/// No ejecuta la rutina: solo crea el trabajo en el bus (art. V).
 pub fn unidad_servicio_rutina(ea: &Path) -> String {
     format!(
         "# Generado por el ecosistema; apunta al `ea` real de este equipo.\n\
@@ -206,15 +200,19 @@ pub fn disparadores_xml_rutina(horario: &Horario) -> String {
         Cuando::Diario { hora, minuto } => (inicio(hora, minuto), String::new()),
     };
     let cuando = match horario.cuando {
-        Cuando::Mensual => "      <ScheduleByMonth>\n        <DaysOfMonth>\n          <Day>1</Day>\n        </DaysOfMonth>\n        <Months>\n".to_string()
-            + &["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-                .iter()
-                .map(|m| format!("          <{m}/>\n"))
-                .collect::<String>()
-            + "        </Months>\n      </ScheduleByMonth>\n",
+        Cuando::Mensual => {
+            "      <ScheduleByMonth>\n        <DaysOfMonth>\n          <Day>1</Day>\n        </DaysOfMonth>\n        <Months>\n".to_string()
+                + &["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                    .iter()
+                    .map(|m| format!("          <{m}/>\n"))
+                    .collect::<String>()
+                + "        </Months>\n      </ScheduleByMonth>\n"
+        }
         _ if !horario.dias.is_empty() => {
             let dias = horario.dias.iter().map(|d| format!("          <{d:?}/>\n")).collect::<String>();
-            format!("      <ScheduleByWeek>\n        <WeeksInterval>1</WeeksInterval>\n        <DaysOfWeek>\n{dias}        </DaysOfWeek>\n      </ScheduleByWeek>\n")
+            format!(
+                "      <ScheduleByWeek>\n        <WeeksInterval>1</WeeksInterval>\n        <DaysOfWeek>\n{dias}        </DaysOfWeek>\n      </ScheduleByWeek>\n"
+            )
         }
         _ => "      <ScheduleByDay>\n        <DaysInterval>1</DaysInterval>\n      </ScheduleByDay>\n".to_string(),
     };
@@ -277,7 +275,7 @@ impl Temporizadores {
     /// Los de un sistema dado (parametrizable para las pruebas).
     pub fn para(sistema: Sistema) -> Self {
         let backend = Backend::de(sistema);
-        let ea = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(ea_plataforma::rutas::nombre_exe("ea"))));
+        let ea = ea_plataforma::rutas::ruta_hermana("ea");
         let datos_dir = if backend == Backend::Systemd { PathBuf::new() } else { ea_ajustes::cargar().rutas.estado.join("programadas") };
         Self {
             backend,
@@ -364,10 +362,7 @@ impl Temporizadores {
         let (prog, previos) = base.split_first().ok_or("orden vacía")?;
         let mut cmd = Command::new(prog);
         cmd.args(previos).args(args).kill_on_drop(true);
-        timeout(LIMITE, cmd.output())
-            .await
-            .map_err(|_| format!("{prog} tardó demasiado"))?
-            .map_err(|e| format!("no se pudo ejecutar {prog}: {e}"))
+        timeout(LIMITE, cmd.output()).await.map_err(|_| format!("{prog} tardó demasiado"))?.map_err(|e| format!("no se pudo ejecutar {prog}: {e}"))
     }
 
     async fn orden_args(&self, base: &[String], args: &[String]) -> Result<std::process::Output, String> {
@@ -379,15 +374,7 @@ impl Temporizadores {
         let mut todos = vec!["--user"];
         todos.extend_from_slice(args);
         let salida = self.orden(&self.systemctl, &todos).await?;
-        if salida.status.success() {
-            Ok(())
-        } else {
-            Err(format!(
-                "systemctl {}: {}",
-                todos.join(" "),
-                String::from_utf8_lossy(&salida.stderr).trim()
-            ))
-        }
+        if salida.status.success() { Ok(()) } else { Err(format!("systemctl {}: {}", todos.join(" "), String::from_utf8_lossy(&salida.stderr).trim())) }
     }
 
     /// Una orden de `launchctl`/`schtasks`; el error lleva su salida de error.
@@ -442,11 +429,7 @@ impl Temporizadores {
                     .ok()
                     .map(|s| String::from_utf8_lossy(&s.stdout).trim().to_string())
                     .filter(|s| !s.is_empty());
-                Ok(EstadoTimer {
-                    fichero: contenido.is_some(),
-                    calendario: contenido.as_deref().and_then(leer_calendario),
-                    activo,
-                })
+                Ok(EstadoTimer { fichero: contenido.is_some(), calendario: contenido.as_deref().and_then(leer_calendario), activo })
             }
             Backend::Launchd => {
                 let cargado = match self.dominio_launchd(slug) {
@@ -497,8 +480,7 @@ impl Temporizadores {
             let err = String::from_utf8_lossy(&salida.stderr).trim().to_string();
             return Ok(Err(if err.is_empty() { format!("systemd no acepta el calendario «{c}»") } else { err }));
         }
-        Ok(parsear_analisis(&String::from_utf8_lossy(&salida.stdout))
-            .ok_or_else(|| format!("respuesta inesperada de systemd-analyze para «{c}»")))
+        Ok(parsear_analisis(&String::from_utf8_lossy(&salida.stdout)).ok_or_else(|| format!("respuesta inesperada de systemd-analyze para «{c}»")))
     }
 
     /// Programa la rutina con ese calendario (y reemplaza el horario

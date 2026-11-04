@@ -2,6 +2,8 @@
 name = "gachapon-instalar"
 version = "0.1.0"
 edition = "2024"
+# La misma que el workspace (comprobada con 1.89 en Linux, Windows y macOS).
+rust-version = "1.89"
 publish = false
 description = "gachapon-instalar.exe: un único .exe que lleva dentro los binarios de Windows y lanza `ea instalar` (spec 023); fuera del workspace principal"
 build = "build.rs"
@@ -13,6 +15,8 @@ path = "src/main.rs"
 
 [profile.release]
 lto = true
+codegen-units = 1
+strip = true
 
 # Paquete propio: no pertenece al workspace principal.
 [workspace]

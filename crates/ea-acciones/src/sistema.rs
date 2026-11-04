@@ -5,25 +5,24 @@
 //! (solo lo construyen las interfaces del usuario). Sin shell: argumentos
 //! como vector, y nombres de una lista cerrada o validados.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::Arc;
 
-use ea_biblioteca::{Cambio, Contexto, Hecho, Ordenes, OrdenesDoble, OrdenesReales};
-use ea_biblioteca::{Inventario, PlanSesion, Raices};
+use ea_biblioteca::{Biblioteca, Cambio, Contexto, Hecho, OrdenesReales};
+use ea_biblioteca::{PlanSesion, Raices};
 use ea_boveda::{Boveda, ErrorBoveda, PlanPromocion};
-use ea_bus::InfoWorktree;
+use ea_bus::{Bus, InfoWorktree};
 use ea_store::Store;
 
 use crate::catalogo::Canal;
+use crate::error::ErrorAccion;
 use crate::servicios::GestorServicios;
-use crate::temporizador::{comprobar_calendario, Calendario, EstadoTimer, Temporizadores};
-use crate::terminal::{TerminalSimulada, TerminalSistema};
+use crate::temporizador::{Calendario, EstadoTimer, Temporizadores};
+use crate::terminal::{Terminal, TerminalSistema};
 
-/// Servicios que se pueden reiniciar: lista cerrada.
-pub const SERVICIOS_REINICIABLES: [&str; 4] =
-    ["llama-server", "ea-mcp", "ea-orchestrator", "ea-web"];
+/// Servicios que se pueden reiniciar: lista cerrada (de la tabla de `ea-ajustes`).
+pub use ea_ajustes::SERVICIOS_REINICIABLES;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EstadoServicio {
@@ -34,10 +33,7 @@ pub struct EstadoServicio {
 }
 
 pub trait Consulta: Send + Sync {
-    fn servicio_estado(
-        &self,
-        nombre: &str,
-    ) -> impl Future<Output = Result<EstadoServicio, String>> + Send;
+    fn servicio_estado(&self, nombre: &str) -> impl Future<Output = Result<EstadoServicio, String>> + Send;
 
     /// Contenido del fichero de la rutina, o `None` si no existe.
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String>;
@@ -51,7 +47,8 @@ pub trait Consulta: Send + Sync {
 
     /// El plan de una sesión de `agente` con solo las herramientas `ids` de
     /// la biblioteca (spec 018, F5), sin secretos y sin escribir nada.
-    /// `directorio`: la carpeta del proyecto (por defecto, la actual).
+    /// `directorio`: la carpeta del proyecto (por defecto, la actual; el HOME
+    /// es «sin proyecto»).
     fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String>;
 
     /// Cómo está el timer de systemd de una rutina (fichero, `OnCalendar`,
@@ -60,10 +57,7 @@ pub trait Consulta: Send + Sync {
 
     /// Valida un `OnCalendar` con `systemd-analyze calendar` (que no cambia
     /// nada). `Ok(Err)`: systemd no lo acepta.
-    fn calendario_validar(
-        &self,
-        calendario: &str,
-    ) -> impl Future<Output = Result<Result<Calendario, String>, String>> + Send;
+    fn calendario_validar(&self, calendario: &str) -> impl Future<Output = Result<Result<Calendario, String>, String>> + Send;
 
     /// Lo que haría activar o desactivar un elemento de la biblioteca (spec
     /// 018): el [`Cambio`] con su mecanismo, objetivo y valor antes y
@@ -74,6 +68,9 @@ pub trait Consulta: Send + Sync {
     /// El worktree propio vivo del trabajo (spec 019, anexo A), o `None` si
     /// no tiene directorio. Solo mira.
     fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String>;
+
+    /// La raíz del bus sobre la que se miran y se lanzan las rutinas.
+    fn estado_dir(&self) -> PathBuf;
 }
 
 pub trait Sistema: Consulta {
@@ -101,17 +98,19 @@ pub trait Sistema: Consulta {
     /// la versión registrados.
     fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String>;
 
+    /// Lanza la rutina `slug` con esas entradas por el bus de
+    /// [`Consulta::estado_dir`] (lo mismo que `ea rutina lanzar`): crea el
+    /// trabajo, con su historial en `store` y el evento a nombre de `actor`, y
+    /// devuelve su id. Igual para todo sistema: el de pruebas lanza en su raíz
+    /// temporal.
+    fn rutina_lanzar(&self, store: &Store, slug: &str, entradas: &[(String, String)], actor: &str) -> Result<String, ErrorAccion> {
+        crate::herramientas::bus_de(&self.estado_dir(), store, actor)?.lanzar_rutina(slug, entradas).map_err(|e| ErrorAccion::Sistema(e.to_string()))
+    }
+
     /// Copia una nota a la región compartida (la promoción que acepta el
     /// usuario). `huella` es la del contenido que se simuló.
-    fn nota_promover(
-        &self,
-        store: &mut Store,
-        ruta: &str,
-        destino: Option<&str>,
-        huella: &str,
-        actor: &str,
-        canal: &str,
-    ) -> Result<PlanPromocion, ErrorBoveda>;
+    fn nota_promover(&self, store: &mut Store, ruta: &str, destino: Option<&str>, huella: &str, actor: &str, canal: &str)
+    -> Result<PlanPromocion, ErrorBoveda>;
 
     /// Escribe `ea-rutina@<slug>.timer` con ese `OnCalendar`, `daemon-reload`
     /// y lo activa ([`Temporizadores::programar`]).
@@ -131,47 +130,8 @@ pub trait Sistema: Consulta {
     fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> impl Future<Output = Result<Hecho, String>> + Send;
 }
 
-/// El canal de ajustes que corresponde al de la confirmación.
-pub fn canal_de_ajustes(canal: Canal) -> ea_ajustes::Canal {
-    match canal {
-        Canal::Terminal => ea_ajustes::Canal::Terminal,
-        Canal::Web => ea_ajustes::Canal::Web,
-    }
-}
-
-/// Planifica con el entorno real y comprueba que el binario del comando
-/// oficial existe.
-fn planear_real(elemento: &str, activar: bool) -> Result<Cambio, String> {
-    let c = ea_biblioteca::planear(elemento, activar, &Contexto::sistema()).map_err(|e| e.to_string())?;
-    ea_biblioteca::cambio::comprobar_disponible(&c, &OrdenesReales).map_err(|e| e.to_string())?;
-    Ok(c)
-}
-
-/// Aplica en un hilo aparte: puede lanzar una orden de hasta 30 s.
-async fn aplicar_real(cambio: &Cambio, canal: Canal) -> Result<Hecho, String> {
-    let c = cambio.clone();
-    tokio::task::spawn_blocking(move || ea_biblioteca::aplicar_con(&c, &Contexto::sistema_con_canal(canal_de_ajustes(canal)), &OrdenesReales))
-        .await
-        .map_err(|e| format!("la tarea del cambio falló: {e}"))?
-        .map_err(|e| e.to_string())
-}
-
-/// Los slugs acaban en una ruta de fichero: nada que no sea `[A-Za-z0-9_-]`.
-pub fn slug_valido(slug: &str) -> bool {
-    !slug.is_empty()
-        && slug.len() <= 64
-        && slug.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
-
-fn ruta_rutina(dir: &std::path::Path, slug: &str) -> Result<PathBuf, String> {
-    if !slug_valido(slug) {
-        return Err(format!("slug de rutina inválido: '{slug}'"));
-    }
-    Ok(dir.join(format!("{slug}.toml")))
-}
-
 fn leer_rutina(dir: &std::path::Path, slug: &str) -> Result<Option<String>, String> {
-    leer_opcional(&ruta_rutina(dir, slug)?)
+    leer_opcional(&ea_bus::ruta_activa(dir, slug).map_err(|e| e.to_string())?)
 }
 
 fn leer_retirada(dir: &std::path::Path, slug: &str) -> Result<Option<String>, String> {
@@ -187,12 +147,43 @@ fn leer_opcional(ruta: &std::path::Path) -> Result<Option<String>, String> {
 }
 
 /// Solo mira: lo que reciben `ea-mcp` y el orquestador. No implementa
-/// [`Sistema`], así que con él es imposible mutar el sistema.
+/// [`Sistema`], así que con él es imposible mutar el sistema. Es también todo
+/// lo que mira [`SistemaReal`].
 pub struct SoloConsulta {
     pub rutinas_dir: PathBuf,
     /// Solo se usa para mirar ([`Boveda::planear_promocion`]); promover
     /// exige un [`Sistema`], que este tipo no implementa.
     pub boveda: Boveda,
+    /// La raíz del bus: los worktrees propios y las ejecuciones de las rutinas.
+    pub estado_dir: PathBuf,
+    /// Dónde están los timers de las rutinas y con qué órdenes se miran (y,
+    /// en [`SistemaReal`], se cambian): [`Temporizadores::usuario`] fuera de
+    /// las pruebas.
+    pub temporizadores: Temporizadores,
+    /// Dónde mira la biblioteca (raíces y ajustes); `None`: el entorno real en
+    /// cada llamada. Con él, el plan de una sesión toma `directorio` tal cual
+    /// (quien lo da ya lo ha comprobado, como el panel); sin él, solo uno
+    /// absoluto bajo el HOME.
+    pub biblioteca: Option<Contexto>,
+}
+
+impl SoloConsulta {
+    /// La del usuario sobre las rutas dadas (las de sus ajustes, o
+    /// temporales en las pruebas), con sus timers y la biblioteca del
+    /// entorno real.
+    pub fn usuario(rutinas_dir: PathBuf, boveda: Boveda, estado_dir: PathBuf) -> Self {
+        Self { rutinas_dir, boveda, estado_dir, temporizadores: Temporizadores::usuario(), biblioteca: None }
+    }
+
+    /// El contexto de la biblioteca, con el canal más restrictivo (`Web`)
+    /// salvo el que traiga el dado: para planear.
+    fn contexto_biblioteca(&self) -> Contexto {
+        self.biblioteca.clone().unwrap_or_else(Contexto::sistema)
+    }
+
+    fn bus(&self) -> Result<Bus, String> {
+        Bus::abrir_en(&self.estado_dir).map_err(|e| e.to_string())
+    }
 }
 
 impl Consulta for SoloConsulta {
@@ -209,56 +200,13 @@ impl Consulta for SoloConsulta {
         self.boveda.planear_promocion(ruta, destino)
     }
     fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String> {
-        crate::sesion::plan_real(agente, ids, directorio)
-    }
-    /// Los timers de `systemd --user` de esta sesión, solo para mirar.
-    async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
-        Temporizadores::usuario().estado(slug).await
-    }
-    async fn calendario_validar(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
-        Temporizadores::usuario().validar_calendario(calendario).await
-    }
-    /// Solo planifica: aplicar exige un [`Sistema`], que este tipo no es.
-    fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
-        planear_real(elemento, activar)
-    }
-    fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String> {
-        worktree_real(trabajo)
-    }
-}
-
-/// El worktree propio de `trabajo` en el bus real (solo lee).
-fn worktree_real(trabajo: &str) -> Result<Option<InfoWorktree>, String> {
-    ea_bus::Bus::abrir().map_err(|e| e.to_string())?.info_worktree(trabajo).map_err(|e| e.to_string())
-}
-
-/// El sistema real, para las interfaces del usuario (`ea`, `ea-web`).
-pub struct SistemaReal {
-    pub rutinas_dir: PathBuf,
-    pub boveda: Boveda,
-    /// Servicio al que pertenece el proceso actual: no puede reiniciarse a
-    /// sí mismo a mitad de la petición (`ea-web` pasa `Some("ea-web")`).
-    pub propio: Option<&'static str>,
-    /// Dónde se escriben los timers de las rutinas y con qué órdenes
-    /// ([`Temporizadores::usuario`] fuera de las pruebas).
-    pub temporizadores: Temporizadores,
-}
-
-impl Consulta for SistemaReal {
-    async fn servicio_estado(&self, nombre: &str) -> Result<EstadoServicio, String> {
-        GestorServicios::usuario().estado(nombre).await
-    }
-    fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
-        leer_rutina(&self.rutinas_dir, slug)
-    }
-    fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String> {
-        leer_retirada(&self.rutinas_dir, slug)
-    }
-    fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
-        self.boveda.planear_promocion(ruta, destino)
-    }
-    fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String> {
-        crate::sesion::plan_real(agente, ids, directorio)
+        match &self.biblioteca {
+            Some(ctx) => {
+                let inventario = Biblioteca::cargar(&ctx.raices, &ea_ajustes::cargar_de(&ctx.fuentes).ajustes);
+                crate::sesion::plan_en(agente, ids, directorio, &inventario, &ctx.raices)
+            }
+            None => crate::sesion::plan_real(agente, ids, directorio),
+        }
     }
     async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
         self.temporizadores.estado(slug).await
@@ -266,11 +214,70 @@ impl Consulta for SistemaReal {
     async fn calendario_validar(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
         self.temporizadores.validar_calendario(calendario).await
     }
+    /// Solo planifica (y comprueba que el binario del comando oficial
+    /// existe): aplicar exige un [`Sistema`], que este tipo no es.
     fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
-        planear_real(elemento, activar)
+        let c = ea_biblioteca::planear(elemento, activar, &self.contexto_biblioteca()).map_err(|e| e.to_string())?;
+        ea_biblioteca::cambio::comprobar_disponible(&c, &OrdenesReales).map_err(|e| e.to_string())?;
+        Ok(c)
     }
     fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String> {
-        worktree_real(trabajo)
+        self.bus()?.info_worktree(trabajo).map_err(|e| e.to_string())
+    }
+    fn estado_dir(&self) -> PathBuf {
+        self.estado_dir.clone()
+    }
+}
+
+/// El sistema real, para las interfaces del usuario (`ea`, `ea-web`): lo que
+/// mira es su [`SoloConsulta`]; además muta.
+pub struct SistemaReal {
+    pub consulta: SoloConsulta,
+    /// Servicio al que pertenece el proceso actual: no puede reiniciarse a
+    /// sí mismo a mitad de la petición (`ea-web` pasa `Some("ea-web")`).
+    pub propio: Option<&'static str>,
+    /// Donde se abren las sesiones de la biblioteca ([`TerminalSistema`] fuera
+    /// de las pruebas).
+    pub terminal: Arc<dyn Terminal>,
+}
+
+impl SistemaReal {
+    /// El del usuario ([`SoloConsulta::usuario`]) con la terminal del sistema.
+    pub fn usuario(rutinas_dir: PathBuf, boveda: Boveda, estado_dir: PathBuf, propio: Option<&'static str>) -> Self {
+        Self { consulta: SoloConsulta::usuario(rutinas_dir, boveda, estado_dir), propio, terminal: Arc::new(TerminalSistema) }
+    }
+}
+
+impl Consulta for SistemaReal {
+    async fn servicio_estado(&self, nombre: &str) -> Result<EstadoServicio, String> {
+        self.consulta.servicio_estado(nombre).await
+    }
+    fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
+        self.consulta.rutina_contenido(slug)
+    }
+    fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String> {
+        self.consulta.rutina_retirada(slug)
+    }
+    fn plan_promocion(&self, ruta: &str, destino: Option<&str>) -> Result<PlanPromocion, ErrorBoveda> {
+        self.consulta.plan_promocion(ruta, destino)
+    }
+    fn sesion_plan(&self, agente: &str, ids: &[String], directorio: Option<&str>) -> Result<PlanSesion, String> {
+        self.consulta.sesion_plan(agente, ids, directorio)
+    }
+    async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
+        self.consulta.timer_estado(slug).await
+    }
+    async fn calendario_validar(&self, calendario: &str) -> Result<Result<Calendario, String>, String> {
+        self.consulta.calendario_validar(calendario).await
+    }
+    fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
+        self.consulta.biblioteca_cambio(elemento, activar)
+    }
+    fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String> {
+        self.consulta.worktree_info(trabajo)
+    }
+    fn estado_dir(&self) -> PathBuf {
+        self.consulta.estado_dir()
     }
 }
 
@@ -289,31 +296,32 @@ impl Sistema for SistemaReal {
     }
 
     fn rutina_eliminar(&self, slug: &str) -> Result<(), String> {
-        let ruta = ea_bus::ruta_retirada(&self.rutinas_dir, slug).map_err(|e| e.to_string())?;
+        let ruta = ea_bus::ruta_retirada(&self.consulta.rutinas_dir, slug).map_err(|e| e.to_string())?;
         std::fs::remove_file(&ruta).map_err(|e| format!("no se pudo borrar {}: {e}", ruta.display()))
     }
 
     fn worktree_limpiar(&self, trabajo: &str) -> Result<bool, String> {
-        ea_bus::Bus::abrir().map_err(|e| e.to_string())?.limpiar_worktree(trabajo).map_err(|e| e.to_string())
+        self.consulta.bus()?.limpiar_worktree(trabajo).map_err(|e| e.to_string())
     }
     fn rutina_retirar(&self, slug: &str) -> Result<(), String> {
-        ea_bus::retirar_rutina(&self.rutinas_dir, slug).map_err(|e| e.to_string())
+        ea_bus::retirar_rutina(&self.consulta.rutinas_dir, slug).map_err(|e| e.to_string())
     }
 
     fn rutina_restaurar(&self, slug: &str) -> Result<(), String> {
-        ea_bus::restaurar_rutina(&self.rutinas_dir, slug).map_err(|e| e.to_string())
+        ea_bus::restaurar_rutina(&self.consulta.rutinas_dir, slug).map_err(|e| e.to_string())
     }
 
     fn sesion_lanzar(&self, plan: &PlanSesion) -> Result<(), String> {
-        crate::sesion::lanzar_real(plan, &TerminalSistema)
+        let raices = self.consulta.biblioteca.as_ref().map_or_else(Raices::desde_entorno, |c| c.raices.clone());
+        crate::sesion::lanzar_con(plan, Raices { proyecto: plan.cwd.clone(), ..raices }, self.terminal.as_ref())
     }
 
     fn rutina_registrar(&self, store: &Store, texto: &str, actor: &str) -> Result<(String, u32), String> {
-        let bus = ea_bus::Bus::abrir().map_err(|e| e.to_string())?;
-        let r = bus
-            .con_store(store.duplicar().map_err(|e| e.to_string())?)
-            .con_actor(actor)
-            .registrar_rutina(texto, &self.rutinas_dir)
+        let r = self
+            .consulta
+            .bus()?
+            .con_store(store.duplicar().map_err(|e| e.to_string())?, actor)
+            .registrar_rutina(texto, &self.consulta.rutinas_dir)
             .map_err(|e| e.to_string())?;
         Ok((r.rutina.slug, r.rutina.version))
     }
@@ -327,24 +335,39 @@ impl Sistema for SistemaReal {
         actor: &str,
         canal: &str,
     ) -> Result<PlanPromocion, ErrorBoveda> {
-        self.boveda.promover(store, ruta, destino, huella, actor, canal)
+        self.consulta.boveda.promover(store, ruta, destino, huella, actor, canal)
     }
 
     async fn timer_programar(&self, slug: &str, calendario: &str) -> Result<(), String> {
-        self.temporizadores.programar(slug, calendario).await
+        self.consulta.temporizadores.programar(slug, calendario).await
     }
 
     async fn timer_desprogramar(&self, slug: &str) -> Result<bool, String> {
-        self.temporizadores.desprogramar(slug).await
+        self.consulta.temporizadores.desprogramar(slug).await
     }
 
+    /// En un hilo aparte: puede lanzar una orden de hasta 30 s.
     async fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> Result<Hecho, String> {
-        aplicar_real(cambio, canal).await
+        let (c, ctx) = (cambio.clone(), Contexto { canal, ..self.consulta.contexto_biblioteca() });
+        tokio::task::spawn_blocking(move || ea_biblioteca::aplicar_con(&c, &ctx, &OrdenesReales))
+            .await
+            .map_err(|e| format!("la tarea del cambio falló: {e}"))?
+            .map_err(|e| e.to_string())
     }
 }
 
+#[cfg(feature = "dobles")]
+use {
+    crate::temporizador::comprobar_calendario,
+    crate::terminal::TerminalSimulada,
+    ea_biblioteca::{Inventario, Ordenes, OrdenesDoble},
+    std::collections::HashMap,
+    std::sync::Mutex,
+};
+
 /// Sistema en memoria para pruebas: no toca `systemd` ni el disco, y apunta
-/// qué mutaciones se le pidieron.
+/// qué mutaciones se le pidieron. Solo en las pruebas (la *feature* `dobles`).
+#[cfg(feature = "dobles")]
 #[derive(Default)]
 pub struct SistemaSimulado {
     pub servicios: Mutex<HashMap<String, EstadoServicio>>,
@@ -371,14 +394,15 @@ pub struct SistemaSimulado {
     pub sesiones: Mutex<Option<(Inventario, Raices)>>,
     /// Las terminales que se habrían abierto.
     pub terminal: TerminalSimulada,
+    /// La raíz del bus (las rutinas encoladas); `None`: una temporal común a
+    /// las pruebas que no la fijan, nunca la del usuario.
+    pub estado: Option<PathBuf>,
 }
 
+#[cfg(feature = "dobles")]
 impl SistemaSimulado {
     pub fn con_servicio(self, nombre: &str, activo: &str) -> Self {
-        self.servicios.lock().unwrap().insert(
-            nombre.to_string(),
-            EstadoServicio { cargado: true, activo: activo.to_string() },
-        );
+        self.servicios.lock().unwrap().insert(nombre.to_string(), EstadoServicio { cargado: true, activo: activo.to_string() });
         self
     }
 
@@ -412,6 +436,11 @@ impl SistemaSimulado {
         self
     }
 
+    pub fn con_estado(mut self, raiz: &std::path::Path) -> Self {
+        self.estado = Some(raiz.to_path_buf());
+        self
+    }
+
     fn contexto_biblioteca(&self) -> Result<Contexto, String> {
         self.biblioteca.lock().unwrap().clone().ok_or_else(|| "la biblioteca no está configurada en el sistema simulado".to_string())
     }
@@ -431,24 +460,19 @@ impl SistemaSimulado {
     }
 }
 
+#[cfg(feature = "dobles")]
 impl Consulta for SistemaSimulado {
     async fn servicio_estado(&self, nombre: &str) -> Result<EstadoServicio, String> {
-        Ok(self
-            .servicios
-            .lock()
-            .unwrap()
-            .get(nombre)
-            .cloned()
-            .unwrap_or(EstadoServicio { cargado: false, activo: "inactive".into() }))
+        Ok(self.servicios.lock().unwrap().get(nombre).cloned().unwrap_or(EstadoServicio { cargado: false, activo: "inactive".into() }))
     }
     fn rutina_contenido(&self, slug: &str) -> Result<Option<String>, String> {
-        if !slug_valido(slug) {
+        if !ea_bus::slug_valido(slug) {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
         Ok(self.rutinas.lock().unwrap().get(slug).cloned())
     }
     fn rutina_retirada(&self, slug: &str) -> Result<Option<String>, String> {
-        if !slug_valido(slug) {
+        if !ea_bus::slug_valido(slug) {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
         Ok(self.retiradas.lock().unwrap().get(slug).cloned())
@@ -482,15 +506,11 @@ impl Consulta for SistemaSimulado {
         crate::sesion::plan_en(agente, ids, directorio, inventario, raices)
     }
     async fn timer_estado(&self, slug: &str) -> Result<EstadoTimer, String> {
-        if !slug_valido(slug) {
+        if !ea_bus::slug_valido(slug) {
             return Err(format!("slug de rutina inválido: '{slug}'"));
         }
         let cal = self.timers.lock().unwrap().get(slug).cloned();
-        Ok(EstadoTimer {
-            fichero: cal.is_some(),
-            activo: Some(if cal.is_some() { "active" } else { "inactive" }.into()),
-            calendario: cal,
-        })
+        Ok(EstadoTimer { fichero: cal.is_some(), activo: Some(if cal.is_some() { "active" } else { "inactive" }.into()), calendario: cal })
     }
     /// Una imitación de `systemd-analyze calendar`: acepta palabras de
     /// calendario conocidas y expresiones con cifras o `*`; el resto, no.
@@ -499,15 +519,13 @@ impl Consulta for SistemaSimulado {
             Ok(c) => c,
             Err(e) => return Ok(Err(e)),
         };
-        const PALABRAS: [&str; 12] =
-            ["daily", "weekly", "monthly", "hourly", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon..Fri"];
+        const PALABRAS: [&str; 12] = ["daily", "weekly", "monthly", "hourly", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon..Fri"];
         let vale = c.split_whitespace().all(|w| PALABRAS.contains(&w) || w.bytes().any(|b| b.is_ascii_digit() || b == b'*'));
         if !vale {
             return Ok(Err(format!("Failed to parse calendar specification '{c}': Invalid argument")));
         }
         Ok(Ok(Calendario {
-            normalizado: c.to_string(),
-            proximas: (1..=crate::temporizador::ITERACIONES).map(|i| format!("ejecución {i} de «{c}»")).collect(),
+            normalizado: c.to_string(), proximas: (1..=crate::temporizador::ITERACIONES).map(|i| format!("ejecución {i} de «{c}»")).collect()
         }))
     }
     fn biblioteca_cambio(&self, elemento: &str, activar: bool) -> Result<Cambio, String> {
@@ -518,8 +536,12 @@ impl Consulta for SistemaSimulado {
     fn worktree_info(&self, trabajo: &str) -> Result<Option<InfoWorktree>, String> {
         Ok(self.worktrees.lock().unwrap().get(trabajo).cloned())
     }
+    fn estado_dir(&self) -> PathBuf {
+        self.estado.clone().unwrap_or_else(|| std::env::temp_dir().join("ea-sistema-simulado"))
+    }
 }
 
+#[cfg(feature = "dobles")]
 impl Sistema for SistemaSimulado {
     async fn servicio_reiniciar(&self, nombre: &str) -> Result<(), String> {
         if let Some(e) = self.fallo_reinicio.lock().unwrap().clone() {
@@ -622,7 +644,7 @@ impl Sistema for SistemaSimulado {
         Ok(habia)
     }
     async fn biblioteca_aplicar(&self, cambio: &Cambio, canal: Canal) -> Result<Hecho, String> {
-        let ctx = Contexto { canal: canal_de_ajustes(canal), ..self.contexto_biblioteca()? };
+        let ctx = Contexto { canal, ..self.contexto_biblioteca()? };
         let h = ea_biblioteca::aplicar_con(cambio, &ctx, &self.ordenes).map_err(|e| e.to_string())?;
         self.mutaciones.lock().unwrap().push(format!("biblioteca:{}:{}", if h.activar { "activar" } else { "desactivar" }, h.id));
         Ok(h)

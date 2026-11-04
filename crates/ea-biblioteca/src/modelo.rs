@@ -99,8 +99,7 @@ impl Ambito {
             "ecosistema" => Some(Ambito::Ecosistema),
             otro => {
                 let id = otro.strip_prefix("plugin:")?;
-                (!id.is_empty() && !id.contains('/') && !id.contains("..") && !id.chars().any(char::is_control))
-                    .then(|| Ambito::Plugin(id.to_string()))
+                (!id.is_empty() && !id.contains('/') && !id.contains("..") && !id.chars().any(char::is_control)).then(|| Ambito::Plugin(id.to_string()))
             }
         }
     }

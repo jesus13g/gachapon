@@ -2,7 +2,7 @@
 //! skills, plugins, subagentes, servidores MCP, comandos y extensiones de
 //! cada agente del catálogo y del ecosistema.
 //!
-//! Depende solo de `ea-ajustes`. Nada de lo que sale de aquí lleva secretos
+//! Depende solo de `ea-ajustes` y `ea-plataforma`. Nada de lo que sale de aquí lleva secretos
 //! (ver [`redactar`]). Lo que no existe en disco es vacío, nunca error; lo que
 //! no se puede interpretar queda en [`Inventario::avisos`].
 
@@ -12,20 +12,24 @@ mod error;
 mod modelo;
 pub mod raices;
 pub mod redactar;
-pub mod uso;
 pub mod sesion;
+pub mod uso;
 
 use std::collections::HashSet;
 
 use ea_ajustes::{Ajustes, IDS_AGENTES};
 use serde::Serialize;
 
-pub use cambio::{aplicar, aplicar_con, desactivadas, plan_cambio, plan_cambio_con, planear, Cambio, Contexto, Hecho, Objetivo, Ordenes, OrdenesDoble, OrdenesReales};
+#[cfg(any(test, feature = "dobles"))]
+pub use cambio::OrdenesDoble;
+pub use cambio::{Cambio, Contexto, Hecho, Objetivo, Ordenes, OrdenesReales, aplicar, aplicar_con, desactivadas, plan_cambio, plan_cambio_con, planear};
 pub use error::ErrorBiblioteca;
-pub use redactar::sin_control;
-pub use modelo::{Activado, Ambito, DefMcp, Elemento, Id, Mecanismo, Tipo, AGENTE_ECOSISTEMA};
+pub use modelo::{AGENTE_ECOSISTEMA, Activado, Ambito, DefMcp, Elemento, Id, Mecanismo, Tipo};
 pub use raices::Raices;
-pub use sesion::{limpiar_sesiones, materializar, materializar_con_entorno, plan_sesion, EnlaceEfimero, FicheroEfimero, FuenteMcp, PlanSesion, AGENTES_CON_SESION};
+pub use redactar::sin_control;
+pub use sesion::{
+    AGENTES_CON_SESION, EnlaceEfimero, FicheroEfimero, FuenteMcp, PlanSesion, limpiar_sesiones, materializar, materializar_con_entorno, plan_sesion,
+};
 
 /// Orden de los agentes en el inventario.
 fn orden_agente(a: &str) -> usize {

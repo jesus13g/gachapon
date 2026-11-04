@@ -13,32 +13,25 @@
 //! garantiza exclusión mutua, no un orden FIFO estricto entre esperantes.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use ea_plataforma::fs::Permisos;
 use ea_store::{EntradaIndice, EventOutcome, NewEvent, ResultadoBusqueda, Store};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::cabecera::{self, ahora, Cabecera, Cabeceras};
+use crate::cabecera::{self, Cabecera, Cabeceras, ahora};
 use crate::error::{ErrorBoveda, Resultado};
-use crate::limites::{Limites, MAX_FICHEROS, MAX_FICHERO_BYTES};
-use crate::ruta::{self, region_de, region_de_agente, validar_ruta, REGIONES, REGION_COMPARTIDA};
+use crate::limites::{Limites, MAX_FICHERO_BYTES, MAX_FICHEROS};
+use crate::ruta::{self, REGION_COMPARTIDA, REGIONES, region_de, region_de_agente, validar_ruta};
 
 const FICHERO_CANDADO: &str = ".ea-escritor.lock";
 const ESPERA_POR_DEFECTO: Duration = Duration::from_secs(10);
-static CONTADOR_TEMPORAL: AtomicU64 = AtomicU64::new(0);
 
-/// FNV-1a de 64 bits: huella estable del contenido, para comprobar que la
+/// Huella FNV-1a (la de `ea-plataforma`) del contenido, para comprobar que la
 /// nota no cambió entre la simulación de una promoción y su ejecución.
 pub fn huella(texto: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in texto.bytes() {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("{h:016x}")
+    ea_plataforma::fs::huella(texto.as_bytes())
 }
 
 /// Convierte el texto de búsqueda de una persona o un modelo en una consulta
@@ -133,35 +126,15 @@ pub(crate) fn es_enlace(p: &Path) -> bool {
 }
 
 pub(crate) fn mtime_ns(meta: &fs::Metadata) -> i64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos() as i64)
-        .unwrap_or(0)
+    meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos() as i64).unwrap_or(0)
 }
 
-/// Escritura atómica: se escribe un temporal oculto en el mismo directorio,
-/// se sincroniza y se renombra sobre el destino. Un lector ve la nota
-/// anterior o la nueva entera, nunca una mitad.
+/// Escritura atómica (la de `ea-plataforma`): se escribe un temporal oculto
+/// en el mismo directorio, se sincroniza y se renombra sobre el destino. Un
+/// lector ve la nota anterior o la nueva entera, nunca una mitad. No crea el
+/// directorio.
 pub(crate) fn escribir_atomico(destino: &Path, contenido: &str) -> Resultado<()> {
-    let dir = destino.parent().ok_or_else(|| ErrorBoveda::Io("ruta sin directorio".into()))?;
-    let nombre = destino.file_name().and_then(|n| n.to_str()).unwrap_or("nota");
-    let n = CONTADOR_TEMPORAL.fetch_add(1, Ordering::Relaxed);
-    let temporal = dir.join(format!(".{nombre}.{}.{n}.tmp", std::process::id()));
-    let resultado = (|| -> std::io::Result<()> {
-        let mut f = OpenOptions::new().write(true).create_new(true).open(&temporal)?;
-        f.write_all(contenido.as_bytes())?;
-        f.sync_all()?;
-        fs::rename(&temporal, destino)
-    })();
-    if let Err(e) = resultado {
-        let _ = fs::remove_file(&temporal);
-        return Err(e.into());
-    }
-    if let Ok(d) = File::open(dir) {
-        let _ = d.sync_all();
-    }
-    Ok(())
+    Ok(ea_plataforma::fs::escribir_atomico(destino, contenido.as_bytes(), Permisos::Heredados)?)
 }
 
 pub(crate) fn evento(store: &Store, actor: &str, accion: &str, trabajo: Option<&str>, ok: bool, detalle: Value, inicio: Instant) -> Result<(), String> {
@@ -181,11 +154,8 @@ pub(crate) fn evento(store: &Store, actor: &str, accion: &str, trabajo: Option<&
 pub(crate) fn entrada_de(ruta: &str, texto: &str, meta: &fs::Metadata) -> (EntradaIndice, String) {
     let (cab, cuerpo) = cabecera::interpretar(texto);
     let region = region_de(ruta).to_string();
-    let titulo_ajeno = || {
-        cabecera::primer_encabezado(cuerpo).unwrap_or_else(|| {
-            Path::new(ruta).file_stem().and_then(|s| s.to_str()).unwrap_or(ruta).to_string()
-        })
-    };
+    let titulo_ajeno =
+        || cabecera::primer_encabezado(cuerpo).unwrap_or_else(|| Path::new(ruta).file_stem().and_then(|s| s.to_str()).unwrap_or(ruta).to_string());
     let entrada = match cab {
         Cabeceras::Valida(c) => EntradaIndice {
             ruta: ruta.to_string(),
@@ -217,10 +187,12 @@ pub(crate) fn entrada_de(ruta: &str, texto: &str, meta: &fs::Metadata) -> (Entra
     (entrada, cuerpo.to_string())
 }
 
-/// Solo el usuario (sus interfaces) hace ciertas operaciones: promover y
-/// editar la bóveda a mano. Un agente, el orquestador o nadie, no.
+/// Solo el usuario (sus interfaces, que firman como
+/// [`ea_ajustes::ACTOR_USUARIO`]) hace ciertas operaciones: promover y editar
+/// la bóveda a mano. Es una lista blanca: un agente, el orquestador, un actor
+/// que no se conoce o nadie, no.
 pub(crate) fn exigir_usuario(quien: &str, que: &str) -> Resultado<()> {
-    if region_de_agente(quien).is_some() || quien == "orquestador" || quien.trim().is_empty() {
+    if quien != ea_ajustes::ACTOR_USUARIO {
         return Err(ErrorBoveda::Prohibida(format!("'{quien}' no puede {que}")));
     }
     Ok(())
@@ -232,10 +204,13 @@ impl Boveda {
         Self { raiz: raiz.into(), espera: ESPERA_POR_DEFECTO }
     }
 
-    /// Sobre la raíz configurada (`rutas.boveda` de los ajustes: `EA_BOVEDA_DIR`,
-    /// `ajustes.toml`, `boveda.toml` heredado o por defecto).
+    /// Sobre la raíz configurada: `rutas.boveda` de los ajustes, que resuelve,
+    /// por este orden, `EA_BOVEDA_DIR`, `ajustes.toml`, el heredado
+    /// `boveda.toml` (`raiz = "..."`) y un directorio propio del ecosistema. El
+    /// valor por defecto NO es la bóveda personal de Obsidian del usuario:
+    /// apuntarla allí es una decisión suya, explícita (ver README).
     pub fn configurada() -> Self {
-        Self::en(crate::config::raiz())
+        Self::en(ea_ajustes::cargar().rutas.boveda)
     }
 
     /// Cuánto espera el escritor al candado antes de rendirse.
@@ -266,8 +241,7 @@ impl Boveda {
     }
 
     fn resolver_partes(&self, ruta: &str, partes: &[&str]) -> Resultado<PathBuf> {
-        let raiz = fs::canonicalize(&self.raiz)
-            .map_err(|e| ErrorBoveda::Io(format!("raíz de la bóveda {}: {e}", self.raiz.display())))?;
+        let raiz = fs::canonicalize(&self.raiz).map_err(|e| ErrorBoveda::Io(format!("raíz de la bóveda {}: {e}", self.raiz.display())))?;
         let region = raiz.join(partes[0]);
         let completa = partes.iter().fold(raiz.clone(), |p, c| p.join(c));
 
@@ -275,8 +249,7 @@ impl Boveda {
         while !existe(ancestro) {
             ancestro = ancestro.parent().ok_or_else(|| ErrorBoveda::Ruta(ruta.to_string()))?;
         }
-        let canonico = fs::canonicalize(ancestro)
-            .map_err(|_| ErrorBoveda::FueraDeLaBoveda(format!("{ruta} (enlace simbólico roto)")))?;
+        let canonico = fs::canonicalize(ancestro).map_err(|_| ErrorBoveda::FueraDeLaBoveda(format!("{ruta} (enlace simbólico roto)")))?;
         if !(canonico.starts_with(&region) || ancestro == raiz) {
             return Err(ErrorBoveda::FueraDeLaBoveda(ruta.to_string()));
         }
@@ -288,11 +261,7 @@ impl Boveda {
 
     pub(crate) fn candado(&self) -> Resultado<Candado> {
         fs::create_dir_all(&self.raiz)?;
-        let f = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(self.raiz.join(FICHERO_CANDADO))?;
+        let f = OpenOptions::new().create(true).truncate(false).write(true).open(self.raiz.join(FICHERO_CANDADO))?;
         let limite = Instant::now() + self.espera;
         loop {
             match f.try_lock() {
@@ -318,10 +287,7 @@ impl Boveda {
             return Err(ErrorBoveda::NoExiste(format!("{ruta} (no es una nota)")));
         }
         if meta.len() > MAX_FICHERO_BYTES {
-            return Err(ErrorBoveda::Argumentos(format!(
-                "{ruta} pesa {} bytes; el máximo legible es {MAX_FICHERO_BYTES}",
-                meta.len()
-            )));
+            return Err(ErrorBoveda::Argumentos(format!("{ruta} pesa {} bytes; el máximo legible es {MAX_FICHERO_BYTES}", meta.len())));
         }
         String::from_utf8(fs::read(&p)?).map_err(|_| ErrorBoveda::Argumentos(format!("{ruta} no es texto UTF-8")))
     }
@@ -332,26 +298,18 @@ impl Boveda {
     /// forma de la ruta. Devuelve la región del autor y la ruta pedida, ya
     /// con su región delante.
     fn validar_nota(autor: &str, n: &NuevaNota<'_>, lim: &Limites) -> Resultado<(&'static str, Option<String>)> {
-        let region = region_de_agente(autor).ok_or_else(|| {
-            ErrorBoveda::Prohibida(format!("'{autor}' no escribe en la bóveda (solo los agentes, en su región)"))
-        })?;
+        let region =
+            region_de_agente(autor).ok_or_else(|| ErrorBoveda::Prohibida(format!("'{autor}' no escribe en la bóveda (solo los agentes, en su región)")))?;
         cabecera::titulo_valido(n.titulo)?;
         cabecera::tags_validos(n.tags)?;
         if !cabecera::origen_valido(n.origen) {
-            return Err(ErrorBoveda::Cabecera(format!(
-                "origen '{}' no válido (trabajo:<id>, rutina:<slug> o manual)",
-                n.origen
-            )));
+            return Err(ErrorBoveda::Cabecera(format!("origen '{}' no válido (trabajo:<id>, rutina:<slug> o manual)", n.origen)));
         }
         if n.cuerpo.trim().is_empty() {
             return Err(ErrorBoveda::Argumentos("el contenido de la nota está vacío".into()));
         }
         if n.cuerpo.len() > lim.max_escritura {
-            return Err(ErrorBoveda::Argumentos(format!(
-                "el contenido pesa {} bytes y el máximo es {}",
-                n.cuerpo.len(),
-                lim.max_escritura
-            )));
+            return Err(ErrorBoveda::Argumentos(format!("el contenido pesa {} bytes y el máximo es {}", n.cuerpo.len(), lim.max_escritura)));
         }
         if n.cuerpo.contains('\0') {
             return Err(ErrorBoveda::Argumentos("el contenido no admite caracteres nulos".into()));
@@ -379,13 +337,7 @@ impl Boveda {
     /// (decisión 8) pero nunca fuera de ella: no hay forma de nombrar otra
     /// región. Valida la cabecera, escribe de forma atómica bajo el candado,
     /// actualiza el índice y deja el evento `boveda_escritura`.
-    pub fn escribir_nota(
-        &self,
-        store: &mut Store,
-        autor: &str,
-        n: &NuevaNota<'_>,
-        lim: &Limites,
-    ) -> Resultado<NotaEscrita> {
+    pub fn escribir_nota(&self, store: &mut Store, autor: &str, n: &NuevaNota<'_>, lim: &Limites) -> Resultado<NotaEscrita> {
         let inicio = Instant::now();
         let (region, pedida) = Self::validar_nota(autor, n, lim)?;
 
@@ -457,13 +409,7 @@ impl Boveda {
         let indice = store.boveda_indexar(&entrada, &cuerpo_indexado);
 
         let creada = previo.is_none();
-        let escrita = NotaEscrita {
-            ruta: ruta_final.clone(),
-            region: region.to_string(),
-            bytes: texto.len(),
-            creada,
-            huella: huella(&texto),
-        };
+        let escrita = NotaEscrita { ruta: ruta_final.clone(), region: region.to_string(), bytes: texto.len(), creada, huella: huella(&texto) };
         let trabajo = n.origen.strip_prefix("trabajo:");
         evento(
             store,
@@ -505,19 +451,9 @@ impl Boveda {
         let (cab, cuerpo) = cabecera::interpretar(&texto);
         let (titulo, autor) = match cab {
             Cabeceras::Valida(c) => (c.titulo, c.autor),
-            _ => (
-                cabecera::primer_encabezado(cuerpo).unwrap_or_else(|| ruta::slug(origen)),
-                partes[0].to_string(),
-            ),
+            _ => (cabecera::primer_encabezado(cuerpo).unwrap_or_else(|| ruta::slug(origen)), partes[0].to_string()),
         };
-        Ok(PlanPromocion {
-            origen: origen.to_string(),
-            destino,
-            titulo,
-            autor,
-            bytes: texto.len(),
-            huella: huella(&texto),
-        })
+        Ok(PlanPromocion { origen: origen.to_string(), destino, titulo, autor, bytes: texto.len(), huella: huella(&texto) })
     }
 
     /// Promueve una nota a la región compartida **copiándola**: la nota
@@ -540,10 +476,7 @@ impl Boveda {
         let _candado = self.candado()?;
         let plan = self.planear_promocion(origen, destino)?;
         if plan.huella != huella_esperada {
-            return Err(ErrorBoveda::Cambio(format!(
-                "{origen} es distinta de la que se simuló (huella {} y ahora {})",
-                huella_esperada, plan.huella
-            )));
+            return Err(ErrorBoveda::Cambio(format!("{origen} es distinta de la que se simuló (huella {} y ahora {})", huella_esperada, plan.huella)));
         }
         let texto = self.leer_texto(origen)?;
         let (cab, cuerpo) = cabecera::interpretar(&texto);
@@ -697,11 +630,8 @@ impl Boveda {
         let Ok(raiz) = fs::canonicalize(&self.raiz) else {
             return Ok(resumen);
         };
-        let conocidas: std::collections::HashMap<String, (i64, i64)> = store
-            .boveda_rutas_indexadas()?
-            .into_iter()
-            .map(|r| (r.ruta, (r.mtime_ns, r.bytes)))
-            .collect();
+        let conocidas: std::collections::HashMap<String, (i64, i64)> =
+            store.boveda_rutas_indexadas()?.into_iter().map(|r| (r.ruta, (r.mtime_ns, r.bytes))).collect();
         let mut vistas = std::collections::HashSet::new();
         let mut pendientes: Vec<(PathBuf, String)> = Vec::new();
         for region in REGIONES {
@@ -771,10 +701,7 @@ impl Boveda {
 
     fn comprobar_region(region: Option<&str>) -> Resultado<()> {
         match region {
-            Some(r) if !ruta::es_region(r) => Err(ErrorBoveda::Argumentos(format!(
-                "región '{r}' desconocida ({})",
-                REGIONES.join(", ")
-            ))),
+            Some(r) if !ruta::es_region(r) => Err(ErrorBoveda::Argumentos(format!("región '{r}' desconocida ({})", REGIONES.join(", ")))),
             _ => Ok(()),
         }
     }
@@ -782,14 +709,7 @@ impl Boveda {
     /// Búsqueda de texto completo (FTS5) con resultados acotados: como mucho
     /// `lim.max_resultados` (o `pedido`, si es menor) y fragmentos de como
     /// mucho `lim.max_fragmento` caracteres.
-    pub fn buscar(
-        &self,
-        store: &mut Store,
-        consulta: &str,
-        region: Option<&str>,
-        pedido: Option<usize>,
-        lim: &Limites,
-    ) -> Resultado<Vec<ResultadoBusqueda>> {
+    pub fn buscar(&self, store: &mut Store, consulta: &str, region: Option<&str>, pedido: Option<usize>, lim: &Limites) -> Resultado<Vec<ResultadoBusqueda>> {
         Self::comprobar_region(region)?;
         let fts = consulta_fts(consulta)?;
         self.sincronizar(store, false)?;
@@ -804,16 +724,29 @@ impl Boveda {
     }
 
     /// Notas más recientes, sin consulta.
-    pub fn listar(
-        &self,
-        store: &mut Store,
-        region: Option<&str>,
-        pedido: Option<usize>,
-        lim: &Limites,
-    ) -> Resultado<Vec<ResultadoBusqueda>> {
+    pub fn listar(&self, store: &mut Store, region: Option<&str>, pedido: Option<usize>, lim: &Limites) -> Resultado<Vec<ResultadoBusqueda>> {
         Self::comprobar_region(region)?;
         self.sincronizar(store, false)?;
         let n = pedido.unwrap_or(lim.max_resultados).clamp(1, lim.max_resultados);
         Ok(store.boveda_recientes(region, n as i64)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Solo `usuario`, el actor con que firman la CLI y la web, hace lo que
+    /// es del usuario. Ningún otro actor del sistema pasa: los de los roles,
+    /// el orquestador, los del MCP sin rol o desconocido, el `ea-cli` con que
+    /// firmaba antes el bus de la CLI ni la cadena vacía.
+    #[test]
+    fn exigir_usuario_es_una_lista_blanca() {
+        assert!(exigir_usuario("usuario", "x").is_ok());
+        for quien in
+            ["modelo-local", "claude-code", "orquestador", "sin-rol", "desconocido", "ea-cli", "", " ", "Usuario", " usuario", "planificador", "ejecutor"]
+        {
+            assert!(matches!(exigir_usuario(quien, "x"), Err(ErrorBoveda::Prohibida(_))), "{quien:?}");
+        }
     }
 }

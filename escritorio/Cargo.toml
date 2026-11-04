@@ -2,6 +2,8 @@
 name = "ea-escritorio"
 version = "0.1.0"
 edition = "2024"
+# Tauri 2 pide 1.90 (el workspace se queda en 1.89).
+rust-version = "1.90"
 publish = false
 description = "Shell de escritorio (Tauri 2) del panel de ea-web; fuera del workspace principal (spec 021)"
 build = "build.rs"
@@ -29,6 +31,8 @@ tempfile = "3"
 
 [profile.release]
 lto = true
+codegen-units = 1
+strip = true
 
 # Paquete propio: no pertenece al workspace principal.
 [workspace]

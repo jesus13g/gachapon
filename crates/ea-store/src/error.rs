@@ -41,9 +41,6 @@ pub enum StoreError {
     #[error("error de parseo de fecha: {0}")]
     TimeParse(#[from] time::error::Parse),
 
-    #[error("no se pudo resolver el directorio de datos de la aplicación")]
-    NoDataDir,
-
     #[error("error de E/S: {0}")]
     Io(#[from] std::io::Error),
 }

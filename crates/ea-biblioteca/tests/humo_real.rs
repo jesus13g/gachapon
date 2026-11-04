@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use ea_ajustes::{cargar, Ajustes};
+use ea_ajustes::{Ajustes, cargar};
 use ea_biblioteca::{Biblioteca, Raices};
 
 #[test]
@@ -32,7 +32,7 @@ fn humo_sobre_el_home_real() {
 #[test]
 #[ignore = "lee el HOME real; ejecutar a mano"]
 fn humo_uso_sobre_el_home_real() {
-    use ea_biblioteca::uso::{calcular_uso, FuentesUso};
+    use ea_biblioteca::uso::{FuentesUso, calcular_uso};
     let a: Ajustes = cargar();
     let real = Raices::desde_entorno();
     let inv = Biblioteca::cargar(&real, &a);

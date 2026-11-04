@@ -2,23 +2,22 @@
 //! Detecta, ofrece las dependencias externas una a una, enseña el plan
 //! completo y lo aplica tras **una** confirmación escrita en una terminal
 //! real; al final comprueba que los servicios responden y dice lo que queda
-//! en manos del usuario. Los planes son de `ea_acciones::instalacion`.
+//! en manos del usuario. Los planes son de `crate::instalacion`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
-use ea_acciones::instalacion::dependencias::{self, Dependencia, Estado};
-use ea_acciones::instalacion::origen::{self, nombre_binario, BINARIO_ESCRITORIO};
-use ea_acciones::instalacion::wsl::{self, EstadoWsl};
-use ea_acciones::instalacion::{self, Contexto, Origen, Sonda, SondaReal};
-use ea_acciones::servicios::{aplicar, correr_orden, Entorno, Paso};
-use ea_acciones::Canal;
+use anyhow::{Context, Result, bail};
+use ea_acciones::servicios::{Entorno, Paso, aplicar, correr_orden};
 use ea_ajustes::Fuentes;
 use ea_plataforma::Sistema;
 use serde_json::Value;
 
 use super::{preguntar, respuesta_confirma};
+use crate::instalacion::dependencias::{self, Dependencia, Estado};
+use crate::instalacion::origen::{self, BINARIO_ESCRITORIO, nombre_binario};
+use crate::instalacion::wsl::{self, EstadoWsl};
+use crate::instalacion::{self, Contexto, Origen, Sonda, SondaReal};
 
 /// La vía de Windows (spec 023, D-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +58,7 @@ fn dentro_de_wsl() -> bool {
 /// Lo primero: una persona delante de un teclado y no `root` (los servicios
 /// son del usuario).
 fn comprobar_terminal_y_usuario() -> Result<()> {
-    Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     if ea_plataforma::usuario::uid() == Some(0) {
         bail!("no ejecutes `ea instalar` como root: los servicios, los ajustes y la app son de tu usuario (lo que necesite sudo lo pedirá él)");
     }
@@ -131,8 +130,7 @@ fn describir_origen(ctx: &Contexto) -> String {
 /// Las dependencias externas: se enseñan y se ofrece cada una con su
 /// propia pregunta. Devuelve las notas que quedan para el final.
 fn ofrecer_dependencias(ctx: &Contexto, sonda: &dyn Sonda, solo: Option<&[&str]>) -> Result<Vec<String>> {
-    let deps: Vec<Dependencia> =
-        dependencias::detectar(ctx, sonda).into_iter().filter(|d| solo.is_none_or(|ids| ids.contains(&d.id))).collect();
+    let deps: Vec<Dependencia> = dependencias::detectar(ctx, sonda).into_iter().filter(|d| solo.is_none_or(|ids| ids.contains(&d.id))).collect();
     if deps.is_empty() {
         return Ok(vec![]);
     }
@@ -176,7 +174,8 @@ fn ofrecer_dependencias(ctx: &Contexto, sonda: &dyn Sonda, solo: Option<&[&str]>
 }
 
 /// Fija ajustes como `ea ajustes establecer` (canal terminal) y lo apunta
-/// en el diario.
+/// en el diario, sin sus efectos: el autoarranque lo aplica quien llama, con
+/// el binario instalado.
 fn fijar_ajustes(cambios: &[(&str, Value)]) -> Result<()> {
     let f = Fuentes::sistema();
     let lote: Vec<(String, Option<Value>)> = cambios.iter().map(|(k, v)| ((*k).to_string(), Some(v.clone()))).collect();
@@ -189,11 +188,7 @@ fn fijar_ajustes(cambios: &[(&str, Value)]) -> Result<()> {
 fn esperar(url: &str, cualquier_codigo: bool, tope: Duration) -> bool {
     let inicio = Instant::now();
     loop {
-        let ok = if cualquier_codigo {
-            instalacion::http_responde(url, Duration::from_secs(2))
-        } else {
-            instalacion::http_ok(url, Duration::from_secs(2))
-        };
+        let ok = if cualquier_codigo { instalacion::http_responde(url, Duration::from_secs(2)) } else { instalacion::http_ok(url, Duration::from_secs(2)) };
         if ok {
             return true;
         }
@@ -252,11 +247,7 @@ pub fn instalar(op: Opciones) -> Result<()> {
     let ctx = contexto(op.sin_escritorio)?;
     let sonda = SondaReal;
     let entorno = Entorno::usuario().map_err(anyhow::Error::msg)?;
-    let faltan: Vec<PathBuf> = origen::BINARIOS
-        .iter()
-        .map(|b| ctx.exes_origen.join(nombre_binario(ctx.sistema, b)))
-        .filter(|p| !p.is_file())
-        .collect();
+    let faltan: Vec<PathBuf> = origen::BINARIOS.iter().map(|b| ctx.exes_origen.join(nombre_binario(ctx.sistema, b))).filter(|p| !p.is_file()).collect();
     if !faltan.is_empty() {
         let lista = faltan.iter().map(|f| f.display().to_string()).collect::<Vec<_>>().join(", ");
         bail!("faltan binarios junto a este `ea` ({lista}); compílalos con `cargo build --release` o usa un paquete completo");
@@ -269,27 +260,20 @@ pub fn instalar(op: Opciones) -> Result<()> {
     let ajustes_toml = Fuentes::sistema().fichero();
     let pasos = instalacion::plan_instalar_todo(&ctx, &entorno, &ajustes_toml, &sonda).map_err(anyhow::Error::msg)?;
     println!("ea instalar hará esto:");
-    mostrar_pasos(&pasos);
-    let avisos: Vec<String> = instalacion::ruta_usuario::avisos_ruta(&ctx, &sonda)
+    let mut extra: Vec<String> = instalacion::ruta_usuario::avisos_ruta(&ctx, &sonda)
         .into_iter()
         .chain(instalacion::agentes::avisos_agentes(&ctx, &sonda))
+        .map(|a| format!("! {a}"))
         .collect();
-    for a in &avisos {
-        println!("  ! {a}");
-    }
     if ctx.con_escritorio {
-        println!("  - poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)");
+        extra.push("- poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)".into());
     }
     if sin_sandbox {
-        println!("  - poner agente.sandbox = false");
+        extra.push("- poner agente.sandbox = false".into());
     }
-    let r = preguntar("\n  ¿Hacerlo ahora? [s/N]: ")?;
-    if !respuesta_confirma(false, "instalar", &r) {
-        println!("Cancelado: no se ha hecho nada.");
+    if !confirmar_y_aplicar(&pasos, &extra, correr_orden)? {
         return Ok(());
     }
-    let hecho = aplicar(&pasos, &mut |argv| correr_orden(argv)).map_err(anyhow::Error::msg)?;
-    println!("Hecho ({} pasos).", hecho.len());
 
     let escritorio = ctx.destinos.bin.join(nombre_binario(ctx.sistema, BINARIO_ESCRITORIO));
     let mut cambios: Vec<(&str, Value)> = Vec::new();
@@ -297,14 +281,14 @@ pub fn instalar(op: Opciones) -> Result<()> {
         cambios.push(("agente.sandbox", Value::Bool(false)));
     }
     if ctx.con_escritorio {
-        cambios.push((ea_ajustes::CLAVE_AL_INICIAR, Value::Bool(true)));
+        cambios.push((ea_acciones::ajustes::CLAVE_AL_INICIAR, Value::Bool(true)));
     }
     if !cambios.is_empty() {
         fijar_ajustes(&cambios)?;
     }
     if ctx.con_escritorio {
         // Con el binario instalado, no con el del paquete temporal.
-        if let Err(e) = ea_ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
+        if let Err(e) = ea_acciones::ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
             eprintln!("aviso: {e}");
         }
     }
@@ -319,20 +303,22 @@ pub fn instalar(op: Opciones) -> Result<()> {
     Ok(())
 }
 
-/// Enseña los pasos, pide la confirmación y los aplica con la consola
-/// heredada (UAC, `sudo` y la confirmación de `ea instalar` dentro de WSL
-/// necesitan la terminal). `false`: el usuario canceló.
-fn confirmar_y_aplicar(pasos: &[Paso], extra: &[String]) -> Result<bool> {
+/// Enseña los pasos y las líneas de `extra` (con su viñeta), pide la
+/// confirmación y los aplica con `correr`: `correr_orden` o, en la vía WSL,
+/// `correr_interactiva` con la consola heredada (UAC, `sudo` y la confirmación
+/// de `ea instalar` dentro de WSL necesitan la terminal). `false`: el usuario
+/// canceló.
+fn confirmar_y_aplicar(pasos: &[Paso], extra: &[String], correr: fn(&[String]) -> Result<(), String>) -> Result<bool> {
     mostrar_pasos(pasos);
     for e in extra {
-        println!("  - {e}");
+        println!("  {e}");
     }
     let r = preguntar("\n  ¿Hacerlo ahora? [s/N]: ")?;
     if !respuesta_confirma(false, "instalar", &r) {
         println!("Cancelado: no se ha hecho nada.");
         return Ok(false);
     }
-    let hecho = aplicar(pasos, &mut |argv| correr_interactiva(argv)).map_err(anyhow::Error::msg)?;
+    let hecho = aplicar(pasos, &mut |argv| correr(argv)).map_err(anyhow::Error::msg)?;
     println!("Hecho ({} pasos).", hecho.len());
     Ok(true)
 }
@@ -360,15 +346,20 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
     let continuar = ctx.destinos.bin.join(nombre_binario(ctx.sistema, "ea"));
     if matches!(estado, EstadoWsl::SinWsl | EstadoWsl::SinDistro) {
         if op.continuar {
-            bail!("tras el reinicio sigue sin estar la distribución {distro} (`wsl.exe -l -q`); instálala con `wsl --install -d {distro}` y vuelve a ejecutar el instalador");
+            bail!(
+                "tras el reinicio sigue sin estar la distribución {distro} (`wsl.exe -l -q`); instálala con `wsl --install -d {distro}` y vuelve a ejecutar el instalador"
+            );
         }
-        println!("Falta {}: se instala con permiso de administrador (UAC) y Windows pedirá reiniciar.", if estado == EstadoWsl::SinWsl { "WSL2" } else { "la distribución" });
+        println!(
+            "Falta {}: se instala con permiso de administrador (UAC) y Windows pedirá reiniciar.",
+            if estado == EstadoWsl::SinWsl { "WSL2" } else { "la distribución" }
+        );
         println!("Tras el reinicio, al iniciar sesión, el instalador sigue solo.\n");
         println!("ea instalar hará esto:");
         let mut pasos = instalacion::plan_parar_escritorio(&ctx);
         pasos.extend(wsl::plan_escritorio_windows(&ctx, &distro));
         pasos.extend(wsl::plan_instalar_wsl(&distro, &continuar));
-        if confirmar_y_aplicar(&pasos, &[])? {
+        if confirmar_y_aplicar(&pasos, &[], correr_interactiva)? {
             println!("\nReinicia Windows para terminar de instalar WSL. Al volver a entrar, se abrirá el instalador para seguir.");
         }
         return Ok(());
@@ -401,15 +392,15 @@ fn instalar_wsl(op: &Opciones) -> Result<()> {
     pasos.extend(wsl::plan_escritorio_windows(&ctx, &distro));
     pasos.extend(instalacion::menu::plan_menu(&ctx));
     let extra = [
-        format!("poner escritorio.wsl = {distro} (la app lee la clave del panel de WSL y mantiene viva la distribución)"),
-        "poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)".to_string(),
+        format!("- poner escritorio.wsl = {distro} (la app lee la clave del panel de WSL y mantiene viva la distribución)"),
+        "- poner escritorio.al_iniciar = true (la app arranca con la sesión, en la bandeja)".to_string(),
     ];
-    if !confirmar_y_aplicar(&pasos, &extra)? {
+    if !confirmar_y_aplicar(&pasos, &extra, correr_interactiva)? {
         return Ok(());
     }
-    fijar_ajustes(&[("escritorio.wsl", Value::String(distro.clone())), (ea_ajustes::CLAVE_AL_INICIAR, Value::Bool(true))])?;
+    fijar_ajustes(&[("escritorio.wsl", Value::String(distro.clone())), (ea_acciones::ajustes::CLAVE_AL_INICIAR, Value::Bool(true))])?;
     let escritorio = ctx.destinos.bin.join(nombre_binario(ctx.sistema, BINARIO_ESCRITORIO));
-    if let Err(e) = ea_ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
+    if let Err(e) = ea_acciones::ajustes::aplicar_al_iniciar(true, Some(&escritorio)) {
         eprintln!("aviso: {e}");
     }
     // Los agentes de la vía WSL están dentro: su resumen ya lo dio el
@@ -444,22 +435,12 @@ fn verificar(ctx: &Contexto, notas: Vec<String>, con_agentes: bool) -> Result<()
         }
     }
     if ctx.sistema != Sistema::Windows && matches!(ctx.origen, Origen::Paquete) {
-        println!("\n`ea` queda en {}; si aún no lo encuentra, abre una terminal nueva (si se añadió al perfil del shell, vuelve a iniciar sesión).", ctx.home.join(".local/bin/ea").display());
+        println!(
+            "\n`ea` queda en {}; si aún no lo encuentra, abre una terminal nueva (si se añadió al perfil del shell, vuelve a iniciar sesión).",
+            ctx.home.join(".local/bin/ea").display()
+        );
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod pruebas {
-    use super::*;
-
-    #[test]
-    fn la_via_se_lee_y_rechaza_lo_demas() {
-        assert_eq!(Via::desde("WSL").unwrap(), Via::Wsl);
-        assert_eq!(Via::desde("wsl2").unwrap(), Via::Wsl);
-        assert_eq!(Via::desde(" nativa ").unwrap(), Via::Nativa);
-        assert!(Via::desde("linux").is_err());
-    }
 }
 
 /// `ea desinstalar`.
@@ -479,10 +460,10 @@ pub fn desinstalar() -> Result<()> {
         return Ok(());
     }
     // Primero el autoarranque: después ya no estaría el binario.
-    if let Err(e) = fijar_ajustes(&[(ea_ajustes::CLAVE_AL_INICIAR, Value::Bool(false))]) {
+    if let Err(e) = fijar_ajustes(&[(ea_acciones::ajustes::CLAVE_AL_INICIAR, Value::Bool(false))]) {
         eprintln!("aviso: {e:#}");
     }
-    if let Err(e) = ea_ajustes::aplicar_al_iniciar(false, None) {
+    if let Err(e) = ea_acciones::ajustes::aplicar_al_iniciar(false, None) {
         eprintln!("aviso: {e}");
     }
     let hecho = aplicar(&pasos, &mut |argv| correr_orden(argv)).map_err(anyhow::Error::msg)?;
@@ -498,4 +479,17 @@ pub fn desinstalar() -> Result<()> {
         println!("\nWindows no deja borrar el `ea.exe` que está corriendo: bórralo a mano ({}).", ctx.destinos.bin.display());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+
+    #[test]
+    fn la_via_se_lee_y_rechaza_lo_demas() {
+        assert_eq!(Via::desde("WSL").unwrap(), Via::Wsl);
+        assert_eq!(Via::desde("wsl2").unwrap(), Via::Wsl);
+        assert_eq!(Via::desde(" nativa ").unwrap(), Via::Nativa);
+        assert!(Via::desde("linux").is_err());
+    }
 }

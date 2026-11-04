@@ -44,7 +44,9 @@ pub struct Event {
     pub detail: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+/// Un evento por escribir. Solo `actor` y `action` son obligatorios: lo demás
+/// va con `..Default::default()`.
+#[derive(Debug, Clone, Default)]
 pub struct NewEvent {
     pub actor: String,
     pub action: String,

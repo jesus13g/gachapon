@@ -6,6 +6,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+#[cfg(any(test, feature = "dobles"))]
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -67,8 +68,8 @@ impl Ordenes for OrdenesReales {
 
     fn ejecutar(&self, argv: &[String], cwd: Option<&Path>) -> Result<SalidaOrden, ErrorBiblioteca> {
         let (bin, args) = argv.split_first().ok_or_else(|| ErrorBiblioteca::Orden("orden vacía".into()))?;
-        let ruta: PathBuf = ea_ajustes::buscar_binario(bin, std::env::var_os("PATH").as_deref())
-            .ok_or_else(|| ErrorBiblioteca::BinarioNoDisponible(bin.clone()))?;
+        let ruta: PathBuf =
+            ea_ajustes::buscar_binario(bin, std::env::var_os("PATH").as_deref()).ok_or_else(|| ErrorBiblioteca::BinarioNoDisponible(bin.clone()))?;
         let mut cmd = Command::new(ruta);
         cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Some(c) = cwd {
@@ -99,6 +100,8 @@ impl Ordenes for OrdenesReales {
 }
 
 /// Un doble para pruebas: apunta cada argv y responde con la salida fijada.
+/// Solo en las pruebas (la *feature* `dobles`).
+#[cfg(any(test, feature = "dobles"))]
 #[derive(Debug)]
 pub struct OrdenesDoble {
     /// Binarios que «existen»; `None`: todos.
@@ -109,12 +112,14 @@ pub struct OrdenesDoble {
     pub llamadas: Mutex<Vec<(Vec<String>, Option<PathBuf>)>>,
 }
 
+#[cfg(any(test, feature = "dobles"))]
 impl Default for OrdenesDoble {
     fn default() -> Self {
         Self { binarios: None, respuesta: Mutex::new(SalidaOrden { codigo: Some(0), ..Default::default() }), llamadas: Mutex::new(Vec::new()) }
     }
 }
 
+#[cfg(any(test, feature = "dobles"))]
 impl OrdenesDoble {
     pub fn argvs(&self) -> Vec<Vec<String>> {
         self.llamadas.lock().unwrap().iter().map(|(a, _)| a.clone()).collect()
@@ -131,6 +136,7 @@ impl OrdenesDoble {
     }
 }
 
+#[cfg(any(test, feature = "dobles"))]
 impl Ordenes for OrdenesDoble {
     fn disponible(&self, bin: &str) -> bool {
         self.binarios.as_ref().is_none_or(|l| l.iter().any(|b| b == bin))

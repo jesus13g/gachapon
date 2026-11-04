@@ -26,11 +26,11 @@
 //! Las notas que escribe el ecosistema se validan de forma estricta; las que
 //! trae el usuario (sin cabecera o con otra) se leen con tolerancia.
 
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use crate::error::{ErrorBoveda, Resultado};
-use crate::ruta::{AUTORES, REGIONES, REGION_COMPARTIDA};
+use crate::ruta::{AUTORES, REGION_COMPARTIDA, REGIONES};
 
 pub const CONTRATO: u32 = 1;
 pub const PROMOCIONES: [&str; 2] = ["ninguna", "promovida"];
@@ -58,6 +58,9 @@ pub struct Cabecera {
 }
 
 /// Resultado de mirar el principio de un texto.
+// Se interpreta y se consume en el acto: no compensa meter la cabecera en una
+// caja.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Cabeceras {
     /// No empieza por un bloque `---`.
@@ -68,11 +71,7 @@ pub enum Cabeceras {
 }
 
 pub fn ahora() -> String {
-    OffsetDateTime::now_utc()
-        .replace_nanosecond(0)
-        .ok()
-        .and_then(|d| d.format(&Rfc3339).ok())
-        .unwrap_or_default()
+    OffsetDateTime::now_utc().replace_nanosecond(0).map(ea_store::rfc3339).unwrap_or_default()
 }
 
 fn fecha_valida(s: &str) -> bool {
@@ -85,24 +84,18 @@ fn id_simple(s: &str, max: usize) -> bool {
 
 /// Origen que se admite al escribir: `trabajo:<id>`, `rutina:<slug>` o `manual`.
 pub fn origen_valido(o: &str) -> bool {
-    o == "manual"
-        || o.strip_prefix("trabajo:").is_some_and(|id| id_simple(id, 64))
-        || o.strip_prefix("rutina:").is_some_and(|slug| id_simple(slug, 64))
+    o == "manual" || o.strip_prefix("trabajo:").is_some_and(|id| id_simple(id, 64)) || o.strip_prefix("rutina:").is_some_and(|slug| id_simple(slug, 64))
 }
 
 /// Origen que se tolera al leer: además, el `tarea:<n>` de notas antiguas.
 pub fn origen_legible(o: &str) -> bool {
-    origen_valido(o)
-        || o.strip_prefix("tarea:")
-            .is_some_and(|id| !id.is_empty() && id.len() <= 18 && id.bytes().all(|b| b.is_ascii_digit()))
+    origen_valido(o) || o.strip_prefix("tarea:").is_some_and(|id| !id.is_empty() && id.len() <= 18 && id.bytes().all(|b| b.is_ascii_digit()))
 }
 
 pub fn titulo_valido(t: &str) -> Resultado<()> {
     let n = t.chars().count();
     if t.trim().is_empty() || n > MAX_TITULO || t.chars().any(char::is_control) || t != t.trim() {
-        return Err(ErrorBoveda::Cabecera(format!(
-            "el título debe tener entre 1 y {MAX_TITULO} caracteres, en una línea y sin espacios en los extremos"
-        )));
+        return Err(ErrorBoveda::Cabecera(format!("el título debe tener entre 1 y {MAX_TITULO} caracteres, en una línea y sin espacios en los extremos")));
     }
     Ok(())
 }
@@ -112,13 +105,9 @@ pub fn tags_validos(tags: &[String]) -> Resultado<()> {
         return Err(ErrorBoveda::Cabecera(format!("como mucho {MAX_TAGS} etiquetas")));
     }
     for t in tags {
-        let ok = !t.is_empty()
-            && t.chars().count() <= MAX_TAG
-            && t.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '/');
+        let ok = !t.is_empty() && t.chars().count() <= MAX_TAG && t.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '/');
         if !ok {
-            return Err(ErrorBoveda::Cabecera(format!(
-                "etiqueta '{t}' no válida (letras, cifras, '-', '_' o '/'; hasta {MAX_TAG} caracteres)"
-            )));
+            return Err(ErrorBoveda::Cabecera(format!("etiqueta '{t}' no válida (letras, cifras, '-', '_' o '/'; hasta {MAX_TAG} caracteres)")));
         }
     }
     Ok(())
@@ -137,10 +126,7 @@ impl Cabecera {
         }
         // Partición por autor: en la región de un agente solo escribe ese agente.
         if self.region != REGION_COMPARTIDA && self.autor != self.region {
-            return mal(format!(
-                "la región '{}' es de su autor: la nota no puede firmarla '{}'",
-                self.region, self.autor
-            ));
+            return mal(format!("la región '{}' es de su autor: la nota no puede firmarla '{}'", self.region, self.autor));
         }
         for (campo, valor) in [("creada", &self.creada), ("actualizada", &self.actualizada)] {
             if !fecha_valida(valor) {
@@ -148,10 +134,7 @@ impl Cabecera {
             }
         }
         if !origen_legible(&self.origen) {
-            return mal(format!(
-                "origen '{}' no válido (trabajo:<id>, rutina:<slug> o manual)",
-                self.origen
-            ));
+            return mal(format!("origen '{}' no válido (trabajo:<id>, rutina:<slug> o manual)", self.origen));
         }
         if !PROMOCIONES.contains(&self.promocion.as_str()) {
             return mal(format!("promocion '{}' no válida ({})", self.promocion, PROMOCIONES.join(", ")));
@@ -161,8 +144,7 @@ impl Cabecera {
         }
         tags_validos(&self.tags)?;
         for (clave, valor) in &self.extras {
-            let ok = !clave.is_empty()
-                && clave.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+            let ok = !clave.is_empty() && clave.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
             if !ok || valor.contains('\n') {
                 return mal(format!("clave extra '{clave}' no válida"));
             }
@@ -243,10 +225,10 @@ fn separar(texto: &str) -> Option<(Vec<&str>, &str)> {
 
 fn desentrecomillar(v: &str) -> String {
     let v = v.trim();
-    if v.starts_with('"') {
-        if let Ok(s) = serde_json::from_str::<String>(v) {
-            return s;
-        }
+    if v.starts_with('"')
+        && let Ok(s) = serde_json::from_str::<String>(v)
+    {
+        return s;
     }
     if v.len() >= 2 && v.starts_with('\'') && v.ends_with('\'') {
         return v[1..v.len() - 1].replace("''", "'");
@@ -269,7 +251,9 @@ fn pares(lineas: &[&str]) -> Vec<(String, String)> {
             continue;
         }
         if let Some(item) = l.trim_start().strip_prefix("- ").or_else(|| l.trim_start().strip_prefix("-\t")) {
-            if (l.starts_with(' ') || l.starts_with('-')) && let Some((_, v)) = out.last_mut() {
+            if (l.starts_with(' ') || l.starts_with('-'))
+                && let Some((_, v)) = out.last_mut()
+            {
                 if !v.is_empty() && !v.starts_with('[') {
                     // valor escalar seguido de un guion: no es una lista
                     continue;
@@ -279,10 +263,10 @@ fn pares(lineas: &[&str]) -> Vec<(String, String)> {
             }
             continue;
         }
-        if let Some((k, v)) = l.split_once(':') {
-            if !l.starts_with(' ') {
-                out.push((k.trim().to_string(), v.trim().to_string()));
-            }
+        if let Some((k, v)) = l.split_once(':')
+            && !l.starts_with(' ')
+        {
+            out.push((k.trim().to_string(), v.trim().to_string()));
         }
     }
     out
@@ -304,8 +288,19 @@ pub fn interpretar(texto: &str) -> (Cabeceras, &str) {
             return Err(format!("contrato '{contrato}' no soportado (se esperaba {CONTRATO})"));
         }
         let conocidas = [
-            "contrato", "titulo", "autor", "region", "creada", "actualizada", "origen", "promocion",
-            "tags", "promovida_de", "promovida_a", "promovida_por", "promovida_en",
+            "contrato",
+            "titulo",
+            "autor",
+            "region",
+            "creada",
+            "actualizada",
+            "origen",
+            "promocion",
+            "tags",
+            "promovida_de",
+            "promovida_a",
+            "promovida_por",
+            "promovida_en",
         ];
         Ok(Cabecera {
             titulo: requerido("titulo")?,
@@ -331,9 +326,5 @@ pub fn interpretar(texto: &str) -> (Cabeceras, &str) {
 
 /// Primer encabezado `# …` del cuerpo, para titular una nota ajena.
 pub fn primer_encabezado(cuerpo: &str) -> Option<String> {
-    cuerpo
-        .lines()
-        .find_map(|l| l.strip_prefix("# "))
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())
+    cuerpo.lines().find_map(|l| l.strip_prefix("# ")).map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
 }

@@ -1,9 +1,9 @@
 //! Errores de la API: `{ "error": mensaje }` con el código que corresponde
 //! a cada error de dominio.
 
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde_json::json;
 
 use crate::servicio::ErrorWeb;

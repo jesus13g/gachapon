@@ -49,24 +49,26 @@
 //! con las rutas de ese directorio. Las sesiones se limpian a los 7 días de
 //! creadas (marca `.creada`).
 
+use ea_plataforma::fs::{crear_dir_nuevo_privado, crear_dir_privado, enlazar, huella, opciones_privadas, poner_permisos_unix, poner_privado};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
-use ea_plataforma::fs::{crear_dir_nuevo_privado, crear_dir_privado, enlazar, opciones_privadas, poner_permisos_unix, poner_privado};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use ea_plataforma::escritorio::{argv_lanzador, OrdenTerminal};
+use ea_ajustes::AgenteId;
+use ea_plataforma::escritorio::{OrdenTerminal, argv_lanzador};
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
+use crate::Inventario;
 use crate::agentes::comun::{leer_texto, quitar_comentarios};
 use crate::error::ErrorBiblioteca;
-use crate::modelo::{Ambito, DefMcp, Elemento, Id, Tipo, AGENTE_ECOSISTEMA};
+use crate::modelo::{AGENTE_ECOSISTEMA, Ambito, DefMcp, Elemento, Id, Tipo};
 use crate::raices::Raices;
-use crate::Inventario;
 
-/// Los agentes que admiten sesión en la v1 (Antigravity no).
-pub const AGENTES_CON_SESION: [&str; 4] = ["claude-code", "qwen-code", "codex", "opencode"];
+/// Los agentes que admiten sesión en la v1 (Antigravity no): los de ficha con
+/// `admite_sesion`, en el orden del catálogo.
+pub const AGENTES_CON_SESION: [&str; 4] = ea_ajustes::IDS_CON_SESION;
 
 /// Antigüedad (desde su creación) a partir de la cual se borra una sesión del
 /// runtime: con margen, porque una sesión de Claude o Codex puede durar días.
@@ -139,6 +141,10 @@ pub struct PlanSesion {
     /// El proyecto en que se abre la sesión.
     pub cwd: Option<PathBuf>,
     pub mcp: Vec<FuenteMcp>,
+    /// El HOME de las raíces con que se planeó (sin proyecto, la sesión es
+    /// del HOME). No entra en la huella ni en lo que se muestra.
+    #[serde(skip)]
+    pub home: PathBuf,
 }
 
 impl PlanSesion {
@@ -160,6 +166,13 @@ impl PlanSesion {
     /// Texto de una línea del comando, para mostrarlo.
     pub fn comando(&self) -> String {
         self.argv_terminal().join(" ")
+    }
+
+    /// La carpeta de la sesión: el proyecto o, si no hay, el HOME. Volver a
+    /// planear con ella como directorio da el mismo plan, lo planee quien lo
+    /// planee.
+    pub fn carpeta(&self) -> &Path {
+        self.cwd.as_deref().unwrap_or(&self.home)
     }
 }
 
@@ -217,9 +230,7 @@ fn texto_de<'a>(v: &'a Value, claves: &[&str]) -> Option<&'a str> {
 }
 
 fn mapa_de(v: Option<&Value>) -> BTreeMap<String, String> {
-    v.and_then(Value::as_object)
-        .map(|o| o.iter().filter_map(|(k, x)| Some((k.clone(), x.as_str()?.to_string()))).collect())
-        .unwrap_or_default()
+    v.and_then(Value::as_object).map(|o| o.iter().filter_map(|(k, x)| Some((k.clone(), x.as_str()?.to_string()))).collect()).unwrap_or_default()
 }
 
 /// La definición COMPLETA, a partir del JSON original de cualquier agente.
@@ -292,23 +303,30 @@ fn leer_completo(f: &FuenteMcp, r: &Raices, entorno: &dyn Fn(&str) -> Option<Str
     let json = |t: &str| -> Result<Value, ErrorBiblioteca> {
         serde_json::from_str(t).map_err(|e| ErrorBiblioteca::Sesion(format!("{}: no se interpreta ({e})", f.ruta.display())))
     };
-    let def: Value = match f.agente.as_str() {
-        "claude-code" if fichero == ".claude.json" => {
+    let def: Value = match AgenteId::desde(&f.agente) {
+        Some(AgenteId::ClaudeCode) if fichero == ".claude.json" => {
             let j = json(&texto)?;
             if f.ambito == "proyecto" {
                 let p = r.proyecto.as_ref().ok_or_else(no_esta)?;
-                j.get("projects").and_then(|x| crate::agentes::comun::proyecto_en(x, p)).and_then(|x| x.get("mcpServers")).and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
+                j.get("projects")
+                    .and_then(|x| crate::agentes::comun::proyecto_en(x, p))
+                    .and_then(|x| x.get("mcpServers"))
+                    .and_then(|x| x.get(&f.nombre))
+                    .cloned()
+                    .ok_or_else(no_esta)?
             } else {
                 j.get("mcpServers").and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
             }
         }
-        "claude-code" | "qwen-code" | "antigravity" => json(&texto)?.get("mcpServers").and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?,
-        "codex" => {
+        Some(AgenteId::ClaudeCode | AgenteId::QwenCode | AgenteId::Antigravity) => {
+            json(&texto)?.get("mcpServers").and_then(|x| x.get(&f.nombre)).cloned().ok_or_else(no_esta)?
+        }
+        Some(AgenteId::Codex) => {
             let t: toml::Table = texto.parse().map_err(|_| ErrorBiblioteca::Sesion(format!("{}: no es TOML válido", f.ruta.display())))?;
             let d = t.get("mcp_servers").and_then(|x| x.get(&f.nombre)).ok_or_else(no_esta)?;
             serde_json::to_value(d).map_err(|_| no_esta())?
         }
-        "opencode" => {
+        Some(AgenteId::OpenCode) => {
             let (limpio, _) = quitar_comentarios(&texto);
             let j = json(&limpio)?;
             let mcp = j.get("mcp").and_then(Value::as_object).ok_or_else(no_esta)?;
@@ -318,7 +336,7 @@ fn leer_completo(f: &FuenteMcp, r: &Raices, entorno: &dyn Fn(&str) -> Option<Str
             };
             contenedor.get(&f.nombre).cloned().ok_or_else(no_esta)?
         }
-        otro => return mal(format!("{}: agente de origen sin lector ({otro})", f.id)),
+        None => return mal(format!("{}: agente de origen sin lector ({})", f.id, f.agente)),
     };
     mcp_de_json(&def, &f.id, entorno)
 }
@@ -396,14 +414,16 @@ fn entrada_opencode(m: &Mcp, activo: bool) -> Value {
 }
 
 /// El JSON de MCP de un agente a partir de sus entradas `(nombre, mcp, activo)`.
+/// Codex los recibe por argumentos y Antigravity no tiene sesiones: el resto,
+/// con el formato de OpenCode.
 fn texto_mcp(agente: &str, entradas: &[(String, Mcp, bool)]) -> String {
-    let v = match agente {
-        "claude-code" | "qwen-code" => {
-            let f = if agente == "claude-code" { entrada_claude } else { entrada_qwen };
+    let v = match AgenteId::desde(agente) {
+        Some(a @ (AgenteId::ClaudeCode | AgenteId::QwenCode)) => {
+            let f = if a == AgenteId::ClaudeCode { entrada_claude } else { entrada_qwen };
             let m: Map<String, Value> = entradas.iter().filter(|e| e.2).map(|(n, m, _)| (n.clone(), f(m))).collect();
             json!({ "mcpServers": m })
         }
-        _ => {
+        Some(AgenteId::OpenCode | AgenteId::Codex | AgenteId::Antigravity) | None => {
             let m: Map<String, Value> = entradas.iter().map(|(n, m, a)| (n.clone(), entrada_opencode(m, *a))).collect();
             json!({ "mcp": m })
         }
@@ -413,25 +433,18 @@ fn texto_mcp(agente: &str, entradas: &[(String, Mcp, bool)]) -> String {
 
 // -------------------------------------------------------------- Plan
 
-/// FNV-1a de 64 bits: estable entre procesos y versiones de Rust.
-fn huella(texto: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in texto.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("{h:016x}")
-}
-
-fn admite(agente: &str, e: &Elemento) -> Result<(), ErrorBiblioteca> {
+/// Si el elemento tiene sentido en una sesión de `agente`, y si no, por qué.
+/// Es la regla del plan y la que usa el panel para no ofrecer lo que el plan
+/// va a rechazar.
+pub fn admite(agente: &str, e: &Elemento) -> Result<(), ErrorBiblioteca> {
     let propio = e.agente == agente || e.agente == AGENTE_ECOSISTEMA;
     if !propio && e.tipo != Tipo::Mcp {
         return mal(format!("{}: es de {} y no tiene sentido en una sesión de {agente}", e.id, e.agente));
     }
-    let tipos: &[Tipo] = match agente {
-        "claude-code" => &[Tipo::Mcp, Tipo::Plugin, Tipo::Skill, Tipo::Subagente, Tipo::Comando],
-        "qwen-code" => &[Tipo::Mcp, Tipo::Extension],
-        _ => &[Tipo::Mcp],
+    let tipos: &[Tipo] = match AgenteId::desde(agente) {
+        Some(AgenteId::ClaudeCode) => &[Tipo::Mcp, Tipo::Plugin, Tipo::Skill, Tipo::Subagente, Tipo::Comando],
+        Some(AgenteId::QwenCode) => &[Tipo::Mcp, Tipo::Extension],
+        Some(AgenteId::Codex | AgenteId::OpenCode | AgenteId::Antigravity) | None => &[Tipo::Mcp],
     };
     if !tipos.contains(&e.tipo) {
         return mal(format!("{}: una sesión de {agente} no admite elementos de tipo {}", e.id, e.tipo));
@@ -479,12 +492,12 @@ fn clave_codex(n: &str) -> String {
 /// Rechaza lo que no esté en el inventario, lo que no tenga sentido para ese
 /// agente y a Antigravity.
 pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) -> Result<PlanSesion, ErrorBiblioteca> {
-    if agente == "antigravity" {
-        return mal("Antigravity no admite sesiones en la v1");
-    }
-    if !AGENTES_CON_SESION.contains(&agente) {
-        return mal(format!("«{agente}» no es un agente con sesiones ({})", AGENTES_CON_SESION.join(", ")));
-    }
+    let id_agente = match AgenteId::desde(agente) {
+        Some(a) if a.ficha().admite_sesion => a,
+        Some(AgenteId::Antigravity) => return mal("Antigravity no admite sesiones en la v1"),
+        _ => return mal(format!("«{agente}» no es un agente con sesiones ({})", AGENTES_CON_SESION.join(", "))),
+    };
+    let bin = id_agente.ficha().bin_por_defecto;
     let ids: BTreeSet<String> = ids.iter().map(Id::to_string).collect();
     if ids.is_empty() {
         return mal("hay que elegir al menos una herramienta");
@@ -509,15 +522,11 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
     let cwd = raices.proyecto.clone();
     let id = format!(
         "s{}",
-        &huella(&format!("{agente}\0{}\0{}", herramientas.join("\0"), cwd.as_ref().map(|c| c.display().to_string()).unwrap_or_default()))[..12]
+        &huella(format!("{agente}\0{}\0{}", herramientas.join("\0"), cwd.as_ref().map(|c| c.display().to_string()).unwrap_or_default()).as_bytes())[..12]
     );
     let directorio = runtime.join("ea-biblioteca").join("sesiones").join(&id);
-    let fichero = |nombre: &str, contenido: String, con_secretos: bool| FicheroEfimero {
-        ruta: directorio.join(nombre),
-        contenido,
-        modo: MODO_FICHERO,
-        con_secretos,
-    };
+    let fichero =
+        |nombre: &str, contenido: String, con_secretos: bool| FicheroEfimero { ruta: directorio.join(nombre), contenido, modo: MODO_FICHERO, con_secretos };
     let mut plan = PlanSesion {
         id,
         agente: agente.to_string(),
@@ -529,12 +538,13 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
         directorio: directorio.clone(),
         cwd,
         mcp: Vec::new(),
+        home: raices.home.clone(),
     };
     let mcps: Vec<&Elemento> = elegidos.iter().copied().filter(|e| e.tipo == Tipo::Mcp).collect();
     sin_repetidos(mcps.iter().map(|e| e.nombre.as_str()), "servidores MCP")?;
 
-    match agente {
-        "claude-code" => {
+    match id_agente {
+        AgenteId::ClaudeCode => {
             let mut entradas = Vec::new();
             for e in &mcps {
                 entradas.push((e.nombre.clone(), mcp_redactado(e)?, true));
@@ -568,7 +578,7 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
             }
             plan.ficheros.push(fichero("mcp.json", texto_mcp(agente, &entradas), true));
             plan.ficheros.push(fichero("ajustes.json", ajustes, false));
-            plan.argv = ["claude", "--strict-mcp-config", "--mcp-config"].map(String::from).to_vec();
+            plan.argv = [bin, "--strict-mcp-config", "--mcp-config"].map(String::from).to_vec();
             plan.argv.push(directorio.join("mcp.json").display().to_string());
             plan.argv.push("--settings".into());
             plan.argv.push(directorio.join("ajustes.json").display().to_string());
@@ -587,7 +597,7 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
                 plan.argv.push(complemento.display().to_string());
             }
         }
-        "qwen-code" => {
+        AgenteId::QwenCode => {
             let mut entradas = Vec::new();
             for e in &mcps {
                 if e.agente != agente {
@@ -595,7 +605,7 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
                     plan.mcp.push(fuente(e, true));
                 }
             }
-            plan.argv.push("qwen".into());
+            plan.argv.push(bin.into());
             if !entradas.is_empty() {
                 plan.ficheros.push(fichero("mcp.json", texto_mcp(agente, &entradas), true));
                 plan.argv.push("--mcp-config".into());
@@ -615,8 +625,8 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
                 plan.argv.extend(exts);
             }
         }
-        "codex" => {
-            plan.argv.push("codex".into());
+        AgenteId::Codex => {
+            plan.argv.push(bin.into());
             let elegidos_ids: BTreeSet<&str> = mcps.iter().map(|e| e.id.as_str()).collect();
             let c = |plan: &mut PlanSesion, v: String| {
                 plan.argv.push("-c".into());
@@ -670,8 +680,8 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
                 c(&mut plan, format!("mcp_servers.{k}.enabled=true"));
             }
         }
-        _ => {
-            // OpenCode: con --standalone, OPENCODE_CONFIG se fusiona con la config del usuario.
+        AgenteId::OpenCode => {
+            // Con --standalone, OPENCODE_CONFIG se fusiona con la config del usuario.
             let elegidos_nombres: BTreeSet<&str> = mcps.iter().map(|e| e.nombre.as_str()).collect();
             let mut entradas = Vec::new();
             for e in &mcps {
@@ -687,9 +697,10 @@ pub fn plan_sesion(agente: &str, ids: &[Id], inv: &Inventario, raices: &Raices) 
                 }
             }
             plan.ficheros.push(fichero("opencode.json", texto_mcp(agente, &entradas), true));
-            plan.argv = vec!["opencode".into(), "--standalone".into()];
+            plan.argv = vec![bin.into(), "--standalone".into()];
             plan.entorno.push(("OPENCODE_CONFIG".into(), directorio.join("opencode.json").display().to_string()));
         }
+        AgenteId::Antigravity => unreachable!("sin sesiones: se rechaza al principio"),
     }
     Ok(plan)
 }
@@ -738,7 +749,7 @@ fn nonce() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    huella(&format!("{nanos}\0{}\0{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)))[..10].to_string()
+    huella(format!("{nanos}\0{}\0{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)).as_bytes())[..10].to_string()
 }
 
 /// El mismo plan con las rutas bajo otro directorio.

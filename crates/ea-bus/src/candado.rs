@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::bus::{raiz_estado, ahora_rfc3339};
+use crate::bus::raiz_estado;
 use crate::error::{ErrorBus, Resultado};
-use crate::fs_atomico::fnv;
+use crate::fs_atomico::escribir_atomico;
 use crate::tipos::Rol;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,17 +45,11 @@ fn dir_semaforos(raiz: &Path) -> PathBuf {
 /// Ruta del `.lock` de un worktree: hash corto de su ruta canónica.
 pub fn ruta_lock(raiz: &Path, worktree: &Path) -> PathBuf {
     let canonica = ea_plataforma::rutas::canonica(worktree).unwrap_or_else(|_| worktree.to_path_buf());
-    let h = fnv(&canonica.to_string_lossy()) & 0xffff_ffff;
+    let h = ea_plataforma::fs::fnv64(canonica.to_string_lossy().as_bytes()) & 0xffff_ffff;
     dir_semaforos(raiz).join(format!("worktree-{h:08x}.lock"))
 }
 
 impl CandadoWorktree {
-    /// Con la raíz de estado estándar y sin identificar al ocupante.
-    pub fn adquirir(ruta_worktree: &Path, espera: Duration) -> Resultado<Self> {
-        let o = Ocupante { agente: "desconocido".into(), trabajo: String::new(), pid: std::process::id(), desde: ahora_rfc3339(), rol: None };
-        Self::adquirir_en(&raiz_estado(), ruta_worktree, o, espera)
-    }
-
     pub fn adquirir_en(raiz: &Path, ruta_worktree: &Path, mut ocupante: Ocupante, espera: Duration) -> Resultado<Self> {
         let ruta = ruta_lock(raiz, ruta_worktree);
         fs::create_dir_all(ruta.parent().unwrap())?;
@@ -81,17 +75,12 @@ impl CandadoWorktree {
         // Ya tenemos el lock: el ocupante que hubiera es el residuo de un
         // proceso muerto y un lector no debe verlo en la ventana de abajo.
         let _ = fs::remove_file(&lado);
-        std::fs::write(&lado, serde_json::to_vec(&ocupante)?)?;
+        escribir_atomico(&lado, &serde_json::to_vec(&ocupante)?)?;
         Ok(Self { fichero: f, ruta_lock: ruta })
     }
 
     pub fn ruta(&self) -> &Path {
         &self.ruta_lock
-    }
-
-    /// Quién tiene el worktree en la raíz estándar (solo lectura).
-    pub fn ocupante(ruta_worktree: &Path) -> Option<Ocupante> {
-        Self::ocupante_en(&raiz_estado(), ruta_worktree)
     }
 
     pub fn ocupante_en(raiz: &Path, ruta_worktree: &Path) -> Option<Ocupante> {

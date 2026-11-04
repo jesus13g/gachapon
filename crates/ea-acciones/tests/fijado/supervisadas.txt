@@ -1,0 +1,574 @@
+== ea_encolar_rutina
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: slug obligatorio=true entero=false largo=false opciones=[] ayuda="rutina"
+argumentos: {"slug":"con-entradas","entradas":{"salida":"otro.md"}}
+validar: ok
+error: {"slug":"../x"}
+  validar: error Argumentos("slug de rutina inválido: '../x'")
+  simular: error Argumentos("slug de rutina inválido: '../x'")
+error: {"slug":"nocturna","extra":1}
+  validar: error Argumentos("unknown field `extra`, expected `slug` or `entradas`")
+  simular: error Argumentos("unknown field `extra`, expected `slug` or `entradas`")
+error: {"slug":"no-registrada"}
+  validar: ok
+  simular: error NoAplica("la rutina 'no-registrada' no tiene fichero en rutinas_dir (se borró o se perdió); registra una versión nueva para volver a usarla")
+error: {"slug":"con-entradas","entradas":{"noexiste":"1"}}
+  validar: ok
+  simular: error Argumentos("la rutina no declara la entrada \"noexiste\"")
+error: {"slug":"con-entradas","entradas":{"salida":"a\nb"}}
+  validar: error Argumentos("la entrada \"salida\" lleva caracteres de control (saltos de línea, tabuladores…), que no se admiten")
+  simular: error Argumentos("la entrada \"salida\" lleva caracteres de control (saltos de línea, tabuladores…), que no se admiten")
+error: {"slug":"vieja"}
+  validar: ok
+  simular: error NoAplica("la rutina 'vieja' está retirada (su TOML está en la papelera de rutinas_dir); restáurala para lanzarla")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_encolar_rutina riesgo=reversible
+  argumentos: {"slug":"con-entradas","entradas":{"salida":"otro.md"}}
+  precondición: {"trabajos_activos":0,"version":1}
+  texto: Lanzaría la rutina 'con-entradas' (versión 1) con las entradas salida = "otro.md" por el bus del orquestador: crea un trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla y tú lo confirmas. Criterio que ejecutará el sistema: `test -f otro.md`.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Rutina 'con-entradas' lanzada: trabajo <TRABAJO> en la cola del agente local.
+resultado: trabajo=Some("<TRABAJO>") evento=Some(4)
+  datos: {"trabajo":"<TRABAJO>","rutina":"con-entradas"}
+  texto: Rutina 'con-entradas' lanzada: trabajo <TRABAJO> en la cola del agente local.
+mutaciones: []
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_encolar_rutina","riesgo":"reversible","argumentos":{"slug":"con-entradas","entradas":{"salida":"otro.md"}},"simulacion":"Lanzaría la rutina 'con-entradas' (versión 1) con las entradas salida = \"otro.md\" por el bus del orquestador: crea un trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla y tú lo confirmas. Criterio que ejecutará el sistema: `test -f otro.md`."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_encolar_rutina","riesgo":"reversible"}
+  usuario bus_crear trabajo=Some("<TRABAJO>") Some(Ok) {"modo":"rutina","titulo":"Rutina con-entradas","trabajo":"<TRABAJO>"}
+  usuario accion_ejecutada trabajo=Some("<TRABAJO>") Some(Ok) {"herramienta":"ea_encolar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"con-entradas","entradas":{"salida":"otro.md"}},"propuesta":1,"proponente":"claude-code","resultado":{"trabajo":"<TRABAJO>","rutina":"con-entradas"},"texto":"Rutina 'con-entradas' lanzada: trabajo <TRABAJO> en la cola del agente local."}
+
+directa (web): trabajo=Some("<TRABAJO>") evento=Some(2)
+  datos: {"trabajo":"<TRABAJO>","rutina":"con-entradas"}
+  texto: Rutina 'con-entradas' lanzada: trabajo <TRABAJO> en la cola del agente local.
+mutaciones: []
+diario:
+  usuario bus_crear trabajo=Some("<TRABAJO>") Some(Ok) {"modo":"rutina","titulo":"Rutina con-entradas","trabajo":"<TRABAJO>"}
+  usuario accion_ejecutada trabajo=Some("<TRABAJO>") Some(Ok) {"herramienta":"ea_encolar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"con-entradas","entradas":{"salida":"otro.md"}},"propuesta":null,"proponente":null,"resultado":{"trabajo":"<TRABAJO>","rutina":"con-entradas"},"texto":"Rutina 'con-entradas' lanzada: trabajo <TRABAJO> en la cola del agente local."}
+
+
+== ea_registrar_rutina
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: toml obligatorio=true entero=false largo=true opciones=[] ayuda="definición TOML de la rutina ([rutina], [entradas], [[pasos]])"
+argumentos: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"}
+validar: ok
+error: {"toml":"[rutina]\nslug = \"x\"\n"}
+  validar: error Argumentos("rutina inválida: TOML parse error at line 1, column 1\n  |\n1 | [rutina]\n  | ^^^^^^^^\nmissing field `version`\n")
+  simular: error Argumentos("rutina inválida: TOML parse error at line 1, column 1\n  |\n1 | [rutina]\n  | ^^^^^^^^\nmissing field `version`\n")
+error: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 1\nworktree = \"<REPO>\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"}
+  validar: ok
+  simular: error NoAplica("la rutina nocturna ya está en la versión 1; la nueva debe ser mayor (es la 1)")
+error: {"toml":1}
+  validar: error Argumentos("invalid type: integer `1`, expected a string")
+  simular: error Argumentos("invalid type: integer `1`, expected a string")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_registrar_rutina riesgo=reversible
+  argumentos: {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"}
+  precondición: {"slug":"nocturna","version_registrada":1}
+  texto: Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <REPO>. Criterio que ejecutará el sistema (entradas por defecto): `test -d .`.
+
+Cambios frente a la versión 1:
+ [rutina]
+ slug = "nocturna"
+-version = 1
++version = 2
+ worktree = "<REPO>"
+-criterio_exito = "true"
++criterio_exito = "test -d ."
+ [[pasos]]
+ texto = "x"
+
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Rutina 'nocturna' registrada en la versión 2.
+resultado: trabajo=None evento=Some(3)
+  datos: {"rutina":"nocturna","version":2}
+  texto: Rutina 'nocturna' registrada en la versión 2.
+mutaciones: ["registrar_rutina:nocturna@2"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_registrar_rutina","riesgo":"reversible","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"simulacion":"Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <REPO>. Criterio que ejecutará el sistema (entradas por defecto): `test -d .`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"<REPO>\"\n-criterio_exito = \"true\"\n+criterio_exito = \"test -d .\"\n [[pasos]]\n texto = \"x\"\n"}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_registrar_rutina","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_registrar_rutina","riesgo":"reversible","canal":"web","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"propuesta":1,"proponente":"claude-code","resultado":{"rutina":"nocturna","version":2},"texto":"Rutina 'nocturna' registrada en la versión 2."}
+
+directa (web): trabajo=None evento=Some(1)
+  datos: {"rutina":"nocturna","version":2}
+  texto: Rutina 'nocturna' registrada en la versión 2.
+mutaciones: ["registrar_rutina:nocturna@2"]
+diario:
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_registrar_rutina","riesgo":"reversible","canal":"web","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<REPO>\"\ncriterio_exito = \"test -d .\"\n[[pasos]]\ntexto = \"x\"\n"},"propuesta":null,"proponente":null,"resultado":{"rutina":"nocturna","version":2},"texto":"Rutina 'nocturna' registrada en la versión 2."}
+
+
+== ea_reiniciar_servicio
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: servicio obligatorio=true entero=false largo=false opciones=["llama-server", "ea-mcp", "ea-orchestrator", "ea-web"] ayuda="servicio"
+argumentos: {"servicio":"ea-mcp"}
+validar: ok
+error: {"servicio":"sshd"}
+  validar: error Argumentos("servicio 'sshd' fuera de la lista cerrada (llama-server, ea-mcp, ea-orchestrator, ea-web)")
+  simular: error Argumentos("servicio 'sshd' fuera de la lista cerrada (llama-server, ea-mcp, ea-orchestrator, ea-web)")
+error: {"servicio":"ea-web"}
+  validar: ok
+  simular: error NoAplica("la unidad ea-web.service no está instalada en systemd --user")
+error: {}
+  validar: error Argumentos("missing field `servicio`")
+  simular: error Argumentos("missing field `servicio`")
+hechos: Hechos { servicio: Some(EstadoServicio { cargado: true, activo: "active" }), timer: None, calendario: None }
+simulación: herramienta=ea_reiniciar_servicio riesgo=reversible
+  argumentos: {"servicio":"ea-mcp"}
+  precondición: {"cargado":true}
+  texto: Reiniciaría ea-mcp.service (ahora: active). Las conexiones y trabajos en curso de ese servicio se interrumpirían unos segundos.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: ea-mcp.service reiniciado (ahora: active).
+resultado: trabajo=None evento=Some(3)
+  datos: {"servicio":"ea-mcp","activo":"active"}
+  texto: ea-mcp.service reiniciado (ahora: active).
+mutaciones: ["reiniciar:ea-mcp"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_reiniciar_servicio","riesgo":"reversible","argumentos":{"servicio":"ea-mcp"},"simulacion":"Reiniciaría ea-mcp.service (ahora: active). Las conexiones y trabajos en curso de ese servicio se interrumpirían unos segundos."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_reiniciar_servicio","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_reiniciar_servicio","riesgo":"reversible","canal":"web","argumentos":{"servicio":"ea-mcp"},"propuesta":1,"proponente":"claude-code","resultado":{"servicio":"ea-mcp","activo":"active"},"texto":"ea-mcp.service reiniciado (ahora: active)."}
+
+directa (web): trabajo=None evento=Some(1)
+  datos: {"servicio":"ea-mcp","activo":"active"}
+  texto: ea-mcp.service reiniciado (ahora: active).
+mutaciones: ["reiniciar:ea-mcp"]
+diario:
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_reiniciar_servicio","riesgo":"reversible","canal":"web","argumentos":{"servicio":"ea-mcp"},"propuesta":null,"proponente":null,"resultado":{"servicio":"ea-mcp","activo":"active"},"texto":"ea-mcp.service reiniciado (ahora: active)."}
+
+
+== ea_programar_rutina
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: slug obligatorio=true entero=false largo=false opciones=[] ayuda="rutina"
+campo: calendario obligatorio=true entero=false largo=false opciones=[] ayuda="OnCalendar de systemd (p. ej. *-*-* 08:00:00 o Mon *-*-* 09:00)"
+argumentos: {"slug":"nocturna","calendario":" *-*-* 08:00:00 "}
+validar: ok
+error: {"slug":"nocturna","calendario":"a%b"}
+  validar: error Argumentos("el calendario no admite «%» (especificadores y escapes de systemd)")
+  simular: error Argumentos("el calendario no admite «%» (especificadores y escapes de systemd)")
+error: {"slug":"nocturna","calendario":"cuando quieras"}
+  validar: ok
+  simular: error Argumentos("calendario no válido: Failed to parse calendar specification 'cuando quieras': Invalid argument")
+error: {"slug":"nocturna","calendario":"daily"}
+  validar: ok
+  simular: error NoAplica("la rutina 'nocturna' ya está programada con OnCalendar=daily")
+error: {"slug":"vieja","calendario":"daily"}
+  validar: ok
+  simular: error NoAplica("la rutina 'vieja' está retirada (su TOML está en la papelera de rutinas_dir); restáurala para lanzarla")
+error: {"slug":"no-registrada","calendario":"daily"}
+  validar: ok
+  simular: error NoAplica("la rutina 'no-registrada' no tiene fichero en rutinas_dir (se borró o se perdió); registra una versión nueva para volver a usarla")
+hechos: Hechos { servicio: None, timer: Some(EstadoTimer { fichero: true, calendario: Some("daily"), activo: Some("active") }), calendario: Some(Ok(Calendario { normalizado: "*-*-* 08:00:00", proximas: ["ejecución 1 de «*-*-* 08:00:00»", "ejecución 2 de «*-*-* 08:00:00»", "ejecución 3 de «*-*-* 08:00:00»"] })) }
+simulación: herramienta=ea_programar_rutina riesgo=reversible
+  argumentos: {"slug":"nocturna","calendario":"*-*-* 08:00:00"}
+  precondición: {"calendario_actual":"daily","fichero":true}
+  texto: Programaría la rutina 'nocturna' (versión 1) con OnCalendar=*-*-* 08:00:00 (para systemd: *-*-* 08:00:00); próximas ejecuciones: ejecución 1 de «*-*-* 08:00:00»; ejecución 2 de «*-*-* 08:00:00»; ejecución 3 de «*-*-* 08:00:00». Escribe ea-rutina@nocturna.timer en el directorio de unidades de systemd --user, hace daemon-reload y lo activa (enable y restart). A cada hora, ea-rutina@nocturna.service solo crea el trabajo (`ea rutina lanzar nocturna`), con la última versión registrada; además se dispara una vez 10 min después de arrancar la sesión, como la plantilla. Ahora está programada con OnCalendar=daily (active); se sustituye.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Rutina 'nocturna' programada con OnCalendar=*-*-* 08:00:00 (active).
+resultado: trabajo=None evento=Some(3)
+  datos: {"rutina":"nocturna","calendario":"*-*-* 08:00:00","activo":"active"}
+  texto: Rutina 'nocturna' programada con OnCalendar=*-*-* 08:00:00 (active).
+mutaciones: ["programar:nocturna=*-*-* 08:00:00"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_programar_rutina","riesgo":"reversible","argumentos":{"slug":"nocturna","calendario":"*-*-* 08:00:00"},"simulacion":"Programaría la rutina 'nocturna' (versión 1) con OnCalendar=*-*-* 08:00:00 (para systemd: *-*-* 08:00:00); próximas ejecuciones: ejecución 1 de «*-*-* 08:00:00»; ejecución 2 de «*-*-* 08:00:00»; ejecución 3 de «*-*-* 08:00:00». Escribe ea-rutina@nocturna.timer en el directorio de unidades de systemd --user, hace daemon-reload y lo activa (enable y restart). A cada hora, ea-rutina@nocturna.service solo crea el trabajo (`ea rutina lanzar nocturna`), con la última versión registrada; además se dispara una vez 10 min después de arrancar la sesión, como la plantilla. Ahora está programada con OnCalendar=daily (active); se sustituye."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_programar_rutina","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_programar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"nocturna","calendario":"*-*-* 08:00:00"},"propuesta":1,"proponente":"claude-code","resultado":{"rutina":"nocturna","calendario":"*-*-* 08:00:00","activo":"active"},"texto":"Rutina 'nocturna' programada con OnCalendar=*-*-* 08:00:00 (active)."}
+
+directa (web): trabajo=None evento=Some(1)
+  datos: {"rutina":"nocturna","calendario":"*-*-* 08:00:00","activo":"active"}
+  texto: Rutina 'nocturna' programada con OnCalendar=*-*-* 08:00:00 (active).
+mutaciones: ["programar:nocturna=*-*-* 08:00:00"]
+diario:
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_programar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"nocturna","calendario":"*-*-* 08:00:00"},"propuesta":null,"proponente":null,"resultado":{"rutina":"nocturna","calendario":"*-*-* 08:00:00","activo":"active"},"texto":"Rutina 'nocturna' programada con OnCalendar=*-*-* 08:00:00 (active)."}
+
+
+== ea_desprogramar_rutina
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: slug obligatorio=true entero=false largo=false opciones=[] ayuda="rutina"
+argumentos: {"slug":"nocturna"}
+validar: ok
+error: {"slug":"con-entradas"}
+  validar: ok
+  simular: error NoAplica("la rutina 'con-entradas' no tiene timer programado")
+error: {"slug":"a b"}
+  validar: error Argumentos("slug de rutina inválido: 'a b'")
+  simular: error Argumentos("slug de rutina inválido: 'a b'")
+hechos: Hechos { servicio: None, timer: Some(EstadoTimer { fichero: true, calendario: Some("daily"), activo: Some("active") }), calendario: None }
+simulación: herramienta=ea_desprogramar_rutina riesgo=reversible
+  argumentos: {"slug":"nocturna"}
+  precondición: {"calendario_actual":"daily","fichero":true}
+  texto: Desprogramaría la rutina 'nocturna' (OnCalendar=daily): `systemctl --user disable --now ea-rutina@nocturna.timer`, borra el fichero del timer y daemon-reload. La rutina sigue registrada y se puede lanzar a mano o volver a programar.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Timer de la rutina 'nocturna' desactivado y borrado.
+resultado: trabajo=None evento=Some(3)
+  datos: {"rutina":"nocturna","desprogramada":true}
+  texto: Timer de la rutina 'nocturna' desactivado y borrado.
+mutaciones: ["desprogramar:nocturna"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_desprogramar_rutina","riesgo":"reversible","argumentos":{"slug":"nocturna"},"simulacion":"Desprogramaría la rutina 'nocturna' (OnCalendar=daily): `systemctl --user disable --now ea-rutina@nocturna.timer`, borra el fichero del timer y daemon-reload. La rutina sigue registrada y se puede lanzar a mano o volver a programar."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_desprogramar_rutina","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_desprogramar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"nocturna"},"propuesta":1,"proponente":"claude-code","resultado":{"rutina":"nocturna","desprogramada":true},"texto":"Timer de la rutina 'nocturna' desactivado y borrado."}
+
+directa (web): trabajo=None evento=Some(1)
+  datos: {"rutina":"nocturna","desprogramada":true}
+  texto: Timer de la rutina 'nocturna' desactivado y borrado.
+mutaciones: ["desprogramar:nocturna"]
+diario:
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_desprogramar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"nocturna"},"propuesta":null,"proponente":null,"resultado":{"rutina":"nocturna","desprogramada":true},"texto":"Timer de la rutina 'nocturna' desactivado y borrado."}
+
+
+== ea_retirar_rutina
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: slug obligatorio=true entero=false largo=false opciones=[] ayuda="rutina"
+argumentos: {"slug":"nocturna"}
+validar: ok
+error: {"slug":"vieja"}
+  validar: ok
+  simular: error NoAplica("la rutina 'vieja' ya está retirada")
+error: {"slug":"inexistente"}
+  validar: ok
+  simular: error NoAplica("la rutina 'inexistente' no tiene fichero en rutinas_dir")
+hechos: Hechos { servicio: None, timer: Some(EstadoTimer { fichero: true, calendario: Some("daily"), activo: Some("active") }), calendario: None }
+simulación: herramienta=ea_retirar_rutina riesgo=reversible
+  argumentos: {"slug":"nocturna"}
+  precondición: {"huella":"7e085ffcc9bedd3d","calendario_actual":"daily","fichero":true}
+  texto: Retiraría la rutina 'nocturna' (versión 1 registrada): mueve rutinas_dir/nocturna.toml (103 bytes) a la papelera (rutinas_dir/.papelera/nocturna.toml). Deja de listarse y de poder lanzarse (CLI, web, ea_encolar_rutina y el timer). Antes desprograma su timer (OnCalendar=daily): `systemctl --user disable --now ea-rutina@nocturna.timer`, borra el fichero del timer y daemon-reload. Sus versiones siguen en SQLite. Se deshace con ea_restaurar_rutina, que no vuelve a programar el timer.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Rutina 'nocturna' retirada (su TOML está en la papelera) y su timer desprogramado.
+resultado: trabajo=None evento=Some(3)
+  datos: {"rutina":"nocturna","desprogramada":true}
+  texto: Rutina 'nocturna' retirada (su TOML está en la papelera) y su timer desprogramado.
+mutaciones: ["desprogramar:nocturna", "retirar:nocturna"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_retirar_rutina","riesgo":"reversible","argumentos":{"slug":"nocturna"},"simulacion":"Retiraría la rutina 'nocturna' (versión 1 registrada): mueve rutinas_dir/nocturna.toml (103 bytes) a la papelera (rutinas_dir/.papelera/nocturna.toml). Deja de listarse y de poder lanzarse (CLI, web, ea_encolar_rutina y el timer). Antes desprograma su timer (OnCalendar=daily): `systemctl --user disable --now ea-rutina@nocturna.timer`, borra el fichero del timer y daemon-reload. Sus versiones siguen en SQLite. Se deshace con ea_restaurar_rutina, que no vuelve a programar el timer."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_retirar_rutina","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_retirar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"nocturna"},"propuesta":1,"proponente":"claude-code","resultado":{"rutina":"nocturna","desprogramada":true},"texto":"Rutina 'nocturna' retirada (su TOML está en la papelera) y su timer desprogramado."}
+
+directa (web): trabajo=None evento=Some(1)
+  datos: {"rutina":"nocturna","desprogramada":true}
+  texto: Rutina 'nocturna' retirada (su TOML está en la papelera) y su timer desprogramado.
+mutaciones: ["desprogramar:nocturna", "retirar:nocturna"]
+diario:
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_retirar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"nocturna"},"propuesta":null,"proponente":null,"resultado":{"rutina":"nocturna","desprogramada":true},"texto":"Rutina 'nocturna' retirada (su TOML está en la papelera) y su timer desprogramado."}
+
+
+== ea_restaurar_rutina
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: slug obligatorio=true entero=false largo=false opciones=[] ayuda="rutina"
+argumentos: {"slug":"vieja"}
+validar: ok
+error: {"slug":"nocturna"}
+  validar: ok
+  simular: error NoAplica("la rutina 'nocturna' no está retirada")
+error: {"slug":"inexistente"}
+  validar: ok
+  simular: error NoAplica("la rutina 'inexistente' no está en la papelera")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_restaurar_rutina riesgo=reversible
+  argumentos: {"slug":"vieja"}
+  precondición: {"huella":"ae36889cb886cbde"}
+  texto: Restauraría la rutina 'vieja': devuelve rutinas_dir/.papelera/vieja.toml (27 bytes) a rutinas_dir/vieja.toml; vuelve a listarse y a poder lanzarse con la última versión registrada (1). No vuelve a programar su timer: si lo quieres, prográmalo después (ea_programar_rutina).
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Rutina 'vieja' restaurada (sin timer: prográmala si lo quieres).
+resultado: trabajo=None evento=Some(3)
+  datos: {"rutina":"vieja"}
+  texto: Rutina 'vieja' restaurada (sin timer: prográmala si lo quieres).
+mutaciones: ["restaurar:vieja"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_restaurar_rutina","riesgo":"reversible","argumentos":{"slug":"vieja"},"simulacion":"Restauraría la rutina 'vieja': devuelve rutinas_dir/.papelera/vieja.toml (27 bytes) a rutinas_dir/vieja.toml; vuelve a listarse y a poder lanzarse con la última versión registrada (1). No vuelve a programar su timer: si lo quieres, prográmalo después (ea_programar_rutina)."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_restaurar_rutina","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_restaurar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"vieja"},"propuesta":1,"proponente":"claude-code","resultado":{"rutina":"vieja"},"texto":"Rutina 'vieja' restaurada (sin timer: prográmala si lo quieres)."}
+
+directa (web): trabajo=None evento=Some(1)
+  datos: {"rutina":"vieja"}
+  texto: Rutina 'vieja' restaurada (sin timer: prográmala si lo quieres).
+mutaciones: ["restaurar:vieja"]
+diario:
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_restaurar_rutina","riesgo":"reversible","canal":"web","argumentos":{"slug":"vieja"},"propuesta":null,"proponente":null,"resultado":{"rutina":"vieja"},"texto":"Rutina 'vieja' restaurada (sin timer: prográmala si lo quieres)."}
+
+
+== ea_eliminar_rutina
+catálogo: riesgo=irreversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=no terminal=sí
+campo: slug obligatorio=true entero=false largo=false opciones=[] ayuda="rutina"
+argumentos: {"slug":"vieja"}
+validar: ok
+error: {"slug":"nocturna"}
+  validar: ok
+  simular: error NoAplica("la rutina 'nocturna' está activa: retírala antes (ea_retirar_rutina); solo se borra para siempre una rutina retirada")
+error: {"slug":"inexistente"}
+  validar: ok
+  simular: error NoAplica("la rutina 'inexistente' no está en la papelera")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_eliminar_rutina riesgo=irreversible
+  argumentos: {"slug":"vieja"}
+  precondición: {"huella":"ae36889cb886cbde","bytes":27}
+  texto: Borraría PARA SIEMPRE la copia retirada de la rutina 'vieja' (rutinas_dir/.papelera/vieja.toml, 27 bytes, 2 líneas): ese fichero no se puede recuperar. Sus versiones registradas siguen en SQLite como historial; registrar una versión nueva la vuelve a poner en uso.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar desde la web: error Prohibida("una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)"); sigue pendiente
+aceptar (terminal): aceptada / Ejecutada: Copia retirada de la rutina 'vieja' borrada para siempre.
+resultado: trabajo=None evento=Some(4)
+  datos: {"rutina":"vieja"}
+  texto: Copia retirada de la rutina 'vieja' borrada para siempre.
+mutaciones: ["eliminar_rutina:vieja"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_eliminar_rutina","riesgo":"irreversible","argumentos":{"slug":"vieja"},"simulacion":"Borraría PARA SIEMPRE la copia retirada de la rutina 'vieja' (rutinas_dir/.papelera/vieja.toml, 27 bytes, 2 líneas): ese fichero no se puede recuperar. Sus versiones registradas siguen en SQLite como historial; registrar una versión nueva la vuelve a poner en uso."}
+  usuario accion_fallida trabajo=None Some(Error) {"propuesta":1,"herramienta":"ea_eliminar_rutina","riesgo":"irreversible","canal":"web","error":"no permitido: una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)"}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"terminal","herramienta":"ea_eliminar_rutina","riesgo":"irreversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_eliminar_rutina","riesgo":"irreversible","canal":"terminal","argumentos":{"slug":"vieja"},"propuesta":1,"proponente":"claude-code","resultado":{"rutina":"vieja"},"texto":"Copia retirada de la rutina 'vieja' borrada para siempre."}
+
+directa desde la web: error Prohibida("una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)")
+directa (terminal): trabajo=None evento=Some(2)
+  datos: {"rutina":"vieja"}
+  texto: Copia retirada de la rutina 'vieja' borrada para siempre.
+mutaciones: ["eliminar_rutina:vieja"]
+diario:
+  usuario accion_fallida trabajo=None Some(Error) {"herramienta":"ea_eliminar_rutina","riesgo":"irreversible","canal":"web","argumentos":{"slug":"vieja"},"error":"no permitido: una acción irreversible solo se confirma desde la terminal (ea propuestas decidir)"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_eliminar_rutina","riesgo":"irreversible","canal":"terminal","argumentos":{"slug":"vieja"},"propuesta":null,"proponente":null,"resultado":{"rutina":"vieja"},"texto":"Copia retirada de la rutina 'vieja' borrada para siempre."}
+
+
+== ea_limpiar_worktree
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: trabajo obligatorio=true entero=false largo=false opciones=[] ayuda="id del trabajo con worktree propio"
+argumentos: {"trabajo":"t-1"}
+validar: ok
+error: {"trabajo":"../x"}
+  validar: error Argumentos("id de trabajo inválido: '../x'")
+  simular: error Argumentos("id de trabajo inválido: '../x'")
+error: {"trabajo":"t-2"}
+  validar: ok
+  simular: error NoAplica("el trabajo t-2 no tiene worktree propio vivo (nada que limpiar)")
+error: {"trabajo":"t-1","extra":1}
+  validar: error Argumentos("unknown field `extra`, expected `trabajo`")
+  simular: error Argumentos("unknown field `extra`, expected `trabajo`")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_limpiar_worktree riesgo=reversible
+  argumentos: {"trabajo":"t-1"}
+  precondición: {"ruta":"/estado/worktrees/t-1","rama":"ea/t-1","estado_trabajo":"cerrado"}
+  texto: Quitaría el worktree propio del trabajo t-1 (/estado/worktrees/t-1) con `git worktree remove`, sin --force; está limpio y el trabajo está cerrado. La rama ea/t-1 se conserva (borrarla o fusionarla es cosa tuya) y el directorio se vuelve a sacar de ella si hiciera falta.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Worktree del trabajo t-1 quitado; la rama ea/t-1 sigue en el repo.
+resultado: trabajo=Some("t-1") evento=Some(3)
+  datos: {"trabajo":"t-1","ruta":"/estado/worktrees/t-1","rama":"ea/t-1","quitado":true}
+  texto: Worktree del trabajo t-1 quitado; la rama ea/t-1 sigue en el repo.
+mutaciones: ["limpiar_worktree:t-1"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_limpiar_worktree","riesgo":"reversible","argumentos":{"trabajo":"t-1"},"simulacion":"Quitaría el worktree propio del trabajo t-1 (/estado/worktrees/t-1) con `git worktree remove`, sin --force; está limpio y el trabajo está cerrado. La rama ea/t-1 se conserva (borrarla o fusionarla es cosa tuya) y el directorio se vuelve a sacar de ella si hiciera falta."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_limpiar_worktree","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=Some("t-1") Some(Ok) {"herramienta":"ea_limpiar_worktree","riesgo":"reversible","canal":"web","argumentos":{"trabajo":"t-1"},"propuesta":1,"proponente":"claude-code","resultado":{"trabajo":"t-1","ruta":"/estado/worktrees/t-1","rama":"ea/t-1","quitado":true},"texto":"Worktree del trabajo t-1 quitado; la rama ea/t-1 sigue en el repo."}
+
+directa (web): trabajo=Some("t-1") evento=Some(1)
+  datos: {"trabajo":"t-1","ruta":"/estado/worktrees/t-1","rama":"ea/t-1","quitado":true}
+  texto: Worktree del trabajo t-1 quitado; la rama ea/t-1 sigue en el repo.
+mutaciones: ["limpiar_worktree:t-1"]
+diario:
+  usuario accion_ejecutada trabajo=Some("t-1") Some(Ok) {"herramienta":"ea_limpiar_worktree","riesgo":"reversible","canal":"web","argumentos":{"trabajo":"t-1"},"propuesta":null,"proponente":null,"resultado":{"trabajo":"t-1","ruta":"/estado/worktrees/t-1","rama":"ea/t-1","quitado":true},"texto":"Worktree del trabajo t-1 quitado; la rama ea/t-1 sigue en el repo."}
+
+
+== ea_promover_nota
+catálogo: riesgo=reversible ejecución=Supervisada local=true
+mcp: claude-code=sí modelo-local=sí orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: ruta obligatorio=true entero=false largo=false opciones=[] ayuda="ruta de la nota (p. ej. claude-code/tema/nota.md)"
+campo: destino obligatorio=false entero=false largo=false opciones=[] ayuda="destino en «compartida» (opcional)"
+argumentos: {"ruta":"claude-code/tema/nota.md","destino":" "}
+validar: ok
+error: {"ruta":"compartida/x.md"}
+  validar: error Argumentos("compartida/x.md ya está en la región compartida")
+  simular: error Argumentos("compartida/x.md ya está en la región compartida")
+error: {"ruta":"claude-code/no.md"}
+  validar: ok
+  simular: error NoAplica("la nota no existe: claude-code/no.md")
+error: {"ruta":"claude-code/tema/nota.md","destino":"../x"}
+  validar: error Argumentos("ruta no válida: 'compartida/../x.md': no admite '.' ni '..'")
+  simular: error Argumentos("ruta no válida: 'compartida/../x.md': no admite '.' ni '..'")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_promover_nota riesgo=reversible
+  argumentos: {"ruta":"claude-code/tema/nota.md"}
+  precondición: {"huella":"414867d3a12223be","destino":"compartida/tema/nota.md"}
+  texto: Copiaría la nota «claude-code/tema/nota.md» (de claude-code, 23 bytes) de claude-code/tema/nota.md a compartida/tema/nota.md en la región compartida y marcaría ambas como promovidas. El original se conserva. Desde ahí la leen todos los agentes como contenido de confianza.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Nota claude-code/tema/nota.md promovida a compartida/tema/nota.md.
+resultado: trabajo=None evento=Some(3)
+  datos: {"origen":"claude-code/tema/nota.md","destino":"compartida/tema/nota.md"}
+  texto: Nota claude-code/tema/nota.md promovida a compartida/tema/nota.md.
+mutaciones: ["promover:claude-code/tema/nota.md->compartida/tema/nota.md"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_promover_nota","riesgo":"reversible","argumentos":{"ruta":"claude-code/tema/nota.md"},"simulacion":"Copiaría la nota «claude-code/tema/nota.md» (de claude-code, 23 bytes) de claude-code/tema/nota.md a compartida/tema/nota.md en la región compartida y marcaría ambas como promovidas. El original se conserva. Desde ahí la leen todos los agentes como contenido de confianza."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_promover_nota","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_promover_nota","riesgo":"reversible","canal":"web","argumentos":{"ruta":"claude-code/tema/nota.md"},"propuesta":1,"proponente":"claude-code","resultado":{"origen":"claude-code/tema/nota.md","destino":"compartida/tema/nota.md"},"texto":"Nota claude-code/tema/nota.md promovida a compartida/tema/nota.md."}
+
+directa (web): trabajo=None evento=Some(1)
+  datos: {"origen":"claude-code/tema/nota.md","destino":"compartida/tema/nota.md"}
+  texto: Nota claude-code/tema/nota.md promovida a compartida/tema/nota.md.
+mutaciones: ["promover:claude-code/tema/nota.md->compartida/tema/nota.md"]
+diario:
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_promover_nota","riesgo":"reversible","canal":"web","argumentos":{"ruta":"claude-code/tema/nota.md"},"propuesta":null,"proponente":null,"resultado":{"origen":"claude-code/tema/nota.md","destino":"compartida/tema/nota.md"},"texto":"Nota claude-code/tema/nota.md promovida a compartida/tema/nota.md."}
+
+
+== ea_lanzar_sesion
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: agente obligatorio=true entero=false largo=false opciones=["claude-code", "qwen-code", "codex", "opencode"] ayuda="agente que se lanza"
+campo: herramientas obligatorio=true entero=false largo=true opciones=[] ayuda="ids de la biblioteca (ea biblioteca listar), uno por línea"
+campo: directorio obligatorio=false entero=false largo=false opciones=[] ayuda="carpeta del proyecto, ruta absoluta (opcional)"
+argumentos: {"agente":"claude-code","herramientas":"claude-code/skill/usuario/propia\nclaude-code/mcp/usuario/srv, claude-code/skill/usuario/propia"}
+validar: ok
+error: {"agente":"emacs","herramientas":["claude-code/skill/usuario/propia"]}
+  validar: error Argumentos("agente desconocido 'emacs' (uno de: claude-code, qwen-code, codex, opencode, antigravity)")
+  simular: error Argumentos("agente desconocido 'emacs' (uno de: claude-code, qwen-code, codex, opencode, antigravity)")
+error: {"agente":"claude-code","herramientas":[]}
+  validar: error Argumentos("hay que elegir al menos una herramienta de la biblioteca")
+  simular: error Argumentos("hay que elegir al menos una herramienta de la biblioteca")
+error: {"agente":"codex","herramientas":["claude-code/skill/usuario/propia"]}
+  validar: ok
+  simular: error NoAplica("sesión: claude-code/skill/usuario/propia: es de claude-code y no tiene sentido en una sesión de codex")
+error: {"agente":"claude-code","herramientas":["claude-code/mcp/usuario/fantasma"]}
+  validar: ok
+  simular: error NoAplica("no existe el elemento \"claude-code/mcp/usuario/fantasma\" en el inventario")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_lanzar_sesion riesgo=reversible
+  argumentos: {"agente":"claude-code","herramientas":["claude-code/mcp/usuario/srv","claude-code/skill/usuario/propia"],"directorio":"<TMP>/home"}
+  precondición: {"plan":"<HUELLA_PLAN>"}
+  texto: Abriría una terminal con claude-code y solo estas 2 herramientas de la biblioteca: claude-code/mcp/usuario/srv, claude-code/skill/usuario/propia. Comando (sin shell): claude --strict-mcp-config --mcp-config <TMP>/rt/ea-biblioteca/sesiones/<SESION>/mcp.json --settings <TMP>/rt/ea-biblioteca/sesiones/<SESION>/ajustes.json --plugin-dir <TMP>/rt/ea-biblioteca/sesiones/<SESION>/complemento. Escribe en <TMP>/rt/ea-biblioteca/sesiones/<SESION> (0700) los ficheros mcp.json, ajustes.json, complemento/.claude-plugin/plugin.json, complemento/skills/propia (enlace) con modo 0600 —las definiciones completas de los MCP, con sus secretos, se releen de su fuente solo al aceptar y solo van a esos ficheros—; caducan a los 7 días. Variables de entorno: ninguna. No cambia la configuración de ningún agente.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Sesión de claude-code abierta en una terminal con 2 herramientas de la biblioteca (<SESION>).
+resultado: trabajo=None evento=Some(3)
+  datos: {"sesion":"<SESION>","agente":"claude-code","herramientas":["claude-code/mcp/usuario/srv","claude-code/skill/usuario/propia"],"argv":["claude","--strict-mcp-config","--mcp-config","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/mcp.json","--settings","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/ajustes.json","--plugin-dir","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/complemento"]}
+  texto: Sesión de claude-code abierta en una terminal con 2 herramientas de la biblioteca (<SESION>).
+mutaciones: ["sesion:<SESION>"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_lanzar_sesion","riesgo":"reversible","argumentos":{"agente":"claude-code","herramientas":["claude-code/mcp/usuario/srv","claude-code/skill/usuario/propia"],"directorio":"<TMP>/home"},"simulacion":"Abriría una terminal con claude-code y solo estas 2 herramientas de la biblioteca: claude-code/mcp/usuario/srv, claude-code/skill/usuario/propia. Comando (sin shell): claude --strict-mcp-config --mcp-config <TMP>/rt/ea-biblioteca/sesiones/<SESION>/mcp.json --settings <TMP>/rt/ea-biblioteca/sesiones/<SESION>/ajustes.json --plugin-dir <TMP>/rt/ea-biblioteca/sesiones/<SESION>/complemento. Escribe en <TMP>/rt/ea-biblioteca/sesiones/<SESION> (0700) los ficheros mcp.json, ajustes.json, complemento/.claude-plugin/plugin.json, complemento/skills/propia (enlace) con modo 0600 —las definiciones completas de los MCP, con sus secretos, se releen de su fuente solo al aceptar y solo van a esos ficheros—; caducan a los 7 días. Variables de entorno: ninguna. No cambia la configuración de ningún agente."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_lanzar_sesion","riesgo":"reversible"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_lanzar_sesion","riesgo":"reversible","canal":"web","argumentos":{"agente":"claude-code","herramientas":["claude-code/mcp/usuario/srv","claude-code/skill/usuario/propia"],"directorio":"<TMP>/home"},"propuesta":1,"proponente":"claude-code","resultado":{"sesion":"<SESION>","agente":"claude-code","herramientas":["claude-code/mcp/usuario/srv","claude-code/skill/usuario/propia"],"argv":["claude","--strict-mcp-config","--mcp-config","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/mcp.json","--settings","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/ajustes.json","--plugin-dir","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/complemento"]},"texto":"Sesión de claude-code abierta en una terminal con 2 herramientas de la biblioteca (<SESION>)."}
+
+directa (web): trabajo=None evento=Some(1)
+  datos: {"sesion":"<SESION>","agente":"claude-code","herramientas":["claude-code/mcp/usuario/srv","claude-code/skill/usuario/propia"],"argv":["claude","--strict-mcp-config","--mcp-config","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/mcp.json","--settings","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/ajustes.json","--plugin-dir","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/complemento"]}
+  texto: Sesión de claude-code abierta en una terminal con 2 herramientas de la biblioteca (<SESION>).
+mutaciones: ["sesion:<SESION>"]
+diario:
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_lanzar_sesion","riesgo":"reversible","canal":"web","argumentos":{"agente":"claude-code","herramientas":["claude-code/mcp/usuario/srv","claude-code/skill/usuario/propia"],"directorio":"<TMP>/home"},"propuesta":null,"proponente":null,"resultado":{"sesion":"<SESION>","agente":"claude-code","herramientas":["claude-code/mcp/usuario/srv","claude-code/skill/usuario/propia"],"argv":["claude","--strict-mcp-config","--mcp-config","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/mcp.json","--settings","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/ajustes.json","--plugin-dir","<TMP>/rt/ea-biblioteca/sesiones/<SESION>/complemento"]},"texto":"Sesión de claude-code abierta en una terminal con 2 herramientas de la biblioteca (<SESION>)."}
+
+
+== ea_activar_herramienta
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: elemento obligatorio=true entero=false largo=false opciones=[] ayuda="id del elemento de la biblioteca (agente/tipo/ámbito/nombre, p. ej. codex/mcp/usuario/docs)"
+argumentos: {"elemento":"codex/mcp/usuario/apagado"}
+validar: ok
+error: {"elemento":"codex/mcp/usuario/docs"}
+  validar: ok
+  simular: error NoAplica("no se puede cambiar: ya está activado")
+error: {"elemento":"../../etc/passwd"}
+  validar: error Argumentos("id de elemento inválido \"../../etc/passwd\": tipo desconocido")
+  simular: error Argumentos("id de elemento inválido \"../../etc/passwd\": tipo desconocido")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_activar_herramienta riesgo=reversible
+  argumentos: {"elemento":"codex/mcp/usuario/apagado"}
+  precondición: {"cambio":{"id":"codex/mcp/usuario/apagado","activar":true,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","apagado","enabled"],"huella":"3cd508e73193157b"},"antes":false,"despues":null}}
+  texto: Activaría codex/mcp/usuario/apagado cambiando `mcp_servers.apagado.enabled` en <TMP>/home/.codex/config.toml (con copia previa en el estado del ecosistema): antes false, después null. Es reversible: desactivarlo lo deshace.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Activado codex/mcp/usuario/apagado: `mcp_servers.apagado.enabled` quitado en <TMP>/home/.codex/config.toml.
+resultado: trabajo=None evento=Some(4)
+  datos: {"elemento":"codex/mcp/usuario/apagado","activar":true,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","apagado","enabled"],"huella":"3cd508e73193157b"},"antes":false,"despues":null,"copia":"<COPIA>"}
+  texto: Activado codex/mcp/usuario/apagado: `mcp_servers.apagado.enabled` quitado en <TMP>/home/.codex/config.toml.
+mutaciones: ["biblioteca:activar:codex/mcp/usuario/apagado"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_activar_herramienta","riesgo":"reversible","argumentos":{"elemento":"codex/mcp/usuario/apagado"},"simulacion":"Activaría codex/mcp/usuario/apagado cambiando `mcp_servers.apagado.enabled` en <TMP>/home/.codex/config.toml (con copia previa en el estado del ecosistema): antes false, después null. Es reversible: desactivarlo lo deshace."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_activar_herramienta","riesgo":"reversible"}
+  usuario biblioteca_cambio trabajo=None Some(Ok) {"elemento":"codex/mcp/usuario/apagado","activar":true,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","apagado","enabled"],"huella":"3cd508e73193157b"},"antes":false,"despues":null,"copia":"<COPIA>"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_activar_herramienta","riesgo":"reversible","canal":"web","argumentos":{"elemento":"codex/mcp/usuario/apagado"},"propuesta":1,"proponente":"claude-code","resultado":{"elemento":"codex/mcp/usuario/apagado","activar":true,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","apagado","enabled"],"huella":"3cd508e73193157b"},"antes":false,"despues":null,"copia":"<COPIA>"},"texto":"Activado codex/mcp/usuario/apagado: `mcp_servers.apagado.enabled` quitado en <TMP>/home/.codex/config.toml."}
+
+directa (web): trabajo=None evento=Some(2)
+  datos: {"elemento":"codex/mcp/usuario/apagado","activar":true,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","apagado","enabled"],"huella":"3cd508e73193157b"},"antes":false,"despues":null,"copia":"<COPIA>"}
+  texto: Activado codex/mcp/usuario/apagado: `mcp_servers.apagado.enabled` quitado en <TMP>/home/.codex/config.toml.
+mutaciones: ["biblioteca:activar:codex/mcp/usuario/apagado"]
+diario:
+  usuario biblioteca_cambio trabajo=None Some(Ok) {"elemento":"codex/mcp/usuario/apagado","activar":true,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","apagado","enabled"],"huella":"3cd508e73193157b"},"antes":false,"despues":null,"copia":"<COPIA>"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_activar_herramienta","riesgo":"reversible","canal":"web","argumentos":{"elemento":"codex/mcp/usuario/apagado"},"propuesta":null,"proponente":null,"resultado":{"elemento":"codex/mcp/usuario/apagado","activar":true,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","apagado","enabled"],"huella":"3cd508e73193157b"},"antes":false,"despues":null,"copia":"<COPIA>"},"texto":"Activado codex/mcp/usuario/apagado: `mcp_servers.apagado.enabled` quitado en <TMP>/home/.codex/config.toml."}
+
+
+== ea_desactivar_herramienta
+catálogo: riesgo=reversible ejecución=Supervisada local=false
+mcp: claude-code=sí modelo-local=no orquestador=no sin-rol=no desconocido=no usuario=no
+confirma: web=sí terminal=sí
+campo: elemento obligatorio=true entero=false largo=false opciones=[] ayuda="id del elemento de la biblioteca (agente/tipo/ámbito/nombre, p. ej. codex/mcp/usuario/docs)"
+argumentos: {"elemento":"codex/mcp/usuario/docs"}
+validar: ok
+error: {"elemento":"codex/mcp/usuario/no-existe"}
+  validar: ok
+  simular: error NoAplica("no existe el elemento \"codex/mcp/usuario/no-existe\" en el inventario")
+error: {"elemento":"codex/mcp/usuario/docs","extra":1}
+  validar: error Argumentos("unknown field `extra`, expected `elemento`")
+  simular: error Argumentos("unknown field `extra`, expected `elemento`")
+hechos: Hechos { servicio: None, timer: None, calendario: None }
+simulación: herramienta=ea_desactivar_herramienta riesgo=reversible
+  argumentos: {"elemento":"codex/mcp/usuario/docs"}
+  precondición: {"cambio":{"id":"codex/mcp/usuario/docs","activar":false,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","docs","enabled"],"huella":"3cd508e73193157b"},"antes":null,"despues":false}}
+  texto: Desactivaría codex/mcp/usuario/docs cambiando `mcp_servers.docs.enabled` en <TMP>/home/.codex/config.toml (con copia previa en el estado del ecosistema): antes null, después false. Es reversible: activarlo lo deshace.
+mutaciones tras simular: []
+proponer: #1 nueva=true; otra vez: #1 nueva=false
+aceptar (web): aceptada / Ejecutada: Desactivado codex/mcp/usuario/docs: `mcp_servers.docs.enabled` puesto a false en <TMP>/home/.codex/config.toml.
+resultado: trabajo=None evento=Some(4)
+  datos: {"elemento":"codex/mcp/usuario/docs","activar":false,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","docs","enabled"],"huella":"3cd508e73193157b"},"antes":null,"despues":false,"copia":"<COPIA>"}
+  texto: Desactivado codex/mcp/usuario/docs: `mcp_servers.docs.enabled` puesto a false en <TMP>/home/.codex/config.toml.
+mutaciones: ["biblioteca:desactivar:codex/mcp/usuario/docs"]
+diario:
+  claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_desactivar_herramienta","riesgo":"reversible","argumentos":{"elemento":"codex/mcp/usuario/docs"},"simulacion":"Desactivaría codex/mcp/usuario/docs cambiando `mcp_servers.docs.enabled` en <TMP>/home/.codex/config.toml (con copia previa en el estado del ecosistema): antes null, después false. Es reversible: activarlo lo deshace."}
+  usuario propuesta_decidida trabajo=None Some(Ok) {"propuesta":1,"estado":"aceptada","canal":"web","herramienta":"ea_desactivar_herramienta","riesgo":"reversible"}
+  usuario biblioteca_cambio trabajo=None Some(Ok) {"elemento":"codex/mcp/usuario/docs","activar":false,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","docs","enabled"],"huella":"3cd508e73193157b"},"antes":null,"despues":false,"copia":"<COPIA>"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_desactivar_herramienta","riesgo":"reversible","canal":"web","argumentos":{"elemento":"codex/mcp/usuario/docs"},"propuesta":1,"proponente":"claude-code","resultado":{"elemento":"codex/mcp/usuario/docs","activar":false,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","docs","enabled"],"huella":"3cd508e73193157b"},"antes":null,"despues":false,"copia":"<COPIA>"},"texto":"Desactivado codex/mcp/usuario/docs: `mcp_servers.docs.enabled` puesto a false en <TMP>/home/.codex/config.toml."}
+
+directa (web): trabajo=None evento=Some(2)
+  datos: {"elemento":"codex/mcp/usuario/docs","activar":false,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","docs","enabled"],"huella":"3cd508e73193157b"},"antes":null,"despues":false,"copia":"<COPIA>"}
+  texto: Desactivado codex/mcp/usuario/docs: `mcp_servers.docs.enabled` puesto a false en <TMP>/home/.codex/config.toml.
+mutaciones: ["biblioteca:desactivar:codex/mcp/usuario/docs"]
+diario:
+  usuario biblioteca_cambio trabajo=None Some(Ok) {"elemento":"codex/mcp/usuario/docs","activar":false,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","docs","enabled"],"huella":"3cd508e73193157b"},"antes":null,"despues":false,"copia":"<COPIA>"}
+  usuario accion_ejecutada trabajo=None Some(Ok) {"herramienta":"ea_desactivar_herramienta","riesgo":"reversible","canal":"web","argumentos":{"elemento":"codex/mcp/usuario/docs"},"propuesta":null,"proponente":null,"resultado":{"elemento":"codex/mcp/usuario/docs","activar":false,"mecanismo":"campo","objetivo":{"tipo":"fichero","ruta":"<TMP>/home/.codex/config.toml","campo":["mcp_servers","docs","enabled"],"huella":"3cd508e73193157b"},"antes":null,"despues":false,"copia":"<COPIA>"},"texto":"Desactivado codex/mcp/usuario/docs: `mcp_servers.docs.enabled` puesto a false en <TMP>/home/.codex/config.toml."}
+
+
+== ea_status
+campos: 0
+validar: error NoSupervisada("ea_status")
+simular: error NoSupervisada("ea_status")
+
+== ea_escribir_nota
+campos: 0
+validar: error NoSupervisada("ea_escribir_nota")
+simular: error NoSupervisada("ea_escribir_nota")
+
+== ea_inexistente
+campos: 0
+validar: error Desconocida("ea_inexistente")
+simular: error Desconocida("ea_inexistente")
+

@@ -4,7 +4,7 @@
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
-use ea_boveda::cabecera::{interpretar, Cabeceras};
+use ea_boveda::cabecera::{Cabeceras, interpretar};
 use ea_boveda::ruta::validar_ruta;
 use ea_boveda::{Boveda, ErrorBoveda, Limites, NuevaNota};
 use ea_store::{EventFilter, Store};
@@ -30,21 +30,11 @@ impl Entorno {
     fn escribir(&self, autor: &str, titulo: &str, cuerpo: &str) -> ea_boveda::NotaEscrita {
         let mut s = self.store();
         self.boveda
-            .escribir_nota(
-                &mut s,
-                autor,
-                &NuevaNota { titulo, cuerpo, ruta: None, tags: &[], origen: "manual", sobrescribir: false },
-                &Limites::AMPLIOS,
-            )
+            .escribir_nota(&mut s, autor, &NuevaNota { titulo, cuerpo, ruta: None, tags: &[], origen: "manual", sobrescribir: false }, &Limites::AMPLIOS)
             .unwrap()
     }
     fn eventos(&self, accion: &str) -> Vec<ea_store::Event> {
-        self.store()
-            .list_events(&EventFilter { limit: Some(1000), ..Default::default() })
-            .unwrap()
-            .into_iter()
-            .filter(|e| e.action == accion)
-            .collect()
+        self.store().list_events(&EventFilter { limit: Some(1000), ..Default::default() }).unwrap().into_iter().filter(|e| e.action == accion).collect()
     }
 }
 
@@ -106,12 +96,7 @@ fn rechaza_enlaces_simbolicos_que_apuntan_fuera() {
 
     let mut s = e.store();
     for ruta in ["salida/x.md", "atajo.md", "a-compartida/x.md"] {
-        let r = e.boveda.escribir_nota(
-            &mut s,
-            "modelo-local",
-            &NuevaNota { sobrescribir: true, ..nueva("T", "contenido", Some(ruta)) },
-            &Limites::AMPLIOS,
-        );
+        let r = e.boveda.escribir_nota(&mut s, "modelo-local", &NuevaNota { sobrescribir: true, ..nueva("T", "contenido", Some(ruta)) }, &Limites::AMPLIOS);
         assert!(matches!(r, Err(ErrorBoveda::FueraDeLaBoveda(_))), "{ruta}: {r:?}");
     }
     assert_eq!(std::fs::read_to_string(fuera.join("secreto.md")).unwrap(), "secreto");
@@ -119,10 +104,7 @@ fn rechaza_enlaces_simbolicos_que_apuntan_fuera() {
     assert!(!e.boveda.raiz().join("compartida/x.md").exists());
     // Tampoco se lee a través de ellos.
     for ruta in ["modelo-local/salida/secreto.md", "modelo-local/atajo.md"] {
-        assert!(
-            matches!(e.boveda.leer(ruta, 0, &Limites::AMPLIOS), Err(ErrorBoveda::FueraDeLaBoveda(_))),
-            "{ruta}"
-        );
+        assert!(matches!(e.boveda.leer(ruta, 0, &Limites::AMPLIOS), Err(ErrorBoveda::FueraDeLaBoveda(_))), "{ruta}");
     }
 }
 
@@ -143,10 +125,7 @@ fn un_agente_solo_escribe_en_su_region_y_no_en_la_compartida() {
         assert!(matches!(r, Err(ErrorBoveda::Prohibida(_))), "{quien}: {r:?}");
     }
     // No existe forma de nombrar la región compartida: un prefijo "compartida/" queda DENTRO de la propia región.
-    let r = e
-        .boveda
-        .escribir_nota(&mut s, "modelo-local", &nueva("T", "c", Some("compartida/x.md")), &Limites::AMPLIOS)
-        .unwrap();
+    let r = e.boveda.escribir_nota(&mut s, "modelo-local", &nueva("T", "c", Some("compartida/x.md")), &Limites::AMPLIOS).unwrap();
     assert_eq!(r.ruta, "modelo-local/compartida/x.md");
     assert!(!e.boveda.raiz().join("compartida/x.md").exists());
     // Y la región compartida sigue vacía.
@@ -213,11 +192,7 @@ fn la_escritura_valida_la_cabecera() {
     assert!(matches!(mal(nueva("T", &"x".repeat(70_000), None)), Err(ErrorBoveda::Argumentos(_))));
 
     // Cabeceras ajenas o rotas se detectan al leer, sin romper.
-    for (texto, esperado) in [
-        ("sin cabecera\n", "ausente"),
-        ("---\ntitulo: x\n---\ncuerpo\n", "invalida"),
-        ("---\ncontrato: 2\n---\n", "invalida"),
-    ] {
+    for (texto, esperado) in [("sin cabecera\n", "ausente"), ("---\ntitulo: x\n---\ncuerpo\n", "invalida"), ("---\ncontrato: 2\n---\n", "invalida")] {
         let (c, _) = interpretar(texto);
         match (esperado, c) {
             ("ausente", Cabeceras::Ausente) | ("invalida", Cabeceras::Invalida(_)) => {}
@@ -239,10 +214,7 @@ fn crear_no_pisa_y_sobrescribir_conserva_la_fecha_de_creacion() {
     assert!(matches!(r, Err(ErrorBoveda::YaExiste(_))));
     let antes = e.boveda.leer(&a.ruta, 0, &Limites::AMPLIOS).unwrap().cabecera.unwrap();
     std::thread::sleep(Duration::from_millis(1100));
-    let b = e
-        .boveda
-        .escribir_nota(&mut s, "modelo-local", &NuevaNota { sobrescribir: true, ..nueva("T", "dos", Some("x.md")) }, &Limites::AMPLIOS)
-        .unwrap();
+    let b = e.boveda.escribir_nota(&mut s, "modelo-local", &NuevaNota { sobrescribir: true, ..nueva("T", "dos", Some("x.md")) }, &Limites::AMPLIOS).unwrap();
     assert!(!b.creada);
     let despues = e.boveda.leer(&a.ruta, 0, &Limites::AMPLIOS).unwrap();
     assert_eq!(despues.contenido, "dos\n");
@@ -276,16 +248,9 @@ fn las_escrituras_concurrentes_se_serializan() {
             for i in 0..POR_HILO {
                 let autor = if h % 2 == 0 { "modelo-local" } else { "claude-code" };
                 let cuerpo = format!("hilo {h} nota {i}\n").repeat(200);
-                boveda
-                    .escribir_nota(&mut s, autor, &nueva(&format!("Nota {h}-{i}"), &cuerpo, None), &Limites::AMPLIOS)
-                    .unwrap();
+                boveda.escribir_nota(&mut s, autor, &nueva(&format!("Nota {h}-{i}"), &cuerpo, None), &Limites::AMPLIOS).unwrap();
                 // Todos pelean además por una misma nota compartida: exactamente uno la crea.
-                let _ = boveda.escribir_nota(
-                    &mut s,
-                    "modelo-local",
-                    &nueva("Disputada", &format!("de {h}"), Some("disputada.md")),
-                    &Limites::AMPLIOS,
-                );
+                let _ = boveda.escribir_nota(&mut s, "modelo-local", &nueva("Disputada", &format!("de {h}"), Some("disputada.md")), &Limites::AMPLIOS);
             }
         }));
     }
@@ -322,10 +287,7 @@ fn un_escritor_ocupado_bloquea_a_los_demas_y_los_temporales_no_quedan() {
     let e = entorno();
     e.escribir("modelo-local", "Primera", "x");
     // Otro "proceso" (otra descripción de fichero) retiene el candado.
-    let f = std::fs::OpenOptions::new()
-        .write(true)
-        .open(e.boveda.raiz().join(".ea-escritor.lock"))
-        .unwrap();
+    let f = std::fs::OpenOptions::new().write(true).open(e.boveda.raiz().join(".ea-escritor.lock")).unwrap();
     f.lock().unwrap();
 
     let rapida = e.boveda.clone().con_espera(Duration::from_millis(150));
@@ -337,11 +299,8 @@ fn un_escritor_ocupado_bloquea_a_los_demas_y_los_temporales_no_quedan() {
     // Al soltarlo, escribe.
     drop(f);
     rapida.escribir_nota(&mut s, "modelo-local", &nueva("Segunda", "y", None), &Limites::AMPLIOS).unwrap();
-    let ocultos: Vec<_> = std::fs::read_dir(e.boveda.raiz().join("modelo-local"))
-        .unwrap()
-        .flatten()
-        .filter(|f| f.file_name().to_string_lossy().starts_with('.'))
-        .collect();
+    let ocultos: Vec<_> =
+        std::fs::read_dir(e.boveda.raiz().join("modelo-local")).unwrap().flatten().filter(|f| f.file_name().to_string_lossy().starts_with('.')).collect();
     assert!(ocultos.is_empty());
 }
 
@@ -421,12 +380,7 @@ fn la_promocion_falla_si_la_nota_cambio_desde_la_simulacion() {
     let n = e.escribir("modelo-local", "Cambiante", "versión uno");
     let plan = e.boveda.planear_promocion(&n.ruta, None).unwrap();
     e.boveda
-        .escribir_nota(
-            &mut s,
-            "modelo-local",
-            &NuevaNota { sobrescribir: true, ..nueva("Cambiante", "versión dos", Some("cambiante.md")) },
-            &Limites::AMPLIOS,
-        )
+        .escribir_nota(&mut s, "modelo-local", &NuevaNota { sobrescribir: true, ..nueva("Cambiante", "versión dos", Some("cambiante.md")) }, &Limites::AMPLIOS)
         .unwrap();
     let r = e.boveda.promover(&mut s, &n.ruta, None, &plan.huella, "usuario", "web");
     assert!(matches!(r, Err(ErrorBoveda::Cambio(_))), "{r:?}");
@@ -453,9 +407,7 @@ fn la_busqueda_respeta_los_limites() {
     let mut s = e.store();
     for i in 0..30 {
         let cuerpo = format!("{} palabra-clave final", "relleno largo ".repeat(400));
-        e.boveda
-            .escribir_nota(&mut s, "claude-code", &nueva(&format!("Nota {i}"), &cuerpo, None), &Limites::AMPLIOS)
-            .unwrap();
+        e.boveda.escribir_nota(&mut s, "claude-code", &nueva(&format!("Nota {i}"), &cuerpo, None), &Limites::AMPLIOS).unwrap();
     }
     let local = e.boveda.buscar(&mut s, "relleno", None, Some(100), &Limites::LOCAL).unwrap();
     assert_eq!(local.len(), Limites::LOCAL.max_resultados);
@@ -544,8 +496,6 @@ fn la_diferencia_del_indice_cuenta_sin_escribir() {
     let r = e.boveda.reindexar(&mut s, "usuario").unwrap();
     assert_eq!((r.indexadas, r.eliminadas), (1, 1));
     assert_eq!(e.boveda.diferencia_indice(&mut s).unwrap(), Default::default());
-    let evs = s
-        .list_events(&EventFilter { action_prefix: Some("boveda_reindexado".into()), limit: Some(10), ..Default::default() })
-        .unwrap();
+    let evs = s.list_events(&EventFilter { action_prefix: Some("boveda_reindexado".into()), limit: Some(10), ..Default::default() }).unwrap();
     assert_eq!(evs.len(), 1);
 }

@@ -18,7 +18,6 @@
 //!   enlaces al día, papelera). Ningún agente llega a ellas.
 
 pub mod cabecera;
-pub mod config;
 pub mod enlaces;
 pub mod error;
 pub mod limites;
@@ -27,12 +26,8 @@ pub mod ruta;
 mod boveda;
 mod usuario;
 
-pub use boveda::{
-    consulta_fts, huella, Boveda, NotaEscrita, NotaLeida, NuevaNota, PlanPromocion, ResumenSincronizacion,
-};
+pub use boveda::{Boveda, NotaEscrita, NotaLeida, NuevaNota, PlanPromocion, ResumenSincronizacion, consulta_fts, huella};
 pub use cabecera::Cabecera;
-pub use usuario::{
-    Arbol, CarpetaEnPapelera, CarpetaRenombrada, EnPapelera, NotaCompleta, Renombrada, ResumenPapelera,
-};
 pub use error::{ErrorBoveda, Resultado};
 pub use limites::Limites;
+pub use usuario::{Arbol, CarpetaEnPapelera, CarpetaRenombrada, EnPapelera, NotaCompleta, Renombrada, ResumenPapelera};

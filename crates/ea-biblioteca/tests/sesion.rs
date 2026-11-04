@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use ea_ajustes::{Ajustes, Fuentes};
 use ea_biblioteca::*;
+use ea_pruebas::escribe;
 
 struct Mundo {
     _d: tempfile::TempDir,
@@ -16,12 +17,6 @@ struct Mundo {
     runtime: PathBuf,
     inv: Inventario,
     r: Raices,
-}
-
-fn escribe(ruta: impl AsRef<Path>, texto: &str) {
-    let ruta = ruta.as_ref();
-    fs::create_dir_all(ruta.parent().unwrap()).unwrap();
-    fs::write(ruta, texto).unwrap();
 }
 
 const SECRETOS: &[&str] = &[
@@ -99,14 +94,8 @@ command = "raro"
             "remoto-oc":{"type":"remote","url":"https://oc.ejemplo.com/SECRETO_RUTA_URL","headers":{"Authorization":"SECRETO_HEADER_OPENCODE"}},
             "local-oc":{"type":"local","command":["bun","run","x"],"environment":{"K":"SECRETO_ENV_OPENCODE"}}}}}"#,
     );
-    escribe(
-        home.join(".config/opencode/opencode.jsonc"),
-        "{\n // un comentario\n \"mcp\": { \"plano\": { \"type\": \"local\", \"command\": [\"x\"], }, },\n}",
-    );
-    escribe(
-        home.join(".qwen/settings.json"),
-        r#"{"mcpServers":{"qmcp":{"httpUrl":"https://q.ejemplo.com/SECRETO_RUTA_URL","headers":{"X":"SECRETO_QWEN"}}}}"#,
-    );
+    escribe(home.join(".config/opencode/opencode.jsonc"), "{\n // un comentario\n \"mcp\": { \"plano\": { \"type\": \"local\", \"command\": [\"x\"], }, },\n}");
+    escribe(home.join(".qwen/settings.json"), r#"{"mcpServers":{"qmcp":{"httpUrl":"https://q.ejemplo.com/SECRETO_RUTA_URL","headers":{"X":"SECRETO_QWEN"}}}}"#);
     escribe(home.join(".qwen/extensions/ext1/qwen-extension.json"), r#"{"name":"ext1"}"#);
     escribe(home.join(".gemini/config/skills/ag/SKILL.md"), "---\ndescription: Skill de agy\n---\n");
 
@@ -129,9 +118,7 @@ fn ids(m: &Mundo, textos: &[&str]) -> Vec<Id> {
 
 fn sin_secretos(plan: &PlanSesion) {
     let todo = serde_json::to_string(plan).unwrap() + &plan.comando() + &format!("{:?}", plan.entorno);
-    for s in SECRETOS {
-        assert!(!todo.contains(s), "el plan lleva {s}: {todo}");
-    }
+    ea_pruebas::sin_secretos(&todo, SECRETOS);
 }
 
 /// Comprueba los bits de permiso (solo en Unix; en Windows no hay modos).
@@ -170,7 +157,10 @@ fn plan_de_claude_code_con_mcp_plugins_skills_y_subagentes() {
         ["claude", "--strict-mcp-config", "--mcp-config", &d("mcp.json"), "--settings", &d("ajustes.json"), "--plugin-dir", &d("complemento")]
     );
     assert!(plan.entorno.is_empty());
-    assert_eq!(plan.argv_terminal(), ["env", "-C", &m.proyecto.display().to_string()].into_iter().map(String::from).chain(plan.argv.clone()).collect::<Vec<_>>());
+    assert_eq!(
+        plan.argv_terminal(),
+        ["env", "-C", &m.proyecto.display().to_string()].into_iter().map(String::from).chain(plan.argv.clone()).collect::<Vec<_>>()
+    );
     assert!(plan.ficheros.iter().all(|f| f.modo == 0o600));
     sin_secretos(&plan);
 
@@ -186,7 +176,15 @@ fn plan_de_claude_code_con_mcp_plugins_skills_y_subagentes() {
 #[test]
 fn materializar_claude_escribe_los_secretos_solo_en_ficheros_0600() {
     let m = mundo();
-    let sel = ids(&m, &["claude-code/mcp/usuario/stdio-claude", "claude-code/mcp/usuario/remoto-claude", "claude-code/mcp/proyecto/del-proyecto", "claude-code/skill/usuario/propia"]);
+    let sel = ids(
+        &m,
+        &[
+            "claude-code/mcp/usuario/stdio-claude",
+            "claude-code/mcp/usuario/remoto-claude",
+            "claude-code/mcp/proyecto/del-proyecto",
+            "claude-code/skill/usuario/propia",
+        ],
+    );
     let plan = plan_sesion("claude-code", &sel, &m.inv, &m.r).unwrap();
     sin_secretos(&plan);
     let real = materializar(&plan, &m.r).unwrap();
@@ -237,11 +235,16 @@ fn plan_de_codex_apaga_los_demas_mcp_propios_y_define_el_del_ecosistema() {
         plan.argv,
         [
             "codex",
-            "-c", "mcp_servers.apagado.enabled=false",
-            "-c", "mcp_servers.raro.enabled=false",
-            "-c", "mcp_servers.docs.enabled=true",
-            "-c", "mcp_servers.ea-ecosistema.url=\"http://127.0.0.1:8765/mcp\"",
-            "-c", "mcp_servers.ea-ecosistema.enabled=true",
+            "-c",
+            "mcp_servers.apagado.enabled=false",
+            "-c",
+            "mcp_servers.raro.enabled=false",
+            "-c",
+            "mcp_servers.docs.enabled=true",
+            "-c",
+            "mcp_servers.ea-ecosistema.url=\"http://127.0.0.1:8765/mcp\"",
+            "-c",
+            "mcp_servers.ea-ecosistema.enabled=true",
         ]
     );
     assert!(plan.ficheros.is_empty() && plan.entorno.is_empty());
@@ -314,6 +317,15 @@ fn plan_de_qwen_nombra_los_propios_y_escribe_los_ajenos() {
 }
 
 #[test]
+fn una_fuente_de_un_agente_sin_lector_no_se_lee() {
+    let m = mundo();
+    let mut plan = plan_sesion("claude-code", &ids(&m, &["claude-code/mcp/usuario/stdio-claude"]), &m.inv, &m.r).unwrap();
+    plan.mcp[0].agente = "gemini".into();
+    let e = materializar(&plan, &m.r).unwrap_err();
+    assert_eq!(e, ErrorBiblioteca::Sesion("claude-code/mcp/usuario/stdio-claude: agente de origen sin lector (gemini)".into()));
+}
+
+#[test]
 fn rechaza_lo_que_no_tiene_sentido() {
     let m = mundo();
     let un = |a: &str, s: &[&str]| plan_sesion(a, &ids(m_ref(&m), s), &m.inv, &m.r).unwrap_err().to_string();
@@ -323,6 +335,21 @@ fn rechaza_lo_que_no_tiene_sentido() {
     // Antigravity no admite sesiones.
     assert!(un("antigravity", &["claude-code/mcp/usuario/stdio-claude"]).contains("no admite sesiones en la v1"));
     assert!(un("gemini", &["claude-code/mcp/usuario/stdio-claude"]).contains("no es un agente con sesiones"));
+    // El texto exacto (también lo ven la CLI, el panel y el MCP).
+    let err = |a: &str| plan_sesion(a, &ids(m_ref(&m), &["claude-code/mcp/usuario/stdio-claude"]), &m.inv, &m.r).unwrap_err();
+    assert_eq!(err("antigravity"), ErrorBiblioteca::Sesion("Antigravity no admite sesiones en la v1".into()));
+    let no_es = |a: &str| ErrorBiblioteca::Sesion(format!("«{a}» no es un agente con sesiones (claude-code, qwen-code, codex, opencode)"));
+    for a in ["gemini", "Codex", " codex", "ecosistema", ""] {
+        assert_eq!(err(a), no_es(a), "{a:?}");
+    }
+    assert_eq!(AGENTES_CON_SESION, ["claude-code", "qwen-code", "codex", "opencode"]);
+    // Para un agente que no es del catálogo, solo los MCP tienen sentido.
+    let elemento = |id: &str| m.inv.buscar(id).unwrap();
+    assert_eq!(sesion::admite("gemini", elemento("claude-code/mcp/usuario/stdio-claude")), Ok(()));
+    assert_eq!(
+        sesion::admite("gemini", elemento("ecosistema/skill/ecosistema/mision")),
+        Err(ErrorBiblioteca::Sesion("ecosistema/skill/ecosistema/mision: una sesión de gemini no admite elementos de tipo skill".into()))
+    );
     // Un plugin o una skill de Claude no sirve en Codex, OpenCode ni Qwen.
     assert!(un("codex", &["claude-code/plugin/usuario/foo@mkt"]).contains("no tiene sentido"));
     assert!(un("opencode", &["claude-code/skill/usuario/propia"]).contains("no tiene sentido"));
@@ -341,7 +368,13 @@ fn rechaza_lo_que_no_tiene_sentido() {
     // Dos MCP con el mismo nombre.
     escribe(m.proyecto.join(".mcp.json"), r#"{"mcpServers":{"stdio-claude":{"command":"c"}}}"#);
     let inv = Biblioteca::cargar(&m.r, &Ajustes::por_defecto(&Fuentes::aislada(&m.home)));
-    let e = plan_sesion("claude-code", &["claude-code/mcp/usuario/stdio-claude".parse().unwrap(), "claude-code/mcp/proyecto/stdio-claude".parse().unwrap()], &inv, &m.r).unwrap_err();
+    let e = plan_sesion(
+        "claude-code",
+        &["claude-code/mcp/usuario/stdio-claude".parse().unwrap(), "claude-code/mcp/proyecto/stdio-claude".parse().unwrap()],
+        &inv,
+        &m.r,
+    )
+    .unwrap_err();
     assert!(e.to_string().contains("se llaman"), "{e}");
 }
 

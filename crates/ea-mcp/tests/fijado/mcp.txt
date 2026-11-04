@@ -1,0 +1,1475 @@
+== initialize
+{
+  "protocolVersion": "2025-11-25",
+  "capabilities": {
+    "tools": {}
+  },
+  "serverInfo": {
+    "name": "rmcp",
+    "version": "<VERSION>"
+  },
+  "instructions": "Herramientas del ecosistema de asistente personal. ea_status da una vista general (orquestador, trabajos, colas y semáforos); ea_listar_equipos y ea_ver_equipo muestran los equipos de agentes y su presencia (solo lectura: despertarlos o dormirlos es del usuario); ea_listar_trabajos y ea_ver_trabajo inspeccionan los trabajos del bus (solo lectura: crear o decidir trabajo se hace con la CLI y las skills); ea_listar_diario consulta el historial de eventos; ea_biblioteca lista las herramientas de los agentes (skills, plugins, subagentes, MCP) con su estado y su uso. Las herramientas que cambian el sistema (ea_encolar_rutina, ea_registrar_rutina, ea_programar_rutina, ea_desprogramar_rutina, ea_retirar_rutina, ea_restaurar_rutina, ea_reiniciar_servicio, ea_eliminar_rutina, ea_promover_nota, ea_activar_herramienta, ea_desactivar_herramienta, ea_lanzar_sesion, ea_limpiar_worktree) nunca se ejecutan desde aquí: con simular=true describen lo que harían; sin él encolan una propuesta que solo el usuario puede aceptar. Las irreversibles solo se confirman desde una terminal. La bóveda de notas se consulta con ea_buscar_notas y ea_leer_nota; ea_escribir_nota escribe en la región propia del agente; la región compartida solo recibe notas que el usuario promueve.",
+  "_meta": {
+    "io.modelcontextprotocol/serverInfo": {
+      "name": "rmcp",
+      "version": "3.3.0"
+    }
+  }
+}
+== tools/list
+{
+  "tools": [
+    {
+      "name": "ea_activar_herramienta",
+      "description": "[Riesgo: mutación reversible] Activa un elemento de la biblioteca de herramientas (skill, plugin, subagente, MCP, comando o extensión de un agente) por su id `agente/tipo/ámbito/nombre`. NO lo activa: con simular=true describe qué fichero o comando se usaría y el valor antes y después; sin él encola una propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con ea_desactivar_herramienta.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "elemento"
+        ],
+        "type": "object",
+        "properties": {
+          "elemento": {
+            "description": "Id del elemento de la biblioteca: `agente/tipo/ámbito/nombre`, p. ej.\n\"codex/mcp/usuario/docs\" o \"claude-code/plugin/usuario/foo@mkt\".",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Activar herramienta",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_biblioteca",
+      "description": "Inventario de herramientas de los agentes (skills, plugins, subagentes, servidores MCP, comandos y extensiones de Claude Code, Qwen Code, Codex, OpenCode y Antigravity, más los del ecosistema) con su agente, ámbito, categoría, si están activados y cuánto se usan. Sin 'id', lista con filtros (agente, tipo, categoria, activado, limite); con 'id' devuelve la ficha de ese elemento (definición MCP sin secretos) y su uso por actor. Solo lectura: activar, desactivar y abrir sesiones acotadas se pide con ea_activar_herramienta, ea_desactivar_herramienta y ea_lanzar_sesion, que solo proponen.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "id": {
+            "description": "Id de un elemento (`agente/tipo/ámbito/nombre`, p. ej.\n\"claude-code/skill/usuario/revisar\"): devuelve su ficha completa\n(origen, estado, cómo se cambia, definición MCP sin secretos) y su uso\npor actor. Sin id, lista el inventario y los demás argumentos filtran.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agente": {
+            "description": "Filtra por agente: claude-code, qwen-code, codex, opencode,\nantigravity o ecosistema.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tipo": {
+            "description": "Filtra por tipo: skill, plugin, subagente, mcp, comando o extension.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoria": {
+            "description": "Filtra por categoría (por defecto, el origen: usuario, proyecto,\necosistema, plugin:<id> o integrada).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "activado": {
+            "description": "true: solo los activados; false: solo los desactivados.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "limite": {
+            "description": "Número máximo de elementos a devolver (por defecto 50, como mucho 200).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Biblioteca de herramientas",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ea_buscar_notas",
+      "description": "Busca notas en la bóveda por palabras (todas deben aparecer) en las regiones modelo-local, claude-code y compartida. Devuelve pocos resultados, con un fragmento; lee la nota entera con ea_leer_nota. Lo de la región compartida es contenido que el usuario promovió.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "consulta"
+        ],
+        "type": "object",
+        "properties": {
+          "consulta": {
+            "description": "Palabras a buscar en el título, las etiquetas y el texto de las notas\n(todas deben aparecer; sin acentos ni mayúsculas).",
+            "type": "string"
+          },
+          "region": {
+            "description": "Limita la búsqueda a una región: modelo-local, claude-code o compartida.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limite": {
+            "description": "Máximo de resultados; el servidor lo recorta a su tope por actor.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "annotations": {
+        "title": "Buscar notas",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ea_desactivar_herramienta",
+      "description": "[Riesgo: mutación reversible] Desactiva un elemento de la biblioteca de herramientas (skill, plugin, subagente, MCP, comando o extensión de un agente) por su id `agente/tipo/ámbito/nombre`. NO lo desactiva: con simular=true describe qué fichero o comando se usaría y el valor antes y después; sin él encola una propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con ea_activar_herramienta.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "elemento"
+        ],
+        "type": "object",
+        "properties": {
+          "elemento": {
+            "description": "Id del elemento de la biblioteca: `agente/tipo/ámbito/nombre`, p. ej.\n\"codex/mcp/usuario/docs\" o \"claude-code/plugin/usuario/foo@mkt\".",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Desactivar herramienta",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_desprogramar_rutina",
+      "description": "[Riesgo: mutación reversible] Quita el timer de systemd de una rutina (systemctl --user disable --now ea-rutina@<slug>.timer y borra su fichero). La rutina sigue registrada. NO lo hace: con simular=true lo describe; sin él encola una propuesta que el usuario debe aceptar (terminal o panel web).",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "slug"
+        ],
+        "type": "object",
+        "properties": {
+          "slug": {
+            "description": "Nombre (slug) de la rutina, p. ej. \"revision-diaria\".",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Desprogramar rutina",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "ea_eliminar_rutina",
+      "description": "[Riesgo: mutación IRREVERSIBLE] Borra para siempre la copia retirada de una rutina (la de la papelera; antes hay que retirarla con ea_retirar_rutina). Sus versiones siguen en SQLite. NO lo ejecuta: con simular=true lo describe; sin él encola una propuesta que el usuario solo puede confirmar desde una terminal.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "slug"
+        ],
+        "type": "object",
+        "properties": {
+          "slug": {
+            "description": "Nombre (slug) de la rutina, p. ej. \"revision-diaria\".",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Eliminar rutina",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_encolar_rutina",
+      "description": "[Riesgo: mutación reversible] Lanza una rutina registrada: crea un trabajo en el bus que ejecuta el agente local en el worktree de la rutina (puede escribir en él). Acepta `entradas` opcionales que sustituyen a las de por defecto. NO lo ejecuta: con simular=true lo describe, con el criterio resultante; sin él encola una propuesta que el usuario debe aceptar.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "slug"
+        ],
+        "type": "object",
+        "properties": {
+          "slug": {
+            "description": "Nombre (slug) de la rutina, p. ej. \"revision-diaria\".",
+            "type": "string"
+          },
+          "entradas": {
+            "description": "Entradas que sustituyen a los valores por defecto, como\n{\"clave\": \"valor\"}. Solo las que la rutina declara; como mucho 32,\nde 1024 bytes cada una y sin saltos de línea ni otros caracteres de\ncontrol. Se sustituyen tal cual en los pasos y en el criterio (un\ncomando de shell): la simulación muestra el criterio resultante.",
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Encolar rutina",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_escribir_nota",
+      "description": "[Riesgo: mutación reversible] Escribe una nota en TU región de la bóveda (libertad total ahí; no se puede escribir en otra región ni en la compartida). La cabecera la pone el sistema. Con simular=true solo valida y dice dónde caería. Para llevarla a la región compartida usa ea_promover_nota.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "titulo",
+          "contenido"
+        ],
+        "type": "object",
+        "properties": {
+          "titulo": {
+            "description": "Título de la nota (una línea, hasta 200 caracteres).",
+            "type": "string"
+          },
+          "contenido": {
+            "description": "Cuerpo de la nota en Markdown. No incluyas cabecera: la pone el sistema.",
+            "type": "string"
+          },
+          "ruta": {
+            "description": "Ruta dentro de TU región (p. ej. \"ideas/rust.md\"). Sin ella se deriva\ndel título. No se puede elegir otra región.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "etiquetas": {
+            "description": "Etiquetas (letras, cifras, '-', '_' o '/').",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "trabajo": {
+            "description": "Id del trabajo en cuyo marco se escribe la nota (queda en la cabecera\ncomo origen `trabajo:<id>`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sobrescribir": {
+            "description": "Reemplazar la nota si ya existe (por defecto falla).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "simular": {
+            "description": "Si es true, valida y dice dónde caería la nota, sin escribir.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Escribir nota",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_lanzar_sesion",
+      "description": "[Riesgo: mutación reversible] Abre en una terminal del usuario un agente (claude-code, qwen-code, codex u opencode) con SOLO las herramientas elegidas de la biblioteca (ids `agente/tipo/ámbito/nombre`). Los secretos de los MCP van a ficheros 0600 efímeros, nunca a argumentos. NO lo abre: con simular=true describe el comando y los ficheros (sin secretos); sin él encola una propuesta que el usuario debe aceptar (terminal o panel web). No está disponible para el agente local.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "agente",
+          "herramientas"
+        ],
+        "type": "object",
+        "properties": {
+          "agente": {
+            "description": "Agente que se lanza: \"claude-code\", \"qwen-code\", \"codex\" u \"opencode\".",
+            "type": "string"
+          },
+          "herramientas": {
+            "description": "Ids de la biblioteca de herramientas (`agente/tipo/ámbito/nombre`,\np. ej. \"claude-code/mcp/usuario/mi-servidor\"): solo estos estarán\ndisponibles en la sesión.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "directorio": {
+            "description": "Carpeta del proyecto (ruta absoluta; opcional).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "simular": {
+            "description": "Si es true, solo describe la sesión (comando y ficheros, sin secretos).\nSi es false (por defecto), encola una propuesta que el usuario debe\naceptar: nada se abre aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Lanzar sesión con herramientas",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_leer_nota",
+      "description": "Lee una nota de la bóveda por su ruta (la que devuelve ea_buscar_notas). Las notas largas se devuelven por trozos: si 'siguiente_desde' no es null, repite con desde=ese valor.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "ruta"
+        ],
+        "type": "object",
+        "properties": {
+          "ruta": {
+            "description": "Ruta de la nota tal como la devuelve la búsqueda, p. ej.\n\"compartida/servicios/mcp.md\".",
+            "type": "string"
+          },
+          "desde": {
+            "description": "Carácter del cuerpo desde el que leer (0 por defecto). Una nota larga\nse devuelve por trozos: usa `siguiente_desde` de la respuesta anterior.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "annotations": {
+        "title": "Leer nota",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ea_limpiar_worktree",
+      "description": "[Riesgo: mutación reversible] Quita el worktree propio de un trabajo terminado (cerrado o cancelado) con `git worktree remove`, sin --force: solo si está limpio. La rama ea/<id> se conserva; fusionarla o borrarla es del usuario. NO lo hace: con simular=true lo describe; sin él encola una propuesta que el usuario debe aceptar (terminal o panel web).",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "trabajo"
+        ],
+        "type": "object",
+        "properties": {
+          "trabajo": {
+            "description": "Id del trabajo con worktree propio (el de `ea trabajo listar`).",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Limpiar worktree propio",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_listar_diario",
+      "description": "Lista eventos del diario, opcionalmente filtrados por trabajo, actor o rango de fechas. Los más recientes primero, 20 por defecto y como mucho 50 (10 y 20 para el agente local).",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "trabajo": {
+            "description": "Limita el diario a los eventos asociados a un trabajo concreto.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actor": {
+            "description": "Limita el diario a los eventos de un actor concreto.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "desde": {
+            "description": "Fecha/hora desde la que listar (RFC3339 o AAAA-MM-DD, UTC).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasta": {
+            "description": "Fecha/hora hasta la que listar (RFC3339 o AAAA-MM-DD, UTC).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limite": {
+            "description": "Número máximo de eventos a devolver, los más recientes primero.\nPor defecto 20, como mucho 50 (10 y 20 para el agente local).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Listar diario",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ea_listar_equipos",
+      "description": "Lista los equipos de agentes (spec 019) con su estado, sus miembros (agente, rol y si están despiertos) y cuántos trabajos tienen; los más recientes primero. Solo lectura: despertar o dormir un equipo es del usuario (`ea equipo`).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "title": "Listar equipos",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ea_listar_trabajos",
+      "description": "Lista trabajos del bus (misiones, obras y rutinas), opcionalmente filtrados por estado o modo. Los más recientes primero, 20 por defecto y como mucho 50 (10 y 20 para el agente local). Solo lectura: crear o decidir trabajo se hace con la CLI (`ea trabajo`) y las skills /mision, /obra, /rutina y /revisar.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "estado": {
+            "description": "Filtra por estado: en_cola, ejecutando, en_revision, en_espera,\ncerrado o cancelado. Sin este argumento, trabajos en cualquier estado.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modo": {
+            "description": "Filtra por modo: mision, obra o rutina.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limite": {
+            "description": "Número máximo de trabajos a devolver, los más recientes primero.\nPor defecto 20, como mucho 50 (10 y 20 para el agente local).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Listar trabajos",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ea_programar_rutina",
+      "description": "[Riesgo: mutación reversible] Programa una rutina registrada con un timer de systemd --user (ea-rutina@<slug>.timer con OnCalendar=<calendario>): a cada hora el timer solo crea el trabajo de la rutina (ea rutina lanzar), que ejecuta el agente local. Si ya tenía horario, lo sustituye. NO lo programa: con simular=true valida el calendario con systemd-analyze y describe lo que haría, con las próximas 3 ejecuciones; sin él encola una propuesta que el usuario debe aceptar (terminal o panel web). Se deshace con ea_desprogramar_rutina.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "slug",
+          "calendario"
+        ],
+        "type": "object",
+        "properties": {
+          "slug": {
+            "description": "Nombre (slug) de una rutina registrada, p. ej. \"revision-diaria\".",
+            "type": "string"
+          },
+          "calendario": {
+            "description": "Expresión `OnCalendar` de systemd, p. ej. \"*-*-* 08:00:00\" (cada día a\nlas 8), \"Mon *-*-* 09:00\" (los lunes) o \"daily\". Una sola línea: sin\nsaltos de línea ni otros caracteres de control, sin `%` ni `\\`; como\nmucho 200 caracteres. La valida `systemd-analyze calendar`.",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría (con las próximas 3\nejecuciones). Si es false (por defecto), encola una propuesta que el\nusuario debe aceptar: nada se programa aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Programar rutina",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_promover_nota",
+      "description": "[Riesgo: mutación reversible] Propone copiar una nota de TU región a la región compartida de la bóveda. NO la copia: con simular=true lo describe; sin él encola una propuesta que solo el usuario puede aceptar (la promoción la decide el usuario, nunca un agente).",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "ruta"
+        ],
+        "type": "object",
+        "properties": {
+          "ruta": {
+            "description": "Nota de tu región que propones llevar a la región compartida.",
+            "type": "string"
+          },
+          "destino": {
+            "description": "Ruta de destino dentro de \"compartida\" (por defecto, la misma que tiene\nen tu región).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se copia aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Proponer promoción de nota",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_registrar_rutina",
+      "description": "[Riesgo: mutación reversible] Registra una rutina nueva o una versión nueva de una registrada (p. ej. la corrección tras un paquete de corrección), con su definición TOML completa: la versión debe ser mayor que la registrada. No lanza la rutina. NO lo registra: con simular=true lo describe, con el diff frente a la versión registrada y el criterio resultante; sin él encola una propuesta que el usuario debe aceptar (terminal o panel web).",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "toml"
+        ],
+        "type": "object",
+        "properties": {
+          "toml": {
+            "description": "La definición completa de la rutina en TOML ([rutina] con slug,\nversion, worktree absoluto y criterio_exito; [entradas]; [[pasos]]),\ncomo la que se pasaría a `ea rutina registrar`. Para corregir una\nrutina, la versión debe ser mayor que la registrada. Como mucho 64 KiB.",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría (diff frente a la versión\nregistrada y criterio resultante). Si es false (por defecto), encola\nuna propuesta que el usuario debe aceptar: nada se registra aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Registrar rutina",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_reiniciar_servicio",
+      "description": "[Riesgo: mutación reversible] Reinicia un servicio del ecosistema (lista cerrada: llama-server, ea-mcp, ea-orchestrator, ea-web). NO lo ejecuta: con simular=true lo describe; sin él encola una propuesta que el usuario debe aceptar.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "servicio"
+        ],
+        "type": "object",
+        "properties": {
+          "servicio": {
+            "description": "Servicio de la lista cerrada: llama-server, ea-mcp,\nea-orchestrator o ea-web.",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Reiniciar servicio",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_restaurar_rutina",
+      "description": "[Riesgo: mutación reversible] Restaura una rutina retirada: devuelve su TOML de la papelera a rutinas_dir, y vuelve a listarse y a poder lanzarse. No vuelve a programar su timer (eso es ea_programar_rutina). NO lo hace: con simular=true lo describe; sin él encola una propuesta que el usuario debe aceptar (terminal o panel web).",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "slug"
+        ],
+        "type": "object",
+        "properties": {
+          "slug": {
+            "description": "Nombre (slug) de la rutina, p. ej. \"revision-diaria\".",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Restaurar rutina",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_retirar_rutina",
+      "description": "[Riesgo: mutación reversible] Retira una rutina: mueve su TOML a la papelera de rutinas_dir y desprograma su timer, si lo tiene. Deja de listarse y de poder lanzarse; sus versiones siguen en SQLite. Se deshace con ea_restaurar_rutina. NO lo hace: con simular=true lo describe; sin él encola una propuesta que el usuario debe aceptar (terminal o panel web).",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "slug"
+        ],
+        "type": "object",
+        "properties": {
+          "slug": {
+            "description": "Nombre (slug) de la rutina, p. ej. \"revision-diaria\".",
+            "type": "string"
+          },
+          "simular": {
+            "description": "Si es true, solo describe lo que se haría. Si es false (por defecto),\nencola una propuesta que el usuario debe aceptar: nada se ejecuta aquí.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "title": "Retirar rutina",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "ea_status",
+      "description": "Resumen del estado del ecosistema: orquestador, trabajos del bus por estado, colas, semáforos de worktree, equipos despiertos con la presencia de los agentes y los últimos eventos del diario. Primer vistazo antes de profundizar con las otras herramientas.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "title": "Estado del ecosistema",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ea_ver_equipo",
+      "description": "Un equipo de agentes: objetivo, miembros con su presencia (despierto, en qué trabajo) y las entradas de su cola de órdenes o de revisión, y los últimos trabajos con su estado y su último informe en una línea. Solo lectura.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "id"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Identificador del equipo (el que devuelve ea_listar_equipos).",
+            "type": "string"
+          },
+          "trabajos": {
+            "description": "Cuántos de los últimos trabajos del equipo incluir (por defecto 10,\ncomo mucho 20).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "annotations": {
+        "title": "Ver equipo",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "ea_ver_trabajo",
+      "description": "Muestra el detalle de un trabajo del bus: orden (objetivo, criterio, fases), estado actual e informe si ya lo hay. Solo lectura.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "required": [
+          "id"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Identificador del trabajo (el que devuelve ea_listar_trabajos).",
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "title": "Ver trabajo",
+        "readOnlyHint": true
+      }
+    }
+  ]
+}
+== llamadas
+>> claude-code ea_status {}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "orquestador": {
+    "vivo": false,
+    "ultimo_latido": null,
+    "trabajadores": null,
+    "estado": "sin señal (ningún heartbeat registrado todavía)"
+  },
+  "trabajos_por_estado": {
+    "cerrado": 1,
+    "en_cola": 1
+  },
+  "colas": {
+    "claude-code": [],
+    "modelo-local": [
+      "20260101T000002-00000002"
+    ]
+  },
+  "semaforos": [],
+  "equipos": [],
+  "presencias": [],
+  "ultimos_eventos": []
+}
+>> claude-code ea_listar_trabajos {}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "trabajos": [
+    {
+      "id": "20260101T000002-00000002",
+      "modo": "obra",
+      "titulo": "una obra",
+      "estado": "en_cola",
+      "fase_actual": 1,
+      "fases": 2,
+      "iteracion": 0,
+      "actualizado": "<FECHA>",
+      "creado_por": "prueba"
+    },
+    {
+      "id": "20260101T000001-00000001",
+      "modo": "mision",
+      "titulo": "una misión",
+      "estado": "cerrado",
+      "fase_actual": null,
+      "fases": 0,
+      "iteracion": 0,
+      "actualizado": "<FECHA>",
+      "creado_por": "prueba"
+    }
+  ]
+}
+>> claude-code ea_listar_trabajos {"estado":"cerrado"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "trabajos": [
+    {
+      "id": "20260101T000001-00000001",
+      "modo": "mision",
+      "titulo": "una misión",
+      "estado": "cerrado",
+      "fase_actual": null,
+      "fases": 0,
+      "iteracion": 0,
+      "actualizado": "<FECHA>",
+      "creado_por": "prueba"
+    }
+  ]
+}
+>> claude-code ea_listar_trabajos {"modo":"obra","limite":1}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "trabajos": [
+    {
+      "id": "20260101T000002-00000002",
+      "modo": "obra",
+      "titulo": "una obra",
+      "estado": "en_cola",
+      "fase_actual": 1,
+      "fases": 2,
+      "iteracion": 0,
+      "actualizado": "<FECHA>",
+      "creado_por": "prueba"
+    }
+  ]
+}
+>> qwen-code-mcp-client ea_ver_trabajo {"id":"20260101T000001-00000001"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "orden": {
+    "id": "20260101T000001-00000001",
+    "modo": "mision",
+    "titulo": "una misión",
+    "worktree": "<TMP>",
+    "objetivo": "o",
+    "criterio_exito": "true",
+    "fases": [],
+    "revisar_cada": null,
+    "topes": {
+      "turnos": 30,
+      "tiempo_s": 900,
+      "llamadas_herramienta": 60,
+      "iteraciones": 5,
+      "tiempo_criterio_s": 120
+    },
+    "rutina": null,
+    "notas_revision": [],
+    "creada_en": "<FECHA>",
+    "creada_por": "prueba"
+  },
+  "estado": {
+    "estado": "cerrado",
+    "fase_actual": null,
+    "iteracion": 0,
+    "actualizado_en": "<FECHA>",
+    "detalle": null
+  },
+  "informe": {
+    "resultado": "terminado",
+    "evidencia": "",
+    "commit_inicio": null,
+    "diff_stat": null,
+    "motivo": null,
+    "fases_hechas": 0,
+    "duracion_s": 12,
+    "obra_completa": false,
+    "fases": [],
+    "diff": null
+  },
+  "eventos": []
+}
+>> claude-code ea_ver_trabajo {"id":"no-existe"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "no existe el trabajo no-existe", data: None })
+>> ea-orchestrator ea_listar_equipos {}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "equipos": [],
+  "total": 0
+}
+>> claude-code ea_ver_equipo {"id":"no-existe","trabajos":3}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "no existe el trabajo equipo no-existe", data: None })
+>> claude-code ea_listar_diario {"limite":3}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "eventos": [
+    {
+      "id": 8,
+      "cuando": "<FECHA>",
+      "actor": "claude-code",
+      "accion": "mcp_ver_equipo",
+      "trabajo": null,
+      "resultado": "error",
+      "duracion_ms": <MS>,
+      "detalle": "{\"args\":{\"id\":\"no-existe\",\"trabajos\":3},\"error\":\"no existe el trabajo equipo no-existe\",\"agente\":\"claude-code\"}"
+    },
+    {
+      "id": 7,
+      "cuando": "<FECHA>",
+      "actor": "orquestador",
+      "accion": "mcp_listar_equipos",
+      "trabajo": null,
+      "resultado": "ok",
+      "duracion_ms": <MS>,
+      "detalle": "{\"args\":{}}"
+    },
+    {
+      "id": 6,
+      "cuando": "<FECHA>",
+      "actor": "claude-code",
+      "accion": "mcp_ver_trabajo",
+      "trabajo": "no-existe",
+      "resultado": "error",
+      "duracion_ms": <MS>,
+      "detalle": "{\"args\":{\"id\":\"no-existe\"},\"error\":\"no existe el trabajo no-existe\",\"agente\":\"claude-code\"}"
+    }
+  ]
+}
+>> claude-code ea_listar_diario {"actor":"qwen-code","trabajo":"20260101T000001-00000001"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "eventos": []
+}
+>> claude-code ea_listar_diario {"desde":"2026-13-01"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "fecha inválida: '2026-13-01' (usa RFC3339 o AAAA-MM-DD)", data: None })
+>> claude-code ea_biblioteca {"agente":"codex"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "total": 1,
+  "mostrados": 1,
+  "elementos": [
+    {
+      "id": "codex/mcp/usuario/docs",
+      "agente": "codex",
+      "tipo": "mcp",
+      "ambito": "usuario",
+      "nombre": "docs",
+      "categoria": "usuario",
+      "activado": "si",
+      "mecanismo": "campo",
+      "descripcion": "",
+      "usos": 0
+    }
+  ],
+  "avisos": []
+}
+>> qwen-code-mcp-client ea_biblioteca {"id":"codex/mcp/usuario/docs"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "elemento": {
+    "id": "codex/mcp/usuario/docs",
+    "agente": "codex",
+    "tipo": "mcp",
+    "ambito": "usuario",
+    "nombre": "docs",
+    "descripcion": "",
+    "ruta": "<TMP>/home/.codex/config.toml",
+    "activado": "si",
+    "mecanismo": "campo",
+    "categoria": "usuario",
+    "version_formato": "0.159.3",
+    "def_mcp": {
+      "transporte": "stdio",
+      "comando": "docs-mcp",
+      "args": [],
+      "url": null,
+      "env": [],
+      "headers": []
+    }
+  },
+  "uso": {
+    "total": 0,
+    "ultimo": null,
+    "por": []
+  }
+}
+>> claude-code ea_biblioteca {"tipo":"nada"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "tipo desconocido \"nada\" (uno de: skill, plugin, subagente, mcp, comando, extension)", data: None })
+>> ea-orchestrator ea_biblioteca {"agente":"codex","activado":false}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "total": 0,
+  "mostrados": 0,
+  "elementos": [],
+  "avisos": []
+}
+>> claude-code ea_escribir_nota {"titulo":"Puerto del MCP","contenido":"El puerto es 8765.","simular":true}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "simulado": true,
+  "ruta": "claude-code/puerto-del-mcp.md",
+  "existe": false,
+  "aviso": "No se ha escrito nada. Repite sin simular para escribirla."
+}
+>> claude-code ea_escribir_nota {"titulo":"Puerto del MCP","contenido":"El puerto es 8765.","etiquetas":["mcp"],"trabajo":"20260101T000001-00000001"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "escrita": true,
+  "ruta": "claude-code/puerto-del-mcp.md",
+  "region": "claude-code",
+  "bytes": 241,
+  "creada": true,
+  "aviso": "Está en tu región. Llevarla a la región compartida lo decide el usuario: propónlo con ea_promover_nota."
+}
+>> claude-code ea_escribir_nota {"titulo":"Puerto del MCP","contenido":"otra vez"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "escrita": true,
+  "ruta": "claude-code/puerto-del-mcp-2.md",
+  "region": "claude-code",
+  "bytes": 193,
+  "creada": true,
+  "aviso": "Está en tu región. Llevarla a la región compartida lo decide el usuario: propónlo con ea_promover_nota."
+}
+>> qwen-code-mcp-client ea_escribir_nota {"titulo":"Local","contenido":"del ejecutor","ruta":"notas/local.md"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "escrita": true,
+  "ruta": "modelo-local/notas/local.md",
+  "region": "modelo-local",
+  "bytes": 190,
+  "creada": true,
+  "aviso": "Está en tu región. Llevarla a la región compartida lo decide el usuario: propónlo con ea_promover_nota."
+}
+>> ea-orchestrator ea_escribir_nota {"titulo":"No","contenido":"no"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "'ea_escribir_nota' (reversible) no está disponible para el actor 'orquestador'", data: None })
+>> lo-que-sea ea_escribir_nota {"titulo":"No","contenido":"no","simular":true}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "'ea_escribir_nota' (reversible) no está disponible para el actor 'desconocido'", data: None })
+>> qwen-code-mcp-client ea_buscar_notas {"consulta":"puerto"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "total": 2,
+  "maximo_por_busqueda": 5,
+  "resultados": [
+    {
+      "ruta": "claude-code/puerto-del-mcp-2.md",
+      "titulo": "Puerto del MCP",
+      "region": "claude-code",
+      "autor": "claude-code",
+      "actualizada": "<FECHA>",
+      "fragmento": "otra vez\n"
+    },
+    {
+      "ruta": "claude-code/puerto-del-mcp.md",
+      "titulo": "Puerto del MCP",
+      "region": "claude-code",
+      "autor": "claude-code",
+      "actualizada": "<FECHA>",
+      "fragmento": "El «puerto» es 8765.\n"
+    }
+  ]
+}
+>> claude-code ea_buscar_notas {"consulta":"local","region":"modelo-local","limite":1}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "total": 1,
+  "maximo_por_busqueda": 20,
+  "resultados": [
+    {
+      "ruta": "modelo-local/notas/local.md",
+      "titulo": "Local",
+      "region": "modelo-local",
+      "autor": "modelo-local",
+      "actualizada": "<FECHA>",
+      "fragmento": "del ejecutor\n"
+    }
+  ]
+}
+>> claude-code ea_leer_nota {"ruta":"claude-code/puerto-del-mcp.md"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "ruta": "claude-code/puerto-del-mcp.md",
+  "region": "claude-code",
+  "titulo": "Puerto del MCP",
+  "autor": "claude-code",
+  "origen": "trabajo:20260101T000001-00000001",
+  "promocion": "ninguna",
+  "actualizada": "<FECHA>",
+  "tags": [
+    "mcp"
+  ],
+  "aviso_cabecera": null,
+  "desde": 0,
+  "total_caracteres": 19,
+  "truncado": false,
+  "siguiente_desde": null,
+  "contenido": "El puerto es 8765.\n"
+}
+>> qwen-code-mcp-client ea_leer_nota {"ruta":"claude-code/no.md","desde":2}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "la nota no existe: claude-code/no.md", data: None })
+>> claude-code ea_promover_nota {"ruta":"claude-code/puerto-del-mcp.md","simular":true}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "simulado": true,
+  "herramienta": "ea_promover_nota",
+  "riesgo": "reversible",
+  "argumentos": {
+    "ruta": "claude-code/puerto-del-mcp.md"
+  },
+  "simulacion": "Copiaría la nota «Puerto del MCP» (de claude-code, 241 bytes) de claude-code/puerto-del-mcp.md a compartida/puerto-del-mcp.md en la región compartida y marcaría ambas como promovidas. El original se conserva. Desde ahí la leen todos los agentes como contenido de confianza.",
+  "aviso": "No se ha hecho nada. Para pedirlo, repite sin simular: se encolará una propuesta que el usuario decide."
+}
+>> qwen-code-mcp-client ea_promover_nota {"ruta":"modelo-local/notas/local.md","destino":"notas/local.md"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "ejecutado": false,
+  "propuesta": {
+    "id": 1,
+    "estado": "pendiente",
+    "nueva": true
+  },
+  "herramienta": "ea_promover_nota",
+  "riesgo": "reversible",
+  "argumentos": {
+    "ruta": "modelo-local/notas/local.md",
+    "destino": "notas/local.md"
+  },
+  "simulacion": "Copiaría la nota «Local» (de modelo-local, 190 bytes) de modelo-local/notas/local.md a compartida/notas/local.md en la región compartida y marcaría ambas como promovidas. El original se conserva. Desde ahí la leen todos los agentes como contenido de confianza.",
+  "aviso": "NO se ha ejecutado nada: queda pendiente de la confirmación del usuario. El usuario la acepta con `ea propuestas decidir 1 --aceptar` o en el panel web (◇)."
+}
+>> lo-que-sea ea_promover_nota {"ruta":"claude-code/puerto-del-mcp.md"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "'ea_promover_nota' (reversible) no está disponible para el actor 'desconocido'", data: None })
+>> claude-code ea_encolar_rutina {"slug":"nocturna","simular":true}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "simulado": true,
+  "herramienta": "ea_encolar_rutina",
+  "riesgo": "reversible",
+  "argumentos": {
+    "slug": "nocturna"
+  },
+  "simulacion": "Lanzaría la rutina 'nocturna' (versión 1) con las entradas por defecto por el bus del orquestador: crea un trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla y tú lo confirmas. Criterio que ejecutará el sistema: `true`.",
+  "aviso": "No se ha hecho nada. Para pedirlo, repite sin simular: se encolará una propuesta que el usuario decide."
+}
+>> claude-code ea_encolar_rutina {"slug":"nocturna","entradas":{}}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "ejecutado": false,
+  "propuesta": {
+    "id": 2,
+    "estado": "pendiente",
+    "nueva": true
+  },
+  "herramienta": "ea_encolar_rutina",
+  "riesgo": "reversible",
+  "argumentos": {
+    "slug": "nocturna"
+  },
+  "simulacion": "Lanzaría la rutina 'nocturna' (versión 1) con las entradas por defecto por el bus del orquestador: crea un trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla y tú lo confirmas. Criterio que ejecutará el sistema: `true`.",
+  "aviso": "NO se ha ejecutado nada: queda pendiente de la confirmación del usuario. El usuario la acepta con `ea propuestas decidir 2 --aceptar` o en el panel web (◇)."
+}
+>> claude-code ea_encolar_rutina {"slug":"nocturna"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "ejecutado": false,
+  "propuesta": {
+    "id": 2,
+    "estado": "pendiente",
+    "nueva": false
+  },
+  "herramienta": "ea_encolar_rutina",
+  "riesgo": "reversible",
+  "argumentos": {
+    "slug": "nocturna"
+  },
+  "simulacion": "Lanzaría la rutina 'nocturna' (versión 1) con las entradas por defecto por el bus del orquestador: crea un trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla y tú lo confirmas. Criterio que ejecutará el sistema: `true`.",
+  "aviso": "NO se ha ejecutado nada: queda pendiente de la confirmación del usuario. El usuario la acepta con `ea propuestas decidir 2 --aceptar` o en el panel web (◇)."
+}
+>> claude-code ea_encolar_rutina {"slug":"nocturna","entradas":{"x":"1"},"simular":true}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: la rutina no declara la entrada \"x\"", data: None })
+>> qwen-code-mcp-client ea_encolar_rutina {"slug":"nocturna"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "'ea_encolar_rutina' (reversible) no está disponible para el actor 'modelo-local'", data: None })
+>> claude-code ea_registrar_rutina {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":true}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "simulado": true,
+  "herramienta": "ea_registrar_rutina",
+  "riesgo": "reversible",
+  "argumentos": {
+    "toml": "[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+  },
+  "simulacion": "Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <TMP>/repo. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"<TMP>/repo\"\n criterio_exito = \"true\"\n",
+  "aviso": "No se ha hecho nada. Para pedirlo, repite sin simular: se encolará una propuesta que el usuario decide."
+}
+>> claude-code ea_registrar_rutina {"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "ejecutado": false,
+  "propuesta": {
+    "id": 3,
+    "estado": "pendiente",
+    "nueva": true
+  },
+  "herramienta": "ea_registrar_rutina",
+  "riesgo": "reversible",
+  "argumentos": {
+    "toml": "[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"
+  },
+  "simulacion": "Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <TMP>/repo. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"<TMP>/repo\"\n criterio_exito = \"true\"\n",
+  "aviso": "NO se ha ejecutado nada: queda pendiente de la confirmación del usuario. El usuario la acepta con `ea propuestas decidir 3 --aceptar` o en el panel web (◇)."
+}
+>> claude-code ea_registrar_rutina {"toml":"[rutina]\n"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: rutina inválida: TOML parse error at line 1, column 1\n  |\n1 | [rutina]\n  | ^^^^^^^^\nmissing field `slug`\n", data: None })
+>> claude-code ea_eliminar_rutina {"slug":"retirada","simular":true}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "simulado": true,
+  "herramienta": "ea_eliminar_rutina",
+  "riesgo": "irreversible",
+  "argumentos": {
+    "slug": "retirada"
+  },
+  "simulacion": "Borraría PARA SIEMPRE la copia retirada de la rutina 'retirada' (rutinas_dir/.papelera/retirada.toml, 9 bytes, 1 líneas): ese fichero no se puede recuperar. Sus versiones registradas siguen en SQLite como historial; registrar una versión nueva la vuelve a poner en uso.",
+  "aviso": "No se ha hecho nada. Para pedirlo, repite sin simular: se encolará una propuesta que el usuario decide."
+}
+>> claude-code ea_eliminar_rutina {"slug":"retirada"}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "ejecutado": false,
+  "propuesta": {
+    "id": 4,
+    "estado": "pendiente",
+    "nueva": true
+  },
+  "herramienta": "ea_eliminar_rutina",
+  "riesgo": "irreversible",
+  "argumentos": {
+    "slug": "retirada"
+  },
+  "simulacion": "Borraría PARA SIEMPRE la copia retirada de la rutina 'retirada' (rutinas_dir/.papelera/retirada.toml, 9 bytes, 1 líneas): ese fichero no se puede recuperar. Sus versiones registradas siguen en SQLite como historial; registrar una versión nueva la vuelve a poner en uso.",
+  "aviso": "NO se ha ejecutado nada: queda pendiente de la confirmación del usuario. Es irreversible: solo se confirma desde una terminal (`ea propuestas decidir 4 --aceptar`)."
+}
+>> claude-code ea_restaurar_rutina {"slug":"retirada","simular":false}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "ejecutado": false,
+  "propuesta": {
+    "id": 5,
+    "estado": "pendiente",
+    "nueva": true
+  },
+  "herramienta": "ea_restaurar_rutina",
+  "riesgo": "reversible",
+  "argumentos": {
+    "slug": "retirada"
+  },
+  "simulacion": "Restauraría la rutina 'retirada': devuelve rutinas_dir/.papelera/retirada.toml (9 bytes) a rutinas_dir/retirada.toml; vuelve a listarse, pero no está registrada: para lanzarla hay que registrarla. No vuelve a programar su timer: si lo quieres, prográmalo después (ea_programar_rutina).",
+  "aviso": "NO se ha ejecutado nada: queda pendiente de la confirmación del usuario. El usuario la acepta con `ea propuestas decidir 5 --aceptar` o en el panel web (◇)."
+}
+>> claude-code ea_restaurar_rutina {"slug":"nocturna"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "la acción no aplica: la rutina 'nocturna' no está retirada", data: None })
+>> claude-code ea_retirar_rutina {"slug":"../x"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: slug de rutina inválido: '../x'", data: None })
+>> claude-code ea_desprogramar_rutina {"slug":"a b","simular":true}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: slug de rutina inválido: 'a b'", data: None })
+>> claude-code ea_programar_rutina {"slug":"../x","calendario":"a%b","simular":true}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: slug de rutina inválido: '../x'", data: None })
+>> claude-code ea_reiniciar_servicio {"servicio":"sshd"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: servicio 'sshd' fuera de la lista cerrada (llama-server, ea-mcp, ea-orchestrator, ea-web)", data: None })
+>> ea-orchestrator ea_reiniciar_servicio {"servicio":"ea-mcp","simular":true}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "'ea_reiniciar_servicio' (reversible) no está disponible para el actor 'orquestador'", data: None })
+>> claude-code ea_limpiar_worktree {"trabajo":"20260101T000001-00000001","simular":true}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "la acción no aplica: el trabajo 20260101T000001-00000001 no tiene worktree propio vivo (nada que limpiar)", data: None })
+>> claude-code ea_limpiar_worktree {"trabajo":"../x"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: id de trabajo inválido: '../x'", data: None })
+>> claude-code ea_lanzar_sesion {"agente":"emacs","herramientas":["x"],"simular":true}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: agente desconocido 'emacs' (uno de: claude-code, qwen-code, codex, opencode, antigravity)", data: None })
+>> claude-code ea_lanzar_sesion {"agente":"codex","herramientas":[],"directorio":"/tmp"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: hay que elegir al menos una herramienta de la biblioteca", data: None })
+>> claude-code ea_activar_herramienta {"elemento":"../../etc/passwd","simular":true}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: id de elemento inválido \"../../etc/passwd\": tipo desconocido", data: None })
+>> claude-code ea_desactivar_herramienta {"elemento":"x"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "argumentos inválidos: id de elemento inválido \"x\": se esperan cuatro partes: agente/tipo/ámbito/nombre", data: None })
+>> qwen-code-mcp-client ea_activar_herramienta {"elemento":"codex/mcp/usuario/docs"}
+<< error McpError(ErrorData { code: ErrorCode(-32603), message: "'ea_activar_herramienta' (reversible) no está disponible para el actor 'modelo-local'", data: None })
+>> claude-code ea_ver_trabajo {}
+<< {"content":[{"type":"text","text":null}],"isError":true}
+failed to deserialize parameters: missing field `id`
+>> claude-code ea_encolar_rutina {"slug":3}
+<< {"content":[{"type":"text","text":null}],"isError":true}
+failed to deserialize parameters: invalid type: integer `3`, expected a string
+>> claude-code ea_inexistente {}
+<< error McpError(ErrorData { code: ErrorCode(-32602), message: "tool not found", data: None })
+>> ea-orchestrator ea_status {}
+<< {"content":[{"type":"text","text":null}],"isError":false}
+{
+  "orquestador": {
+    "vivo": false,
+    "ultimo_latido": null,
+    "trabajadores": null,
+    "estado": "sin señal (ningún heartbeat registrado todavía)"
+  },
+  "trabajos_por_estado": {
+    "cerrado": 1,
+    "en_cola": 1
+  },
+  "colas": {
+    "claude-code": [],
+    "modelo-local": [
+      "20260101T000002-00000002"
+    ]
+  },
+  "semaforos": [],
+  "equipos": [],
+  "presencias": [],
+  "ultimos_eventos": [
+    {
+      "id": 57,
+      "cuando": "<FECHA>",
+      "actor": "modelo-local",
+      "accion": "mcp_activar_herramienta",
+      "trabajo": null,
+      "resultado": "error",
+      "duracion_ms": <MS>,
+      "detalle": "{\"args\":{\"elemento\":\"codex/mcp/usuario/docs\",\"simular\":false},\"error\":\"'ea_activar_herramienta' (reversible) no está disponible para el actor 'modelo-local'\",\"agente\":\"qwen-code\"}"
+    },
+    {
+      "id": 56,
+      "cuando": "<FECHA>",
+      "actor": "claude-code",
+      "accion": "mcp_desactivar_herramienta",
+      "trabajo": null,
+      "resultado": "error",
+      "duracion_ms": <MS>,
+      "detalle": "{\"args\":{\"elemento\":\"x\",\"simular\":false},\"error\":\"argumentos inválidos: id de elemento inválido \\\"x\\\": se esperan cuatro partes: agente/tipo/ámbito/nombre\",\"agente\":\"claude-code\"}"
+    },
+    {
+      "id": 55,
+      "cuando": "<FECHA>",
+      "actor": "claude-code",
+      "accion": "mcp_activar_herramienta_simulada",
+      "trabajo": null,
+      "resultado": "error",
+      "duracion_ms": <MS>,
+      "detalle": "{\"args\":{\"elemento\":\"../../etc/passwd\",\"simular\":true},\"error\":\"argumentos inválidos: id de elemento inválido \\\"../../etc/passwd\\\": tipo desconocido\",\"agente\":\"claude-code\"}"
+    },
+    {
+      "id": 54,
+      "cuando": "<FECHA>",
+      "actor": "claude-code",
+      "accion": "mcp_lanzar_sesion",
+      "trabajo": null,
+      "resultado": "error",
+      "duracion_ms": <MS>,
+      "detalle": "{\"args\":{\"agente\":\"codex\",\"herramientas\":[],\"directorio\":\"/tmp\",\"simular\":false},\"error\":\"argumentos inválidos: hay que elegir al menos una herramienta de la biblioteca\",\"agente\":\"claude-code\"}"
+    },
+    {
+      "id": 53,
+      "cuando": "<FECHA>",
+      "actor": "claude-code",
+      "accion": "mcp_lanzar_sesion_simulada",
+      "trabajo": null,
+      "resultado": "error",
+      "duracion_ms": <MS>,
+      "detalle": "{\"args\":{\"agente\":\"emacs\",\"herramientas\":[\"x\"],\"simular\":true},\"error\":\"argumentos inválidos: agente desconocido 'emacs' (uno de: claude-code, qwen-code, codex, opencode, antigravity)\",\"agente\":\"claude-code\"}"
+    }
+  ]
+}
+== diario
+1 claude-code mcp_status trabajo=None Some(Ok) {"args":{},"agente":"claude-code"}
+2 claude-code mcp_listar_trabajos trabajo=None Some(Ok) {"args":{"estado":null,"modo":null,"limite":null},"agente":"claude-code"}
+3 claude-code mcp_listar_trabajos trabajo=None Some(Ok) {"args":{"estado":"cerrado","modo":null,"limite":null},"agente":"claude-code"}
+4 claude-code mcp_listar_trabajos trabajo=None Some(Ok) {"args":{"estado":null,"modo":"obra","limite":1},"agente":"claude-code"}
+5 modelo-local mcp_ver_trabajo trabajo=Some("20260101T000001-00000001") Some(Ok) {"args":{"id":"20260101T000001-00000001"},"agente":"qwen-code"}
+6 claude-code mcp_ver_trabajo trabajo=Some("no-existe") Some(Error) {"args":{"id":"no-existe"},"error":"no existe el trabajo no-existe","agente":"claude-code"}
+7 orquestador mcp_listar_equipos trabajo=None Some(Ok) {"args":{}}
+8 claude-code mcp_ver_equipo trabajo=None Some(Error) {"args":{"id":"no-existe","trabajos":3},"error":"no existe el trabajo equipo no-existe","agente":"claude-code"}
+9 claude-code mcp_listar_diario trabajo=None Some(Ok) {"args":{"trabajo":null,"actor":null,"desde":null,"hasta":null,"limite":3},"agente":"claude-code"}
+10 claude-code mcp_listar_diario trabajo=Some("20260101T000001-00000001") Some(Ok) {"args":{"trabajo":"20260101T000001-00000001","actor":"qwen-code","desde":null,"hasta":null,"limite":null},"agente":"claude-code"}
+11 claude-code mcp_listar_diario trabajo=None Some(Error) {"args":{"trabajo":null,"actor":null,"desde":"2026-13-01","hasta":null,"limite":null},"error":"fecha inválida: '2026-13-01' (usa RFC3339 o AAAA-MM-DD)","agente":"claude-code"}
+12 claude-code mcp_biblioteca trabajo=None Some(Ok) {"args":{"id":null,"agente":"codex","tipo":null,"categoria":null,"activado":null,"limite":null},"agente":"claude-code"}
+13 modelo-local mcp_biblioteca trabajo=None Some(Ok) {"args":{"id":"codex/mcp/usuario/docs","agente":null,"tipo":null,"categoria":null,"activado":null,"limite":null},"agente":"qwen-code"}
+14 claude-code mcp_biblioteca trabajo=None Some(Error) {"args":{"id":null,"agente":null,"tipo":"nada","categoria":null,"activado":null,"limite":null},"error":"tipo desconocido \"nada\" (uno de: skill, plugin, subagente, mcp, comando, extension)","agente":"claude-code"}
+15 orquestador mcp_biblioteca trabajo=None Some(Ok) {"args":{"id":null,"agente":"codex","tipo":null,"categoria":null,"activado":false,"limite":null}}
+16 claude-code mcp_escribir_nota_simulada trabajo=None Some(Ok) {"args":{"titulo":"Puerto del MCP","bytes":18,"ruta":null,"etiquetas":null,"trabajo":null,"sobrescribir":null,"simular":true},"agente":"claude-code"}
+17 claude-code boveda_escritura trabajo=Some("20260101T000001-00000001") Some(Ok) {"ruta":"claude-code/puerto-del-mcp.md","region":"claude-code","bytes":241,"modo":"creada","titulo":"Puerto del MCP","origen":"trabajo:20260101T000001-00000001","huella":"<HUELLA>","indice":true}
+18 claude-code boveda_escritura trabajo=None Some(Ok) {"ruta":"claude-code/puerto-del-mcp-2.md","region":"claude-code","bytes":193,"modo":"creada","titulo":"Puerto del MCP","origen":"manual","huella":"<HUELLA>","indice":true}
+19 modelo-local boveda_escritura trabajo=None Some(Ok) {"ruta":"modelo-local/notas/local.md","region":"modelo-local","bytes":190,"modo":"creada","titulo":"Local","origen":"manual","huella":"<HUELLA>","indice":true}
+20 orquestador mcp_escribir_nota_denegada trabajo=None Some(Error) {"args":{"titulo":"No","bytes":2,"ruta":null,"etiquetas":null,"trabajo":null,"sobrescribir":null,"simular":false},"error":"'ea_escribir_nota' (reversible) no está disponible para el actor 'orquestador'"}
+21 desconocido mcp_escribir_nota_denegada trabajo=None Some(Error) {"args":{"titulo":"No","bytes":2,"ruta":null,"etiquetas":null,"trabajo":null,"sobrescribir":null,"simular":true},"error":"'ea_escribir_nota' (reversible) no está disponible para el actor 'desconocido'","cliente":"lo-que-sea"}
+22 modelo-local mcp_buscar_notas trabajo=None Some(Ok) {"args":{"consulta":"puerto","region":null,"limite":null},"agente":"qwen-code"}
+23 claude-code mcp_buscar_notas trabajo=None Some(Ok) {"args":{"consulta":"local","region":"modelo-local","limite":1},"agente":"claude-code"}
+24 claude-code mcp_leer_nota trabajo=None Some(Ok) {"args":{"ruta":"claude-code/puerto-del-mcp.md","desde":null},"agente":"claude-code"}
+25 modelo-local mcp_leer_nota trabajo=None Some(Error) {"args":{"ruta":"claude-code/no.md","desde":2},"error":"la nota no existe: claude-code/no.md","agente":"qwen-code"}
+26 claude-code mcp_promover_nota_simulada trabajo=None Some(Ok) {"args":{"ruta":"claude-code/puerto-del-mcp.md","simular":true},"agente":"claude-code"}
+27 modelo-local propuesta_encolada trabajo=None Some(Ok) {"propuesta":1,"herramienta":"ea_promover_nota","riesgo":"reversible","argumentos":{"ruta":"modelo-local/notas/local.md","destino":"notas/local.md"},"simulacion":"Copiaría la nota «Local» (de modelo-local, 190 bytes) de modelo-local/notas/local.md a compartida/notas/local.md en la región compartida y marcaría ambas como promovidas. El original se conserva. Desde ahí la leen todos los agentes como contenido de confianza."}
+28 modelo-local mcp_promover_nota trabajo=None Some(Ok) {"args":{"ruta":"modelo-local/notas/local.md","destino":"notas/local.md","simular":false},"agente":"qwen-code"}
+29 desconocido mcp_promover_nota trabajo=None Some(Error) {"args":{"ruta":"claude-code/puerto-del-mcp.md","simular":false},"error":"'ea_promover_nota' (reversible) no está disponible para el actor 'desconocido'","cliente":"lo-que-sea"}
+30 claude-code mcp_encolar_rutina_simulada trabajo=None Some(Ok) {"args":{"slug":"nocturna","simular":true},"agente":"claude-code"}
+31 claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":2,"herramienta":"ea_encolar_rutina","riesgo":"reversible","argumentos":{"slug":"nocturna"},"simulacion":"Lanzaría la rutina 'nocturna' (versión 1) con las entradas por defecto por el bus del orquestador: crea un trabajo para el agente local, que la ejecuta y solo vuelve a Claude Code si falla y tú lo confirmas. Criterio que ejecutará el sistema: `true`."}
+32 claude-code mcp_encolar_rutina trabajo=None Some(Ok) {"args":{"slug":"nocturna","simular":false},"agente":"claude-code"}
+33 claude-code mcp_encolar_rutina trabajo=None Some(Ok) {"args":{"slug":"nocturna","simular":false},"agente":"claude-code"}
+34 claude-code mcp_encolar_rutina_simulada trabajo=None Some(Error) {"args":{"slug":"nocturna","entradas":{"x":"1"},"simular":true},"error":"argumentos inválidos: la rutina no declara la entrada \"x\"","agente":"claude-code"}
+35 modelo-local mcp_encolar_rutina trabajo=None Some(Error) {"args":{"slug":"nocturna","simular":false},"error":"'ea_encolar_rutina' (reversible) no está disponible para el actor 'modelo-local'","agente":"qwen-code"}
+36 claude-code mcp_registrar_rutina_simulada trabajo=None Some(Ok) {"args":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":true},"agente":"claude-code"}
+37 claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":3,"herramienta":"ea_registrar_rutina","riesgo":"reversible","argumentos":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n"},"simulacion":"Registraría la versión 2 de la rutina 'nocturna' (ahora está en la 1): la guarda en SQLite y copia el TOML a rutinas_dir/nocturna.toml, como `ea rutina registrar`. No lanza nada; la próxima ejecución usará esta versión. Worktree: <TMP>/repo. Criterio que ejecutará el sistema (entradas por defecto): `true`.\n\nCambios frente a la versión 1:\n [rutina]\n slug = \"nocturna\"\n-version = 1\n+version = 2\n worktree = \"<TMP>/repo\"\n criterio_exito = \"true\"\n"}
+38 claude-code mcp_registrar_rutina trabajo=None Some(Ok) {"args":{"toml":"[rutina]\nslug = \"nocturna\"\nversion = 2\nworktree = \"<TMP>/repo\"\ncriterio_exito = \"true\"\n[[pasos]]\ntexto = \"x\"\n","simular":false},"agente":"claude-code"}
+39 claude-code mcp_registrar_rutina trabajo=None Some(Error) {"args":{"toml":"[rutina]\n","simular":false},"error":"argumentos inválidos: rutina inválida: TOML parse error at line 1, column 1\n  |\n1 | [rutina]\n  | ^^^^^^^^\nmissing field `slug`\n","agente":"claude-code"}
+40 claude-code mcp_eliminar_rutina_simulada trabajo=None Some(Ok) {"args":{"slug":"retirada","simular":true},"agente":"claude-code"}
+41 claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":4,"herramienta":"ea_eliminar_rutina","riesgo":"irreversible","argumentos":{"slug":"retirada"},"simulacion":"Borraría PARA SIEMPRE la copia retirada de la rutina 'retirada' (rutinas_dir/.papelera/retirada.toml, 9 bytes, 1 líneas): ese fichero no se puede recuperar. Sus versiones registradas siguen en SQLite como historial; registrar una versión nueva la vuelve a poner en uso."}
+42 claude-code mcp_eliminar_rutina trabajo=None Some(Ok) {"args":{"slug":"retirada","simular":false},"agente":"claude-code"}
+43 claude-code propuesta_encolada trabajo=None Some(Ok) {"propuesta":5,"herramienta":"ea_restaurar_rutina","riesgo":"reversible","argumentos":{"slug":"retirada"},"simulacion":"Restauraría la rutina 'retirada': devuelve rutinas_dir/.papelera/retirada.toml (9 bytes) a rutinas_dir/retirada.toml; vuelve a listarse, pero no está registrada: para lanzarla hay que registrarla. No vuelve a programar su timer: si lo quieres, prográmalo después (ea_programar_rutina)."}
+44 claude-code mcp_restaurar_rutina trabajo=None Some(Ok) {"args":{"slug":"retirada","simular":false},"agente":"claude-code"}
+45 claude-code mcp_restaurar_rutina trabajo=None Some(Error) {"args":{"slug":"nocturna","simular":false},"error":"la acción no aplica: la rutina 'nocturna' no está retirada","agente":"claude-code"}
+46 claude-code mcp_retirar_rutina trabajo=None Some(Error) {"args":{"slug":"../x","simular":false},"error":"argumentos inválidos: slug de rutina inválido: '../x'","agente":"claude-code"}
+47 claude-code mcp_desprogramar_rutina_simulada trabajo=None Some(Error) {"args":{"slug":"a b","simular":true},"error":"argumentos inválidos: slug de rutina inválido: 'a b'","agente":"claude-code"}
+48 claude-code mcp_programar_rutina_simulada trabajo=None Some(Error) {"args":{"slug":"../x","calendario":"a%b","simular":true},"error":"argumentos inválidos: slug de rutina inválido: '../x'","agente":"claude-code"}
+49 claude-code mcp_reiniciar_servicio trabajo=None Some(Error) {"args":{"servicio":"sshd","simular":false},"error":"argumentos inválidos: servicio 'sshd' fuera de la lista cerrada (llama-server, ea-mcp, ea-orchestrator, ea-web)","agente":"claude-code"}
+50 orquestador mcp_reiniciar_servicio_simulada trabajo=None Some(Error) {"args":{"servicio":"ea-mcp","simular":true},"error":"'ea_reiniciar_servicio' (reversible) no está disponible para el actor 'orquestador'"}
+51 claude-code mcp_limpiar_worktree_simulada trabajo=None Some(Error) {"args":{"trabajo":"20260101T000001-00000001","simular":true},"error":"la acción no aplica: el trabajo 20260101T000001-00000001 no tiene worktree propio vivo (nada que limpiar)","agente":"claude-code"}
+52 claude-code mcp_limpiar_worktree trabajo=None Some(Error) {"args":{"trabajo":"../x","simular":false},"error":"argumentos inválidos: id de trabajo inválido: '../x'","agente":"claude-code"}
+53 claude-code mcp_lanzar_sesion_simulada trabajo=None Some(Error) {"args":{"agente":"emacs","herramientas":["x"],"simular":true},"error":"argumentos inválidos: agente desconocido 'emacs' (uno de: claude-code, qwen-code, codex, opencode, antigravity)","agente":"claude-code"}
+54 claude-code mcp_lanzar_sesion trabajo=None Some(Error) {"args":{"agente":"codex","herramientas":[],"directorio":"/tmp","simular":false},"error":"argumentos inválidos: hay que elegir al menos una herramienta de la biblioteca","agente":"claude-code"}
+55 claude-code mcp_activar_herramienta_simulada trabajo=None Some(Error) {"args":{"elemento":"../../etc/passwd","simular":true},"error":"argumentos inválidos: id de elemento inválido \"../../etc/passwd\": tipo desconocido","agente":"claude-code"}
+56 claude-code mcp_desactivar_herramienta trabajo=None Some(Error) {"args":{"elemento":"x","simular":false},"error":"argumentos inválidos: id de elemento inválido \"x\": se esperan cuatro partes: agente/tipo/ámbito/nombre","agente":"claude-code"}
+57 modelo-local mcp_activar_herramienta trabajo=None Some(Error) {"args":{"elemento":"codex/mcp/usuario/docs","simular":false},"error":"'ea_activar_herramienta' (reversible) no está disponible para el actor 'modelo-local'","agente":"qwen-code"}
+58 orquestador mcp_status trabajo=None Some(Ok) {"args":{}}

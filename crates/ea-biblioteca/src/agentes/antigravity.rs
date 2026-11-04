@@ -13,7 +13,7 @@ use super::comun::{leer_json, mcp as crear_mcp, skills_en};
 use crate::modelo::{Activado, Ambito, Elemento, Mecanismo};
 use crate::raices::Raices;
 
-pub const AGENTE: &str = "antigravity";
+pub const AGENTE: &str = ea_ajustes::AgenteId::Antigravity.as_str();
 pub const VERSION: &str = "1.4.4";
 
 pub fn leer(r: &Raices, avisos: &mut Vec<String>) -> Vec<Elemento> {

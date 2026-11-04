@@ -2,6 +2,7 @@
 name = "ea-cli"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 publish.workspace = true
 
 [[bin]]
@@ -16,17 +17,18 @@ ea-acciones = { path = "../ea-acciones" }
 ea-boveda = { path = "../ea-boveda" }
 ea-ajustes = { path = "../ea-ajustes" }
 ea-biblioteca = { path = "../ea-biblioteca" }
-ea-web = { path = "../ea-web" }
-tokio = { version = "1", features = ["rt", "time", "process"] }
+tokio = { workspace = true, features = ["rt", "time", "process"] }
 clap = { version = "4.5", features = ["derive"] }
-anyhow = "1.0"
+anyhow.workspace = true
 comfy-table = "7.1"
-serde_json = "1.0"
-time = { version = "0.3", features = ["formatting", "parsing", "local-offset", "macros"] }
+# El instalador conserva el orden de las claves de settings.json al fusionar el hook.
+serde_json = { workspace = true, features = ["preserve_order"] }
+time = { workspace = true, features = ["formatting", "parsing", "local-offset", "macros"] }
 ratatui = "0.29"
 crossterm = "0.28"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
-tempfile = "3"
+ea-pruebas = { path = "../ea-pruebas" }
+tempfile.workspace = true
+# La prueba de arquitectura lee los `Cargo.toml` del workspace.
+toml.workspace = true

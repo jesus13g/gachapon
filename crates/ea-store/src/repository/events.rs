@@ -1,83 +1,42 @@
-use rusqlite::{params, Connection, Row};
+use rusqlite::{Connection, Row, params};
 
 use crate::error::{StoreError, StoreResult};
 use crate::models::{Event, EventOutcome, NewEvent};
 
-use super::{fmt_ts, now_str, parse_ts};
+use super::{fmt_ts, parse_ts};
 
-fn map_row(row: &Row) -> rusqlite::Result<(i64, String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>)> {
-    Ok((
-        row.get(0)?,
-        row.get(1)?,
-        row.get(2)?,
-        row.get(3)?,
-        row.get(4)?,
-        row.get(5)?,
-        row.get(6)?,
-        row.get(7)?,
-    ))
+/// Una fila de `events` tal como sale de SQLite: id, ts, actor, action,
+/// trabajo, outcome, duration_ms y detail.
+type FilaEvento = (i64, String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>);
+
+fn map_row(row: &Row) -> rusqlite::Result<FilaEvento> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?))
 }
 
-fn to_event(
-    raw: (
-        i64,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-    ),
-) -> StoreResult<Event> {
+fn to_event(raw: FilaEvento) -> StoreResult<Event> {
     let (id, ts, actor, action, trabajo, outcome, duration_ms, detail) = raw;
-    let outcome = outcome
-        .map(|o| o.parse::<EventOutcome>())
-        .transpose()?;
-    Ok(Event {
-        id,
-        ts: parse_ts(&ts)?,
-        actor,
-        action,
-        trabajo,
-        outcome,
-        duration_ms,
-        detail,
-    })
+    let outcome = outcome.map(|o| o.parse::<EventOutcome>()).transpose()?;
+    Ok(Event { id, ts: parse_ts(&ts)?, actor, action, trabajo, outcome, duration_ms, detail })
 }
 
 const SELECT_COLUMNS: &str = "id, ts, actor, action, trabajo, outcome, duration_ms, detail";
 
 /// Añade un evento al diario, opcionalmente asociado a un trabajo.
 pub fn append_event(conn: &Connection, new_event: NewEvent) -> StoreResult<Event> {
-    let ts = now_str()?;
+    let ts = crate::ahora_rfc3339();
     conn.execute(
         "INSERT INTO events (ts, actor, action, trabajo, outcome, duration_ms, detail)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            ts,
-            new_event.actor,
-            new_event.action,
-            new_event.trabajo,
-            new_event.outcome.map(|o| o.as_str()),
-            new_event.duration_ms,
-            new_event.detail,
-        ],
+        params![ts, new_event.actor, new_event.action, new_event.trabajo, new_event.outcome.map(|o| o.as_str()), new_event.duration_ms, new_event.detail,],
     )?;
     get_event(conn, conn.last_insert_rowid())
 }
 
 pub fn get_event(conn: &Connection, id: i64) -> StoreResult<Event> {
-    let raw = conn
-        .query_row(
-            &format!("SELECT {SELECT_COLUMNS} FROM events WHERE id = ?1"),
-            params![id],
-            map_row,
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => StoreError::EventNotFound(id),
-            other => StoreError::Database(other),
-        })?;
+    let raw = conn.query_row(&format!("SELECT {SELECT_COLUMNS} FROM events WHERE id = ?1"), params![id], map_row).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => StoreError::EventNotFound(id),
+        other => StoreError::Database(other),
+    })?;
     to_event(raw)
 }
 
@@ -88,8 +47,8 @@ pub struct EventFilter {
     pub since: Option<time::OffsetDateTime>,
     pub until: Option<time::OffsetDateTime>,
     /// Excluye las filas con esta acción (p. ej. `heartbeat`, que el
-    /// orquestador emite cada pocos segundos y ahogaría cualquier listado
-    /// acotado por `limit`).
+    /// orquestador anotaba cada pocos segundos antes de llevar su latido a un
+    /// fichero del bus y que ahogarían cualquier listado acotado por `limit`).
     pub exclude_action: Option<String>,
     /// Solo los eventos con este resultado (`ok` o `error`).
     pub outcome: Option<EventOutcome>,
@@ -174,13 +133,7 @@ pub fn list_events(conn: &Connection, filter: &EventFilter) -> StoreResult<Vec<E
 }
 
 pub fn list_events_by_trabajo(conn: &Connection, trabajo: &str) -> StoreResult<Vec<Event>> {
-    list_events(
-        conn,
-        &EventFilter {
-            trabajo: Some(trabajo.to_string()),
-            ..Default::default()
-        },
-    )
+    list_events(conn, &EventFilter { trabajo: Some(trabajo.to_string()), ..Default::default() })
 }
 
 /// Los eventos de una herramienta del catálogo (`ea_<x>`), del más reciente
@@ -210,4 +163,22 @@ pub fn list_events_herramienta(conn: &Connection, herramienta: &str, limit: i64)
         events.push(to_event(row?)?);
     }
     Ok(events)
+}
+
+/// `(actor, usos, última)` de las llamadas al servidor `ea-mcp` (acciones
+/// `mcp_*`), por actor: `detail.agente` si existe y, si no, la columna
+/// `actor`. Una fecha ilegible cuenta como desconocida, no como error.
+pub fn uso_mcp_por_actor(conn: &Connection) -> StoreResult<Vec<(String, u64, Option<time::OffsetDateTime>)>> {
+    let mut st = conn.prepare(
+        "SELECT coalesce(CASE WHEN json_valid(detail) THEN json_extract(detail, '$.agente') END, actor) AS a,
+                count(*), max(ts)
+         FROM events WHERE action LIKE 'mcp\\_%' ESCAPE '\\' GROUP BY a",
+    )?;
+    let filas = st.query_map([], |f| Ok((f.get::<_, String>(0)?, f.get::<_, i64>(1)? as u64, f.get::<_, Option<String>>(2)?)))?;
+    let mut uso = Vec::new();
+    for fila in filas {
+        let (actor, n, ts) = fila?;
+        uso.push((actor, n, ts.as_deref().and_then(|t| parse_ts(t).ok())));
+    }
+    Ok(uso)
 }

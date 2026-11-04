@@ -52,23 +52,25 @@
 mod json_texto;
 mod ordenes;
 
+use ea_plataforma::fs::{ErrorRenombrar, Permisos, escribir_atomico, opciones_privadas};
 use std::collections::BTreeMap;
 use std::fs;
-use ea_plataforma::fs::{opciones_privadas, permisos_unix, poner_permisos_unix, sincronizar_dir, ErrorRenombrar};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ea_ajustes::{Ajustes, Canal, Fuentes};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-pub use ordenes::{Ordenes, OrdenesDoble, OrdenesReales, SalidaOrden, LIMITE};
+#[cfg(any(test, feature = "dobles"))]
+pub use ordenes::OrdenesDoble;
+pub use ordenes::{LIMITE, Ordenes, OrdenesReales, SalidaOrden};
 
+use crate::Biblioteca;
 use crate::agentes::comun::quitar_comentarios;
 use crate::error::ErrorBiblioteca;
 use crate::modelo::{Activado, Ambito, Elemento, Id, Mecanismo, Tipo};
 use crate::raices::Raices;
-use crate::Biblioteca;
 
 type Resultado<T> = Result<T, ErrorBiblioteca>;
 
@@ -345,7 +347,8 @@ fn editar_campo(el: &Elemento, formato: Formato, texto: &str, campo: &[String], 
     let el_nombre = el.nombre.as_str();
     let nuevo = match formato {
         Formato::Toml => {
-            let mut doc: toml_edit::DocumentMut = texto.parse().map_err(|e: toml_edit::TomlError| ErrorBiblioteca::Io(format!("TOML no válido: {}", e.message())))?;
+            let mut doc: toml_edit::DocumentMut =
+                texto.parse().map_err(|e: toml_edit::TomlError| ErrorBiblioteca::Io(format!("TOML no válido: {}", e.message())))?;
             let t = doc
                 .as_table_mut()
                 .get_mut(&campo[0])
@@ -376,11 +379,7 @@ fn editar_campo(el: &Elemento, formato: Formato, texto: &str, campo: &[String], 
         }
         Formato::Json => {
             let ruta: Vec<&str> = campo[..campo.len() - 1].iter().map(String::as_str).collect();
-            if poner_falso {
-                json_texto::poner(texto, &ruta, "enabled", "false")?
-            } else {
-                json_texto::quitar(texto, &ruta, "enabled")?
-            }
+            if poner_falso { json_texto::poner(texto, &ruta, "enabled", "false")? } else { json_texto::quitar(texto, &ruta, "enabled")? }
         }
     };
     // Comprobación: lo escrito se lee como se quería y el resto no cambió de sentido.
@@ -440,34 +439,12 @@ fn marca_tiempo() -> String {
     )
 }
 
-/// Temporal en el mismo directorio, `fsync` y `rename`, con los permisos del
-/// original; si `ruta` es un enlace simbólico se escribe el fichero real.
+/// Escritura atómica (la de `ea-plataforma`) con los permisos del original
+/// (en Unix, los bits de modo; en Windows, el atributo de solo lectura); si
+/// `ruta` es un enlace simbólico se escribe el fichero real.
 fn escribir_atomico_conservando(ruta: &Path, bytes: &[u8]) -> Resultado<()> {
-    use std::io::Write;
-    static N: AtomicU64 = AtomicU64::new(0);
     let destino = ea_plataforma::rutas::canonica(ruta)?;
-    let meta = fs::metadata(&destino)?;
-    let modo = permisos_unix(&meta);
-    let dir = destino.parent().ok_or_else(|| ErrorBiblioteca::Io("ruta sin directorio".into()))?;
-    let nombre = destino.file_name().and_then(|n| n.to_str()).unwrap_or("fichero");
-    let temporal = dir.join(format!(".{nombre}.ea-biblioteca.{}.{}.tmp", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
-    let r = (|| -> std::io::Result<()> {
-        let mut f = opciones_privadas().write(true).create_new(true).open(&temporal)?;
-        // Conserva los permisos del original (en Unix, los bits de modo; en
-        // Windows, los atributos de solo lectura).
-        match modo {
-            Some(m) => poner_permisos_unix(&temporal, m)?,
-            None => f.set_permissions(meta.permissions())?,
-        }
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        fs::rename(&temporal, &destino)
-    })();
-    if let Err(e) = r {
-        let _ = fs::remove_file(&temporal);
-        return Err(e.into());
-    }
-    sincronizar_dir(dir);
+    escribir_atomico(&destino, bytes, Permisos::ComoOriginal)?;
     Ok(())
 }
 
@@ -619,9 +596,11 @@ fn aplicar_mover(c: &Cambio, desde: &Path, hacia: &Path, r: &Raices) -> Resultad
     let _cerrojo = bloquear_almacen(r)?;
     let mut indice = leer_indice(r)?;
     if c.activar != indice.elementos.contains_key(&c.id) {
-        return Err(ErrorBiblioteca::Revalidacion(
-            if c.activar { "ya no está en el índice de desactivadas".to_string() } else { "ya está en el índice de desactivadas".to_string() },
-        ));
+        return Err(ErrorBiblioteca::Revalidacion(if c.activar {
+            "ya no está en el índice de desactivadas".to_string()
+        } else {
+            "ya está en el índice de desactivadas".to_string()
+        }));
     }
     mover_sin_pisar(desde, hacia)?;
     if c.activar {
@@ -673,9 +652,7 @@ fn plan_ajustes(el: &Elemento, activar: bool, ctx: &Contexto) -> Resultado<Cambi
         }
         nuevas.retain(|n| n != &el.nombre);
         if nuevas.is_empty() {
-            return Err(ErrorBiblioteca::NoSePuede(
-                "es la única skill habilitada y una lista vacía las habilitaría todas; habilita otra antes".into(),
-            ));
+            return Err(ErrorBiblioteca::NoSePuede("es la única skill habilitada y una lista vacía las habilitaría todas; habilita otra antes".into()));
         }
     }
     nuevas.sort();
@@ -697,8 +674,7 @@ fn aplicar_ajustes(c: &Cambio, ctx: &Contexto) -> Resultado<String> {
         Value::Array(l) if l.is_empty() => None,
         v => Some(v.clone()),
     };
-    ea_ajustes::establecer(&ctx.fuentes, ctx.canal, None, &[(CLAVE_SKILLS.to_string(), valor)])
-        .map_err(|e| ErrorBiblioteca::Ajustes(e.to_string()))?;
+    ea_ajustes::establecer(&ctx.fuentes, ctx.canal, None, &[(CLAVE_SKILLS.to_string(), valor)]).map_err(|e| ErrorBiblioteca::Ajustes(e.to_string()))?;
     Ok(format!("{CLAVE_SKILLS}: {} -> {}", c.antes, c.despues))
 }
 

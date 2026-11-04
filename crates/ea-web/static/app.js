@@ -154,8 +154,8 @@ const st = {
 
 // ------------------------------------------------------------------ utilidades
 
-const esc = s => String(s ?? '').replace(/[&<>"']/g,
-  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// El escape y el Markdown de lo que escriben los agentes viven en markdown.js.
+const { esc, md } = markdown;
 
 // Epoch en segundos (bus) o ya en milisegundos (sesiones de Claude Code).
 const ms = t => (typeof t === 'number' ? (t < 1e11 ? t * 1000 : t) : Date.parse(t));
@@ -226,7 +226,9 @@ function fila(k, cls, row, txt, det = '', extra = '') {
 // ea-acciones, ea-web, ea-cli, ea-orchestrator) con su frase. El diario sigue
 // guardando el identificador técnico: la etiqueta solo se pinta.
 const EVENTOS = {
-  heartbeat: 'Latido del orquestador',
+  heartbeat: 'Latido del orquestador (antiguo)',
+  orquestador_arrancado: 'Orquestador arrancado',
+  orquestador_parado: 'Orquestador parado',
   bus_crear: 'Trabajo creado',
   bus_tomar: 'Trabajo tomado por el ejecutor',
   bus_entregar: 'Informe entregado',
@@ -260,6 +262,7 @@ const EVENTOS = {
   accion_terminal_abierta: 'Terminal abierta para una acción',
   ajustes_cambiados: 'Ajustes cambiados',
   rutina_registrada: 'Rutina registrada',
+  rutina_no_lanzada: 'Rutina no lanzada',
   biblioteca_cambio: 'Herramienta activada o desactivada',
   equipo_despertado: 'Equipo despertado',
   equipo_dormido: 'Equipo dormido',
@@ -1476,108 +1479,6 @@ function filasPropuestas(ps) {
     const det = cuerpoPropuesta(p) + (p.decidida ? `<p class="m">decidida ${hora(p.decidida)}</p>` : '');
     return fila(k, 'p', row, `${p.descripcion} ${quien} ${p.estado}`, det, pend ? '' : ' fin');
   });
-}
-
-// ------------------------------------------------------------------- markdown
-
-// Markdown mínimo, propio y sin dependencias: todo el texto se escapa antes
-// de formatear y solo los enlaces http(s) y los internos llegan a ser enlaces.
-// `ctx`: { wiki(destino), md(url) } devuelven la clave de la nota enlazada (o
-// null si no hay ninguna), y `roto` es el título de un enlace sin destino.
-function mdEnLinea(txt, ctx) {
-  const guardados = [];
-  const guarda = html => `\u0001${guardados.push(html) - 1}\u0002`;
-  let s = esc(txt.replace(/[\u0001\u0002]/g, ''));
-  s = s.replace(/`([^`]+)`/g, (_, c) => guarda(`<code>${c}</code>`));
-  s = s.replace(/\[\[([^\[\]\n]+)\]\]/g, (_, n) => {
-    const [destino, alias] = n.split('|');
-    const k = ctx.wiki?.(destino.split('#')[0].trim());
-    const txt = alias?.trim() || `[[${n}]]`; // con alias, como en Obsidian, solo el alias
-    return guarda(k ? `<a href="#" class="ml" data-ml="${esc(k)}">${txt}</a>` : `<span class="roto" title="${esc(ctx.roto ?? 'no hay esa nota')}">${txt}</span>`);
-  });
-  const enfasis = t => t
-    .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*\w])\*(?=[^*\s])(.+?)(?<=[^*\s])\*(?!\*)/g, '$1<em>$2</em>')
-    .replace(/(^|[^\w])_(?=[^_\s])(.+?)(?<=[^_\s])_(?!\w)/g, '$1<em>$2</em>');
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, etiqueta, url) => {
-    const t = enfasis(etiqueta);
-    if (/^https?:\/\//i.test(url)) return guarda(`<a href="${url}" target="_blank" rel="noopener noreferrer">${t}</a>`);
-    const k = ctx.md?.(url);
-    if (k) return guarda(`<a href="#" class="ml" data-ml="${esc(k)}">${t}</a>`);
-    return guarda(`<span class="roto" title="${url}">${t}</span>`); // relativo a otra cosa, javascript:… → sin enlace
-  });
-  s = enfasis(s);
-  for (let i = 0; i < 4 && s.includes('\u0001'); i++) s = s.replace(/\u0001(\d+)\u0002/g, (_, n) => guardados[n]);
-  return s;
-}
-
-function md(texto, ctx = {}) {
-  const lineas = texto.replace(/\r\n?/g, '\n').replace(/^---\n[\s\S]*?\n---[ \t]*(\n|$)/, '').split('\n');
-  const enLinea = t => mdEnLinea(t, ctx);
-  const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
-  const FENCE = /^\s*```/;
-  const HR = /^\s*([-*_])(\s*\1){2,}\s*$/;
-  const SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
-  const celdas = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
-  const inicio = l => FENCE.test(l) || /^#{1,6}\s/.test(l) || HR.test(l) || /^\s*>/.test(l) || ITEM.test(l);
-  let out = '';
-  let i = 0;
-  while (i < lineas.length) {
-    const l = lineas[i];
-    if (!l.trim()) { i++; continue; }
-    if (FENCE.test(l)) {
-      const cod = [];
-      for (i++; i < lineas.length && !FENCE.test(lineas[i]); i++) cod.push(lineas[i]);
-      i++;
-      out += `<pre><code>${esc(cod.join('\n'))}</code></pre>`;
-    } else if (/^#{1,6}\s/.test(l)) {
-      const [, almohadillas, t] = /^(#+)\s+(.*?)\s*#*\s*$/.exec(l);
-      out += `<h${almohadillas.length}>${enLinea(t)}</h${almohadillas.length}>`;
-      i++;
-    } else if (HR.test(l)) {
-      out += '<hr>';
-      i++;
-    } else if (/^\s*>/.test(l)) {
-      const q = [];
-      for (; i < lineas.length && /^\s*>/.test(lineas[i]); i++) q.push(lineas[i].replace(/^\s*> ?/, ''));
-      out += `<blockquote>${md(q.join('\n'), ctx)}</blockquote>`;
-    } else if (l.includes('|') && i + 1 < lineas.length && SEP.test(lineas[i + 1])) {
-      const cab = celdas(l);
-      i += 2;
-      let cuerpo = '';
-      for (; i < lineas.length && lineas[i].trim() && lineas[i].includes('|'); i++) {
-        cuerpo += '<tr>' + celdas(lineas[i]).map(c => `<td>${enLinea(c)}</td>`).join('') + '</tr>';
-      }
-      out += `<table><thead><tr>${cab.map(c => `<th>${enLinea(c)}</th>`).join('')}</tr></thead><tbody>${cuerpo}</tbody></table>`;
-    } else if (ITEM.test(l)) {
-      // Lista: un nivel de anidamiento por sangría (lo más hondo se aplana).
-      const items = [];
-      const base = ITEM.exec(l)[1].length;
-      while (i < lineas.length) {
-        const m = ITEM.exec(lineas[i]);
-        if (m) {
-          const hijo = m[1].length >= base + 2 && items.length > 0;
-          const it = { ol: /^\d/.test(m[2]), txt: m[3] };
-          if (!hijo && items.length && it.ol !== items[0].ol) break; // otro tipo de lista: empieza una nueva
-          if (hijo) (items.at(-1).hijos ??= []).push(it); else items.push(it);
-        } else if (!lineas[i].trim()) {
-          // una línea en blanco no corta la lista si sigue otro elemento
-          if (!ITEM.test(lineas[i + 1] ?? '')) break;
-        } else if (/^\s+\S/.test(lineas[i]) && items.length && !inicio(lineas[i])) {
-          const it = items.at(-1).hijos?.at(-1) ?? items.at(-1);
-          it.txt += ' ' + lineas[i].trim();
-        } else break;
-        i++;
-      }
-      const lista = (xs, cuerpo) => `<${xs[0].ol ? 'ol' : 'ul'}>${xs.map(cuerpo).join('')}</${xs[0].ol ? 'ol' : 'ul'}>`;
-      out += lista(items, it => `<li>${enLinea(it.txt)}${it.hijos ? lista(it.hijos, h => `<li>${enLinea(h.txt)}</li>`) : ''}</li>`);
-    } else {
-      const p = [];
-      for (; i < lineas.length && lineas[i].trim() && (p.length === 0 || !inicio(lineas[i])); i++) p.push(lineas[i].trim());
-      out += `<p>${enLinea(p.join(' '))}</p>`;
-    }
-  }
-  return out;
 }
 
 // --------------------------------------------------------------------- editor
@@ -3824,7 +3725,9 @@ function construir() {
 
 
 // Los filtros del diario, que se aplican en el servidor. Los actores y las
-// familias son los que escribe el código (spec 009, «Familias de eventos»).
+// familias son los que escribe el código (spec 009, «Familias de eventos»);
+// `ea-cli` ya no se escribe (la CLI firma como `usuario` o `claude-code`),
+// pero sigue para encontrar los eventos de antes.
 const ACTORES = ['usuario', 'claude-code', 'modelo-local', 'orquestador', 'ea-cli', 'sin-rol', 'desconocido'];
 const FAMILIAS = { bus_: 'bus', mcp_: 'mcp', propuesta_: 'propuestas', accion_: 'acciones', boveda_: 'bóveda', memoria_: 'memoria', ajustes_: 'ajustes', usuario_: 'notas' };
 const RANGOS = { hoy: 'hoy', ayer: 'ayer', '24h': '24 h', '7d': '7 días' };
@@ -3945,7 +3848,7 @@ function barraDiario() {
     h += `<input type="date" class="c${d ? ' on' : ''}" data-df="desde" value="${esc(d)}" title="desde (incluido)" aria-label="Desde">` +
       `<input type="date" class="c${st.dHasta ? ' on' : ''}" data-df="hasta" value="${esc(st.dHasta ?? '')}" title="hasta (incluido)" aria-label="Hasta">`;
   }
-  h += `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos del orquestador" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
+  h += `<button class="c${st.latidos ? ' on' : ''}" data-a="latidos" title="mostrar u ocultar los latidos que el orquestador anotaba antes en el diario (ahora van a un fichero del bus)" aria-pressed="${st.latidos}">${st.latidos ? '♥ con latidos' : '♡ sin latidos'}</button>`;
   const activos = [];
   if (st.dActor) activos.push(chipFiltro('actor', 'quién: ' + st.dActor));
   if (st.dResultado) activos.push(chipFiltro('resultado', st.dResultado === 'ok' ? 'resultado: ✓' : 'resultado: ✕'));
@@ -4000,6 +3903,8 @@ function cabecera() {
   const o = $('#orq');
   o.classList.toggle('hot', !e.orquestador.vivo);
   let latido = e.orquestador.ultimo_latido ? 'orquestador: latido hace ' + hace(e.orquestador.ultimo_latido) : 'orquestador sin latido';
+  const trab = e.orquestador.trabajadores;
+  if (e.orquestador.vivo && trab != null) latido += ` · ${trab} trabajador${trab === 1 ? '' : 'es'}`;
   const sb = e.orquestador.sandbox;
   if (sb) latido += sb.disponible ? ` · sandbox: ${sb.sandbox} (${sb.sistema})` : ` · sandbox no disponible: ${sb.motivo ?? ''}`;
   $('title', o).textContent = latido;
@@ -5008,7 +4913,7 @@ const AYUDA_VISTA = {
     'Despliega un rol para cambiar el agente que lo ocupa.']],
   diario: ['Todo lo que ocurre, lo más reciente arriba.', [
     'Filtra por quién, <b>✓</b>/<b>✕</b>, familia de evento y fecha; los filtros quedan en la dirección.',
-    '<b>✎ anotar</b> deja constancia de algo; <b>♡</b> muestra los latidos.']],
+    '<b>✎ anotar</b> deja constancia de algo; <b>♡</b> muestra los latidos antiguos del orquestador.']],
   ajustes: ['Cómo se comporta el ecosistema.', [
     '<b>✎</b> se cambia aquí (segundo clic); <b>⌨</b> solo con <b>ea ajustes</b> en una terminal; <b>$</b> lo fija una variable de entorno.',
     'Todo se aplica en caliente salvo lo marcado <b>al reiniciar</b>.']],

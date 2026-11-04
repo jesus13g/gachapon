@@ -19,12 +19,12 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::comun::{crear, leer_jsonc, md_en, mcp as crear_mcp, recortar, skills_en};
+use super::comun::{crear, leer_jsonc, mcp as crear_mcp, md_en, recortar, skills_en};
 use crate::modelo::{Activado, Ambito, Elemento, Mecanismo, Tipo};
 use crate::raices::Raices;
 use crate::redactar::{redactar_texto, redactar_url};
 
-pub const AGENTE: &str = "opencode";
+pub const AGENTE: &str = ea_ajustes::AgenteId::OpenCode.as_str();
 pub const VERSION: &str = "2.1.1";
 
 pub fn leer(r: &Raices, avisos: &mut Vec<String>) -> Vec<Elemento> {

@@ -26,16 +26,16 @@ use std::time::Instant;
 
 use ea_store::{ResultadoBusqueda, Store};
 use serde_json::json;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
+use crate::Boveda;
 use crate::boveda::{entrada_de, es_enlace, escribir_atomico, evento, exigir_usuario, existe, huella};
-use crate::cabecera::{self, ahora, Cabecera, Cabeceras};
+use crate::cabecera::{self, Cabecera, Cabeceras, ahora};
 use crate::enlaces;
 use crate::error::{ErrorBoveda, Resultado};
 use crate::limites::MAX_FICHERO_BYTES;
-use crate::ruta::{self, region_de, validar_ruta, PAPELERA, REGIONES, REGION_COMPARTIDA};
-use crate::Boveda;
+use crate::ruta::{self, PAPELERA, REGION_COMPARTIDA, REGIONES, region_de, validar_ruta};
 
 /// Una nota entera, cabecera incluida, con la versión (huella) que hay que
 /// devolver al guardarla.
@@ -163,10 +163,7 @@ fn rfc3339(meta: &fs::Metadata) -> Option<String> {
 /// Contenido que se acepta al escribir a mano: tamaño y sin nulos.
 fn contenido_valido(texto: &str) -> Resultado<()> {
     if texto.len() as u64 > MAX_FICHERO_BYTES {
-        return Err(ErrorBoveda::Argumentos(format!(
-            "la nota pesa {} bytes y el máximo es {MAX_FICHERO_BYTES}",
-            texto.len()
-        )));
+        return Err(ErrorBoveda::Argumentos(format!("la nota pesa {} bytes y el máximo es {MAX_FICHERO_BYTES}", texto.len())));
     }
     if texto.contains('\0') {
         return Err(ErrorBoveda::Argumentos("el contenido no admite caracteres nulos".into()));
@@ -206,25 +203,18 @@ fn texto_al_guardar(actual: &str, nuevo: &str) -> Resultado<String> {
     match (previa, pedida) {
         (Cabeceras::Valida(p), Cabeceras::Valida(mut n)) => {
             if firma(&p) != firma(&n) {
-                return Err(ErrorBoveda::Cabecera(
-                    "la firma de la nota (autor, region, creada, promocion y promovida_*) no se cambia a mano".into(),
-                ));
+                return Err(ErrorBoveda::Cabecera("la firma de la nota (autor, region, creada, promocion y promovida_*) no se cambia a mano".into()));
             }
             n.actualizada = ahora();
             n.validar()?;
             Ok(n.con_cuerpo(cuerpo))
         }
-        (Cabeceras::Valida(_), Cabeceras::Invalida(e)) => {
-            Err(ErrorBoveda::Cabecera(format!("la cabecera ya no es válida: {e}")))
+        (Cabeceras::Valida(_), Cabeceras::Invalida(e)) => Err(ErrorBoveda::Cabecera(format!("la cabecera ya no es válida: {e}"))),
+        (Cabeceras::Valida(_), Cabeceras::Ausente) => {
+            Err(ErrorBoveda::Cabecera("la nota lleva cabecera y no se puede quitar (la firma no se cambia a mano)".into()))
         }
-        (Cabeceras::Valida(_), Cabeceras::Ausente) => Err(ErrorBoveda::Cabecera(
-            "la nota lleva cabecera y no se puede quitar (la firma no se cambia a mano)".into(),
-        )),
         // Una nota sin cabecera válida solo puede ganar una firmada por el usuario.
-        (_, Cabeceras::Valida(n)) if n.autor != "usuario" => Err(ErrorBoveda::Prohibida(format!(
-            "no se puede firmar a mano una nota como '{}'",
-            n.autor
-        ))),
+        (_, Cabeceras::Valida(n)) if n.autor != "usuario" => Err(ErrorBoveda::Prohibida(format!("no se puede firmar a mano una nota como '{}'", n.autor))),
         _ => Ok(nuevo.to_string()),
     }
 }
@@ -232,15 +222,7 @@ fn texto_al_guardar(actual: &str, nuevo: &str) -> Resultado<String> {
 /// `20261019T120000Z`: la marca de tiempo de un id de la papelera.
 fn marca_ahora() -> String {
     let d = OffsetDateTime::now_utc();
-    format!(
-        "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
-        d.year(),
-        u8::from(d.month()),
-        d.day(),
-        d.hour(),
-        d.minute(),
-        d.second()
-    )
+    format!("{:04}{:02}{:02}T{:02}{:02}{:02}Z", d.year(), u8::from(d.month()), d.day(), d.hour(), d.minute(), d.second())
 }
 
 /// Un id libre en la papelera: `<marca de tiempo>-<n>`.
@@ -333,11 +315,8 @@ impl Boveda {
         let notas = store.boveda_todas()?;
         let mut carpetas = Vec::new();
         if let Ok(raiz) = fs::canonicalize(self.raiz()) {
-            let mut pendientes: Vec<(PathBuf, String)> = REGIONES
-                .iter()
-                .map(|r| (raiz.join(r), r.to_string()))
-                .filter(|(d, _)| d.is_dir() && !es_enlace(d))
-                .collect();
+            let mut pendientes: Vec<(PathBuf, String)> =
+                REGIONES.iter().map(|r| (raiz.join(r), r.to_string())).filter(|(d, _)| d.is_dir() && !es_enlace(d)).collect();
             while let Some((dir, rel)) = pendientes.pop() {
                 carpetas.push(rel.clone());
                 if carpetas.len() > crate::limites::MAX_FICHEROS {
@@ -360,14 +339,7 @@ impl Boveda {
     /// Guarda a mano una nota que ya existe. `version` es la huella con la que
     /// se abrió: si en disco ya es otra, [`ErrorBoveda::Cambio`]. La firma de
     /// la cabecera no cambia (ver el módulo); `actualizada` se pone al día.
-    pub fn guardar_usuario(
-        &self,
-        store: &mut Store,
-        ruta: &str,
-        texto: &str,
-        version: &str,
-        quien: &str,
-    ) -> Resultado<NotaCompleta> {
+    pub fn guardar_usuario(&self, store: &mut Store, ruta: &str, texto: &str, version: &str, quien: &str) -> Resultado<NotaCompleta> {
         let inicio = Instant::now();
         exigir_usuario(quien, "editar la bóveda a mano")?;
         validar_ruta(ruta)?;
@@ -413,9 +385,7 @@ impl Boveda {
         exigir_usuario(quien, "crear notas a mano")?;
         let ruta = ruta_de_nota(ruta)?;
         if region_de(&ruta) != REGION_COMPARTIDA {
-            return Err(ErrorBoveda::Prohibida(format!(
-                "{ruta}: a mano solo se crean notas en {REGION_COMPARTIDA}/ (las demás regiones son de sus agentes)"
-            )));
+            return Err(ErrorBoveda::Prohibida(format!("{ruta}: a mano solo se crean notas en {REGION_COMPARTIDA}/ (las demás regiones son de sus agentes)")));
         }
         contenido_valido(cuerpo)?;
         if !matches!(cabecera::interpretar(cuerpo).0, Cabeceras::Ausente) {
@@ -492,22 +462,13 @@ impl Boveda {
     /// Renombra o mueve una nota dentro de su región, sin pisar ninguna, y
     /// pone al día los enlaces (`[[…]]` y markdown) de todas las notas
     /// indexadas. Los `[[enlaces]]` ambiguos no se tocan: se devuelven.
-    pub fn renombrar(
-        &self,
-        store: &mut Store,
-        de: &str,
-        a: &str,
-        version: &str,
-        quien: &str,
-    ) -> Resultado<Renombrada> {
+    pub fn renombrar(&self, store: &mut Store, de: &str, a: &str, version: &str, quien: &str) -> Resultado<Renombrada> {
         let inicio = Instant::now();
         exigir_usuario(quien, "renombrar notas a mano")?;
         validar_ruta(de)?;
         let a = ruta_de_nota(a)?;
         if !ruta::misma_region(de, &a) {
-            return Err(ErrorBoveda::Prohibida(format!(
-                "{de} → {a}: solo se mueve dentro de la misma región (a la compartida se llega promoviendo)"
-            )));
+            return Err(ErrorBoveda::Prohibida(format!("{de} → {a}: solo se mueve dentro de la misma región (a la compartida se llega promoviendo)")));
         }
         if a == de {
             return Err(ErrorBoveda::Argumentos("la ruta nueva es la misma".into()));
@@ -524,15 +485,7 @@ impl Boveda {
     /// El movimiento de una nota ya validada y con el candado tomado: mueve el
     /// fichero sin pisar nada, reescribe los enlaces de las demás notas y
     /// anota el evento. Lo comparten renombrar una nota y renombrar una carpeta.
-    fn mover_nota(
-        &self,
-        store: &mut Store,
-        de: &str,
-        a: &str,
-        texto: String,
-        quien: &str,
-        inicio: Instant,
-    ) -> Resultado<Renombrada> {
+    fn mover_nota(&self, store: &mut Store, de: &str, a: &str, texto: String, quien: &str, inicio: Instant) -> Resultado<Renombrada> {
         let a = a.to_string();
         let origen = self.resolver(de)?;
         let destino = self.resolver(&a)?;
@@ -615,8 +568,7 @@ impl Boveda {
 
     /// Carpeta de la papelera, comprobando que no es un enlace simbólico.
     fn dir_papelera(&self) -> Resultado<PathBuf> {
-        let raiz = fs::canonicalize(self.raiz())
-            .map_err(|e| ErrorBoveda::Io(format!("raíz de la bóveda {}: {e}", self.raiz().display())))?;
+        let raiz = fs::canonicalize(self.raiz()).map_err(|e| ErrorBoveda::Io(format!("raíz de la bóveda {}: {e}", self.raiz().display())))?;
         let p = raiz.join(PAPELERA);
         if es_enlace(&p) {
             return Err(ErrorBoveda::FueraDeLaBoveda(format!("{PAPELERA} es un enlace simbólico")));
@@ -694,8 +646,7 @@ impl Boveda {
         if !base.is_dir() || es_enlace(&base) {
             return Err(ErrorBoveda::NoExiste(format!("{id} (en la papelera)")));
         }
-        let notas: Vec<(String, PathBuf)> =
-            notas_bajo(&base).into_iter().filter(|(r, _)| validar_ruta(r).is_ok()).collect();
+        let notas: Vec<(String, PathBuf)> = notas_bajo(&base).into_iter().filter(|(r, _)| validar_ruta(r).is_ok()).collect();
         if notas.is_empty() {
             return Err(ErrorBoveda::NoExiste(format!("{id} (en la papelera)")));
         }
@@ -703,9 +654,7 @@ impl Boveda {
         for (ruta, _) in &notas {
             let destino = self.resolver(ruta)?;
             if existe(&destino) {
-                return Err(ErrorBoveda::YaExiste(format!(
-                    "{ruta} (ya hay otra nota ahí: renómbrala antes de restaurar)"
-                )));
+                return Err(ErrorBoveda::YaExiste(format!("{ruta} (ya hay otra nota ahí: renómbrala antes de restaurar)")));
             }
         }
         let mut primera = None;
@@ -758,9 +707,7 @@ impl Boveda {
         let de = Self::carpeta_de_region(de, "renombra")?;
         let a = Self::carpeta_de_region(a, "renombra")?;
         if !ruta::misma_region(&de, &a) {
-            return Err(ErrorBoveda::Prohibida(format!(
-                "{de} → {a}: solo se mueve dentro de la misma región (a la compartida se llega promoviendo)"
-            )));
+            return Err(ErrorBoveda::Prohibida(format!("{de} → {a}: solo se mueve dentro de la misma región (a la compartida se llega promoviendo)")));
         }
         if a == de {
             return Err(ErrorBoveda::Argumentos("la ruta nueva es la misma".into()));
@@ -780,13 +727,10 @@ impl Boveda {
         }
         let inv = inventario(&origen);
         if inv.otros > 0 {
-            return Err(ErrorBoveda::Argumentos(format!(
-                "{de} contiene ficheros que no son notas (.md) o carpetas ocultas; la bóveda solo mueve notas"
-            )));
+            return Err(ErrorBoveda::Argumentos(format!("{de} contiene ficheros que no son notas (.md) o carpetas ocultas; la bóveda solo mueve notas")));
         }
         // Se comprueba todo antes de mover nada.
-        let plan: Vec<(String, String)> =
-            inv.notas.iter().map(|n| (format!("{de}/{n}"), format!("{a}/{n}"))).collect();
+        let plan: Vec<(String, String)> = inv.notas.iter().map(|n| (format!("{de}/{n}"), format!("{a}/{n}"))).collect();
         for (_, nueva) in &plan {
             validar_ruta(nueva)?;
         }
@@ -845,9 +789,7 @@ impl Boveda {
         }
         let inv = inventario(&origen);
         if inv.otros > 0 {
-            return Err(ErrorBoveda::Argumentos(format!(
-                "{ruta} contiene ficheros que no son notas (.md) o carpetas ocultas; la bóveda no los borra"
-            )));
+            return Err(ErrorBoveda::Argumentos(format!("{ruta} contiene ficheros que no son notas (.md) o carpetas ocultas; la bóveda no los borra")));
         }
         let notas: Vec<String> = inv.notas.iter().map(|n| format!("{ruta}/{n}")).collect();
         if notas.is_empty() {

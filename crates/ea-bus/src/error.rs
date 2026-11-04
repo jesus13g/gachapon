@@ -20,6 +20,10 @@ pub enum ErrorBus {
     /// ([`crate::Ubicacion::motivo_no_lanzable`]).
     #[error("{0}")]
     NoLanzable(String),
+    /// La rutina (su slug) ya tiene una ejecución activa, en cola o
+    /// ejecutándose: no se lanza otra ([`crate::Bus::lanzar_rutina`]).
+    #[error("la rutina '{0}' ya tiene una ejecución en curso")]
+    EnCurso(String),
     /// Las skills pedidas no pasan la llave, no existen, no están
     /// habilitadas o exceden los topes de `[agente.skills]`.
     #[error("skills: {0}")]
@@ -28,6 +32,13 @@ pub enum ErrorBus {
     /// diff de una fase.
     #[error("{0}")]
     SinInstantanea(String),
+    /// Una orden `git` del sistema ([`crate::git`]) terminó con error:
+    /// sus argumentos y lo que dijo git.
+    #[error("git {orden}: {detalle}")]
+    Git { orden: String, detalle: String },
+    /// Una orden `git` del sistema no terminó dentro de su tope y se mató.
+    #[error("git no respondió en {0} s")]
+    GitSinRespuesta(u64),
 }
 
 pub type Resultado<T> = Result<T, ErrorBus>;

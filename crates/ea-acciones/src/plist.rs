@@ -2,21 +2,9 @@
 //! y las tareas del Programador de tareas de Windows (XML de tarea). Puro:
 //! solo construye texto.
 
-/// Escapa un texto para ir dentro de un elemento XML.
-pub(crate) fn escapar(t: &str) -> String {
-    let mut s = String::with_capacity(t.len());
-    for c in t.chars() {
-        match c {
-            '&' => s.push_str("&amp;"),
-            '<' => s.push_str("&lt;"),
-            '>' => s.push_str("&gt;"),
-            '"' => s.push_str("&quot;"),
-            '\'' => s.push_str("&apos;"),
-            c => s.push(c),
-        }
-    }
-    s
-}
+/// Escapa un texto para ir dentro de un elemento XML (el mismo que el
+/// autoarranque de la app de escritorio).
+pub(crate) use ea_plataforma::escritorio::escapar_xml as escapar;
 
 /// `<key>k</key><string>v</string>` con la sangría dada.
 pub(crate) fn cadena(sangria: &str, clave: &str, valor: &str) -> String {
@@ -131,7 +119,15 @@ mod pruebas {
     }
 
     fn servicio<'a>(usuario: Option<&'a str>, disp: &'a str) -> TareaXml<'a> {
-        TareaXml { descripcion: "ea <web>", usuario, disparadores: disp, comando: "C:\\ea & co\\ea-web.exe", argumentos: None, directorio: Some("C:\\ea & co"), servicio: true }
+        TareaXml {
+            descripcion: "ea <web>",
+            usuario,
+            disparadores: disp,
+            comando: "C:\\ea & co\\ea-web.exe",
+            argumentos: None,
+            directorio: Some("C:\\ea & co"),
+            servicio: true,
+        }
     }
 
     #[test]

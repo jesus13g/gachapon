@@ -11,14 +11,13 @@
 //! a través de `ea-acciones`: `~/.config/systemd/user/ea-rutina@<slug>.timer`).
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use ea_store::Store;
 use tokio::sync::Mutex;
 
-pub mod agentes;
 pub mod clave;
 pub mod ecosistema;
-pub mod estado;
 mod git;
 pub mod http;
 pub mod memoria;
@@ -26,9 +25,6 @@ pub mod servicio;
 pub mod sesiones;
 pub mod tema;
 pub mod vistas;
-
-/// Nombre histórico de la capa HTTP (`ea_web::api::router`).
-pub use http as api;
 
 pub struct WebConfig {
     pub puerto: u16,
@@ -47,7 +43,7 @@ pub struct WebConfig {
     /// Dónde Claude Code deja un fichero por sesión abierta. `None` = no se
     /// leen sesiones (tests).
     pub sesiones_dir: Option<PathBuf>,
-    /// Dónde el hook `claude/hooks/ea-subagentes.sh` apunta los subagentes de
+    /// Dónde el hook `ea hook subagentes` apunta los subagentes de
     /// cada sesión. `None` = no se leen (tests).
     pub subagentes_dir: Option<PathBuf>,
     /// Dónde guarda Claude Code cada proyecto con su memoria
@@ -61,9 +57,15 @@ pub struct WebConfig {
     /// (`systemctl`, `systemd-analyze`). En las pruebas, un directorio
     /// temporal y órdenes simuladas.
     pub temporizadores: ea_acciones::Temporizadores,
-    /// Cómo se abre una terminal real para confirmar lo irreversible
-    /// (`servicio::terminal`). Las pruebas usan una simulada.
-    pub terminal: servicio::terminal::Terminal,
+    /// El binario `ea` que se abre en una terminal real para confirmar lo
+    /// irreversible (`servicio::terminal`): el de la misma carpeta que este
+    /// binario (`target/release/`, donde los ejecutan los servicios), nunca el
+    /// del PATH. `None`: no hay terminal (503).
+    pub ea: Option<PathBuf>,
+    /// Cómo se abre una terminal, para eso y para las sesiones de la
+    /// biblioteca. Las pruebas usan `ea_acciones::TerminalSimulada` (nunca se
+    /// abre una ventana de verdad desde una prueba).
+    pub terminal: Arc<dyn ea_acciones::Terminal>,
     /// Dónde mira la biblioteca de herramientas (HOME, proyecto, estado,
     /// runtime). `None`: las del entorno real (`Raices::desde_entorno`); las
     /// pruebas ponen las suyas, bajo un directorio temporal.
@@ -81,9 +83,7 @@ impl WebConfig {
         // Omarchy solo existe en Linux (`state_dir`); sin él, una ruta vacía
         // (que no se puede leer) y la web usa sus colores por defecto, en vez
         // de una ruta relativa al directorio de trabajo.
-        let tema_path = directories::BaseDirs::new()
-            .and_then(|d| d.state_dir().map(|s| s.join("omarchy/current/theme/colors.toml")))
-            .unwrap_or_default();
+        let tema_path = directories::BaseDirs::new().and_then(|d| d.state_dir().map(|s| s.join("omarchy/current/theme/colors.toml"))).unwrap_or_default();
         Self {
             // `red.puerto_web` (`EA_WEB_PORT` le gana); el host, siempre 127.0.0.1.
             puerto: a.red.puerto_web,
@@ -94,12 +94,13 @@ impl WebConfig {
             systemctl: true,
             sesiones_dir: ea_plataforma::usuario::home().map(|h| h.join(".claude/sessions")),
             // Junto al estado del bus, como el hook (que lee EA_ESTADO_DIR).
-            subagentes_dir: Some(a.rutas.estado.join("subagentes")),
+            subagentes_dir: Some(ea_bus::subagentes::dir(&a.rutas.estado)),
             proyectos_claude_dir: ea_plataforma::usuario::home().map(|h| h.join(".claude/projects")),
             estado_dir: a.rutas.estado,
             ajustes: fuentes,
             temporizadores: ea_acciones::Temporizadores::usuario(),
-            terminal: servicio::terminal::Terminal::del_sistema(),
+            ea: ea_plataforma::rutas::ruta_hermana("ea"),
+            terminal: Arc::new(ea_acciones::TerminalSistema),
             biblioteca_raices: None,
         }
     }
@@ -127,15 +128,18 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(store: Store, config: WebConfig) -> ea_store::StoreResult<Self> {
+    /// Falla si no se puede abrir la conexión de las acciones o si no hay
+    /// generador aleatorio para la clave de sesión: sin él no hay forma honesta
+    /// de proteger las escrituras.
+    pub fn new(store: Store, config: WebConfig) -> servicio::Resultado<Self> {
+        let clave = clave::ClaveSesion::nueva().map_err(|e| servicio::ErrorWeb::Interno(format!("no se pudo generar la clave de sesión: {e}")))?;
         Ok(Self {
             acciones: Mutex::new(store.duplicar()?),
             store: Mutex::new(store),
             boveda: config.boveda.clone(),
             config,
             ajustes_escritura: Mutex::new(()),
-            // Sin /dev/urandom no hay forma honesta de proteger las escrituras.
-            clave: clave::ClaveSesion::nueva().expect("no se pudo leer /dev/urandom para la clave de sesión"),
+            clave,
             biblioteca_uso: Mutex::new(None),
         })
     }

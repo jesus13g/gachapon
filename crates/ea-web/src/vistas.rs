@@ -1,14 +1,22 @@
-//! Las respuestas de la API, con nombre y forma fijas: el contrato que
-//! consume la página. Solo datos; quien los rellena es `servicio` y quien
-//! los serializa, `http`.
+//! El contrato de la API, con nombre y forma fijas: las respuestas que
+//! consume la página y, al final, los cuerpos que acepta. Solo datos; quien
+//! rellena las respuestas y lee los cuerpos es `servicio`, y quien los
+//! serializa y extrae (con `Cuerpo`), `http`. Los tipos de dominio que salen
+//! tal cual se reexportan aquí, para que todo lo que la API devuelve tenga
+//! nombre en este fichero.
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use ea_biblioteca::Elemento;
+use ea_biblioteca::uso::Uso;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use crate::ecosistema::Ecosistema;
 pub use crate::memoria::{FicheroMemoria, Memoria, Proyecto as ProyectoMemoria};
 pub use crate::sesiones::Sesion;
+pub use ea_biblioteca::uso::InformeUso;
+pub use ea_bus::{InfoWorktree, ResumenEquipo, VistaEquipo};
 
 // ------------------------------------------------------------------ estado
 
@@ -34,8 +42,10 @@ pub struct ServicioVista {
 pub struct Orquestador {
     pub vivo: bool,
     pub ultimo_latido: Option<String>,
+    /// Trabajadores vivos que contó el último latido (`null` sin latido).
+    pub trabajadores: Option<usize>,
     /// Aislamiento del ejecutor según el último latido (`null` si no lo declara).
-    pub sandbox: Option<ea_store::SandboxInfo>,
+    pub sandbox: Option<ea_bus::SandboxInfo>,
 }
 
 #[derive(Serialize)]
@@ -71,7 +81,7 @@ pub struct AgentesVista {
 #[derive(Serialize)]
 pub struct AgenteConPresencia {
     #[serde(flatten)]
-    pub agente: crate::agentes::AgenteDisponible,
+    pub agente: ea_acciones::salud::AgenteDisponible,
     pub presencia: Option<PresenciaVista>,
 }
 
@@ -409,6 +419,27 @@ pub struct Semaforo {
     pub desde: String,
 }
 
+// ----------------------------------------------------------------- equipos
+
+/// Qué pasó con la sesión de un planificador o revisor.
+#[derive(Serialize)]
+pub struct SesionEquipo {
+    pub agente: String,
+    pub abierta: bool,
+    /// El comando que abre (o abriría) la sesión a mano.
+    pub comando: String,
+    /// Por qué no se abrió, si se pidió y falló.
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct Despierto {
+    pub equipo: VistaEquipo,
+    /// Agentes que «todos» dejó fuera (sin binario) y por qué.
+    pub omitidos: Vec<String>,
+    pub sesiones: Vec<SesionEquipo>,
+}
+
 // ---------------------------------------------------------------- acciones
 
 #[derive(Serialize)]
@@ -450,6 +481,21 @@ pub struct Simulacion {
     pub confirmable: bool,
 }
 
+/// La simulación tal como la ve la web: `confirmable` si se puede confirmar
+/// desde aquí (lo irreversible, no).
+impl From<ea_acciones::Simulacion> for Simulacion {
+    fn from(sim: ea_acciones::Simulacion) -> Self {
+        Simulacion {
+            herramienta: sim.herramienta,
+            riesgo: sim.riesgo.as_str(),
+            argumentos: sim.argumentos,
+            texto: sim.texto,
+            precondicion: sim.precondicion,
+            confirmable: ea_acciones::puede_confirmar(ea_acciones::Canal::Web, sim.riesgo).is_ok(),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct ResultadoAccion {
     pub texto: String,
@@ -457,6 +503,12 @@ pub struct ResultadoAccion {
     pub datos: Value,
     /// El evento `accion_ejecutada` del diario (para «≡ en el diario»).
     pub evento: Option<i64>,
+}
+
+impl From<ea_acciones::Resultado> for ResultadoAccion {
+    fn from(r: ea_acciones::Resultado) -> Self {
+        ResultadoAccion { texto: r.texto, trabajo: r.trabajo, datos: r.datos, evento: r.evento }
+    }
 }
 
 /// Un evento del historial de una herramienta (A3): cuándo, quién, por qué
@@ -616,6 +668,50 @@ pub struct Hecho {
     pub ok: bool,
 }
 
+#[derive(Serialize)]
+pub struct ServicioPlan {
+    pub nombre: &'static str,
+    /// La unidad en el gestor (`ea-web.service`, `es.gachapon.ea-web.plist`
+    /// o la tarea `ecosistema-asistente\ea-web`).
+    pub unidad: String,
+    /// La ruta real del binario que arrancaría.
+    pub binario: String,
+    pub existe: bool,
+    /// `None` si no se pudo preguntar al gestor.
+    pub instalado: Option<bool>,
+    /// `active`, `inactive`, `failed`… o `desconocido`.
+    pub activo: String,
+}
+
+/// Lo que cuenta `ea servicios ver`, sin `PATH` ni secretos.
+#[derive(Serialize)]
+pub struct PlanServicios {
+    pub sistema: &'static str,
+    /// `systemd`, `launchd` o `schtasks`.
+    pub backend: &'static str,
+    /// El gestor, en una frase.
+    pub gestor: &'static str,
+    pub binarios: String,
+    pub unidades: String,
+    /// Los binarios que faltan junto a este (`ea` incluido).
+    pub faltan: Vec<String>,
+    pub servicios: Vec<ServicioPlan>,
+    /// Qué haría `instalar`, paso a paso.
+    pub pasos: Vec<String>,
+    /// launchd fija el `PATH` de quien instala (el valor no se enseña).
+    pub path_fijo: bool,
+}
+
+// ---------------------------------------------------------------- terminal
+
+/// Lo que se ha abierto, para que la página lo diga.
+#[derive(Debug, Serialize)]
+pub struct TerminalAbierta {
+    pub ok: bool,
+    /// El comando tal como se vería escrito (solo para mostrarlo).
+    pub comando: String,
+}
+
 // ----------------------------------------------------------------- memoria
 
 #[derive(Serialize)]
@@ -653,4 +749,331 @@ pub struct AjustesCambiados {
     /// Efectos que fallaron (p. ej. el autoarranque); el ajuste sí quedó guardado.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub avisos: Vec<String>,
+}
+
+// -------------------------------------------------------------- biblioteca
+
+/// Si el elemento se puede activar o desactivar desde aquí, y si no, por qué.
+#[derive(Serialize)]
+pub struct CambioPosible {
+    pub posible: bool,
+    pub motivo: Option<String>,
+}
+
+/// Un elemento del inventario (ya redactado) con lo que la página necesita
+/// saber para ofrecer sus botones.
+#[derive(Serialize)]
+pub struct ElementoVista {
+    #[serde(flatten)]
+    pub elemento: Elemento,
+    pub cambio: CambioPosible,
+    /// Los agentes con sesión en cuyas sesiones tiene sentido este elemento.
+    pub sesion: Vec<&'static str>,
+}
+
+#[derive(Serialize)]
+pub struct BibliotecaVista {
+    pub elementos: Vec<ElementoVista>,
+    pub avisos: Vec<String>,
+    /// Las categorías presentes en TODO el inventario (no solo en lo filtrado).
+    pub categorias: Vec<String>,
+    /// Cuántos elementos hay sin filtrar.
+    pub total: usize,
+    /// Los agentes que admiten sesión (para «▶ sesión con…»).
+    pub agentes_sesion: Vec<&'static str>,
+}
+
+#[derive(Serialize)]
+pub struct FichaVista {
+    #[serde(flatten)]
+    pub elemento: ElementoVista,
+    /// `None`: sin ningún uso registrado.
+    pub uso: Option<Uso>,
+}
+
+// =============================================================== cuerpos
+//
+// Lo que aceptan las rutas que escriben, siempre con `Cuerpo` (`http`): todo
+// cuerpo inválido es un 400 `{"error": "…"}` y ninguno admite campos de más.
+
+/// `POST /api/diario/anotar`: solo `texto` es obligatorio.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnotarBody {
+    pub texto: String,
+    #[serde(default)]
+    pub corrige: Option<i64>,
+    #[serde(default)]
+    pub trabajo: Option<String>,
+}
+
+/// `{"entradas": {"clave": "valor"}}` de lanzar o previsualizar una rutina;
+/// un cuerpo vacío es lo mismo que `{}`.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct EntradasBody {
+    pub entradas: BTreeMap<String, String>,
+}
+
+/// `{"toml": "…"}`: la definición entera de una rutina (el bus pone el límite
+/// de tamaño).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TomlBody {
+    pub toml: String,
+}
+
+/// Cuerpo de `POST /api/trabajos`. Cualquier otro campo (`creada_por`…) se
+/// rechaza: desde la web no se elige. La misión lleva `criterio`; la obra,
+/// `fases` (cada una con el suyo) y `revisar_cada`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NuevoTrabajo {
+    #[serde(default)]
+    pub modo: Option<String>,
+    pub titulo: String,
+    pub worktree: String,
+    pub objetivo: String,
+    #[serde(default)]
+    pub criterio: Option<String>,
+    #[serde(default)]
+    pub topes: Option<TopesPedidos>,
+    #[serde(default)]
+    pub fases: Option<Vec<FasePedida>>,
+    /// Fuera: no se envió; `Some(None)`: `null`, solo al final;
+    /// `Some(Some(n))`: cada `n` fases. En la obra es obligatorio (art. IV.4).
+    #[serde(default, deserialize_with = "presente")]
+    pub revisar_cada: Option<Option<u32>>,
+    /// Equipo despierto para el que se crea (spec 019); el bus valida que
+    /// `asignado_a` sea su ejecutor y `revisor` su revisor o planificador.
+    #[serde(default)]
+    pub equipo: Option<String>,
+    #[serde(default)]
+    pub asignado_a: Option<String>,
+    #[serde(default)]
+    pub revisor: Option<String>,
+    /// El sistema crea un `git worktree` propio para el trabajo.
+    #[serde(default)]
+    pub worktree_propio: bool,
+    /// Nunca vale (las skills no se eligen desde la web): solo está para que
+    /// el rechazo explique a dónde ir. `Some` aunque llegue a `null`.
+    #[serde(default, deserialize_with = "cualquiera")]
+    pub skills: Option<Value>,
+}
+
+/// Distingue un campo ausente (`None`, por el `default`) de uno a `null`.
+fn presente<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<u32>>, D::Error> {
+    Option::<u32>::deserialize(d).map(Some).map_err(|e| serde::de::Error::custom(format!("'revisar_cada' debe ser un entero positivo o null ({e})")))
+}
+
+/// Cualquier valor presente, `null` incluido.
+fn cualquiera<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
+}
+
+/// Una fase de la obra tal como llega del formulario. El número lo pone el
+/// orden de la lista; las skills no se eligen desde la web.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FasePedida {
+    pub titulo: String,
+    pub instrucciones: String,
+    pub entregable: String,
+    /// Vacío llega al bus, que lo rechaza («la fase N no tiene criterio»).
+    #[serde(default)]
+    pub criterio: String,
+}
+
+/// Los topes que se pueden pedir desde el formulario; el resto, por defecto.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TopesPedidos {
+    pub iteraciones: Option<u32>,
+    pub tiempo_s: Option<u64>,
+}
+
+/// `POST /api/skills/probar`: una selección y quién la elegiría.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProbarSkills {
+    #[serde(default)]
+    pub skills: Vec<String>,
+    pub por: Option<String>,
+}
+
+/// `POST /api/trabajos/{id}/reformular`. `fase`: en una obra, la fase desde
+/// la que se rehace.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReformularBody {
+    pub nota: String,
+    pub fase: Option<u32>,
+}
+
+/// `POST /api/trabajos/{id}/confirmar`: el contexto del paquete de corrección.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConfirmarBody {
+    pub contexto: String,
+}
+
+/// Un miembro tal como lo manda el formulario: `{agente, rol}`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MiembroPedido {
+    pub agente: String,
+    pub rol: String,
+}
+
+/// Cuerpo de `POST /api/equipos`: `miembros` o `todos`, no las dos cosas.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DespertarEquipo {
+    pub titulo: String,
+    pub objetivo: String,
+    pub worktree: String,
+    #[serde(default)]
+    pub miembros: Vec<MiembroPedido>,
+    #[serde(default)]
+    pub todos: bool,
+    /// Abrir una terminal con la sesión de cada planificador y revisor.
+    #[serde(default)]
+    pub terminal: bool,
+}
+
+/// `POST /api/propuestas/{id}/decidir`: `aceptar` o `rechazar`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionBody {
+    pub decision: String,
+}
+
+/// Simular o ejecutar una herramienta (acciones y biblioteca).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccionBody {
+    pub herramienta: String,
+    #[serde(default)]
+    pub argumentos: Value,
+    /// Lo que devolvió la simulación; al ejecutar se revalida contra ello.
+    #[serde(default)]
+    pub precondicion: Value,
+}
+
+/// `POST /api/terminal/abrir`: exactamente uno de `{propuesta}`,
+/// `{servicios}`, `{herramienta, argumentos}` o `{boveda}`. Cada valor llega
+/// sin tipo: la forma cerrada la comprueba `servicio::terminal`.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct AbrirTerminal {
+    #[serde(deserialize_with = "cualquiera")]
+    pub propuesta: Option<Value>,
+    #[serde(deserialize_with = "cualquiera")]
+    pub servicios: Option<Value>,
+    #[serde(deserialize_with = "cualquiera")]
+    pub herramienta: Option<Value>,
+    #[serde(deserialize_with = "cualquiera")]
+    pub argumentos: Option<Value>,
+    #[serde(deserialize_with = "cualquiera")]
+    pub boveda: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromoverBody {
+    pub ruta: String,
+    pub destino: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuardarNotaBody {
+    pub ruta: String,
+    pub contenido: String,
+    /// La versión con la que se abrió: si en disco ya es otra, 409.
+    pub version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CrearNotaBody {
+    pub ruta: String,
+    #[serde(default)]
+    pub contenido: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenombrarNotaBody {
+    pub ruta: String,
+    pub nuevo: String,
+    pub version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EliminarNotaBody {
+    pub ruta: String,
+    pub version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RutaBody {
+    pub ruta: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenombrarCarpetaBody {
+    pub ruta: String,
+    pub nuevo: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RestaurarBody {
+    pub id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoriaBody {
+    pub contenido: String,
+    /// La versión con la que se abrió: si en disco ya es otra, 409.
+    pub version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CrearMemoriaBody {
+    pub fichero: String,
+    pub titulo: String,
+    pub descripcion: String,
+    pub tipo: String,
+    #[serde(default)]
+    pub cuerpo: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VersionBody {
+    pub version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenombrarBody {
+    pub nuevo: String,
+    pub version: String,
+}
+
+/// `POST /api/ajustes`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CuerpoAjustes {
+    /// Huella de `ajustes.toml` que se leyó ("" si no existía).
+    pub version: String,
+    /// Clave → valor nuevo; `null` la quita (vuelve a la capa siguiente).
+    pub cambios: BTreeMap<String, Option<Value>>,
 }

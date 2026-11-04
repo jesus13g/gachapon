@@ -176,13 +176,13 @@
       "tag": "empty criterion rejected",
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/trabajos.rs",
           "line": 179,
           "end_line": 247,
           "label": "crear_trabajo"
         },
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/trabajos.rs",
           "line": 930,
           "end_line": 947,
           "label": "validar_criterios"
@@ -203,7 +203,7 @@
       "sublabel": "state en_cola",
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/colas.rs",
           "line": 819,
           "end_line": 880,
           "label": "tomar_en"
@@ -224,7 +224,7 @@
       "sublabel": "routine closes itself",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 554,
           "end_line": 561,
           "label": "Evento::Cerrar"
@@ -240,7 +240,7 @@
       "sublabel": "state en_revision",
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 407,
           "end_line": 427,
           "label": "encolar al planificador"
@@ -257,7 +257,7 @@
       "tag": "en_cola → ejecutando",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 400,
           "end_line": 486,
           "label": "ejecutar_intento"
@@ -297,10 +297,10 @@
           "label": "QwenCode"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-plataforma/src/proceso.rs",
           "line": 99,
           "end_line": 139,
-          "label": "correr_cancelable"
+          "label": "correr"
         }
       ]
     },
@@ -314,13 +314,13 @@
       "tag": "never the agent",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/criterio.rs",
           "line": 599,
           "end_line": 611,
           "label": "correr_criterio"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mision.rs",
           "line": 620,
           "end_line": 685,
           "label": "bucle"
@@ -336,13 +336,13 @@
       "sublabel": "informe.json",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 525,
           "end_line": 562,
           "label": "entregar"
         },
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 376,
           "end_line": 445,
           "label": "aplicar_bloqueado"
@@ -358,13 +358,13 @@
       "sublabel": "polled 2 s, tree killed",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-plataforma/src/proceso.rs",
           "line": 99,
           "end_line": 139,
-          "label": "correr_cancelable"
+          "label": "correr"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 512,
           "end_line": 521,
           "label": "cancelado_en_curso"
@@ -380,13 +380,13 @@
       "sublabel": "no pass, topes, no executor",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mod.rs",
           "line": 360,
           "end_line": 362,
           "label": "bloqueado"
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-orchestrator/src/ejecutor/mision.rs",
           "line": 620,
           "end_line": 685,
           "label": "bucle"
@@ -402,12 +402,12 @@
       "sublabel": "paquete-correccion.md",
       "sources": [
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 543,
           "end_line": 553
         },
         {
-          "path": "crates/ea-orchestrator/src/ejecutor.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 564,
           "end_line": 583,
           "label": "paquete_correccion"
@@ -424,7 +424,7 @@
       "tag": "timer proposal",
       "sources": [
         {
-          "path": "crates/ea-mcp/src/tools.rs",
+          "path": "crates/ea-mcp/src/tools/mutantes.rs",
           "line": 285,
           "end_line": 350,
           "label": "mutante"
@@ -451,7 +451,7 @@
           "label": "Rutinas programadas"
         },
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/rutinas.rs",
           "line": 601,
           "end_line": 615,
           "label": "lanzar_rutina_en"
@@ -473,7 +473,7 @@
       "sublabel": "ea trabajo confirmar",
       "sources": [
         {
-          "path": "crates/ea-bus/src/bus.rs",
+          "path": "crates/ea-bus/src/bus/transiciones.rs",
           "line": 542,
           "end_line": 554,
           "label": "confirmar"
@@ -671,7 +671,7 @@
       "dot": "rose",
       "title": "Nobody approves itself",
       "items": [
-        "The system runs the criterion with sh -c; an empty criterion is refused at creation and never counts as success",
+        "The system runs the criterion with sh -c in the same sandbox as the agent; an empty criterion is refused at creation and never counts as success",
         "Mutating MCP tools only simulate or propose; the user accepts",
         "A failed routine reaches the planner only after ea trabajo confirmar"
       ]

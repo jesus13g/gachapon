@@ -34,17 +34,18 @@ impl Raices {
     }
 
     /// Las del entorno real: el home del usuario (`ea_plataforma::usuario::home`),
-    /// el directorio actual, el estado del ecosistema (`$EA_ESTADO_DIR` o
-    /// `rutas.estado` de los ajustes: el mismo que usa el bus), el directorio
-    /// de ejecución de la plataforma y `$EA_REPO_DIR` para el repo si no es el
-    /// directorio actual.
+    /// el directorio actual, el estado del ecosistema y su base de datos
+    /// (`rutas.estado` y `rutas.db` de los ajustes, que resuelven
+    /// `$EA_ESTADO_DIR` y `$EA_DB_PATH`: los mismos que usan el bus y el
+    /// diario), el directorio de ejecución de la plataforma y `$EA_REPO_DIR`
+    /// para el repo si no es el directorio actual.
     pub fn desde_entorno() -> Self {
         let var = |n: &str| std::env::var_os(n).filter(|v| !v.is_empty()).map(PathBuf::from);
         let home = ea_plataforma::usuario::home().or_else(|| var("HOME")).unwrap_or_default();
-        let estado = var("EA_ESTADO_DIR").unwrap_or_else(|| ea_ajustes::cargar().rutas.estado);
+        let rutas = ea_ajustes::cargar().rutas;
         let runtime = ea_ajustes::dir_ejecucion(&ea_ajustes::Entorno::Proceso);
-        let mut r = Self::nuevo(home, std::env::current_dir().ok(), estado, runtime);
-        r.db = var("EA_DB_PATH").unwrap_or_else(|| ea_ajustes::cargar().rutas.db);
+        let mut r = Self::nuevo(home, std::env::current_dir().ok(), rutas.estado, runtime);
+        r.db = rutas.db;
         if r.repo.is_none() {
             r.repo = var("EA_REPO_DIR").filter(|p| es_repo(p));
         }

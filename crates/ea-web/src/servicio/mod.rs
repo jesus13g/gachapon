@@ -3,12 +3,9 @@
 //! devuelve una vista de `crate::vistas`. Nada de HTTP aquí; los errores son
 //! de dominio y `http` decide el código de estado.
 
-use ea_acciones::{ErrorAccion, SistemaReal};
+use ea_acciones::{ErrorAccion, SistemaReal, SoloConsulta};
 use ea_bus::{Bus, ErrorBus};
-use ea_store::StoreError;
-use time::format_description::well_known::Rfc3339;
-use time::macros::format_description;
-use time::OffsetDateTime;
+use ea_store::{ErrorFiltro, StoreError};
 
 use crate::AppState;
 
@@ -28,18 +25,27 @@ pub mod servicios;
 pub mod terminal;
 pub mod trabajos;
 
-const ACTOR: &str = "usuario";
+const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
 pub type Resultado<T> = Result<T, ErrorWeb>;
 
-#[derive(Debug)]
+/// Un error de dominio con su mensaje para el usuario; `http` le pone el
+/// código de estado (cada variante, uno).
+#[derive(Debug, thiserror::Error)]
 pub enum ErrorWeb {
+    #[error("{0}")]
     NoEncontrado(String),
+    #[error("{0}")]
     Invalido(String),
+    #[error("{0}")]
     Conflicto(String),
+    #[error("{0}")]
     Prohibido(String),
+    #[error("{0}")]
     NoDisponible(String),
+    #[error("{0}")]
     Tiempo(String),
+    #[error("{0}")]
     Interno(String),
 }
 
@@ -48,11 +54,16 @@ impl From<StoreError> for ErrorWeb {
         let msg = e.to_string();
         match e {
             StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_) => Self::NoEncontrado(msg),
-            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) | StoreError::NotaInvalida(_) => {
-                Self::Invalido(msg)
-            }
+            StoreError::InvalidStatus(_) | StoreError::InvalidOutcome(_) | StoreError::NotaInvalida(_) => Self::Invalido(msg),
             _ => Self::Interno(msg),
         }
+    }
+}
+
+/// Un filtro del diario que no vale: siempre la entrada (400), con su texto.
+impl From<ErrorFiltro> for ErrorWeb {
+    fn from(e: ErrorFiltro) -> Self {
+        Self::Invalido(e.to_string())
     }
 }
 
@@ -66,9 +77,7 @@ impl From<ErrorAccion> for ErrorWeb {
             ErrorAccion::Prohibida(_) => Self::Prohibido(msg),
             ErrorAccion::Sistema(_) => Self::Interno(msg),
             ErrorAccion::Store(StoreError::PropuestaYaDecidida(_)) => Self::Conflicto(msg),
-            ErrorAccion::Store(StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_)) => {
-                Self::NoEncontrado(msg)
-            }
+            ErrorAccion::Store(StoreError::EventNotFound(_) | StoreError::PropuestaNotFound(_)) => Self::NoEncontrado(msg),
             ErrorAccion::Store(_) => Self::Interno(msg),
         }
     }
@@ -79,43 +88,56 @@ impl From<ErrorBus> for ErrorWeb {
         let msg = e.to_string();
         match &e {
             ErrorBus::NoExiste(_) | ErrorBus::SinInstantanea(_) => Self::NoEncontrado(msg),
-            ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado | ErrorBus::NoLanzable(_) => Self::Conflicto(msg),
+            ErrorBus::TransicionInvalida { .. } | ErrorBus::Ocupado | ErrorBus::NoLanzable(_) | ErrorBus::EnCurso(_) => Self::Conflicto(msg),
             ErrorBus::Argumentos(_) | ErrorBus::Skills(_) => Self::Invalido(msg),
             _ => Self::Interno(msg),
         }
     }
 }
 
-/// Directo, sin pasar por `ErrorAccion`: la bóveda distingue lo que no
-/// existe (404) de lo que choca con lo que hay (409).
+/// Con la clasificación de `ErrorAccion` (la única tabla) y el mensaje de la
+/// bóveda tal cual. Lo único que se afina: lo que no existe es 404, no el
+/// 409 de lo que choca con lo que hay.
 impl From<ea_boveda::ErrorBoveda> for ErrorWeb {
     fn from(e: ea_boveda::ErrorBoveda) -> Self {
-        use ea_boveda::ErrorBoveda as B;
         let m = e.to_string();
-        match e {
-            B::NoExiste(_) => Self::NoEncontrado(m),
-            B::YaExiste(_) | B::Cambio(_) | B::Ocupada => Self::Conflicto(m),
-            B::Ruta(_) | B::Argumentos(_) | B::Cabecera(_) => Self::Invalido(m),
-            B::Prohibida(_) | B::FueraDeLaBoveda(_) => Self::Prohibido(m),
-            B::Store(_) | B::Io(_) | B::EventoPerdido(..) => Self::Interno(m),
+        if matches!(e, ea_boveda::ErrorBoveda::NoExiste(_)) {
+            return Self::NoEncontrado(m);
+        }
+        match ErrorAccion::from(e) {
+            ErrorAccion::Argumentos(_) => Self::Invalido(m),
+            ErrorAccion::NoAplica(_) => Self::Conflicto(m),
+            ErrorAccion::Prohibida(_) => Self::Prohibido(m),
+            _ => Self::Interno(m),
         }
     }
 }
 
 // ----------------------------------------------------------------- helpers
 
-fn ts(dt: OffsetDateTime) -> String {
-    dt.format(&Rfc3339).unwrap_or_default()
-}
+/// Las marcas de tiempo de las vistas, en RFC 3339.
+use ea_store::rfc3339 as ts;
 
 /// El sistema real para las acciones que confirma el usuario desde esta
-/// página. `ea-web` no puede reiniciarse a sí mismo a mitad de la petición.
+/// página, con sus rutas, sus timers y su terminal. `ea-web` no puede
+/// reiniciarse a sí mismo a mitad de la petición. La biblioteca es la del
+/// entorno real salvo que la configuración traiga sus raíces (las pruebas).
 fn sistema(s: &AppState) -> SistemaReal {
+    sistema_con(s, s.config.biblioteca_raices.clone().map(|r| biblioteca::contexto_en(s, r)))
+}
+
+/// [`sistema`] con la biblioteca dada.
+fn sistema_con(s: &AppState, biblioteca: Option<ea_biblioteca::Contexto>) -> SistemaReal {
     SistemaReal {
-        rutinas_dir: s.config.rutinas_dir.clone(),
-        boveda: s.boveda.clone(),
+        consulta: SoloConsulta {
+            rutinas_dir: s.config.rutinas_dir.clone(),
+            boveda: s.boveda.clone(),
+            estado_dir: s.config.estado_dir.clone(),
+            temporizadores: s.config.temporizadores.clone(),
+            biblioteca,
+        },
         propio: Some("ea-web"),
-        temporizadores: s.config.temporizadores.clone(),
+        terminal: s.config.terminal.clone(),
     }
 }
 
@@ -127,31 +149,15 @@ fn bus_lectura(s: &AppState) -> Resultado<Bus> {
 /// Bus con el historial y el diario de SQLite, para las acciones del usuario.
 async fn bus_con_store(s: &AppState) -> Resultado<Bus> {
     let store = s.acciones.lock().await.duplicar()?;
-    Ok(bus_lectura(s)?.con_actor(ACTOR).con_store(store))
+    Ok(bus_lectura(s)?.con_store(store, ACTOR))
 }
 
 // --------------------------------------------------------------- validación
 
-fn parse_fecha(s: &str) -> Resultado<OffsetDateTime> {
-    if let Ok(dt) = OffsetDateTime::parse(s, &Rfc3339) {
-        return Ok(dt);
-    }
-    time::Date::parse(s, &format_description!("[year]-[month]-[day]"))
-        .map(|d| d.midnight().assume_utc())
-        .map_err(|_| ErrorWeb::Invalido(format!("fecha inválida: '{s}' (usa RFC3339 o AAAA-MM-DD)")))
-}
-
-fn limite(pedido: Option<i64>, defecto: i64, maximo: i64) -> i64 {
-    pedido.unwrap_or(defecto).clamp(1, maximo)
-}
-
 /// Los slugs acaban en una ruta de fichero (`<dir>/<slug>.toml`) y en el
-/// nombre de una unidad de systemd: nada que no sea `[A-Za-z0-9_-]`.
+/// nombre de una unidad de systemd ([`ea_bus::slug_valido`]).
 fn slug_valido(slug: &str) -> Resultado<()> {
-    let ok = !slug.is_empty()
-        && slug.len() <= 64
-        && slug.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if ok { Ok(()) } else { Err(ErrorWeb::Invalido("slug de rutina inválido".into())) }
+    if ea_bus::slug_valido(slug) { Ok(()) } else { Err(ErrorWeb::Invalido("slug de rutina inválido".into())) }
 }
 
 fn texto_no_vacio(valor: &str, campo: &str, max: usize) -> Resultado<String> {
@@ -163,4 +169,36 @@ fn texto_no_vacio(valor: &str, campo: &str, max: usize) -> Resultado<String> {
         return Err(ErrorWeb::Invalido(format!("'{campo}' supera {max} caracteres")));
     }
     Ok(v.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ea_boveda::ErrorBoveda as B;
+
+    /// Cada error de la bóveda llega con su mensaje y el código de siempre:
+    /// 404 lo que no existe, 409 lo que choca, 400 la entrada, 403 lo prohibido.
+    #[test]
+    fn los_errores_de_la_boveda_conservan_codigo_y_mensaje() {
+        let casos: Vec<(B, &str)> = vec![
+            (B::NoExiste("n".into()), "NoEncontrado"),
+            (B::YaExiste("n".into()), "Conflicto"),
+            (B::Cambio("n".into()), "Conflicto"),
+            (B::Ocupada, "Conflicto"),
+            (B::Ruta("n".into()), "Invalido"),
+            (B::Argumentos("n".into()), "Invalido"),
+            (B::Cabecera("n".into()), "Invalido"),
+            (B::Prohibida("n".into()), "Prohibido"),
+            (B::FueraDeLaBoveda("n".into()), "Prohibido"),
+            (B::Store(StoreError::PropuestaNotFound(1)), "Interno"),
+            (B::Io("n".into()), "Interno"),
+            (B::EventoPerdido("n".into(), "m".into()), "Interno"),
+        ];
+        for (e, clase) in casos {
+            let texto = e.to_string();
+            let w = ErrorWeb::from(e);
+            assert_eq!(format!("{w:?}").split('(').next().unwrap(), clase, "{texto}");
+            assert_eq!(w.to_string(), texto);
+        }
+    }
 }

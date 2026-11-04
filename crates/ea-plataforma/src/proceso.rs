@@ -1,7 +1,10 @@
-//! Procesos: comprobar si vive, lanzar en grupo propio y terminar árboles.
+//! Procesos: comprobar si vive, lanzar en grupo propio, terminar árboles y
+//! ejecutar con tope de tiempo y cancelación.
 
-use std::io;
-use std::process::Command;
+use std::io::{self, Read};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 /// ¿Existe un proceso con este pid? Unix: `kill(pid, 0)` (un `EPERM` también
 /// cuenta como vivo: existe pero es de otro usuario). Windows: `OpenProcess`
@@ -112,24 +115,6 @@ pub fn sin_ventana(cmd: &mut Command) {
     }
 }
 
-/// Gemelo de [`preparar_grupo`] para `tokio::process::Command`.
-#[cfg(feature = "tokio")]
-pub fn preparar_grupo_tokio(cmd: &mut tokio::process::Command) {
-    #[cfg(unix)]
-    {
-        cmd.process_group(0);
-    }
-    #[cfg(windows)]
-    {
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = cmd;
-    }
-}
-
 /// Un hijo y todo lo que lance, para terminarlos juntos.
 ///
 /// - Unix: el hijo debe haberse lanzado con [`preparar_grupo`] (es cabeza de
@@ -141,7 +126,9 @@ pub fn preparar_grupo_tokio(cmd: &mut tokio::process::Command) {
 ///
 /// Al soltar el `Arbol` en Windows se cierra el handle del Job Object y, por
 /// `KILL_ON_JOB_CLOSE`, **Windows mata todo lo que quede dentro**. En Unix
-/// soltarlo no hace nada.
+/// soltarlo no hace nada: [`correr`] llama a [`Arbol::matar`] al acabar
+/// siempre, también cuando el líder sale por su cuenta, para que no sobreviva
+/// nada de lo que dejó de fondo.
 #[derive(Debug)]
 pub struct Arbol {
     #[cfg(unix)]
@@ -262,6 +249,121 @@ impl Drop for Arbol {
     }
 }
 
+/// Cada cuánto se pregunta a `cancelado` mientras corre el proceso (el
+/// ejecutor relee ahí `estado.json`).
+const SONDEO_CANCELACION: Duration = Duration::from_secs(2);
+/// Lo que se espera tras pedir terminar al árbol antes de matarlo.
+const MARGEN_TERM: Duration = Duration::from_secs(10);
+/// Lo que se espera a que se cierren stdout y stderr tras la salida del
+/// proceso (un nieto escapado del grupo podría tenerlos abiertos).
+const ESPERA_SALIDA: Duration = Duration::from_secs(5);
+
+/// Resultado de [`correr`].
+#[derive(Debug)]
+pub struct Corrida {
+    /// Código de salida; `None` si no arrancó, murió por señal, venció el
+    /// tope o se canceló.
+    pub codigo: Option<i32>,
+    pub salida: String,
+    pub errores: String,
+    /// `true` si se cortó porque `cancelado` dijo que sí.
+    pub cancelado: bool,
+    /// Si el proceso no se pudo agrupar en un [`Arbol`], por qué: al vencer
+    /// el tope o cancelar solo cae el líder. Quien llama decide si avisar.
+    pub sin_arbol: Option<io::Error>,
+}
+
+/// Ejecuta `cmd` sin entrada, recogiendo stdout y stderr, con tope de tiempo y
+/// cancelación. El proceso va en su propio grupo (Unix) o Job Object
+/// (Windows), y cada `SONDEO_CANCELACION` se pregunta a `cancelado`. Si dice
+/// que sí, o vence el plazo `tope` (el tope lo vigila quien llama, sin
+/// `timeout` externo), se mata el árbol entero: `SIGTERM` al grupo, espera de
+/// `MARGEN_TERM` y `matar` siempre, para no dejar nietos sueltos. Por tiempo
+/// agotado el código es `None`, igual que antes con el 124. Cuando el líder
+/// sale por su cuenta también se mata lo que quede en su grupo (un `cmd &`
+/// que dejó de fondo): una corrida no deja procesos vivos al volver.
+pub fn correr(mut cmd: Command, tope: Duration, cancelado: &dyn Fn() -> bool) -> Corrida {
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    preparar_grupo(&mut cmd);
+    let mut hijo = match cmd.spawn() {
+        Ok(h) => h,
+        Err(e) => return Corrida { codigo: None, salida: String::new(), errores: e.to_string(), cancelado: false, sin_arbol: None },
+    };
+    let arbol = Arbol::adoptar(hijo.id());
+    let rx_salida = leer_en_hilo(hijo.stdout.take());
+    let rx_errores = leer_en_hilo(hijo.stderr.take());
+    let plazo = Instant::now() + tope;
+    let mut ultimo_sondeo = Instant::now();
+    let mut cancelada = false;
+    let mut agotado = false;
+    let estado = loop {
+        match hijo.try_wait() {
+            Ok(Some(st)) => break Some(st),
+            Ok(None) => {}
+            Err(_) => break None,
+        }
+        if Instant::now() >= plazo {
+            agotado = true;
+            break matar_arbol(&mut hijo, arbol.as_ref().ok());
+        }
+        if ultimo_sondeo.elapsed() >= SONDEO_CANCELACION {
+            ultimo_sondeo = Instant::now();
+            if cancelado() {
+                cancelada = true;
+                break matar_arbol(&mut hijo, arbol.as_ref().ok());
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // Lo que quede del grupo tras salir el líder: SIGKILL (sin efecto si ya no
+    // queda nadie). Así tampoco se queda nadie con stdout o stderr abiertas.
+    if let Ok(a) = &arbol {
+        a.matar();
+    }
+    let salida = rx_salida.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
+    let errores = rx_errores.recv_timeout(ESPERA_SALIDA).unwrap_or_default();
+    let codigo = if cancelada || agotado { None } else { estado.and_then(|s| s.code()) };
+    Corrida { codigo, salida, errores, cancelado: cancelada, sin_arbol: arbol.err() }
+}
+
+/// Lee todo un flujo del hijo en un hilo; el texto llega por el canal.
+fn leer_en_hilo<R: Read + Send + 'static>(flujo: Option<R>) -> mpsc::Receiver<String> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut b = Vec::new();
+        if let Some(mut f) = flujo {
+            let _ = f.read_to_end(&mut b);
+        }
+        let _ = tx.send(String::from_utf8_lossy(&b).into_owned());
+    });
+    rx
+}
+
+/// Pide terminar al árbol (`SIGTERM` al grupo en Unix), espera hasta
+/// `MARGEN_TERM` a que salga el líder y luego lo mata SIEMPRE, por si queda
+/// algún nieto. Sin árbol (no se pudo agrupar), solo cae el líder. Devuelve el
+/// estado de salida del líder.
+fn matar_arbol(hijo: &mut Child, arbol: Option<&Arbol>) -> Option<std::process::ExitStatus> {
+    let mut estado = None;
+    if let Some(a) = arbol {
+        if Arbol::admite_terminar_suave() {
+            a.terminar_suave();
+            let limite = Instant::now() + MARGEN_TERM;
+            while Instant::now() < limite {
+                if let Ok(Some(st)) = hijo.try_wait() {
+                    estado = Some(st);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+        a.matar();
+    } else {
+        let _ = hijo.kill();
+    }
+    estado.or_else(|| hijo.wait().ok())
+}
+
 /// Restaura SIGPIPE a su acción por defecto (Unix) para que `ea … | head`
 /// termine en silencio en vez de provocar un pánico de Rust por `EPIPE`.
 /// En Windows no hace nada.
@@ -334,6 +436,88 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         assert!(muerto(nieto), "el nieto sigue vivo");
+    }
+
+    #[test]
+    fn el_entorno_de_la_orden_llega_al_proceso() {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("printf %s \"$EA_PRUEBA\"").env("EA_PRUEBA", "hola");
+        assert_eq!(correr(c, Duration::from_secs(10), &|| false).salida, "hola");
+    }
+
+    /// Corre `c` con el tope dado y comprueba que mueren el hijo y el nieto
+    /// (cuyos pids deja escritos el script en `pid-hijo` y `pid-nieto`).
+    fn comprobar_que_muere_el_arbol(d: &std::path::Path, c: Command, tope_s: u64) {
+        let t = Instant::now();
+        let r = correr(c, Duration::from_secs(tope_s), &|| false);
+        assert!(t.elapsed() < Duration::from_secs(tope_s + 11), "tardó {:?}", t.elapsed());
+        assert_eq!((r.codigo, r.cancelado), (None, false));
+        let pid = |f: &str| -> u32 {
+            let t = std::fs::read_to_string(d.join(f))
+                .unwrap_or_else(|e| panic!("{f}: {e}; salida {:?}, errores {:?}, tardó {:?}", r.salida, r.errores, t.elapsed()));
+            t.trim().parse().unwrap_or_else(|e| panic!("{f}: {t:?}: {e}"))
+        };
+        for f in ["pid-hijo", "pid-nieto"] {
+            let p = pid(f);
+            let limite = Instant::now() + Duration::from_secs(5);
+            while vive(p) && Instant::now() < limite {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            assert!(!vive(p), "{f} ({p}) sigue vivo");
+        }
+    }
+
+    /// Spec 020 (CE-005): el tope de tiempo lo vigila el orquestador y mata al
+    /// hijo y al nieto, sin `timeout` externo; el código queda en `None`.
+    #[cfg(unix)]
+    #[test]
+    fn el_tope_de_tiempo_mata_al_hijo_y_al_nieto() {
+        let d = tempfile::tempdir().unwrap();
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("sleep 600 & echo $! > pid-nieto; echo $$ > pid-hijo; wait").current_dir(d.path());
+        comprobar_que_muere_el_arbol(d.path(), c, 1);
+    }
+
+    /// Lo mismo en Windows: el hijo es PowerShell y el nieto, un `ping`
+    /// lanzado con `Start-Process`; el trabajo (job object) los mata a ambos.
+    #[cfg(windows)]
+    #[test]
+    fn el_tope_de_tiempo_mata_al_hijo_y_al_nieto() {
+        let d = tempfile::tempdir().unwrap();
+        let guion = "$PID | Out-File -Encoding ascii pid-hijo; \
+                     $p = Start-Process -PassThru -WindowStyle Hidden ping -ArgumentList '-n','600','127.0.0.1'; \
+                     $p.Id | Out-File -Encoding ascii pid-nieto; Wait-Process -Id $p.Id";
+        let mut c = Command::new("powershell");
+        c.args(["-NoProfile", "-NonInteractive", "-Command", guion]).current_dir(d.path());
+        comprobar_que_muere_el_arbol(d.path(), c, 25);
+    }
+
+    #[test]
+    fn un_proceso_que_acaba_a_tiempo_devuelve_su_codigo() {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("echo hola; exit 3");
+        let r = correr(c, Duration::from_secs(30), &|| false);
+        assert_eq!((r.codigo, r.salida.trim()), (Some(3), "hola"));
+    }
+
+    /// B-11: un proceso de fondo que el líder deja al salir con normalidad
+    /// muere con la corrida (antes solo caía al vencer el tope o cancelar) y
+    /// no retiene la salida: el pid llega sin esperar a `ESPERA_SALIDA`.
+    #[cfg(unix)]
+    #[test]
+    fn al_salir_el_lider_muere_lo_que_dejo_de_fondo() {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("sleep 30 & echo $!");
+        let t = Instant::now();
+        let r = correr(c, Duration::from_secs(60), &|| false);
+        assert_eq!(r.codigo, Some(0));
+        let pid: u32 = r.salida.trim().parse().unwrap_or_else(|_| panic!("sin pid en la salida {:?}: el proceso de fondo la retuvo", r.salida));
+        assert!(t.elapsed() < ESPERA_SALIDA, "tardó {:?}", t.elapsed());
+        let limite = Instant::now() + Duration::from_secs(5);
+        while !muerto(pid) && Instant::now() < limite {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(muerto(pid), "el proceso de fondo {pid} sigue vivo");
     }
 
     #[test]

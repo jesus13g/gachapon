@@ -5,12 +5,12 @@ description: "Lanza una obra al ejecutor: un plan dividido en fases pequeñas, c
 
 # /obra
 
-Procedimiento completo y vigente: **lee `~/Proyectos/ecosistema-asistente/agentes/flujo/obra.md` (en la raíz del repo, `agentes/flujo/obra.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
+Procedimiento completo y vigente: **lee `{{flujo}}/obra.md` (en la raíz del repo, `agentes/flujo/obra.md`) y síguelo.** Es la guía neutral que comparten todos los planificadores; este fichero es solo su adaptador.
 
 Reglas que no se rompen:
 
 - El planificador **formaliza y revisa**; no implementa lo que puede hacer el ejecutor. `ea agentes` dice quién ocupa cada rol y con qué modelo.
 - **Ningún agente se confirma a sí mismo:** lo mutante se simula o se propone y solo el usuario acepta.
-- El criterio de éxito lo ejecuta el sistema; un criterio vacío no es éxito.
+- El criterio de éxito lo ejecuta el sistema; un criterio vacío no es éxito. Corre en el sandbox con su tope (`topes.tiempo_criterio_s`, 120 s por defecto) y solo escribe en el worktree, su `/tmp` y las rutas de `agente.criterio.escribibles` (las fija el usuario desde la terminal).
 
 Resumen: Dividir el plan en fases pequeñas (`numero`, `titulo`, `instrucciones`, `entregable`, `criterio`), preguntar `revisar_cada` si la obra es mayor, escribir la orden JSON (`creada_por: "planificador"`) y encolarla con `ea trabajo crear --orden …`.

@@ -12,6 +12,7 @@ pub mod reloj;
 pub mod rutas;
 pub mod shell;
 pub mod usuario;
+pub mod wsl;
 
 #[cfg(feature = "tokio")]
 pub mod parada;

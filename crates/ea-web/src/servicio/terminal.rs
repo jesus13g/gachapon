@@ -9,63 +9,27 @@
 //! validan contra sus campos) y va como argv, sin shell, como hace
 //! `explorador` con el gestor de ficheros.
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-
 use ea_acciones::{Canal, Riesgo};
 use ea_store::{EstadoPropuesta, EventOutcome, NewEvent};
-use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
-use super::{ErrorWeb, Resultado, ACTOR};
+use super::{ACTOR, ErrorWeb, Resultado};
 use crate::AppState;
+use crate::vistas::{AbrirTerminal, TerminalAbierta};
 
-/// Cómo se abre la terminal. `WebConfig::load` usa `Sistema`; las pruebas,
-/// `Simulada` (nunca se abre una ventana de verdad desde una prueba).
-#[derive(Clone)]
-pub enum Terminal {
-    /// Un lanzador del sistema (`ea_plataforma::escritorio::lanzadores_terminal`),
-    /// con el binario `ea` que hay junto a `ea-web`.
-    Sistema { ea: PathBuf },
-    /// No se lanza nada: cada argv que se habría lanzado se apunta aquí.
-    Simulada { ea: PathBuf, lanzadas: Arc<Mutex<Vec<Vec<String>>>> },
-    /// Sin terminal (503).
-    Ninguna,
-}
-
-impl Terminal {
-    /// La del sistema, con el `ea` de la misma carpeta que este binario
-    /// (`target/release/`, donde los ejecutan los servicios), nunca del PATH.
-    pub fn del_sistema() -> Self {
-        match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(ea_plataforma::rutas::nombre_exe("ea")))) {
-            Some(ea) => Self::Sistema { ea },
-            None => Self::Ninguna,
-        }
-    }
-
-    /// Una simulada y el registro donde apunta lo que habría lanzado.
-    pub fn simulada(ea: impl Into<PathBuf>) -> (Self, Arc<Mutex<Vec<Vec<String>>>>) {
-        let lanzadas = Arc::new(Mutex::new(Vec::new()));
-        (Self::Simulada { ea: ea.into(), lanzadas: lanzadas.clone() }, lanzadas)
-    }
-}
-
-/// Lo que se ha abierto, para que la página lo diga.
-#[derive(Debug, Serialize)]
-pub struct TerminalAbierta {
-    pub ok: bool,
-    /// El comando tal como se vería escrito (solo para mostrarlo).
-    pub comando: String,
-}
-
-/// Uno de los tres comandos permitidos, ya validado.
+/// Uno de los comandos permitidos, ya validado contra su forma y, una
+/// herramienta, contra el catálogo (una propuesta se mira además contra el
+/// estado al abrir, [`validar_propuesta`]).
 #[derive(Debug, PartialEq)]
 enum Orden {
     Propuesta(i64),
     /// `ea servicios instalar|desinstalar` (spec 020, H4): el gestor del
     /// sistema se cambia en la TTY, con su confirmación escrita.
     Servicios(&'static str),
-    Herramienta { nombre: &'static str, argumentos: Value },
+    Herramienta {
+        nombre: &'static str,
+        argumentos: Value,
+    },
     /// `ea boveda vaciar-papelera`: borrar para siempre la papelera de la
     /// bóveda (spec 015, RF-012). No es una herramienta del catálogo.
     VaciarPapeleraBoveda,
@@ -81,14 +45,9 @@ impl Orden {
             }
             Orden::Servicios(accion) => vec!["servicios".into(), (*accion).into(), "--esperar".into()],
             Orden::VaciarPapeleraBoveda => vec!["boveda".into(), "vaciar-papelera".into(), "--esperar".into()],
-            Orden::Herramienta { nombre, argumentos } => vec![
-                "acciones".into(),
-                "ejecutar".into(),
-                (*nombre).into(),
-                "--args".into(),
-                argumentos.to_string(),
-                "--esperar".into(),
-            ],
+            Orden::Herramienta { nombre, argumentos } => {
+                vec!["acciones".into(), "ejecutar".into(), (*nombre).into(), "--args".into(), argumentos.to_string(), "--esperar".into()]
+            }
         }
     }
 
@@ -117,39 +76,25 @@ fn invalido(m: impl Into<String>) -> ErrorWeb {
     ErrorWeb::Invalido(m.into())
 }
 
-/// Lo que pide el cuerpo, sin validar todavía contra el estado.
-#[derive(Debug, PartialEq)]
-enum Pedido {
-    Propuesta(i64),
-    Servicios(&'static str),
-    Herramienta(String, Value),
-    VaciarPapeleraBoveda,
-}
-
 /// El cuerpo es `{propuesta: <id>}`, `{servicios: "instalar"|"desinstalar"}`,
 /// `{herramienta, argumentos}` o `{boveda: "vaciar-papelera"}`, nada más: ni
-/// comandos ni texto libre.
-fn leer_cuerpo(cuerpo: &Value) -> Resultado<Pedido> {
-    let obj = cuerpo
-        .as_object()
-        .ok_or_else(|| invalido("se espera {propuesta}, {servicios}, {herramienta, argumentos} o {boveda}"))?;
-    let claves: Vec<&str> = obj.keys().map(String::as_str).collect();
-    match claves.as_slice() {
-        ["boveda"] if obj["boveda"] == "vaciar-papelera" => Ok(Pedido::VaciarPapeleraBoveda),
-        ["boveda"] => Err(invalido("de la bóveda solo se abre en la terminal {\"boveda\": \"vaciar-papelera\"}")),
-        ["propuesta"] => obj["propuesta"]
-            .as_i64()
-            .filter(|&id| id > 0)
-            .map(Pedido::Propuesta)
-            .ok_or_else(|| invalido("'propuesta' debe ser el número de una propuesta")),
-        ["servicios"] => match obj["servicios"].as_str() {
-            Some("instalar") => Ok(Pedido::Servicios("instalar")),
-            Some("desinstalar") => Ok(Pedido::Servicios("desinstalar")),
+/// comandos ni texto libre (un campo que no es ninguno de estos ya lo rechaza
+/// `Cuerpo`).
+fn leer_cuerpo(c: &AbrirTerminal) -> Resultado<Orden> {
+    match (&c.propuesta, &c.servicios, &c.herramienta, &c.argumentos, &c.boveda) {
+        (None, None, None, None, Some(b)) if b == "vaciar-papelera" => Ok(Orden::VaciarPapeleraBoveda),
+        (None, None, None, None, Some(_)) => Err(invalido("de la bóveda solo se abre en la terminal {\"boveda\": \"vaciar-papelera\"}")),
+        (Some(p), None, None, None, None) => {
+            p.as_i64().filter(|&id| id > 0).map(Orden::Propuesta).ok_or_else(|| invalido("'propuesta' debe ser el número de una propuesta"))
+        }
+        (None, Some(sv), None, None, None) => match sv.as_str() {
+            Some("instalar") => Ok(Orden::Servicios("instalar")),
+            Some("desinstalar") => Ok(Orden::Servicios("desinstalar")),
             _ => Err(invalido("'servicios' debe ser «instalar» o «desinstalar»")),
         },
-        ["argumentos", "herramienta"] | ["herramienta", "argumentos"] => {
-            let h = obj["herramienta"].as_str().ok_or_else(|| invalido("'herramienta' debe ser un nombre del catálogo"))?;
-            Ok(Pedido::Herramienta(h.to_string(), obj["argumentos"].clone()))
+        (None, None, Some(h), Some(args), None) => {
+            let h = h.as_str().ok_or_else(|| invalido("'herramienta' debe ser un nombre del catálogo"))?;
+            validar_herramienta(h, args.clone())
         }
         _ => Err(invalido("solo se abre en la terminal {propuesta}, {servicios}, {herramienta, argumentos} o {boveda}")),
     }
@@ -161,11 +106,10 @@ fn validar_herramienta(nombre: &str, argumentos: Value) -> Resultado<Orden> {
     let h = ea_acciones::buscar(nombre)
         .filter(|h| h.ejecucion == ea_acciones::Ejecucion::Supervisada)
         .ok_or_else(|| invalido(format!("'{nombre}' no es una herramienta supervisada del catálogo")))?;
-    if Canal::Web.puede_confirmar(h.riesgo).is_ok() {
+    if ea_acciones::puede_confirmar(Canal::Web, h.riesgo).is_ok() {
         return Err(invalido(format!("'{nombre}' se confirma desde la web; la terminal es para lo irreversible")));
     }
-    let args: &Map<String, Value> =
-        argumentos.as_object().ok_or_else(|| invalido("'argumentos' debe ser un objeto"))?;
+    let args: &Map<String, Value> = argumentos.as_object().ok_or_else(|| invalido("'argumentos' debe ser un objeto"))?;
     let campos = ea_acciones::campos(nombre);
     if let Some(k) = args.keys().find(|k| !campos.iter().any(|c| c.nombre == k.as_str())) {
         return Err(invalido(format!("'{k}' no es un argumento de {nombre}")));
@@ -179,58 +123,47 @@ fn validar_herramienta(nombre: &str, argumentos: Value) -> Resultado<Orden> {
 
 /// Una propuesta pendiente con una acción irreversible (las demás se
 /// deciden desde la web).
-async fn validar_propuesta(s: &AppState, id: i64) -> Resultado<Orden> {
+async fn validar_propuesta(s: &AppState, id: i64) -> Resultado<()> {
     let p = s.store.lock().await.get_propuesta(id)?;
     if p.estado != EstadoPropuesta::Pendiente {
         return Err(ErrorWeb::Conflicto(format!("la propuesta #{id} ya está decidida")));
     }
     let riesgo = p.accion.as_ref().and_then(|a| Riesgo::parse(&a.riesgo));
     match riesgo {
-        Some(r) if Canal::Web.puede_confirmar(r).is_err() => Ok(Orden::Propuesta(id)),
+        Some(r) if ea_acciones::puede_confirmar(Canal::Web, r).is_err() => Ok(()),
         _ => Err(invalido(format!("la propuesta #{id} se decide desde la web; la terminal es para lo irreversible"))),
     }
 }
 
-/// Abre una terminal con `ea <args>` según la configuración: la del sistema,
-/// la simulada de las pruebas o ninguna (503). Quien llama ya ha validado los
-/// argumentos contra una lista cerrada.
+/// Abre una terminal con `ea <args>` (el `ea` y la terminal de la
+/// configuración; sin `ea`, 503). Quien llama ya ha validado los argumentos
+/// contra una lista cerrada.
 pub fn lanzar_argv(s: &AppState, args: &[String]) -> Resultado<()> {
-    match &s.config.terminal {
-        Terminal::Ninguna => return Err(ErrorWeb::NoDisponible("no hay terminal configurada".into())),
-        Terminal::Sistema { ea } => {
-            if !ea.is_file() {
-                return Err(ErrorWeb::NoDisponible(format!("no está el binario {}", ea.display())));
-            }
-            let mut argv = vec![ea.display().to_string()];
-            argv.extend(args.iter().cloned());
-            ea_acciones::lanzar_en_terminal(&argv).map_err(ErrorWeb::NoDisponible)?;
-        }
-        Terminal::Simulada { ea, lanzadas } => {
-            let mut argv = vec![ea_plataforma::escritorio::lanzadores_terminal()[0].to_string(), ea.display().to_string()];
-            argv.extend(args.iter().cloned());
-            lanzadas.lock().map_err(|_| ErrorWeb::Interno("registro envenenado".into()))?.push(argv);
-        }
+    let Some(ea) = &s.config.ea else {
+        return Err(ErrorWeb::NoDisponible("no hay terminal configurada".into()));
+    };
+    if !ea.is_file() {
+        return Err(ErrorWeb::NoDisponible(format!("no está el binario {}", ea.display())));
     }
-    Ok(())
+    let mut argv = vec![ea.display().to_string()];
+    argv.extend(args.iter().cloned());
+    s.config.terminal.abrir(&argv).map_err(ErrorWeb::NoDisponible)
 }
 
 /// Abre una terminal con el comando que confirma en ella. Queda en el
 /// diario como `accion_terminal_abierta` (abrir no decide nada).
-pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
-    let orden = match leer_cuerpo(cuerpo)? {
-        Pedido::Propuesta(id) => validar_propuesta(s, id).await?,
-        Pedido::Servicios(accion) => Orden::Servicios(accion),
-        Pedido::Herramienta(h, args) => validar_herramienta(&h, args)?,
-        Pedido::VaciarPapeleraBoveda => Orden::VaciarPapeleraBoveda,
-    };
+pub async fn abrir(s: &AppState, cuerpo: &AbrirTerminal) -> Resultado<TerminalAbierta> {
+    let orden = leer_cuerpo(cuerpo)?;
+    if let Orden::Propuesta(id) = orden {
+        validar_propuesta(s, id).await?;
+    }
     lanzar_argv(s, &orden.argv())?;
     let evento = NewEvent {
         actor: ACTOR.into(),
         action: "accion_terminal_abierta".into(),
-        trabajo: None,
         outcome: Some(EventOutcome::Ok),
-        duration_ms: None,
         detail: Some(orden.detalle().to_string()),
+        ..Default::default()
     };
     if let Err(e) = s.store.lock().await.append_event(evento) {
         tracing::warn!(error = %e, "no se pudo apuntar la terminal abierta en el diario");
@@ -241,6 +174,12 @@ pub async fn abrir(s: &AppState, cuerpo: &Value) -> Resultado<TerminalAbierta> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Como llega por la ruta: lo que `Cuerpo` no deja pasar es un error.
+    fn leer_cuerpo(v: Value) -> Resultado<Orden> {
+        let c: AbrirTerminal = serde_json::from_value(v).map_err(|e| invalido(e.to_string()))?;
+        super::leer_cuerpo(&c)
+    }
 
     #[test]
     fn el_argv_es_cerrado_y_sin_frase() {
@@ -255,18 +194,20 @@ mod tests {
 
     #[test]
     fn solo_acepta_las_formas_cerradas() {
-        assert!(leer_cuerpo(&json!({ "comando": "rm -rf /" })).is_err());
-        assert!(leer_cuerpo(&json!("ea propuestas decidir 1")).is_err());
-        assert!(leer_cuerpo(&json!({ "propuesta": "1; rm" })).is_err());
-        assert!(leer_cuerpo(&json!({ "propuesta": 1, "confirmo": "1" })).is_err());
-        assert_eq!(leer_cuerpo(&json!({ "propuesta": 3 })).unwrap(), Pedido::Propuesta(3));
-        assert_eq!(leer_cuerpo(&json!({ "servicios": "instalar" })).unwrap(), Pedido::Servicios("instalar"));
-        for malo in [json!({ "servicios": "reiniciar" }), json!({ "servicios": 1 }), json!({ "servicios": "instalar", "x": 1 }), json!({ "servicios": "instalar; rm" })] {
-            assert!(leer_cuerpo(&malo).is_err(), "{malo}");
+        assert!(leer_cuerpo(json!({ "comando": "rm -rf /" })).is_err());
+        assert!(leer_cuerpo(json!("ea propuestas decidir 1")).is_err());
+        assert!(leer_cuerpo(json!({ "propuesta": "1; rm" })).is_err());
+        assert!(leer_cuerpo(json!({ "propuesta": 1, "confirmo": "1" })).is_err());
+        assert_eq!(leer_cuerpo(json!({ "propuesta": 3 })).unwrap(), Orden::Propuesta(3));
+        assert_eq!(leer_cuerpo(json!({ "servicios": "instalar" })).unwrap(), Orden::Servicios("instalar"));
+        for malo in
+            [json!({ "servicios": "reiniciar" }), json!({ "servicios": 1 }), json!({ "servicios": "instalar", "x": 1 }), json!({ "servicios": "instalar; rm" })]
+        {
+            assert!(leer_cuerpo(malo.clone()).is_err(), "{malo}");
         }
-        assert_eq!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera" })).unwrap(), Pedido::VaciarPapeleraBoveda);
-        assert!(leer_cuerpo(&json!({ "boveda": "rm -rf" })).is_err());
-        assert!(leer_cuerpo(&json!({ "boveda": "vaciar-papelera", "confirmo": "x" })).is_err());
+        assert_eq!(leer_cuerpo(json!({ "boveda": "vaciar-papelera" })).unwrap(), Orden::VaciarPapeleraBoveda);
+        assert!(leer_cuerpo(json!({ "boveda": "rm -rf" })).is_err());
+        assert!(leer_cuerpo(json!({ "boveda": "vaciar-papelera", "confirmo": "x" })).is_err());
         let v = Orden::VaciarPapeleraBoveda;
         assert_eq!(v.argv(), ["boveda", "vaciar-papelera", "--esperar"]);
         assert_eq!(v.texto(), "ea boveda vaciar-papelera");
@@ -275,5 +216,9 @@ mod tests {
         assert!(validar_herramienta("ea_encolar_rutina", json!({ "slug": "x" })).is_err(), "reversible: desde la web");
         assert!(validar_herramienta("ea_leer_nota", json!({})).is_err());
         assert!(validar_herramienta("ea_eliminar_rutina", json!({ "slug": "x" })).is_ok());
+        // El cuerpo de una herramienta sale ya validado contra el catálogo.
+        let h = leer_cuerpo(json!({ "herramienta": "ea_eliminar_rutina", "argumentos": { "slug": "x" } })).unwrap();
+        assert_eq!(h, Orden::Herramienta { nombre: "ea_eliminar_rutina", argumentos: json!({ "slug": "x" }) });
+        assert!(leer_cuerpo(json!({ "herramienta": "ea_encolar_rutina", "argumentos": { "slug": "x" } })).is_err());
     }
 }

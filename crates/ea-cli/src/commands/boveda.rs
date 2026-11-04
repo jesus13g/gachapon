@@ -5,8 +5,7 @@
 
 use anyhow::{Context, Result};
 use comfy_table::Table;
-use ea_acciones::Boveda;
-use ea_boveda::{ruta::REGIONES, Limites};
+use ea_boveda::{Boveda, Limites, ruta::REGIONES};
 use ea_store::{ResultadoBusqueda, Store};
 use serde_json::json;
 
@@ -43,10 +42,7 @@ pub fn estado(store: &mut Store) -> Result<()> {
     println!("  (EA_BOVEDA_DIR o ~/.config/ecosistema-asistente/boveda.toml la cambian)");
     let r = b.sincronizar(store, false)?;
     if r.indexadas + r.actualizadas + r.eliminadas > 0 {
-        println!(
-            "  Índice al día: {} nuevas, {} actualizadas, {} eliminadas",
-            r.indexadas, r.actualizadas, r.eliminadas
-        );
+        println!("  Índice al día: {} nuevas, {} actualizadas, {} eliminadas", r.indexadas, r.actualizadas, r.eliminadas);
     }
     let cuentas = store.boveda_contar_por_region()?;
     for region in REGIONES {
@@ -101,22 +97,19 @@ pub fn leer(ruta: &str, desde: usize) -> Result<()> {
 }
 
 pub fn reindexar(store: &mut Store) -> Result<()> {
-    let r = Boveda::configurada().reindexar(store, "usuario")?;
-    println!(
-        "Índice reconstruido: {} nuevas, {} actualizadas, {} eliminadas, {} omitidas por tamaño",
-        r.indexadas, r.actualizadas, r.eliminadas, r.omitidas
-    );
+    let r = Boveda::configurada().reindexar(store, super::actor())?;
+    println!("Índice reconstruido: {} nuevas, {} actualizadas, {} eliminadas, {} omitidas por tamaño", r.indexadas, r.actualizadas, r.eliminadas, r.omitidas);
     Ok(())
 }
 
 /// Promoción directa del usuario: la misma herramienta y el mismo flujo de
 /// confirmación que `ea acciones ejecutar ea_promover_nota`.
-pub fn promover(store: &mut Store, ruta: &str, destino: Option<String>) -> Result<()> {
+pub fn promover(ctx: &mut super::Contexto, ruta: &str, destino: Option<String>) -> Result<()> {
     let mut args = json!({ "ruta": ruta });
     if let Some(d) = destino {
         args["destino"] = json!(d);
     }
-    super::acciones::ejecutar(store, "ea_promover_nota", &args.to_string()).context("no se pudo promover")
+    super::acciones::ejecutar(ctx, "ea_promover_nota", &args.to_string()).context("no se pudo promover")
 }
 
 /// Vacía la papelera de la bóveda: borra para siempre lo que hay en ella.
@@ -125,7 +118,7 @@ pub fn promover(store: &mut Store, ruta: &str, destino: Option<String>) -> Resul
 /// borraría a la vista y la frase `confirmo vaciar-papelera`.
 pub fn vaciar_papelera(store: &mut Store) -> Result<()> {
     let b = Boveda::configurada();
-    ea_acciones::Canal::terminal_interactiva()?;
+    ea_acciones::terminal_interactiva()?;
     let r = b.simular_vaciar_papelera()?;
     if r.entradas == 0 {
         println!("La papelera de la bóveda está vacía: no hay nada que borrar.");
@@ -143,10 +136,7 @@ pub fn vaciar_papelera(store: &mut Store) -> Result<()> {
         println!("Cancelado: la papelera sigue como estaba y no se ha borrado nada.");
         return Ok(());
     }
-    let hecho = b.vaciar_papelera(store, "usuario")?;
-    println!(
-        "Papelera vaciada: {} entradas ({} notas, {} bytes) borradas para siempre.",
-        hecho.entradas, hecho.notas, hecho.bytes
-    );
+    let hecho = b.vaciar_papelera(store, ea_ajustes::ACTOR_USUARIO)?;
+    println!("Papelera vaciada: {} entradas ({} notas, {} bytes) borradas para siempre.", hecho.entradas, hecho.notas, hecho.bytes);
     Ok(())
 }

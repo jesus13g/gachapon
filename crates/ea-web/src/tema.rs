@@ -15,7 +15,7 @@ const COLORES: &[(&str, &str, &str)] = &[
     ("readable_muted", "fg-lo", "#8f949c"),
     ("dark_fg", "fg-dim", "#6a707a"),
     ("muted", "line", "#4b515b"),
-    ("accent", "accent", "#ad2222"),
+    // Sin `accent`: el acento naranja de las marcas es fijo y lo pone `app.css`.
     ("text_accent", "hot", "#ff5c5c"),
 ];
 
@@ -27,18 +27,11 @@ fn es_color(s: &str) -> bool {
 }
 
 pub fn css(path: &Path) -> String {
-    let tema: Option<toml::Table> = std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| toml::from_str(&s).ok());
+    let tema: Option<toml::Table> = std::fs::read_to_string(path).ok().and_then(|s| toml::from_str(&s).ok());
 
     let mut out = String::from(":root{");
     for (clave, variable, defecto) in COLORES {
-        let valor = tema
-            .as_ref()
-            .and_then(|t| t.get(*clave))
-            .and_then(|v| v.as_str())
-            .filter(|v| es_color(v))
-            .unwrap_or(defecto);
+        let valor = tema.as_ref().and_then(|t| t.get(*clave)).and_then(|v| v.as_str()).filter(|v| es_color(v)).unwrap_or(defecto);
         out.push_str(&format!("--{variable}:{valor};"));
     }
     out.push('}');
@@ -53,7 +46,8 @@ mod tests {
     fn sin_fichero_usa_los_colores_por_defecto() {
         let css = css(Path::new("/no/existe/colors.toml"));
         assert!(css.contains("--bg:#181a1f;"));
-        assert!(css.contains("--accent:#ad2222;"));
+        assert!(css.contains("--hot:#ff5c5c;"));
+        assert!(!css.contains("--accent"), "el acento lo fija app.css");
     }
 
     #[test]

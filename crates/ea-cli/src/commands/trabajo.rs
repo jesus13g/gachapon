@@ -2,13 +2,17 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail, Result};
-use ea_bus::{Bus, Rol, Evento, Modo, Orden, Topes};
+use anyhow::{Result, anyhow};
+use ea_bus::{Bus, Evento, Modo, Orden, Rol};
 
+use super::{Contexto, limpio};
+
+/// El bus con historial si la base abre (sin ella, sigue): el de `ea equipo`.
 pub(super) fn bus() -> Result<Bus> {
-    let b = Bus::abrir()?.con_actor("ea-cli");
-    Ok(match ea_store::Store::open() {
-        Ok(s) => b.con_store(s),
+    let rutas = ea_ajustes::cargar().rutas;
+    let b = Bus::abrir_en(&rutas.estado)?;
+    Ok(match ea_store::Store::open_at(&rutas.db) {
+        Ok(s) => b.con_store(s, super::actor()),
         Err(_) => b,
     })
 }
@@ -24,8 +28,9 @@ pub struct DeEquipo {
 
 #[allow(clippy::too_many_arguments)]
 pub fn crear(
+    ctx: &mut Contexto,
     fichero: Option<PathBuf>,
-    modo: &str,
+    modo: Modo,
     titulo: Option<String>,
     worktree: Option<String>,
     objetivo: Option<String>,
@@ -34,39 +39,31 @@ pub fn crear(
     por: String,
     de_equipo: DeEquipo,
 ) -> Result<()> {
-    let orden: Orden = if let Some(f) = fichero {
+    let mut orden: Orden = if let Some(f) = fichero {
         serde_json::from_str(&std::fs::read_to_string(&f)?).map_err(|e| anyhow!("orden inválida ({}): {e}", f.display()))?
     } else {
-        let modo = match modo {
-            "mision" => Modo::Mision,
-            "obra" => Modo::Obra,
-            "rutina" => Modo::Rutina,
-            otro => bail!("modo desconocido: {otro} (mision, obra o rutina)"),
-        };
         let worktree = worktree.ok_or_else(|| anyhow!("falta --worktree (o --orden)"))?;
-        let worktree = ea_plataforma::rutas::canonica(&worktree)?.to_string_lossy().into_owned();
+        // Aquí una ruta relativa lo es al directorio actual (`--worktree .`
+        // desde el repo): se hace absoluta antes de validarla.
+        let worktree = std::path::absolute(&worktree).map(|p| p.to_string_lossy().into_owned()).unwrap_or(worktree);
+        let titulo = titulo.ok_or_else(|| anyhow!("falta --titulo"))?;
+        let objetivo = objetivo.ok_or_else(|| anyhow!("falta --objetivo"))?;
         Orden {
-            id: String::new(),
             modo,
-            titulo: titulo.ok_or_else(|| anyhow!("falta --titulo"))?,
-            worktree,
-            objetivo: objetivo.ok_or_else(|| anyhow!("falta --objetivo"))?,
-            criterio_exito: criterio,
-            fases: vec![],
-            revisar_cada: None,
-            topes: Topes::default(),
-            rutina: None,
-            notas_revision: vec![],
             skills,
             equipo: de_equipo.equipo,
             asignado_a: de_equipo.asignar,
             revisor: de_equipo.revisor,
             worktree_propio: de_equipo.worktree_propio,
-            creada_en: String::new(),
-            creada_por: por,
+            // Sin `--criterio`, el bus la rechaza: el criterio es obligatorio.
+            ..Orden::mision(titulo, worktree, objetivo, criterio.unwrap_or_default(), por)
         }
     };
-    println!("{}", bus()?.crear_trabajo(orden)?);
+    // Como en la web: ruta absoluta, existente, repo git con commits. La orden
+    // lleva la forma canónica (la del semáforo y el ejecutor). La estructura
+    // (fases 1..N) y los criterios los valida el bus al crear.
+    orden.worktree = ea_bus::validar_worktree(&orden.worktree, ea_bus::git::TOPE_LECTURA)?;
+    println!("{}", ctx.bus()?.crear_trabajo(orden)?);
     Ok(())
 }
 
@@ -74,7 +71,7 @@ pub fn listar() -> Result<()> {
     let b = Bus::abrir()?;
     for id in b.listar_trabajos()? {
         let (Ok(o), Ok(e)) = (b.leer_orden(&id), b.leer_estado(&id)) else { continue };
-        println!("{id}  {:<12} {:<8} {}", e.estado.as_str(), o.modo.as_str(), o.titulo);
+        println!("{id}  {:<12} {:<8} {}", e.estado.as_str(), o.modo.as_str(), limpio(&o.titulo));
     }
     Ok(())
 }
@@ -89,19 +86,21 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
+    // Lo que no es del sistema (lo escriben el planificador, el ejecutor o su
+    // criterio) pasa por `limpio`: sin secuencias de control en la terminal.
     println!("trabajo   {id}");
-    println!("titulo    {}", orden.titulo);
+    println!("titulo    {}", limpio(&orden.titulo));
     println!("modo      {}", orden.modo.as_str());
     println!("estado    {}", estado.estado.as_str());
     let fase = estado.fase_actual.map(|f| format!(" · fase {f}/{}", orden.fases.len())).unwrap_or_default();
     println!("iteracion {}{fase}", estado.iteracion);
     if let Some(d) = &estado.detalle {
-        println!("detalle   {d}");
+        println!("detalle   {}", limpio(d));
     }
     if let Some(e) = &estado.ejecutado_por {
-        println!("ejecutor  {} ({})", e.agente, e.modelo);
+        println!("ejecutor  {} ({})", limpio(&e.agente), limpio(&e.modelo));
     }
-    println!("worktree  {}{}", orden.worktree, if orden.worktree_propio { " (propio: se crea un git worktree para el trabajo)" } else { "" });
+    println!("worktree  {}{}", limpio(&orden.worktree), if orden.worktree_propio { " (propio: se crea un git worktree para el trabajo)" } else { "" });
     if orden.worktree_propio {
         match b.info_worktree(id)? {
             Some(w) => println!(
@@ -118,19 +117,19 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
         }
     }
     if let Some(e) = &orden.equipo {
-        println!("equipo    {e}");
+        println!("equipo    {}", limpio(e));
     }
     if let Some(a) = &orden.asignado_a {
-        println!("asignado  {a}");
+        println!("asignado  {}", limpio(a));
     }
     if let Some(r) = &orden.revisor {
-        println!("revisor   {r}");
+        println!("revisor   {}", limpio(r));
     }
     if let Some(c) = &orden.criterio_exito {
-        println!("criterio  {c}");
+        println!("criterio  {}", limpio(c));
     }
     if !orden.skills.is_empty() {
-        println!("skills    {}", orden.skills.join(", "));
+        println!("skills    {}", limpio(&orden.skills.join(", ")));
     }
     if let Some(r) = orden.revisar_cada {
         println!("revisar_cada {r}");
@@ -147,76 +146,63 @@ pub fn ver(id: &str, json: bool) -> Result<()> {
     println!("obra_completa {}", i.obra_completa);
     println!("fases_hechas  {}  ·  duracion {}s", i.fases_hechas, i.duracion_s);
     if let Some(m) = &i.motivo {
-        println!("motivo        {m}");
+        println!("motivo        {}", limpio(m));
     }
     if let Some(c) = &i.commit_inicio {
-        println!("commit_inicio {c}");
+        println!("commit_inicio {}", limpio(c));
     }
     if let Some(e) = &i.ejecutado_por {
-        println!("ejecutado_por {} ({})", e.agente, e.modelo);
+        println!("ejecutado_por {} ({})", limpio(&e.agente), limpio(&e.modelo));
     }
     if let Some(a) = &i.aviso {
-        println!("aviso         {a}");
+        println!("aviso         {}", limpio(a));
     }
     for f in &i.fases {
         let por = f.ejecutado_por.as_ref().map(|e| format!("  · {} ({})", e.agente, e.modelo)).unwrap_or_default();
-        println!("fase {} [{}] {}{por}", f.numero, f.resultado, f.titulo);
+        println!("{}", limpio(&format!("fase {} [{}] {}{por}", f.numero, f.resultado.as_str(), f.titulo)));
     }
-    println!("evidencia:\n{}", i.evidencia.trim_end());
+    println!("evidencia:\n{}", limpio(i.evidencia.trim_end()));
     if let Some(d) = &i.diff_stat {
-        println!("diff stat:\n{}", d.trim_end());
+        println!("diff stat:\n{}", limpio(d.trim_end()));
     }
     println!("(detalle: ea trabajo diff {id} [--fase N] · todo: ea trabajo ver {id} --json)");
     Ok(())
 }
 
-fn git(wt: &str, args: &[&str]) -> Result<String> {
-    let o = std::process::Command::new("git").arg("-C").arg(wt).args(args).output()?;
-    if !o.status.success() {
-        bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&o.stderr).trim());
-    }
-    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
-}
-
+/// Lo cambiado desde `commit_inicio` y los ficheros nuevos sin seguimiento,
+/// o el diff de una fase, con el `git` endurecido de `ea-bus`.
 pub fn diff(id: &str, fase: Option<u32>) -> Result<()> {
+    use ea_bus::git::{self, TOPE_LECTURA};
     let b = Bus::abrir()?;
     let orden = b.leer_orden(id)?;
-    let wt = orden.worktree.as_str();
+    let wt = std::path::Path::new(&orden.worktree);
     let inicio = b.leer_informe(id)?.and_then(|i| i.commit_inicio);
-    let excl = ea_bus::EXCLUIR_DIFF;
     if let Some(n) = fase {
         // Árboles guardados por la obra en el informe de cada fase (SQLite);
         // el rango lo calcula `ea-bus`, igual que para `ea-web`.
-        let store = ea_store::Store::open().map_err(|e| anyhow!("sin acceso al store: {e}"))?;
+        let store = ea_store::Store::open_at(&ea_ajustes::cargar().rutas.db).map_err(|e| anyhow!("sin acceso al store: {e}"))?;
         let fases = store.listar_fases(id)?;
         let (base, fin) = ea_bus::rango_diff_fase(inicio.as_deref(), &fases, n)?;
-        print!("{}", git(wt, &["diff", &base, &fin, "--", ".", excl])?);
+        print!("{}", git::diff_entre(wt, &base, &fin, false, TOPE_LECTURA)?);
         return Ok(());
     }
     let inicio = inicio.ok_or_else(|| anyhow!("el trabajo {id} no tiene informe con commit_inicio"))?;
-    print!("{}", git(wt, &["diff", &inicio, "--", ".", excl])?);
-    let nuevos = git(wt, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-    for f in nuevos.split('\0').filter(|f| !f.is_empty() && !f.contains("__pycache__")) {
-        let ruta = std::path::Path::new(wt).join(f);
-        match std::fs::read(&ruta) {
-            Ok(bytes) if std::str::from_utf8(&bytes).is_ok() => {
-                println!("\n=== fichero nuevo sin seguimiento: {f} ===\n{}", String::from_utf8_lossy(&bytes))
-            }
-            _ => println!("\n=== fichero nuevo sin seguimiento: {f} (binario o ilegible) ==="),
-        }
+    print!("{}", git::diff_desde(wt, &inicio, TOPE_LECTURA)?);
+    for f in git::ficheros_nuevos(wt, TOPE_LECTURA)? {
+        println!("{}", f.bloque());
     }
     Ok(())
 }
 
-pub fn evento(id: &str, ev: Evento) -> Result<()> {
+pub fn evento(ctx: &mut Contexto, id: &str, ev: Evento) -> Result<()> {
     let nombre = ev.nombre();
-    let e = bus()?.aplicar(id, ev)?;
+    let e = ctx.bus()?.aplicar(id, ev)?;
     println!("{id}: {nombre} -> {}", e.estado.as_str());
     Ok(())
 }
 
-pub fn reformular(id: &str, nota: &str, fase: Option<u32>) -> Result<()> {
-    let e = bus()?.reformular(id, nota, fase)?;
+pub fn reformular(ctx: &mut Contexto, id: &str, nota: &str, fase: Option<u32>) -> Result<()> {
+    let e = ctx.bus()?.reformular(id, nota, fase)?;
     match e.fase_actual.filter(|_| fase.is_some()) {
         Some(n) => println!("{id}: reformular desde la fase {n} -> {}", e.estado.as_str()),
         None => println!("{id}: reformular -> {}", e.estado.as_str()),
@@ -224,21 +210,15 @@ pub fn reformular(id: &str, nota: &str, fase: Option<u32>) -> Result<()> {
     Ok(())
 }
 
-pub fn confirmar(id: &str, contexto: &str) -> Result<()> {
-    let e = bus()?.confirmar(id, contexto)?;
+pub fn confirmar(ctx: &mut Contexto, id: &str, contexto: &str) -> Result<()> {
+    let e = ctx.bus()?.confirmar(id, contexto)?;
     println!("{id}: confirmar -> {} (encolado en claude-code)", e.estado.as_str());
     Ok(())
 }
 
-pub fn cola(agente: Option<&str>, json: bool) -> Result<()> {
+pub fn cola(rol: Option<Rol>, json: bool) -> Result<()> {
     let b = Bus::abrir()?;
-    let agentes = match agente {
-        None => Rol::TODOS.to_vec(),
-        Some(nombre) => match Rol::desde(nombre) {
-            Some(rol) => vec![rol],
-            None => bail!("rol desconocido: {nombre} (planificador o ejecutor; también claude-code o modelo-local)"),
-        },
-    };
+    let agentes = rol.map_or(Rol::TODOS.to_vec(), |r| vec![r]);
     if json {
         let mut m = serde_json::Map::new();
         for a in agentes {

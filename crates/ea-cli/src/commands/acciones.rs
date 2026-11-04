@@ -1,12 +1,11 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use comfy_table::Table;
-use ea_acciones::{Canal, Ejecucion, CATALOGO};
-use ea_store::Store;
+use ea_acciones::{CATALOGO, Ejecucion};
 use serde_json::Value;
 
-use super::{bloquear, confirmar_en_terminal, sistema};
+use super::{Contexto, bloquear, confirmar_en_terminal};
 
-const ACTOR: &str = "usuario";
+const ACTOR: &str = ea_ajustes::ACTOR_USUARIO;
 
 fn parsear(args: &str) -> Result<Value> {
     let v: Value = serde_json::from_str(args).context("--args debe ser un objeto JSON")?;
@@ -34,9 +33,10 @@ pub fn listar() {
     println!("{table}");
 }
 
-pub fn simular(store: &Store, herramienta: &str, args: &str) -> Result<()> {
+pub fn simular(ctx: &mut Contexto, herramienta: &str, args: &str) -> Result<()> {
+    let sis = ctx.sistema();
+    let store = ctx.store()?;
     let args = parsear(args)?;
-    let sis = sistema();
     let hechos = bloquear(ea_acciones::observar(&sis, herramienta, &args))?;
     let sim = ea_acciones::simular_con(store, &sis, &hechos, herramienta, &args)?;
     println!("Simulación de {} ({}); no se ha hecho nada:", sim.herramienta, sim.riesgo.as_str());
@@ -46,19 +46,18 @@ pub fn simular(store: &Store, herramienta: &str, args: &str) -> Result<()> {
 
 /// Ejecución directa por el usuario: simulación, confirmación en terminal
 /// interactiva y, solo entonces, la acción por la capa interna.
-pub fn ejecutar(store: &mut Store, herramienta: &str, args: &str) -> Result<()> {
+pub fn ejecutar(ctx: &mut Contexto, herramienta: &str, args: &str) -> Result<()> {
+    let sis = ctx.sistema();
+    let store = ctx.store()?;
     let args = parsear(args)?;
-    let sis = sistema();
-    let canal = Canal::terminal_interactiva()?;
+    let canal = ea_acciones::terminal_interactiva()?;
     let hechos = bloquear(ea_acciones::observar(&sis, herramienta, &args))?;
     let sim = ea_acciones::simular_con(store, &sis, &hechos, herramienta, &args)?;
     if !confirmar_en_terminal(herramienta, sim.riesgo.as_str(), &sim.argumentos, &sim.texto, herramienta)? {
         println!("Cancelado: no se ha hecho nada.");
         return Ok(());
     }
-    let r = bloquear(ea_acciones::ejecutar(
-        store, &sis, ACTOR, canal, herramienta, &sim.argumentos, &sim.precondicion, None,
-    ))?;
+    let r = bloquear(ea_acciones::ejecutar(store, &sis, ACTOR, canal, herramienta, &sim.argumentos, &sim.precondicion, None))?;
     println!("{}", r.texto);
     Ok(())
 }

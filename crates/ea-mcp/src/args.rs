@@ -5,7 +5,6 @@
 
 use schemars::JsonSchema;
 use serde::Deserialize;
-use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListarTrabajosArgs {
@@ -15,7 +14,7 @@ pub struct ListarTrabajosArgs {
     /// Filtra por modo: mision, obra o rutina.
     pub modo: Option<String>,
     /// Número máximo de trabajos a devolver, los más recientes primero.
-    /// Por defecto 20.
+    /// Por defecto 20, como mucho 50 (10 y 20 para el agente local).
     pub limite: Option<i64>,
 }
 
@@ -45,7 +44,7 @@ pub struct ListarDiarioArgs {
     /// Fecha/hora hasta la que listar (RFC3339 o AAAA-MM-DD, UTC).
     pub hasta: Option<String>,
     /// Número máximo de eventos a devolver, los más recientes primero.
-    /// Por defecto 20.
+    /// Por defecto 20, como mucho 50 (10 y 20 para el agente local).
     pub limite: Option<i64>,
 }
 
@@ -197,23 +196,6 @@ pub struct PromoverNotaArgs {
     /// Si es true, solo describe lo que se haría. Si es false (por defecto),
     /// encola una propuesta que el usuario debe aceptar: nada se copia aquí.
     pub simular: Option<bool>,
-}
-
-/// Acepta tanto RFC3339 completo como una fecha simple AAAA-MM-DD
-/// (interpretada como medianoche UTC) — mismo comportamiento que
-/// `ea-cli`'s `parse_flexible_date`, duplicado aquí porque es una función
-/// de formato de entrada de CLI/MCP, no lógica de `ea-store`.
-pub fn parse_flexible_date(s: &str) -> Result<OffsetDateTime, String> {
-    use time::format_description::well_known::Rfc3339;
-    use time::macros::format_description;
-
-    if let Ok(dt) = OffsetDateTime::parse(s, &Rfc3339) {
-        return Ok(dt);
-    }
-    let date_fmt = format_description!("[year]-[month]-[day]");
-    let date = time::Date::parse(s, &date_fmt)
-        .map_err(|_| format!("fecha inválida: '{s}' (usa RFC3339 o AAAA-MM-DD)"))?;
-    Ok(date.midnight().assume_utc())
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

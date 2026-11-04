@@ -6,13 +6,13 @@
 
 use std::path::{Path, PathBuf};
 
-use ea_biblioteca::{materializar, plan_sesion, Biblioteca, Id, Inventario, PlanSesion, Raices};
-use serde_json::{json, Value};
+use ea_biblioteca::{Biblioteca, Id, Inventario, PlanSesion, Raices, materializar, plan_sesion};
 use ea_store::Store;
+use serde_json::{Value, json};
 
 use crate::catalogo::Canal;
 use crate::error::ErrorAccion;
-use crate::flujo::{ejecutar_directo, Resultado};
+use crate::flujo::{Resultado, ejecutar_directo};
 use crate::sistema::Sistema;
 use crate::terminal::Terminal;
 
@@ -52,16 +52,6 @@ pub fn plan_real(agente: &str, ids: &[String], directorio: Option<&str>) -> Resu
     plan_sesion(agente, &analizar_ids(ids)?, &inventario, &raices).map_err(|e| e.to_string())
 }
 
-/// Las raíces con las que se materializó el plan: el proyecto es el suyo.
-fn raices_del_plan(plan: &PlanSesion, base: Raices) -> Raices {
-    Raices { proyecto: plan.cwd.clone(), ..base }
-}
-
-/// Materializa y abre la terminal, con el entorno real.
-pub fn lanzar_real(plan: &PlanSesion, terminal: &dyn Terminal) -> Result<(), String> {
-    lanzar_con(plan, raices_del_plan(plan, Raices::desde_entorno()), terminal)
-}
-
 /// Materializa con las `raices` dadas y abre la terminal.
 pub fn lanzar_con(plan: &PlanSesion, raices: Raices, terminal: &dyn Terminal) -> Result<(), String> {
     // El plan real es el devuelto: su directorio lleva un nonce propio.
@@ -73,7 +63,8 @@ pub fn lanzar_con(plan: &PlanSesion, raices: Raices, terminal: &dyn Terminal) ->
 pub fn plan_en(agente: &str, ids: &[String], directorio: Option<&str>, inventario: &Inventario, raices: &Raices) -> Result<PlanSesion, String> {
     let mut r = raices.clone();
     if let Some(d) = directorio.map(str::trim).filter(|d| !d.is_empty()) {
-        r.proyecto = Some(PathBuf::from(d));
+        // Como en `raices_de`: el HOME es «sin proyecto».
+        r.proyecto = Some(PathBuf::from(d)).filter(|p| *p != r.home);
     }
     plan_sesion(agente, &analizar_ids(ids)?, inventario, &r).map_err(|e| e.to_string())
 }
@@ -110,5 +101,11 @@ mod pruebas {
         assert!(e.contains("fuera del HOME"), "{e}");
         let sistema = if cfg!(windows) { "C:\\Windows" } else { "/usr" };
         assert!(raices_de(Some(sistema)).is_err());
+        // El HOME es «sin proyecto»: lo que guarda la propuesta de una sesión
+        // simulada fuera de un proyecto (solo se mira la ruta).
+        let home = Raices::desde_entorno().home;
+        if home.is_dir() {
+            assert_eq!(raices_de(Some(&home.to_string_lossy())).unwrap().proyecto, None);
+        }
     }
 }

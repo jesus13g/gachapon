@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-
 /// Cada cuánto mira el vigía.
 pub const PERIODO: Duration = Duration::from_secs(2);
 
@@ -45,9 +44,7 @@ pub fn visible_al_crear(oculto: bool, hay_bandeja: bool) -> bool {
 /// todos los servicios activos; si no, aviso.
 pub fn estado_de(estado_general: &Value) -> Estado {
     let vivo = estado_general["orquestador"]["vivo"].as_bool().unwrap_or(false);
-    let servicios_activos = estado_general["servicios"]
-        .as_array()
-        .is_none_or(|s| s.iter().all(|sv| servicio_sano(sv["activo"].as_str())));
+    let servicios_activos = estado_general["servicios"].as_array().is_none_or(|s| s.iter().all(|sv| servicio_sano(sv["activo"].as_str())));
     if vivo && servicios_activos { Estado::Bien } else { Estado::Aviso }
 }
 
@@ -110,10 +107,7 @@ impl VigiaTrabajos {
 
     pub fn observar(&mut self, lista: &Value) -> Vec<AvisoTrabajo> {
         let Some(filas) = lista.as_array() else { return Vec::new() };
-        let ahora: HashMap<String, String> = filas
-            .iter()
-            .filter_map(|t| Some((t["id"].as_str()?.to_string(), t["estado"].as_str()?.to_string())))
-            .collect();
+        let ahora: HashMap<String, String> = filas.iter().filter_map(|t| Some((t["id"].as_str()?.to_string(), t["estado"].as_str()?.to_string()))).collect();
         let mut avisos = Vec::new();
         if let Some(antes) = &self.vistos {
             for t in filas {

@@ -19,16 +19,18 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use ea_ajustes::Ajustes;
+use serde::Serialize;
 
 use crate::error::{ErrorBus, Resultado};
 use crate::tipos::{Orden, Rol};
 
-/// `[agente.skills]` de los ajustes.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(default)]
+/// `[agente.skills]` de los ajustes, más el planificador de ahora. Sin
+/// valores por defecto propios: son los de `ea-ajustes`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigSkills {
-    /// Catálogo de skills. Vacío: `~/.config/ecosistema-asistente/qwen-skills`.
+    /// Catálogo de skills (`agente.skills.dir` de los ajustes, que nunca está
+    /// vacío: por defecto `<config>/qwen-skills`).
     pub dir: String,
     /// Skills que se pueden usar. Vacío: todas las del catálogo.
     pub habilitadas: Vec<String>,
@@ -40,21 +42,7 @@ pub struct ConfigSkills {
     /// disco, `claude-code`) es el rol; otro valor, un `creada_por` literal.
     pub pueden_elegir: Vec<String>,
     /// El agente que ocupa ahora el rol de planificador (`roles.planificador`).
-    #[serde(skip)]
     pub planificador: String,
-}
-
-impl Default for ConfigSkills {
-    fn default() -> Self {
-        Self {
-            dir: String::new(),
-            habilitadas: vec![],
-            max_por_trabajo: 3,
-            max_caracteres: 6000,
-            pueden_elegir: vec!["claude-code".into()],
-            planificador: "claude-code".into(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -66,11 +54,21 @@ pub struct Skill {
 }
 
 impl ConfigSkills {
-    pub fn ruta_catalogo(&self) -> PathBuf {
-        if !self.dir.is_empty() {
-            return ea_ajustes::expandir_tilde(&self.dir);
+    /// La de unos ajustes: `[agente.skills]` y `roles.planificador`.
+    pub fn desde_ajustes(a: &Ajustes) -> Self {
+        let s = &a.agente.skills;
+        Self {
+            dir: s.dir.clone(),
+            habilitadas: s.habilitadas.clone(),
+            max_por_trabajo: s.max_por_trabajo,
+            max_caracteres: s.max_caracteres,
+            pueden_elegir: s.pueden_elegir.clone(),
+            planificador: a.roles.planificador.clone(),
         }
-        ea_ajustes::Fuentes::sistema().dir_config.join("qwen-skills")
+    }
+
+    pub fn ruta_catalogo(&self) -> PathBuf {
+        ea_ajustes::expandir_tilde(&self.dir)
     }
 
     fn habilitada(&self, nombre: &str) -> bool {
@@ -87,9 +85,9 @@ impl ConfigSkills {
     /// el id del agente que lo ocupa al crear el trabajo.
     pub fn tiene_llave(&self, creada_por: &str) -> bool {
         let rol = |v: &str| Rol::desde(v) == Some(Rol::Planificador);
-        self.pueden_elegir.iter().any(|p| {
-            p == creada_por || (rol(p) && (rol(creada_por) || (!self.planificador.is_empty() && creada_por == self.planificador)))
-        })
+        self.pueden_elegir
+            .iter()
+            .any(|p| p == creada_por || (rol(p) && (rol(creada_por) || (!self.planificador.is_empty() && creada_por == self.planificador))))
     }
 
     /// Comprueba que `creada_por` tiene la llave y que las skills existen,
@@ -100,10 +98,7 @@ impl ConfigSkills {
         }
         let err = |m: String| Err(ErrorBus::Skills(m));
         if !self.tiene_llave(creada_por) {
-            return err(format!(
-                "{creada_por:?} no tiene la llave para elegir skills (pueden_elegir = {:?})",
-                self.pueden_elegir
-            ));
+            return err(format!("{creada_por:?} no tiene la llave para elegir skills (pueden_elegir = {:?})", self.pueden_elegir));
         }
         if nombres.len() > self.max_por_trabajo {
             return err(format!("{} skills; el máximo es {}", nombres.len(), self.max_por_trabajo));
@@ -189,11 +184,7 @@ fn partir(texto: &str) -> (String, String) {
     let Some((cabecera, cuerpo)) = resto.split_once("\n---\n") else {
         return (String::new(), texto.trim().to_string());
     };
-    let descripcion = cabecera
-        .lines()
-        .find_map(|l| l.strip_prefix("descripcion:"))
-        .map(|d| d.trim().to_string())
-        .unwrap_or_default();
+    let descripcion = cabecera.lines().find_map(|l| l.strip_prefix("descripcion:")).map(|d| d.trim().to_string()).unwrap_or_default();
     (descripcion, cuerpo.trim().to_string())
 }
 
@@ -201,8 +192,10 @@ fn partir(texto: &str) -> (String, String) {
 mod tests {
     use super::*;
 
+    /// La de los ajustes por defecto, con el catálogo en `dir`.
     fn cfg(dir: &Path) -> ConfigSkills {
-        ConfigSkills { dir: dir.to_string_lossy().into(), ..Default::default() }
+        let a = Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(dir));
+        ConfigSkills { dir: dir.to_string_lossy().into(), ..ConfigSkills::desde_ajustes(&a) }
     }
 
     fn catalogo_de_prueba() -> tempfile::TempDir {
@@ -212,6 +205,18 @@ mod tests {
         std::fs::write(d.path().join("suelta.md"), "sin cabecera").unwrap();
         std::fs::write(d.path().join("nota.txt"), "no es skill").unwrap();
         d
+    }
+
+    #[test]
+    fn sale_de_los_ajustes_con_sus_valores_por_defecto() {
+        let d = tempfile::tempdir().unwrap();
+        let mut a = Ajustes::por_defecto(&ea_ajustes::Fuentes::aislada(d.path()));
+        let c = ConfigSkills::desde_ajustes(&a);
+        assert_eq!(c.ruta_catalogo(), d.path().join("config").join("qwen-skills"));
+        assert_eq!((c.max_por_trabajo, c.max_caracteres), (3, 6000));
+        assert_eq!((c.pueden_elegir, c.planificador, c.habilitadas), (vec!["claude-code".to_string()], "claude-code".to_string(), vec![]));
+        a.roles.planificador = "codex".into();
+        assert_eq!(ConfigSkills::desde_ajustes(&a).planificador, "codex", "el planificador de ahora");
     }
 
     #[test]
