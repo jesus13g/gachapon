@@ -260,8 +260,12 @@ fn las_escrituras_concurrentes_se_serializan() {
             }
         }));
     }
-    for h in hilos {
-        h.join().unwrap();
+    // Se espera a todos antes de fallar: si uno cae y la prueba termina con
+    // los demás aún escribiendo, el directorio temporal se borra debajo de
+    // ellos y sus NotFound tapan el error de verdad.
+    let resultados: Vec<_> = hilos.into_iter().map(|h| h.join()).collect();
+    for r in resultados {
+        r.unwrap();
     }
 
     let escrituras = e.eventos("boveda_escritura");
